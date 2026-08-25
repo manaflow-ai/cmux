@@ -384,28 +384,20 @@ extension RemoteSessionCoordinator {
     ) -> String {
         let quotedRemotePath = remotePath.shellSingleQuoted
         let processCleanup = """
-        # Reclaim only markers whose owner is gone. A live marker belongs to a
-        # concurrent upload and must not be signaled or glob-deleted.
+        # Reclaim only markers whose heartbeat is older than the conservative
+        # age window. A live marker belongs to a concurrent upload and must
+        # not be signaled or glob-deleted.
         for cmux_pid_file in \(quotedRemotePath).tmp-*.pid; do
           [ -r "$cmux_pid_file" ] || continue
-          cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
-          case "$cmux_pid" in
-            ''|0|1|*[!0-9]*)
-              # Malformed markers are treated as stale only after the same
-              # conservative age window used for dead owners.
-              if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
-              cmux_temp_path="${cmux_pid_file%.pid}"
-              rm -f -- "$cmux_temp_path" "$cmux_pid_file"
-              continue
-              ;;
-            *)
-              # The marker mtime is the upload heartbeat. Do not trust the
-              # numeric PID, because it can belong to an unrelated process.
-              if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
-              cmux_temp_path="${cmux_pid_file%.pid}"
-              rm -f -- "$cmux_temp_path" "$cmux_pid_file"
-              ;;
-          esac
+          # If the remote find lacks -mmin or cannot read metadata, preserve
+          # the files. Cleanup must fail closed, because deleting an active
+          # upload is worse than retaining one stale file for a later pass.
+          if ! cmux_fresh_marker="$(find "$cmux_pid_file" -mmin -30 2>/dev/null)"; then
+            continue
+          fi
+          [ -n "$cmux_fresh_marker" ] && continue
+          cmux_temp_path="${cmux_pid_file%.pid}"
+          rm -f -- "$cmux_temp_path" "$cmux_pid_file"
         done
         """
         let currentCleanup: String

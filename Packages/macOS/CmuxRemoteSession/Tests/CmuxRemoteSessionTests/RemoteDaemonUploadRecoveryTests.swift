@@ -335,6 +335,45 @@ extension RemoteDaemonUploadTests {
         #expect(!fileManager.fileExists(atPath: malformedPath))
     }
 
+    @Test("Remote cleanup preserves files when the age probe is unavailable")
+    func cleanupScriptFailsClosedWithoutAgeProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-no-mmin-\(UUID().uuidString)", isDirectory: true
+        )
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = root.appendingPathComponent("cmuxd-remote").path
+        let temporaryPath = "\(remotePath).tmp-live"
+        let markerPath = "\(temporaryPath).pid"
+        try Data("active".utf8).write(to: URL(fileURLWithPath: temporaryPath))
+        try Data("not-a-pid\n".utf8).write(to: URL(fileURLWithPath: markerPath))
+        let fakeFind = bin.appendingPathComponent("find")
+        try "#!/bin/sh\nexit 127\n".write(to: fakeFind, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeFind.path)
+
+        let cleanup = Process()
+        cleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        cleanup.arguments = [
+            "-c",
+            RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath),
+        ]
+        cleanup.environment = ["PATH": "\(bin.path):/usr/bin:/bin"]
+        cleanup.standardInput = FileHandle.nullDevice
+        cleanup.standardOutput = FileHandle.nullDevice
+        cleanup.standardError = FileHandle.nullDevice
+        try cleanup.run()
+        cleanup.waitUntilExit()
+
+        // An unsupported age predicate must preserve the marker for a later
+        // compatible cleanup pass.
+        #expect(cleanup.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: temporaryPath))
+        #expect(fileManager.fileExists(atPath: markerPath))
+    }
+
     @Test("Remote cleanup kills only the explicitly failed writer")
     func cleanupScriptScopesCurrentWriter() throws {
         let fileManager = FileManager.default
