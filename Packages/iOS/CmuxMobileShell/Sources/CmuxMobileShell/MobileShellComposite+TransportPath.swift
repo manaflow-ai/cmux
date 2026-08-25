@@ -87,14 +87,19 @@ extension MobileShellComposite {
         )
         connectionError = error.mobileMessage
         connectionErrorGuidance = error.mobileGuidance
-        diagnosticLog?.record(DiagnosticEvent(
-            .transportPathMigration,
-            surface: DiagnosticCorrelation().handle(for: client.attachTicket.macDeviceID),
-            a: previous.diagnosticPathKind.rawValue,
-            b: path.diagnosticPathKind.rawValue
-        ))
         Task { @MainActor [weak self, client] in
-            guard let self, self.remoteClient === client else { return }
+            // Read the admitted session correlation before teardown clears the
+            // transport. Policy-violation migrations use the same schema as
+            // allowed migrations, so their `c` field must remain populated.
+            let sessionID = await client.transportDiagnosticSessionID()
+            guard let self else { return }
+            self.recordTransportPathMigration(
+                from: previous,
+                to: path,
+                sessionID: sessionID,
+                peerID: client.attachTicket.macDeviceID
+            )
+            guard self.remoteClient === client else { return }
             await client.disconnect()
             guard self.remoteClient === client else { return }
             self.connectionState = .disconnected
@@ -103,6 +108,7 @@ extension MobileShellComposite {
         }
     }
 
+    /// Records a path transition for both allowed and policy-violation flows.
     func recordTransportPathMigration(
         from: CmxTransportPath,
         to: CmxTransportPath,

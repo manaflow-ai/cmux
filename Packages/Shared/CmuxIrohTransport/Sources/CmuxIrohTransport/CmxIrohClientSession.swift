@@ -332,7 +332,11 @@ public actor CmxIrohClientSession {
             return .unavailable
         case let .direct(address):
             guard let address else { return .irohDirect }
-            return projectedAddressPath(address)
+            // A public direct observation is native Iroh evidence even when
+            // discovery learned it after this session's initial dial plan.
+            // Private observations below still require source-qualified hint
+            // matching before they can be attributed to a concrete network.
+            return projectedAddressPath(address, unmatchedPath: .irohDirect)
         case .relay:
             return .irohRelay(region: nil)
         case let .privateNetwork(address):
@@ -340,12 +344,15 @@ public actor CmxIrohClientSession {
         }
     }
 
-    private func projectedAddressPath(_ address: String) -> CmxTransportPath {
+    private func projectedAddressPath(
+        _ address: String,
+        unmatchedPath: CmxTransportPath = .unavailable
+    ) -> CmxTransportPath {
         switch matchingPathHintSource(for: address) {
         case .some(.lan): .lan(address: address)
         case .some(.tailscale): .tailscale(address: address)
         case .some(.native), .some(.customVPN): .irohDirect
-        case nil: .unavailable
+        case nil: unmatchedPath
         }
     }
 

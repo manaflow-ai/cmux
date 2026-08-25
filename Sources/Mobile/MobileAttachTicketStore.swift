@@ -73,9 +73,13 @@ final class MobileAttachTicketStore {
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
         let payloadTicket: CmxAttachTicket
-        if case .some(.ticketOnly) = target {
+        switch target {
+        case nil, .some(.ticketOnly):
+            // The omitted-target form is the legacy full-ticket response. Keep
+            // it on the released route-kind grammar just like `ticket_only`;
+            // current clients recover LAN metadata from authenticated status.
             payloadTicket = try ticketOnlyCompatibilityTicket(disclosedTicket)
-        } else {
+        default:
             payloadTicket = disclosedTicket
         }
         var payload: [String: Any] = [
