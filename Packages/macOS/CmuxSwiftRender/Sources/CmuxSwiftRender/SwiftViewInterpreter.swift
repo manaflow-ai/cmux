@@ -138,23 +138,23 @@ public struct SwiftViewInterpreter: Sendable {
                 node.action = parseAction(closure, env)
                 return node
             }
-            // Child-bearing modifiers carry their trailing closure's views as a
-            // subtree (`.overlay { ... }`, `.background { ... }`, `.mask { ... }`,
-            // `.safeAreaInset(edge:) { ... }`), so arbitrary nested content
-            // composes, not just colors.
+            // Child-bearing modifiers preserve trailing closures; context-menu bodies defer until presentation.
             let childBearing: Set<String> = ["overlay", "background", "mask", "safeAreaInset", "contextMenu"]
             if childBearing.contains(name), let closure = call.trailingClosure {
+                let deferredContent = name == "contextMenu"
+                    ? DeferredRenderContent { self.evalItems(closure.statements, env.snapshotForDeferredContent()) }
+                    : nil
                 node.modifiers.append(RenderModifier(
                     name: name,
                     args: modifierArgs(call.arguments, env),
-                    children: evalItems(closure.statements, env)
+                    children: deferredContent == nil ? evalItems(closure.statements, env) : [],
+                    deferredContent: deferredContent
                 ))
                 return node
             }
             node.modifiers.append(RenderModifier(name: name, args: modifierArgs(call.arguments, env)))
             return node
         }
-
         guard let ref = call.calledExpression.as(DeclReferenceExprSyntax.self) else { return nil }
         switch ref.baseName.text {
         case "Text":

@@ -29,7 +29,7 @@ import Testing
         #expect(modifiers.allSatisfy { $0.children.isEmpty })
     }
 
-    @Test func contextMenuBodyMaterializesOnceAndPreservesBindings() throws {
+    @Test func contextMenuBodyMaterializesOnDemandAndPreservesBindings() throws {
         let node = try #require(interpreter.evaluate("""
         VStack {
             ForEach(0..<2) { i in
