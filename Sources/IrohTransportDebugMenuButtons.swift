@@ -119,7 +119,11 @@ struct NextTransportDebugMenuButtons: View {
     }
 
     private var nextTransportStateSuffix: String {
-        let state = MobileHostNextTransportRuntime.shared.state
-        return state == "off" ? "" : " · \(state)"
+        let runtime = MobileHostNextTransportRuntime.shared
+        guard runtime.state != "off" else { return "" }
+        let admitted = runtime.admissions
+        return admitted == 0
+            ? " · \(runtime.state)"
+            : " · \(runtime.state) · \(admitted) admitted"
     }
 }
