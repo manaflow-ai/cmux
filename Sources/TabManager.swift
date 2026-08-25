@@ -2201,6 +2201,18 @@ class TabManager: ObservableObject {
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        let remoteHistoryEntry: ClosedRemoteTmuxMirrorHistoryEntry?
+        if recordHistory,
+           workspace.isRemoteTmuxMirror,
+           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            remoteHistoryEntry = AppDelegate.shared?.remoteTmuxController.closedMirrorHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: AppDelegate.shared?.windowId(for: self),
+                workspaceIndex: index
+            )
+        } else {
+            remoteHistoryEntry = nil
+        }
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
         // leaving it alive on the server for resume. Killing the session is never a
         // side effect of closing a tab (PR #7264 review); it is only ever an explicit
@@ -2208,9 +2220,13 @@ class TabManager: ObservableObject {
         if workspace.isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
-        if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+        if workspace.isRemoteTmuxMirror {
+            if let remoteHistoryEntry {
+                ClosedItemHistoryStore.shared.pushRemoteTmuxMirror(remoteHistoryEntry)
+            }
+        } else if recordHistory,
+                  workspace.isRestorableInSessionSnapshot,
+                  let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             // Prefer the warm cached agent index over a synchronous
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
@@ -4384,7 +4400,7 @@ class TabManager: ObservableObject {
                 return restoreClosedPanel(panelEntry)
             case .workspace(let workspaceEntry):
                 return restoreClosedWorkspace(workspaceEntry)
-            case .window:
+            case .window, .remoteTmuxMirror:
                 return false
             }
         }) {
@@ -4410,7 +4426,7 @@ class TabManager: ObservableObject {
             didRestore = restoreClosedPanel(panelEntry)
         case .workspace(let workspaceEntry):
             didRestore = restoreClosedWorkspace(workspaceEntry)
-        case .window:
+        case .window, .remoteTmuxMirror:
             didRestore = false
         }
 

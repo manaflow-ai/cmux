@@ -12,17 +12,17 @@ extension AppDelegate {
     @discardableResult
     func reopenMostRecentlyClosedItem(
         preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
+        shouldActivate: Bool = false
     ) -> Bool {
         var failedStoreRecordIds: Set<UUID> = []
-        let restoreStoreItem: (Date?) -> Bool = { cutoff in
-            ClosedItemHistoryStore.shared.restoreFirstRestorable(
+        let restoreStoreItem: (Date?) -> ClosedItemHistoryRestoreAttempt = { cutoff in
+            ClosedItemHistoryStore.shared.attemptFirstRestorable(
                 newerThan: cutoff,
                 excluding: failedStoreRecordIds,
                 onFailure: { failedStoreRecordIds.insert($0) },
-                using: { entry in
-                    self.restoreClosedItem(
-                        entry,
+                using: { record in
+                    self.attemptRestoreClosedItem(
+                        record,
                         preferredTabManager: preferredTabManager,
                         shouldActivate: shouldActivate
                     )
@@ -34,7 +34,7 @@ extension AppDelegate {
             guard let closedAt = manager.mostRecentLegacyClosedBrowserPanelClosedAt() else {
                 continue
             }
-            if restoreStoreItem(closedAt) {
+            if restoreStoreItem(closedAt).wasAccepted {
                 return true
             }
             if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
@@ -42,7 +42,7 @@ extension AppDelegate {
             }
         }
 
-        return restoreStoreItem(nil)
+        return restoreStoreItem(nil).wasAccepted
     }
 
     private func recentlyClosedLegacyBrowserManagers(preferredTabManager: TabManager?) -> [TabManager] {
@@ -55,23 +55,44 @@ extension AppDelegate {
         }
     }
 
-    @discardableResult
-    private func restoreClosedItem(
-        _ entry: ClosedItemHistoryEntry,
+    private func attemptRestoreClosedItem(
+        _ record: ClosedItemHistoryRecord,
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool
-    ) -> Bool {
-        switch entry {
+    ) -> ClosedItemHistoryRestoreAttempt {
+        switch record.entry {
         case .panel(let panelEntry):
             let manager =
                 tabManagerFor(tabId: panelEntry.workspaceId)
                 ?? preferredTabManager
                 ?? tabManager
             guard let manager, manager.restoreClosedPanel(panelEntry) else {
-                return false
+                return .failed
             }
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
+            return .restored
+        case .remoteTmuxMirror(let remoteEntry):
+            if let restored = remoteTmuxController.restoreClosedMirrorIfAlreadyLive(
+                remoteEntry,
+                shouldActivate: shouldActivate
+            ) {
+                return restored ? .restored : .failed
+            }
+            Task { @MainActor in
+                let succeeded = await remoteTmuxController.restoreClosedMirror(
+                    remoteEntry,
+                    preferredTabManager: preferredTabManager,
+                    shouldActivate: shouldActivate
+                )
+                ClosedItemHistoryStore.shared.completePendingRestore(
+                    id: record.id,
+                    succeeded: succeeded
+                )
+                if !succeeded {
+                    NSSound.beep()
+                }
+            }
+            return .pending
         case .workspace(let workspaceEntry):
             let manager =
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
@@ -84,10 +105,10 @@ extension AppDelegate {
                     excludingWorkspaceIds: liveWorkspaceIdSet(preferredTabManager: preferredTabManager)
                   )
             else {
-                return false
+                return .failed
             }
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
+            return .restored
         case .window(let windowEntry):
             var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
             var restoredTabManager: TabManager?
@@ -127,14 +148,14 @@ extension AppDelegate {
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
-                return false
+                return .failed
             }
             restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 ambiguousOriginalWorkspaceIds: excludedWorkspaceIds
             )
-            return true
+            return .restored
         }
     }
 
@@ -142,22 +163,15 @@ extension AppDelegate {
     func reopenClosedHistoryItem(
         id: UUID,
         preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
+        shouldActivate: Bool = false
     ) -> Bool {
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
-            return false
-        }
-
-        if restoreClosedItem(
-            removed.record.entry,
-            preferredTabManager: preferredTabManager,
-            shouldActivate: shouldActivate
-        ) {
-            return true
-        }
-
-        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
-        return false
+        ClosedItemHistoryStore.shared.attemptRestore(id: id) { record in
+            attemptRestoreClosedItem(
+                record,
+                preferredTabManager: preferredTabManager,
+                shouldActivate: shouldActivate
+            )
+        }.wasAccepted
     }
 
     private func activateMainWindowIfNeeded(for manager: TabManager, shouldActivate: Bool) {

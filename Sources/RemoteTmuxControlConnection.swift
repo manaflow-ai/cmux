@@ -39,14 +39,19 @@ final class RemoteTmuxControlConnection {
             switch connectionState {
             case .connected:
                 finishConnectionWaiters(connected: true)
+                finishInitialAttemptWaiters(connected: true)
             case .ended:
                 finishConnectionWaiters(connected: false)
-            case .connecting, .reconnecting:
+                finishInitialAttemptWaiters(connected: false)
+            case .reconnecting:
+                finishInitialAttemptWaiters(connected: false)
+            case .connecting:
                 break
             }
         }
     }
     private(set) var sessionId: Int?
+    var stableSessionId: Int? { sessionId ?? initialSessionId }
     var windowsByID: [Int: RemoteTmuxWindow] = [:]
     var windowOrder: [Int] = []
     var publishedWindowIdByPane: [Int: Int] = [:]
@@ -133,6 +138,7 @@ final class RemoteTmuxControlConnection {
     var windowReorderVerificationGeneration: UInt64?
     var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
+    private var initialAttemptWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
     /// consumed. That first block is matched explicitly (see the `.commandResult`
@@ -142,6 +148,7 @@ final class RemoteTmuxControlConnection {
     /// produces a fresh attach block).
     private var attachBlockDrained = false
     private let createIfMissing: Bool
+    private let initialSessionId: Int?
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
@@ -333,11 +340,13 @@ final class RemoteTmuxControlConnection {
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false,
+        initialSessionId: Int? = nil,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.initialSessionId = initialSessionId
         self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
     }
 
@@ -345,20 +354,25 @@ final class RemoteTmuxControlConnection {
     func start() throws {
         guard !started else { return }
         try host.ensureControlSocketDirectory()
-        // The initial connect honors `createIfMissing`; reconnects never create.
-        try spawnProcess(createIfMissing: createIfMissing)
+        // Initial connects and reconnects target the immutable tmux session id
+        // whenever one is known. A mutable name is only the final fallback.
+        let attachTarget = createIfMissing
+            ? sessionName
+            : stableSessionId.map { "$\($0)" } ?? sessionName
+        try spawnProcess(createIfMissing: createIfMissing, attachTarget: attachTarget)
         started = true
     }
-
-    /// Suspends until the control stream really enters tmux control mode, or until
-    /// the connection reaches a permanent end. Launch success alone is not enough:
-    /// `ssh` can start and then fail authentication/session attach before tmux emits
-    /// `%enter`.
-    func waitUntilConnected() async -> Bool {
+    /// Suspends until the control stream really enters tmux control mode. Normal
+    /// callers may wait through reconnects until a permanent end; restore callers
+    /// can fail after the initial stream attempt so history remains retryable
+    /// instead of being held pending by the long-lived reconnect policy.
+    func waitUntilConnected(allowingReconnect: Bool = true) async -> Bool {
         switch connectionState {
         case .connected:
             return true
         case .ended:
+            return false
+        case .reconnecting where !allowingReconnect:
             return false
         case .connecting, .reconnecting:
             break
@@ -374,21 +388,37 @@ final class RemoteTmuxControlConnection {
                 case .ended:
                     continuation.resume(returning: false)
                     return
+                case .reconnecting where !allowingReconnect:
+                    continuation.resume(returning: false)
+                    return
                 case .connecting, .reconnecting:
                     break
                 }
 
-                connectionWaiters[token] = { connected in
+                let waiter: (Bool) -> Void = { connected in
                     continuation.resume(returning: connected)
+                }
+                if allowingReconnect {
+                    connectionWaiters[token] = waiter
+                } else {
+                    initialAttemptWaiters[token] = waiter
                 }
 
                 if Task.isCancelled {
-                    finishConnectionWaiter(token, connected: false)
+                    finishConnectionWaiter(
+                        token,
+                        allowingReconnect: allowingReconnect,
+                        connected: false
+                    )
                 }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                self?.finishConnectionWaiter(token, connected: false)
+                self?.finishConnectionWaiter(
+                    token,
+                    allowingReconnect: allowingReconnect,
+                    connected: false
+                )
             }
         }
     }
@@ -401,7 +431,7 @@ final class RemoteTmuxControlConnection {
     /// - Parameter createIfMissing: `true` only for the initial connect. Reconnect
     ///   attempts pass `false` (`attach-session`), so a session killed during the
     ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
-    private func spawnProcess(createIfMissing: Bool) throws {
+    private func spawnProcess(createIfMissing: Bool, attachTarget: String? = nil) throws {
         // A fresh control stream cannot retain the prior parser or command FIFO.
         #if DEBUG
         cmuxDebugLog("remote.stream.reset pendingCommands=\(pendingCommands.count) createIfMissing=\(createIfMissing)")
@@ -425,7 +455,7 @@ final class RemoteTmuxControlConnection {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
         proc.arguments = host.controlModeArguments(
-            sessionName: sessionName,
+            sessionName: attachTarget ?? sessionName,
             createIfMissing: createIfMissing
         )
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
@@ -524,8 +554,25 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func finishConnectionWaiter(_ token: UUID, connected: Bool) {
-        connectionWaiters.removeValue(forKey: token)?(connected)
+    private func finishInitialAttemptWaiters(connected: Bool) {
+        guard !initialAttemptWaiters.isEmpty else { return }
+        let waiters = Array(initialAttemptWaiters.values)
+        initialAttemptWaiters.removeAll()
+        for waiter in waiters {
+            waiter(connected)
+        }
+    }
+
+    private func finishConnectionWaiter(
+        _ token: UUID,
+        allowingReconnect: Bool,
+        connected: Bool
+    ) {
+        if allowingReconnect {
+            connectionWaiters.removeValue(forKey: token)?(connected)
+        } else {
+            initialAttemptWaiters.removeValue(forKey: token)?(connected)
+        }
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote
@@ -789,7 +836,8 @@ final class RemoteTmuxControlConnection {
     private func attemptReconnectSpawn() {
         record("reconnect-attempt")
         do {
-            try spawnProcess(createIfMissing: false)
+            let attachTarget = stableSessionId.map { "$\($0)" } ?? sessionName
+            try spawnProcess(createIfMissing: false, attachTarget: attachTarget)
         } catch {
             scheduleReconnectAttempt()
         }
