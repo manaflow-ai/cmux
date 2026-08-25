@@ -170,6 +170,43 @@ struct AgentHookNotificationPolicyTests {
         )
     }
 
+    @Test func cursorNativeApprovalCandidateHonorsKnownLocalModes() {
+        let payload: [String: Any] = [
+            "command": "git status --short",
+            "sandbox": false,
+        ]
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "unrestricted"
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git *)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(ls)"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": true]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": "false"]
+            ) == false
+        )
+    }
+
     private func classify(_ message: String) -> AgentHookNotificationSummary {
         AgentHookNotificationClassifier.classify(
             displayName: "Grok",

@@ -95,6 +95,7 @@ extension CMUXCLI {
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
                 .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
+                .init(agentEvent: "postToolUseFailure", cmuxSubcommand: "shell-failed"),
             ]
         ),
         AgentHookDef(

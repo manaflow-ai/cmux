@@ -243,10 +243,60 @@ enum AgentHookNotificationPolicy {
     /// Cursor invokes `beforeShellExecution` before its native permission
     /// evaluator and does not include that evaluator's decision in the hook
     /// payload. Its protocol does expose whether the command is sandboxed, so
-    /// only an explicit unsandboxed value opts into the native approval prompt;
-    /// missing or malformed values remain telemetry-only.
-    static func shouldRequestCursorNativeApproval(payload: [String: Any]?) -> Bool {
-        payload?["sandbox"] as? Bool == false
+    /// an explicit unsandboxed value is the only conservative candidate we can
+    /// use to ask for the native prompt; it is not authoritative approval
+    /// state (Cursor's allowlist and Run Everything decisions are internal).
+    /// Missing or malformed values remain telemetry-only. Completion/failure
+    /// handlers must correlate against the pending command record.
+    /// Known local Run Everything and Shell(...) allowlist entries are filtered
+    /// before this fallback because team/server policy and smart-mode decisions
+    /// are not present in the hook payload.
+    static func shouldRequestCursorNativeApproval(
+        payload: [String: Any]?,
+        approvalMode: String? = nil,
+        allowedShellCommands: [String] = []
+    ) -> Bool {
+        guard payload?["sandbox"] as? Bool == false else { return false }
+        guard approvalMode != "unrestricted" else { return false }
+        guard let command = payload?["command"] as? String else { return true }
+        return !allowedShellCommands.contains {
+            cursorShellAllowlistEntryMatches($0, command: command)
+        }
+    }
+
+    private static func cursorShellAllowlistEntryMatches(
+        _ entry: String,
+        command: String
+    ) -> Bool {
+        let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedEntry.count >= 7,
+              trimmedEntry.range(
+                  of: #"^Shell\("#,
+                  options: [.regularExpression, .caseInsensitive]
+              ) != nil,
+              trimmedEntry.last == ")" else {
+            return false
+        }
+        let patternStart = trimmedEntry.index(trimmedEntry.startIndex, offsetBy: 6)
+        let patternEnd = trimmedEntry.index(before: trimmedEntry.endIndex)
+        let pattern = String(trimmedEntry[patternStart..<patternEnd])
+        let normalizedCommand = command
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.isEmpty, !normalizedCommand.isEmpty else { return false }
+        var regex = "^"
+        for scalar in pattern.unicodeScalars {
+            switch scalar {
+            case "*":
+                regex += ".*"
+            case "?":
+                regex += "."
+            default:
+                regex += NSRegularExpression.escapedPattern(for: String(scalar))
+            }
+        }
+        regex += "$"
+        return normalizedCommand.range(of: regex, options: .regularExpression) != nil
     }
 
     static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#

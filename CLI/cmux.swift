@@ -74,6 +74,11 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
+struct CursorPendingShellApproval: Codable, Equatable {
+    let command: String
+    let createdAt: TimeInterval
+}
+
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
@@ -192,6 +197,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
+    /// after/failure hooks do not carry a native approval decision, so the
+    /// command identity is the only safe completion correlation available.
+    var pendingCursorShellApprovals: [CursorPendingShellApproval]? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -216,6 +225,8 @@ private struct CodexMonitorLeaseRecord: Codable {
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxPendingCursorShellApprovals = 16
+    private static let maxPendingCursorShellCommandLength = 8_192
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -250,6 +261,126 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             state.sessions[normalized]
         }
+    }
+
+    struct CursorShellResolution {
+        let matched: Bool
+        let hasRemaining: Bool
+    }
+
+    /// Records one Cursor shell command for atomic completion correlation.
+    /// Cursor's after/failure hook payloads do not expose the native approval
+    /// decision or a stable tool id, so the normalized command is the durable
+    /// identity shared by the before and terminal hook callbacks.
+    @discardableResult
+    func rememberCursorShellApproval(sessionId: String, command: String) throws -> Bool {
+        let normalizedSession = normalizeSessionId(sessionId)
+        guard !normalizedSession.isEmpty,
+              let normalizedCommand = normalizedCursorShellCommand(command) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSession] else { return false }
+            var pending = record.pendingCursorShellApprovals ?? []
+            pending.append(CursorPendingShellApproval(
+                command: normalizedCommand,
+                createdAt: Date().timeIntervalSince1970
+            ))
+            if pending.count > Self.maxPendingCursorShellApprovals {
+                pending.removeFirst(pending.count - Self.maxPendingCursorShellApprovals)
+            }
+            record.pendingCursorShellApprovals = pending
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSession] = record
+            return true
+        }
+    }
+
+    /// Resolves exactly one pending Cursor shell command, rejecting unrelated
+    /// or sandboxed completions without touching visible notification state.
+    /// The compare-and-remove happens under the store lock so overlapping hook
+    /// processes cannot clear one another's approval.
+    @discardableResult
+    func resolveCursorShellApproval(
+        sessionId: String,
+        command: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int? = nil,
+        launchCommand: AgentHookLaunchCommandRecord? = nil
+    ) throws -> CursorShellResolution {
+        let normalizedSession = normalizeSessionId(sessionId)
+        guard !normalizedSession.isEmpty,
+              let normalizedCommand = normalizedCursorShellCommand(command) else {
+            return CursorShellResolution(matched: false, hasRemaining: false)
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSession],
+                  var pending = record.pendingCursorShellApprovals,
+                  let matchIndex = pending.firstIndex(where: { $0.command == normalizedCommand }) else {
+                return CursorShellResolution(matched: false, hasRemaining: false)
+            }
+            pending.remove(at: matchIndex)
+            let hasRemaining = !pending.isEmpty
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                agentLifecycle: hasRemaining ? .needsInput : .running,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: hasRemaining ? .needsInput : nil,
+                updateLastNotificationStatus: true,
+                runtimeStatus: hasRemaining ? .needsInput : .running,
+                updateRuntimeStatus: true,
+                now: Date().timeIntervalSince1970
+            )
+            record.pendingCursorShellApprovals = hasRemaining ? pending : nil
+            if hasRemaining {
+                record.lastBody = pending.last?.command
+            } else {
+                record.lastSubtitle = nil
+                record.lastBody = nil
+                record.lastNotificationStatus = nil
+            }
+            state.sessions[normalizedSession] = record
+            return CursorShellResolution(matched: true, hasRemaining: hasRemaining)
+        }
+    }
+
+    /// Drops all pending Cursor shell approvals when a session stops or starts
+    /// a new turn. Returns whether visible pending state was actually present.
+    @discardableResult
+    func clearCursorShellApprovals(sessionId: String) throws -> Bool {
+        let normalizedSession = normalizeSessionId(sessionId)
+        guard !normalizedSession.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSession],
+                  record.pendingCursorShellApprovals?.isEmpty == false else {
+                return false
+            }
+            record.pendingCursorShellApprovals = nil
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSession] = record
+            return true
+        }
+    }
+
+    private func normalizedCursorShellCommand(_ command: String) -> String? {
+        let collapsed = command.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(Self.maxPendingCursorShellCommandLength))
     }
 
     /// Records the hook-observed permission mode on an existing session record.
@@ -31449,11 +31580,45 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let cursorShellNeedsApproval = def.name == "cursor"
-            && subcommand == "shell-exec"
-            && AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(payload: input.rawObject)
+        let mappedSessionForPolicy = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+        let cursorApprovalSettings: (mode: String?, allowedShellCommands: [String]) = {
+            guard def.name == "cursor" else { return (nil, []) }
+            let home = normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
+            let configDirectory = normalizedHookValue(env["CURSOR_CONFIG_DIR"])
+                ?? URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(".cursor", isDirectory: true)
+                    .path
+            let configURL = URL(fileURLWithPath: configDirectory, isDirectory: true)
+                .appendingPathComponent("cli-config.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: configURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return (nil, [])
+            }
+            let permissions = json["permissions"] as? [String: Any]
+            return (
+                json["approvalMode"] as? String,
+                permissions?["allow"] as? [String] ?? []
+            )
+        }()
+        let cursorLaunchRequestsEverything = mappedSessionForPolicy?.launchCommand?.arguments.contains {
+            $0 == "--force" || $0 == "--yolo"
+        } == true
+        let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
+        let cursorShellNeedsApproval = cursorShellEvent
+            && AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: input.rawObject,
+                approvalMode: cursorLaunchRequestsEverything
+                    ? "unrestricted"
+                    : cursorApprovalSettings.mode,
+                allowedShellCommands: cursorApprovalSettings.allowedShellCommands
+            )
         let action: AgentHookAction = if cursorShellNeedsApproval {
             .notification
+        } else if cursorShellEvent {
+            // Cursor's sandboxed (or malformed) shell payload is telemetry
+            // only. It must not fall through to the generic prompt-submit lane,
+            // which would incorrectly start a new visible turn.
+            .shellObserved
         } else {
             Self.subcommandActions[subcommand] ?? .noop
         }
@@ -31522,6 +31687,12 @@ export default CMUXSessionRestore;
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                if def.name == "cursor", consumed.pendingCursorShellApprovals?.isEmpty == false {
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId))",
+                        client: client
+                    )
+                }
                 if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
@@ -31844,6 +32015,165 @@ export default CMUXSessionRestore;
             }
         }
 
+        func cursorShellCommand(from input: ClaudeHookParsedInput) -> String? {
+            guard let rawObject = input.rawObject else { return nil }
+            if let command = firstString(in: rawObject, keys: ["command"]) {
+                return normalizedSingleLine(command)
+            }
+            for key in ["tool_input", "toolInput"] {
+                if let toolInput = rawObject[key] as? [String: Any],
+                   let command = firstString(in: toolInput, keys: ["command"]) {
+                    return normalizedSingleLine(command)
+                }
+            }
+            return nil
+        }
+
+        func resolveCursorShellHook(failed: Bool) {
+            guard def.name == "cursor" else {
+                sendAgentFeedTelemetry()
+                print("{}")
+                return
+            }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    detail: failed ? "cursor-shell-failed" : "cursor-shell-completed"
+                )
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+
+            guard let command = cursorShellCommand(from: input), !sessionId.isEmpty else {
+                telemetry.breadcrumb(
+                    "\(def.name)-hook.shell-\(failed ? "failed" : "done").unmatched"
+                )
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    detail: failed ? "cursor-shell-failed-missing-command" : "cursor-shell-completed-missing-command"
+                )
+                print("{}")
+                return
+            }
+
+            let pid = preferredAgentHookEventPID(
+                agentName: def.name,
+                mappedPID: mapped?.pid,
+                inferredPID: inferredPID
+            )
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name,
+                current: launchCommand,
+                mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                currentPID: inferredPID
+            )
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                env: env
+            )
+            guard !suppressVisibleMutations else {
+                telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").nested-suppressed")
+                print("{}")
+                return
+            }
+
+            let resolution = try? store.resolveCursorShellApproval(
+                sessionId: sessionId,
+                command: command,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: preferredAgentHookResumeWorkingDirectory(
+                    kind: def.name,
+                    current: launchCommand,
+                    currentCwd: hookCwd,
+                    mapped: mapped
+                ),
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                pid: pid,
+                launchCommand: resumeLaunchCommand
+            )
+            guard let resolution, resolution.matched else {
+                telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").unmatched")
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    detail: failed ? "cursor-shell-failed-unmatched" : "cursor-shell-completed-unmatched"
+                )
+                print("{}")
+                return
+            }
+            if resolution.hasRemaining {
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    declaredPhase: .needsInput,
+                    detail: failed ? "cursor-shell-failed-remaining" : "cursor-shell-completed-remaining"
+                )
+                print("{}")
+                return
+            }
+
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: def.name,
+                displayName: def.displayName,
+                sessionId: sessionId,
+                cwd: preferredAgentHookResumeWorkingDirectory(
+                    kind: def.name,
+                    current: launchCommand,
+                    currentCwd: hookCwd,
+                    mapped: mapped
+                ),
+                launchCommand: resumeLaunchCommand,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                telemetry: telemetry
+            )
+            if let pid {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+            emitJournal(
+                .turnStarted,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                detail: failed ? "shell-failed" : "shell-completed"
+            )
+            _ = try? sendV1Command(
+                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+            print("{}")
+        }
+
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -32007,6 +32337,9 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            if def.name == "cursor", !sessionId.isEmpty {
+                _ = try? store.clearCursorShellApprovals(sessionId: sessionId)
+            }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
                     [],
@@ -32515,6 +32848,16 @@ export default CMUXSessionRestore;
             ) || staleIdleStopHasNewerRunningSession
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
+            let clearedCursorApprovalOnStop = def.name == "cursor"
+                && !sessionId.isEmpty
+                && !suppressVisibleMutations
+                && ((try? store.clearCursorShellApprovals(sessionId: sessionId)) == true)
+            if clearedCursorApprovalOnStop {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
 
             // The journal records the turn boundary unconditionally: the
             // reducer's per-session fold handles stale sessions (a newer
@@ -32694,6 +33037,19 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
+
+        case .shellObserved:
+            // Cursor's sandboxed and malformed shell-start payloads are
+            // intentionally telemetry-only. The defer above sends the
+            // PostToolUse-equivalent feed event without changing lifecycle
+            // state or notification UI.
+            break
+
+        case .shellDone:
+            resolveCursorShellHook(failed: false)
+
+        case .shellFailed:
+            resolveCursorShellHook(failed: true)
 
         case .approvalResponse:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -32998,6 +33354,17 @@ export default CMUXSessionRestore;
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil
                     )
+                }
+            }
+
+            if cursorShellNeedsApproval, !sessionId.isEmpty {
+                if let command = cursorShellCommand(from: input) {
+                    _ = try? store.rememberCursorShellApproval(
+                        sessionId: sessionId,
+                        command: command
+                    )
+                } else {
+                    telemetry.breadcrumb("\(def.name)-hook.shell-exec.missing-command")
                 }
             }
 
@@ -33808,6 +34175,7 @@ export default CMUXSessionRestore;
         case "post-tool-use", "push-notification": return "PostToolUse"
         case "shell-exec": return "PreToolUse"
         case "shell-done": return "PostToolUse"
+        case "shell-failed": return "PostToolUseFailure"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"

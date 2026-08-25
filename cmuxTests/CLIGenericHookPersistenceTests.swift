@@ -1012,10 +1012,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
     //
     // Cursor's beforeShellExecution hook runs before Cursor evaluates its own
     // allowlist and exposes no native "approval required" field. The one
-    // reliable distinction in the shipped protocol is whether the command is
+    // reliable candidate in the shipped protocol is whether the command is
     // already sandboxed. cmux asks Cursor to show its native approval prompt
-    // for an unsandboxed command and surfaces that real wait through the shared
-    // generic-agent notification path. Sandboxed commands remain telemetry.
+    // for an unsandboxed command unless the local Run Everything/allowlist
+    // configuration proves that Cursor will auto-approve it, then surfaces
+    // that wait through the shared generic-agent notification path. Sandboxed
+    // commands remain telemetry.
     func testCursorShellApprovalDistinguishesUnsandboxedAndSandboxedPayloads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("cursor-shell-approval")
@@ -1130,6 +1132,112 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Cursor's paired completion hook to restore Running, saw \(responseCommands)"
         )
 
+        let secondCommand = "npm run build"
+        let secondApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(secondCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(secondApproval.timedOut, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.status, 0, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let mismatchedCompletionStart = state.snapshot().count
+        let mismatchedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"echo unrelated","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(mismatchedCompletion.timedOut, mismatchedCompletion.stderr)
+        XCTAssertEqual(mismatchedCompletion.status, 0, mismatchedCompletion.stderr)
+        let mismatchedCompletionCommands = Array(state.snapshot().dropFirst(mismatchedCompletionStart))
+        XCTAssertFalse(
+            mismatchedCompletionCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "An unrelated Cursor shell completion must not clear a pending approval, saw \(mismatchedCompletionCommands)"
+        )
+        XCTAssertFalse(
+            mismatchedCompletionCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle cursor running")
+            },
+            "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
+        )
+
+        let failureStart = state.snapshot().count
+        let failure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(secondCommand)","cwd":"\#(root.path)"},"error_message":"User rejected","failure_type":"permission_denied","is_interrupt":true}"#
+        )
+        XCTAssertFalse(failure.timedOut, failure.stderr)
+        XCTAssertEqual(failure.status, 0, failure.stderr)
+        XCTAssertEqual(failure.stdout, "{}\n")
+        let failureCommands = Array(state.snapshot().dropFirst(failureStart))
+        XCTAssertTrue(
+            failureCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "Cursor's failure hook must clear a denied approval, saw \(failureCommands)"
+        )
+        XCTAssertTrue(
+            failureCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle cursor running --tab=\(workspaceId)")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Cursor's failure hook must restore Running after denial, saw \(failureCommands)"
+        )
+
+        let cancelledCommand = "rm -rf cancelled-output"
+        let cancelledApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(cancelledCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(cancelledApproval.timedOut, cancelledApproval.stderr)
+        XCTAssertEqual(cancelledApproval.status, 0, cancelledApproval.stderr)
+        let stopStart = state.snapshot().count
+        let stop = runCursorHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"stop","reason":"cancelled"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let stopCommands = Array(state.snapshot().dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "Cursor stop/cancellation must clear a pending approval, saw \(stopCommands)"
+        )
+
+        let cursorConfigDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cursorConfigDirectory,
+            withIntermediateDirectories: true
+        )
+        let cursorConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli-config.json",
+            isDirectory: false
+        )
+        let unrestrictedConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "unrestricted",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: unrestrictedConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
+        let unrestrictedStart = state.snapshot().count
+        let unrestricted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf unrestricted-output","sandbox":false}"#
+        )
+        XCTAssertFalse(unrestricted.timedOut, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.status, 0, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.stdout, "{}\n")
+        let unrestrictedCommands = Array(state.snapshot().dropFirst(unrestrictedStart))
+        XCTAssertFalse(
+            unrestrictedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Run Everything must not be converted into a forced cmux approval, saw \(unrestrictedCommands)"
+        )
+
         let sandboxedCommandStart = state.snapshot().count
         let sandboxed = runCursorHook(
             "shell-exec",
@@ -1147,6 +1255,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             sandboxedCommands.contains { $0.contains("set_agent_lifecycle cursor needsInput") },
             "Sandboxed Cursor shell starts must remain non-actionable, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            sandboxedCommands.contains { $0.contains("set_agent_lifecycle cursor running") },
+            "Sandboxed Cursor shell starts must not enter the visible turn lifecycle, saw \(sandboxedCommands)"
         )
     }
 
@@ -1219,6 +1331,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let afterCommands = afterEntries.compactMap { $0["command"] as? String }
         XCTAssertEqual(afterCommands.filter { $0 == userAfterCommand }.count, 1)
         XCTAssertEqual(afterCommands.filter { $0.contains("hooks cursor shell-done") }.count, 1)
+
+        let failureEntries = try XCTUnwrap(hooks["postToolUseFailure"] as? [[String: Any]])
+        let failureCommands = failureEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(failureCommands.filter { $0.contains("hooks cursor shell-failed") }.count, 1)
 
         let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
         XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
