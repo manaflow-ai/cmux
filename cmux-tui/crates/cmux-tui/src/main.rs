@@ -1561,12 +1561,23 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        match RemoteSession::connect_for_terminal_attach(&socket_path) {
+            Ok(remote) => remote,
+            // A pipe-io embedder retries daemon-lost forever (a daemon
+            // restart window looks exactly like this) but gives up on
+            // unexplained failures; a connect failure is the former.
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        }
     } else {
         RemoteSession::connect(&socket_path)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
-        let tree = remote.refresh_tree()?;
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        };
         let resolved = tree.resolve_terminal(terminal);
         // A pipe-io embedder respawns on daemon loss; a terminal that no
         // longer exists must read as terminal-ended (do not respawn), not
@@ -1579,8 +1590,17 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         if !remote.supports_surface_subscription_filter() {
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
-        remote.scope_events_to_surface(surface)?;
-        let tree = remote.refresh_tree()?;
+        if let Err(error) = remote.scope_events_to_surface(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost);
+            }
+            return Err(error);
+        }
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        };
         if tree.resolve_terminal(terminal) != Some(surface) {
             if args.pipe_io {
                 exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);

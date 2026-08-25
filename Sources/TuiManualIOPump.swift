@@ -340,6 +340,7 @@ final class TuiManualIOPump {
             consecutiveUnexplainedFailures = 0
             retryTask?.cancel()
             retryTask = nil
+            state = .reconnecting(attempt: 1)
             spawnRelay()
         case .connecting, .live, .ended:
             break
@@ -386,6 +387,10 @@ final class TuiManualIOPump {
 
     private func spawnRelay() {
         guard !stopped, let surface else { return }
+        // Terminal states only leave through retryNow (which transitions
+        // back to reconnecting first) or teardown; a straggler retry task
+        // or sizing sample must not resurrect the relay.
+        if state == .ended || state == .failed { return }
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
             noteUnexplainedFailureThenRetryOrFail()
             return
@@ -509,6 +514,8 @@ final class TuiManualIOPump {
         consecutiveUnexplainedFailures += 1
         if consecutiveUnexplainedFailures
             >= TuiManualIOPumpPolicy.maxConsecutiveUnexplainedFailures {
+            retryTask?.cancel()
+            retryTask = nil
             state = .failed
             return
         }

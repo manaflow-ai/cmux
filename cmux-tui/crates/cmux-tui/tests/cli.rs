@@ -4235,6 +4235,30 @@ fn pipe_io_exit_distinguishes_terminal_end_from_daemon_loss() {
 
 #[cfg(unix)]
 #[test]
+fn pipe_io_startup_connect_failure_reports_daemon_lost() {
+    // A daemon restart window (dead socket) must read as daemon-lost so
+    // the embedder keeps retrying; only unexplained failures make it stop.
+    let dir = unique_temp_dir("pipe-io-dead-socket");
+    fs::create_dir_all(&dir).unwrap();
+    let dead_socket = dir.join("mux.sock");
+    let output = Command::new(bin())
+        .args(["attach", "--socket"])
+        .arg(&dead_socket)
+        .args(["--terminal", "term_0123456789abcdef0123456789abcdef", "--pipe-io"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_line = stderr.lines().rev().find(|line| line.trim_start().starts_with('{')).unwrap();
+    let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
+    assert_eq!(value["exit"]["reason"], "daemon-lost");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pipe_io_resize_reaches_the_daemon_pty() {
     let server = HeadlessServer::start("pipe-io-resize");
     let terminal = pipe_io_terminal(&server);
