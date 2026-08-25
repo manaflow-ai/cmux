@@ -466,6 +466,7 @@ final class HiveComputerMirrorController {
     ) {
         for (index, terminal) in remote.terminals.enumerated()
         where mirror.terminalsByRemoteID[terminal.id] == nil {
+            let remoteTerminalID = terminal.id
             guard let terminalSession = session.makeTerminalSession(
                 workspaceID: remote.id,
                 terminalID: terminal.id,
@@ -497,6 +498,11 @@ final class HiveComputerMirrorController {
                         terminalSession.frameBytesHandler?(cached)
                     }
                     terminalSession.refreshReplay()
+                },
+                onClose: { [weak self, weak mirror, weak terminalSession] in
+                    terminalSession?.detach()
+                    guard let self, let mirror else { return }
+                    self.handleClosedTerminal(terminalID: remoteTerminalID, mirror: mirror)
                 }
             ) else { continue }
             panelBox.panel = panel
@@ -530,6 +536,15 @@ final class HiveComputerMirrorController {
             mirror.terminalsByRemoteID[terminal.id] = terminalSession
             mirror.panelIdByRemoteTerminalID[terminal.id] = panel.id
             mirror.terminalIDsByRemoteWorkspaceID[remote.id, default: []].append(terminal.id)
+        }
+    }
+
+    private func handleClosedTerminal(terminalID: String, mirror: DeviceMirror) {
+        guard mirrorsByKey.values.contains(where: { $0 === mirror }) else { return }
+        mirror.terminalsByRemoteID.removeValue(forKey: terminalID)?.detach()
+        mirror.panelIdByRemoteTerminalID.removeValue(forKey: terminalID)
+        for workspaceID in mirror.terminalIDsByRemoteWorkspaceID.keys {
+            mirror.terminalIDsByRemoteWorkspaceID[workspaceID]?.removeAll { $0 == terminalID }
         }
     }
 }

@@ -103,16 +103,7 @@ struct HiveSidebarScopePicker: View {
                 return
             }
             Task { @MainActor in
-                for deviceID in deviceIDs {
-                    let workspaceID = await HiveComputerMirrorController.shared.attach(
-                        deviceID: deviceID,
-                        into: manager
-                    )
-                    guard scopeModel.scope == scope else { return }
-                    if let workspaceID, let workspace = manager.workspacesById[workspaceID] {
-                        manager.selectWorkspace(workspace)
-                    }
-                }
+                await attachDevices(deviceIDs, scope: scope, manager: manager)
             }
         } label: {
             if scopeModel.scope == scope {
@@ -163,6 +154,34 @@ struct HiveSidebarScopePicker: View {
         }
         if let workspace {
             manager.selectWorkspace(workspace)
+        }
+    }
+
+    private func attachDevices(
+        _ deviceIDs: [String],
+        scope: HiveSidebarScope,
+        manager: TabManager
+    ) async {
+        let workerCount = min(8, max(deviceIDs.count, 1))
+        await withTaskGroup(of: Void.self) { group in
+            for workerIndex in 0..<workerCount {
+                group.addTask { @MainActor in
+                    var index = workerIndex
+                    while index < deviceIDs.count {
+                        guard scopeModel.scope == scope else { return }
+                        let deviceID = deviceIDs[index]
+                        let workspaceID = await HiveComputerMirrorController.shared.attach(
+                            deviceID: deviceID,
+                            into: manager
+                        )
+                        guard scopeModel.scope == scope else { return }
+                        if let workspaceID, let workspace = manager.workspacesById[workspaceID] {
+                            manager.selectWorkspace(workspace)
+                        }
+                        index += workerCount
+                    }
+                }
+            }
         }
     }
 }

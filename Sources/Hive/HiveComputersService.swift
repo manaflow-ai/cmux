@@ -222,16 +222,6 @@ final class HiveComputersService {
     /// session (sidebar "Retry" button). No-ops if no session exists yet —
     /// that only happens before the first attach, which already retries on
     /// its own.
-    func retryConnection(deviceID: String) {
-        if let session = embeddedSessions[deviceID] {
-            session.connect()
-            return
-        }
-        Task { @MainActor [weak self] in
-            _ = await self?.embeddedSession(deviceID: deviceID)
-        }
-    }
-
     /// Dev builds may pair over loopback so two instances on one machine can
     /// dogfood Mac-to-Mac viewing; release builds never dial themselves.
     private static var allowsLoopbackPairing: Bool {

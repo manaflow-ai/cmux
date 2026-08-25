@@ -10397,7 +10397,12 @@ struct VerticalTabsSidebar: View {
                     deviceName: deviceScopeStatus.deviceName,
                     status: deviceScopeStatus.status,
                     onRetry: {
-                        HiveComputersService.shared.retryConnection(deviceID: deviceScopeStatus.deviceID)
+                        Task { @MainActor in
+                            _ = await HiveComputerMirrorController.shared.attach(
+                                deviceID: deviceScopeStatus.deviceID,
+                                into: tabManager
+                            )
+                        }
                     }
                 )
             } else if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
