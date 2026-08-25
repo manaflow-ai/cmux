@@ -3803,6 +3803,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
+        for windowSnapshot in snapshotWindows {
+            guard let windowId = windowSnapshot.windowId else { continue }
+            _ = mainWindowLifecycleCoordinator.removeFrozenOrphanRoute(windowId: windowId)
+        }
         var createdWindowIds: [UUID] = []
         var excludedWorkspaceIds = liveWorkspaceIdSet()
 

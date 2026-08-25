@@ -78,8 +78,6 @@ final class MainWindowLifecycleCoordinator {
             return indexes
         }
 
-        windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
-        windowlessRecoveryResumeIndexesTask = nil
         return .cached(restorableAgentIndex: .empty)
     }
 
@@ -299,6 +297,19 @@ final class MainWindowLifecycleCoordinator {
         if case .registered = phase { return }
         recordsByWindowId.removeValue(forKey: windowId)
         bumpPersistenceTopologyRevision()
+    }
+
+    /// Consumes a persistence-only route when a reopen pass recreates its window.
+    @discardableResult
+    func removeFrozenOrphanRoute(windowId: UUID) -> Bool {
+        guard let phase = recordsByWindowId[windowId]?.phase,
+              case .orphaned(let route) = phase,
+              route.frozenWindowSnapshot != nil else {
+            return false
+        }
+        recordsByWindowId.removeValue(forKey: windowId)
+        bumpPersistenceTopologyRevision()
+        return true
     }
 
     func retireClosingRoutes(where shouldRetire: (RecoverableMainWindowRoute) -> Bool) -> Int {

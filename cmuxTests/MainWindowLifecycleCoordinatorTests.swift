@@ -80,6 +80,37 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(app.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) === route)
     }
 
+    @Test("Matching frozen orphan is consumed before session reopen")
+    func matchingFrozenOrphanIsConsumedBeforeSessionReopen() {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tearDown(manager) }
+
+        let context = makeContext(windowId: windowId, manager: manager)
+        app.mainWindowLifecycleCoordinator.register(
+            context,
+            lookupKey: ObjectIdentifier(manager)
+        )
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: windowId)
+        )
+        #expect(
+            app.mainWindowLifecycleCoordinator.transitionToOrphaned(
+                route,
+                from: context
+            )
+        )
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
+
+        #expect(
+            app.mainWindowLifecycleCoordinator.removeFrozenOrphanRoute(windowId: windowId)
+        )
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == windowId)
+        #expect(app.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) == nil)
+    }
+
     @Test("Live orphan registration reattaches the original context")
     func liveOrphanRegistrationReattachesOriginalContext() {
         let coordinator = MainWindowLifecycleCoordinator()
