@@ -3831,6 +3831,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/urllib3_method_first_request.py",
+            'urllib3.PoolManager().request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/superagent_method_first.ts",
             'superagent("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
