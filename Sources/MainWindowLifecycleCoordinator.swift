@@ -59,21 +59,20 @@ final class MainWindowLifecycleCoordinator {
             [SurfaceResumeBindingIndex.PanelKey: Int64]
         ) async -> ProcessDetectedResumeIndexes?
     ) async -> ProcessDetectedResumeIndexes? {
-        if let workerTask = windowlessRecoveryResumeIndexesWorkerTask {
-            _ = await workerTask.task.value
-            if windowlessRecoveryResumeIndexesWorkerTask?.token == workerTask.token {
-                windowlessRecoveryResumeIndexesWorkerTask = nil
-            }
-            guard !Task.isCancelled else { return nil }
+        if let task = windowlessRecoveryResumeIndexesTask {
+            return await task.value
+        }
+        // A timed-out synchronous worker may still be finishing. Fail closed for
+        // this caller and let the coordinator-owned completion task clear it;
+        // never start a second process/filesystem scan concurrently.
+        guard windowlessRecoveryResumeIndexesWorkerTask == nil else {
+            return nil
         }
         for (key, device) in ttyDeviceBindings where
             windowlessRecoveryResumeIndexesBindings[key] == nil {
             windowlessRecoveryResumeIndexesBindings[key] = device
         }
         windowlessRecoveryResumeIndexesGeneration &+= 1
-        if let task = windowlessRecoveryResumeIndexesTask {
-            return await task.value
-        }
 
         let task = Task { @MainActor [weak self] in
             guard let self else {
