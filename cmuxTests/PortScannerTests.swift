@@ -33,6 +33,8 @@ struct PortScannerOwnerScopedCompletenessTests {
         let completeness = scanner.missingPortCompletenessByKey(
             previousOwnersByKey: [workspaceID: [4200: [listener]]],
             observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [workspaceID: [listener]],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
             scannedKeys: [workspaceID],
             lsofScan: lsofScan,
             inspectedPIDs: [Int(listener.pid)]
@@ -58,12 +60,71 @@ struct PortScannerOwnerScopedCompletenessTests {
         let completeness = scanner.missingPortCompletenessByKey(
             previousOwnersByKey: [workspaceID: [4200: [listener]]],
             observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
             scannedKeys: [workspaceID],
             lsofScan: lsofScan,
             inspectedPIDs: [Int(listener.pid)]
         )
 
         #expect(completeness[workspaceID]?[4200] == .incomplete)
+    }
+}
+
+@Suite("Port scanner ownership-scope evidence")
+struct PortScannerOwnershipScopeEvidenceTests {
+    @Test("A live owner dropped by an incomplete graph does not retire its port")
+    func incompleteOwnershipGraphRetainsLiveOwnerPort() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .incomplete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .incomplete)
+    }
+
+    @Test("A live owner absent from a complete graph is authoritative absence")
+    func completeOwnershipGraphRetiresDroppedOwnerPort() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .complete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
     }
 }
 

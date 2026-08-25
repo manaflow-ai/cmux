@@ -351,7 +351,9 @@ final class PortScanner: @unchecked Sendable {
                     workspaceIds: workspaceIds,
                     agentPortsByWorkspace: [:],
                     panelPortOwnersByKey: [:],
+                    panelProcessIdentitiesByKey: [:],
                     agentPortOwnersByWorkspace: [:],
+                    agentProcessIdentitiesByWorkspace: [:],
                     agentRevisions: agentRevisions,
                     panelCompletenessByKey: panelCompletenessByKey,
                     agentCompletenessByWorkspace: agentCompletenessBeforeLsof,
@@ -392,6 +394,13 @@ final class PortScanner: @unchecked Sendable {
         let panelKeysByTTY = panelSnapshot.reduce(into: [String: [PanelKey]]()) { result, entry in
             result[entry.value, default: []].append(entry.key)
         }
+        var panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>] = [:]
+        for (pid, tty) in validPIDToTTY {
+            guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
+            for key in panelKeysByTTY[tty] ?? [] {
+                panelProcessIdentitiesByKey[key, default: []].insert(identity)
+            }
+        }
         for (pid, ports) in pidToPorts {
             guard let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
@@ -405,6 +414,13 @@ final class PortScanner: @unchecked Sendable {
 
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+        var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
+        for (pid, ownership) in agentOwnershipByPID {
+            guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+            for workspaceId in ownership {
+                agentProcessIdentitiesByWorkspace[workspaceId, default: []].insert(identity)
+            }
+        }
         for (pid, ports) in pidToPorts {
             guard let ownership = agentOwnershipByPID[pid] else { continue }
             for workspaceId in ownership {
@@ -464,7 +480,9 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: agentPortsSnapshot,
                 panelPortOwnersByKey: panelPortOwnersByKey,
+                panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
                 agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
+                agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
                 agentRevisions: agentRevisions,
                 panelCompletenessByKey: panelCompletenessByKey,
                 agentCompletenessByWorkspace: agentCompletenessByWorkspace,
@@ -484,7 +502,9 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]],
+        panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>],
         agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         panelCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
@@ -501,7 +521,9 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             panelPortOwnersByKey: panelPortOwnersByKey,
+            panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
             agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
+            agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
             agentRevisions: agentRevisions,
             panelCompletenessByKey: panelCompletenessByKey,
             agentCompletenessByWorkspace: agentCompletenessByWorkspace,
@@ -538,8 +560,10 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: [workspaceId],
                 agentPortsByWorkspace: [:],
                 observedOwnersByWorkspace: [:],
+                currentProcessIdentitiesByWorkspace: [:],
                 agentRevisions: [workspaceId: revision],
                 completenessByWorkspace: [workspaceId: .complete],
+                processScopeCompletenessByWorkspace: [workspaceId: .complete],
                 lsofScan: nil,
                 inspectedPIDs: [],
                 requestID: scanCoordination.makeRequestID()
@@ -646,7 +670,9 @@ final class PortScanner: @unchecked Sendable {
                         request,
                         agentPortsByWorkspace: [:],
                         observedOwnersByWorkspace: [:],
+                        currentProcessIdentitiesByWorkspace: [:],
                         completenessByWorkspace: agentCompletenessBeforeLsof,
+                        processScopeCompletenessByWorkspace: agentCompletenessBeforeLsof,
                         lsofScan: lsofEvidence,
                         inspectedPIDs: []
                     )
@@ -669,6 +695,13 @@ final class PortScanner: @unchecked Sendable {
             let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+            var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
+            for (pid, ownership) in agentOwnershipByPID {
+                guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+                for workspaceId in ownership {
+                    agentProcessIdentitiesByWorkspace[workspaceId, default: []].insert(identity)
+                }
+            }
             for (pid, ports) in pidToPorts {
                 guard let ownership = agentOwnershipByPID[pid] else { continue }
                 for targetWorkspaceId in ownership {
@@ -702,7 +735,9 @@ final class PortScanner: @unchecked Sendable {
                     request,
                     agentPortsByWorkspace: agentPortsSnapshot,
                     observedOwnersByWorkspace: agentPortOwnersSnapshot,
+                    currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
                     completenessByWorkspace: completenessByWorkspace,
+                    processScopeCompletenessByWorkspace: completenessByWorkspace,
                     lsofScan: lsofScan,
                     inspectedPIDs: Set(capturedAgentPIDs.ownershipByPID.keys)
                 )
@@ -715,7 +750,9 @@ final class PortScanner: @unchecked Sendable {
         _ request: AgentPortScanRequest,
         agentPortsByWorkspace: [UUID: Set<Int>],
         observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         completenessByWorkspace: [UUID: PortScanCompleteness],
+        processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
         lsofScan: PortLsofScanResult?,
         inspectedPIDs: Set<Int>
     ) {
@@ -724,8 +761,10 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: request.workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             observedOwnersByWorkspace: observedOwnersByWorkspace,
+            currentProcessIdentitiesByWorkspace: currentProcessIdentitiesByWorkspace,
             agentRevisions: request.agentRevisions,
             completenessByWorkspace: completenessByWorkspace,
+            processScopeCompletenessByWorkspace: processScopeCompletenessByWorkspace,
             lsofScan: lsofScan,
             inspectedPIDs: inspectedPIDs,
             requestID: request.requestID
@@ -743,7 +782,9 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]],
+        panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>],
         agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         panelCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
@@ -761,6 +802,8 @@ final class PortScanner: @unchecked Sendable {
             let panelCompletenessByPort = missingPortCompletenessByKey(
                 previousOwnersByKey: self.panelPortOwnersByKey,
                 observedOwnersByKey: panelPortOwnersByKey,
+                currentProcessIdentitiesByKey: panelProcessIdentitiesByKey,
+                processScopeCompletenessByKey: panelCompletenessByKey,
                 scannedKeys: Set(scannedPorts.keys),
                 lsofScan: panelLsofEvidence,
                 inspectedPIDs: inspectedPIDs
@@ -793,8 +836,10 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             observedOwnersByWorkspace: agentPortOwnersByWorkspace,
+            currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
             agentRevisions: agentRevisions,
             completenessByWorkspace: agentCompletenessByWorkspace,
+            processScopeCompletenessByWorkspace: agentCompletenessByWorkspace,
             lsofScan: agentLsofEvidence,
             inspectedPIDs: inspectedPIDs,
             requestID: requestID

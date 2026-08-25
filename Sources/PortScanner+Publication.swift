@@ -72,8 +72,10 @@ extension PortScanner {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
+        processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
         lsofScan: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
         requestID: UInt64
@@ -82,8 +84,10 @@ extension PortScanner {
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             observedOwnersByWorkspace: observedOwnersByWorkspace,
+            currentProcessIdentitiesByWorkspace: currentProcessIdentitiesByWorkspace,
             agentRevisions: agentRevisions,
             completenessByWorkspace: completenessByWorkspace,
+            processScopeCompletenessByWorkspace: processScopeCompletenessByWorkspace,
             lsofScan: lsofScan,
             inspectedPIDs: inspectedPIDs,
             requestID: requestID
@@ -157,8 +161,10 @@ extension PortScanner {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
+        processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
         lsofScan: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
         requestID: UInt64
@@ -176,7 +182,9 @@ extension PortScanner {
         var replacementWorkspaces: Set<UUID> = []
         var scannedPorts: [UUID: [Int]] = [:]
         var observedOwners: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+        var currentProcessIdentities: [UUID: Set<AgentPIDProcessIdentity>] = [:]
         var validCompletenessByWorkspace: [UUID: PortScanCompleteness] = [:]
+        var validProcessScopeCompletenessByWorkspace: [UUID: PortScanCompleteness] = [:]
         for workspaceId in validWorkspaceIds {
             let completeness = completenessByWorkspace[workspaceId, default: .incomplete]
             replacementWorkspaces.formUnion(agentSnapshotReplacementState.workspacesToReplace(
@@ -184,11 +192,16 @@ extension PortScanner {
                 completeness: completeness
             ))
             validCompletenessByWorkspace[workspaceId] = completeness
+            validProcessScopeCompletenessByWorkspace[workspaceId] =
+                processScopeCompletenessByWorkspace[workspaceId, default: .incomplete]
             if let ports = agentPortsByWorkspace[workspaceId] {
                 scannedPorts[workspaceId] = Array(ports)
             }
             if let owners = observedOwnersByWorkspace[workspaceId] {
                 observedOwners[workspaceId] = owners
+            }
+            if let identities = currentProcessIdentitiesByWorkspace[workspaceId] {
+                currentProcessIdentities[workspaceId] = identities
             }
         }
         agentPortSnapshot.remove(keys: replacementWorkspaces)
@@ -200,6 +213,8 @@ extension PortScanner {
             return missingPortCompletenessByKey(
                 previousOwnersByKey: agentPortOwnersByWorkspace,
                 observedOwnersByKey: observedOwners,
+                currentProcessIdentitiesByKey: currentProcessIdentities,
+                processScopeCompletenessByKey: validProcessScopeCompletenessByWorkspace,
                 scannedKeys: validWorkspaceIds,
                 lsofScan: lsofScan,
                 inspectedPIDs: inspectedPIDs

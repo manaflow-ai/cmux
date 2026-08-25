@@ -20,24 +20,31 @@ extension PortScanner {
 
     /// Computes missing-port evidence from the identities that owned each
     /// previously published port. A process-tree scan may be incomplete for an
-    /// unrelated child, but a listener PID that is gone or whose own lsof
-    /// result is complete still provides authoritative negative evidence.
+    /// unrelated child, but a listener PID that is still in the current
+    /// ownership graph and whose own lsof result is complete still provides
+    /// authoritative negative evidence. A live owner that fell out of an
+    /// incomplete ownership graph remains incomplete rather than being
+    /// mistaken for an exited listener.
     func missingPortCompletenessByKey<Key: Hashable & Sendable>(
         previousOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
         observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByKey: [Key: Set<AgentPIDProcessIdentity>],
+        processScopeCompletenessByKey: [Key: PortScanCompleteness],
         scannedKeys: Set<Key>,
         lsofScan: PortLsofScanResult,
         inspectedPIDs: Set<Int>
     ) -> [Key: [Int: PortScanCompleteness]] {
         var result: [Key: [Int: PortScanCompleteness]] = [:]
-        var ownerEvidenceByIdentity: [AgentPIDProcessIdentity: PortScanCompleteness] = [:]
+        var ownerEvidenceByKey: [Key: [AgentPIDProcessIdentity: PortScanCompleteness]] = [:]
         for key in scannedKeys {
             guard let previousOwners = previousOwnersByKey[key] else { continue }
             let observedOwners = observedOwnersByKey[key] ?? [:]
+            let currentProcessIdentities = currentProcessIdentitiesByKey[key] ?? []
+            let processScopeCompleteness = processScopeCompletenessByKey[key, default: .incomplete]
             for (port, owners) in previousOwners where observedOwners[port] == nil {
                 guard !owners.isEmpty else { continue }
                 let isAuthoritative = owners.allSatisfy { owner in
-                    if let cached = ownerEvidenceByIdentity[owner] {
+                    if let cached = ownerEvidenceByKey[key]?[owner] {
                         return cached == .complete
                     }
                     let pid = Int(owner.pid)
@@ -48,18 +55,29 @@ extension PortScanner {
                             // longer owns this port, even if that replacement
                             // is not part of this scan's ownership graph.
                             evidence = .complete
-                        } else if inspectedPIDs.contains(pid),
-                                  lsofScan.completeness(for: [pid]) == .complete {
-                            evidence = .complete
                         } else {
-                            evidence = .incomplete
+                            // lsof can only prove a negative for a live PID
+                            // when that PID is still in the current ownership
+                            // scope. If the process graph dropped it, defer
+                            // to the graph's completeness instead of allowing
+                            // an incomplete fence to retire an active badge.
+                            if currentProcessIdentities.contains(owner) {
+                                evidence = inspectedPIDs.contains(pid)
+                                    && lsofScan.completeness(for: [pid]) == .complete
+                                    ? .complete
+                                    : .incomplete
+                            } else {
+                                evidence = processScopeCompleteness == .complete
+                                    ? .complete
+                                    : .incomplete
+                            }
                         }
                     } else {
                         evidence = processPresenceProvider(pid_t(pid)) == .absent
                             ? .complete
                             : .incomplete
                     }
-                    ownerEvidenceByIdentity[owner] = evidence
+                    ownerEvidenceByKey[key, default: [:]][owner] = evidence
                     return evidence == .complete
                 }
                 result[key, default: [:]][port] = isAuthoritative
