@@ -39656,6 +39656,23 @@
         }
       }
     },
+    "cli.localTmux.error.cleanupListFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "local-tmux cleanup could not list sessions; the registry was left unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "local-tmux のクリーンアップでセッションを一覧表示できなかったため、レジストリは変更されませんでした。"
+          }
+        }
+      }
+    },
     "cli.localTmux.usage": {
       "extractionState": "manual",
       "localizations": {

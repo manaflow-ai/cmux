@@ -108,7 +108,15 @@ extension CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         let listed = try runner.run(arguments: builder.listSessionsArguments())
-        let liveNames = Set(parseLocalTmuxSessions(listed.succeeded ? listed.stdout : "").map(\.name))
+        guard listed.succeeded else {
+            let detail = listed.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = String(
+                localized: "cli.localTmux.error.cleanupListFailed",
+                defaultValue: "local-tmux cleanup could not list sessions; the registry was left unchanged."
+            )
+            throw CLIError(message: detail.isEmpty ? message : "\(message) \(detail)")
+        }
+        let liveNames = Set(parseLocalTmuxSessions(listed.stdout).map(\.name))
         let removed = try registry.remove { !liveNames.contains($0.name) }
         let payload: [String: Any] = [
             "removed": removed.map { $0.id.uuidString },
