@@ -329,6 +329,11 @@ _NETWORK_TARGET_SPECS = (
         labels=_NETWORK_TARGET_LABELS,
     ),
     _NetworkTargetSpec(
+        verb_pattern=re.compile(r"urllib3.*\.request\s*\("),
+        positional_index=1,
+        labels=_NETWORK_TARGET_LABELS,
+    ),
+    _NetworkTargetSpec(
         verb_pattern=re.compile(r".*", re.DOTALL),
         positional_index=0,
         labels=_NETWORK_TARGET_LABELS,
