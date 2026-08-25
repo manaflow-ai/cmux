@@ -63,9 +63,17 @@ The same files also work as **right-sidebar panels** (extensions next to
 Files/Find/Vault): `cmux right-sidebar set custom <name>` selects one and adds
 a Custom button to the right sidebar's mode bar. The panel gets the same data
 keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
-`panel-info` (selected-workspace overview with clickable ports and PRs) and
-`panel-todo` (an interactive scratch checklist) are right-panel-shaped
+`panel-info` (selected-workspace overview with clickable ports and PRs),
+`panel-sessions` (every session with live search and a this-workspace/all
+scope toggle), `panel-todo` (an interactive scratch checklist), and
+`kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
 examples.
+
+`TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
+`onEdit(text)` (fires per keystroke - live search), `autofocus` (default
+true; pass `false` for persistent fields so mounting never steals focus).
+Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
+(`tabs[i].id` is the panel behind the tab, not interchangeable).
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).

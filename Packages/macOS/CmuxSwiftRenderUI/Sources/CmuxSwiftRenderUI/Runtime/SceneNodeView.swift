@@ -305,11 +305,16 @@ private struct SceneTextFieldView: NSViewRepresentable {
             weight: Self.nsWeight(node.string("weight"))
         )
         field.delegate = context.coordinator
-        // First responder can only be claimed once the field is in a window;
-        // hop one runloop turn (plain async, not a timed delay).
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-            field.currentEditor()?.selectAll(nil)
+        // Rename editors grab focus on mount (type-over ready). Persistent
+        // fields (a panel's search box) pass autofocus:false and wait for a
+        // click instead of stealing the terminal's focus.
+        if node.bool("autofocus") != false || node.props["autofocus"] == nil {
+            // First responder can only be claimed once the field is in a
+            // window; hop one runloop turn (plain async, not a timed delay).
+            DispatchQueue.main.async {
+                field.window?.makeFirstResponder(field)
+                field.currentEditor()?.selectAll(nil)
+            }
         }
         return field
     }
@@ -347,6 +352,21 @@ private struct SceneTextFieldView: NSViewRepresentable {
                 return true
             }
             return false
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            // A persistent field (panel search box) is re-entered after a
+            // previous commit; a new editing session must be able to commit
+            // again.
+            finished = false
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            // Live per-keystroke event for filter-as-you-type consumers
+            // (fields without an edit handler never see it - the JS side
+            // only registers handlers it was given).
+            guard let field = notification.object as? NSTextField else { return }
+            sink.send(nodeId, "edit", ["text": field.stringValue])
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {

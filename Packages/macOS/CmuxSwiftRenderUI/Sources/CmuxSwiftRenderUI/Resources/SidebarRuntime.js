@@ -298,15 +298,19 @@
   };
 
   // Editable one-line text field. `value` is the initial text (string or
-  // binding); opts: placeholder, onSubmit(text), onCancel(). The host
-  // focuses it on appear; Return submits, Escape cancels.
+  // binding); opts: placeholder, onSubmit(text), onCancel(), onEdit(text)
+  // (fires per keystroke - live search), autofocus (default true; pass
+  // false for persistent fields so mounting never steals focus). The host
+  // focuses autofocus fields on appear; Return submits, Escape cancels.
   g.TextField = (value, opts) => {
     const node = makeNode("textfield", {});
     setProp(node.__nodeId, "text", value);
     if (opts && opts.placeholder) setProp(node.__nodeId, "placeholder", opts.placeholder);
+    if (opts && opts.autofocus === false) setProp(node.__nodeId, "autofocus", false);
     handlers[node.__nodeId] = handlers[node.__nodeId] || {};
     if (opts && opts.onSubmit) handlers[node.__nodeId].submit = opts.onSubmit;
     if (opts && opts.onCancel) handlers[node.__nodeId].cancel = opts.onCancel;
+    if (opts && opts.onEdit) handlers[node.__nodeId].edit = opts.onEdit;
     return node;
   };
 
@@ -449,6 +453,7 @@
     if (event === "doubletap" && nodeHandlers.doubletap) nodeHandlers.doubletap(payload);
     if (event === "submit" && nodeHandlers.submit) nodeHandlers.submit(payload ? payload.text : "");
     if (event === "cancel" && nodeHandlers.cancel) nodeHandlers.cancel(payload);
+    if (event === "edit" && nodeHandlers.edit) nodeHandlers.edit(payload ? payload.text : "");
     runPending();
   };
 

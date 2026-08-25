@@ -145,6 +145,11 @@ public struct CustomSidebarDataContextBuilder {
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
         ]
+        if let surfaceId = surface.surfaceId {
+            // The id surface.* verbs accept (surface.focus etc.); `id` above
+            // is the panel behind the tab.
+            surfaceFields["surfaceId"] = .string(surfaceId.uuidString)
+        }
         if let directory = surface.directory, !directory.isEmpty {
             surfaceFields["directory"] = .string(directory)
         }

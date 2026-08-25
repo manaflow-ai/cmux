@@ -169,6 +169,26 @@ struct SidebarJSRuntimeTests {
         #expect(submenu.string("text") == "Move")
     }
 
+    @Test func textFieldEditEventFiresLive() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        const [q, setQ] = signal("");
+        sidebar(() => VStack({}, [
+            TextField("", { autofocus: false, onEdit: (t) => setQ(t) }),
+            Text(() => "q:" + q()),
+        ]))
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        let root = try! #require(runtime.store.node(rootId))
+        let fieldId = try! #require(root.children.first)
+        let labelId = try! #require(root.children.dropFirst().first)
+        #expect(runtime.store.node(fieldId)?.props["autofocus"] == .bool(false))
+        runtime.dispatchEvent(nodeId: fieldId, event: "edit", payload: ["text": "se"])
+        #expect(runtime.store.node(labelId)?.string("text") == "q:se")
+        runtime.dispatchEvent(nodeId: fieldId, event: "edit", payload: ["text": "sess"])
+        #expect(runtime.store.node(labelId)?.string("text") == "q:sess")
+    }
+
     @Test func authorSignalsDriveBindings() {
         let runtime = SidebarJSRuntime()
         runtime.start(source: """

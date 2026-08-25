@@ -56,6 +56,7 @@ extension Workspace {
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
+                        surfaceId: tab.id.uuid,
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),

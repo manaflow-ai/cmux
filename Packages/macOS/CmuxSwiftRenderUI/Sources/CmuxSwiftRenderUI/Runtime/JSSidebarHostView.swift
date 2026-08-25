@@ -104,8 +104,9 @@ final class JSSidebarEngine {
             // Any interaction outside an active inline editor ends the edit
             // (blur-commits): clicking a SwiftUI row never moves AppKit first
             // responder off the NSTextField by itself, so resign it here.
-            // The field's own submit/cancel events must not re-blur.
-            if event != "submit", event != "cancel",
+            // The field's own submit/cancel/edit events must not re-blur -
+            // "edit" fires on every keystroke of a live search field.
+            if event != "submit", event != "cancel", event != "edit",
                let window = NSApp.keyWindow,
                window.firstResponder is NSTextView {
                 window.makeFirstResponder(nil)

@@ -34,6 +34,7 @@ sidebar(() =>
 
     TextField("", {
       placeholder: "Add and press Return",
+      autofocus: false,
       onSubmit: (t) => addItem(t),
     })
       .paddingHorizontal(10),
