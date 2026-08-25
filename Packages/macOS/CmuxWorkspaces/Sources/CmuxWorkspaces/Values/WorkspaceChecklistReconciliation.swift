@@ -38,7 +38,6 @@ extension Array where Element == WorkspaceChecklistItem {
         }
 
         var ownedItems = filter { $0.ownerID == ownerID }
-        let firstOwnedIndex = firstIndex { $0.ownerID == ownerID }
         switch ownedItems.replaceChecklist(with: items) {
         case .failure(let error):
             return .failure(error)
@@ -46,11 +45,32 @@ extension Array where Element == WorkspaceChecklistItem {
             for index in ownedItems.indices {
                 ownedItems[index].ownerID = ownerID
             }
-            var combined = unrelatedItems
-            let insertionIndex = Swift.min(firstOwnedIndex ?? combined.endIndex, combined.endIndex)
-            combined.insert(contentsOf: ownedItems, at: insertionIndex)
-            self = combined
-            return .success(combined)
+            // Rebuild from the original sequence so unrelated rows retain
+            // their relative order. Replace the owner block at its first
+            // original slot, then restore the checklist's stable
+            // uncompleted-before-completed partition without sorting either
+            // partition.
+            var combined: [WorkspaceChecklistItem] = []
+            combined.reserveCapacity(unrelatedItems.count + ownedItems.count)
+            var insertedOwnerItems = false
+            for existing in self {
+                if existing.ownerID == ownerID {
+                    if !insertedOwnerItems {
+                        combined.append(contentsOf: ownedItems)
+                        insertedOwnerItems = true
+                    }
+                } else {
+                    combined.append(existing)
+                }
+            }
+            if !insertedOwnerItems {
+                combined.append(contentsOf: ownedItems)
+            }
+            let uncompleted = combined.filter { $0.state != .completed }
+            let completed = combined.filter { $0.state == .completed }
+            let normalized = uncompleted + completed
+            self = normalized
+            return .success(normalized)
         }
     }
 }

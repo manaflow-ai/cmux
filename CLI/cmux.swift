@@ -274,10 +274,14 @@ final class ClaudeHookSessionStore {
     /// absolute deadline.
     func withClaudeTaskSyncLock<T>(
         deadlineUptime: TimeInterval,
+        scope: String? = nil,
         _ body: () throws -> T
     ) throws -> T {
         try checkLockDeadline()
-        let lockPath = statePath + ".task-sync.lock"
+        // Independent Claude profiles have independent task-store identities;
+        // keep their filesystem/socket work from contending on one global lease.
+        let lockSuffix = scope.map { ".\($0)" } ?? ""
+        let lockPath = statePath + ".task-sync\(lockSuffix).lock"
         let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
         try fileManager.createDirectory(
             at: parentPath,
@@ -302,9 +306,10 @@ final class ClaudeHookSessionStore {
         workspaceId: String?,
         surfaceId: String?,
         turnId: String?,
+        scope: String? = nil,
         deadlineUptime: TimeInterval
     ) throws -> ClaudeHookSessionRecord? {
-        try withClaudeTaskSyncLock(deadlineUptime: deadlineUptime) {
+        try withClaudeTaskSyncLock(deadlineUptime: deadlineUptime, scope: scope) {
             try consume(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
@@ -27054,6 +27059,12 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let sessionEndTaskStoreScope = ClaudeTaskStoreIdentity(
+                tasksRootURL: ClaudeTaskRootResolver(
+                    environment: ProcessInfo.processInfo.environment,
+                    homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                ).resolve()
+            ).rawValue
             let consumedSession: ClaudeHookSessionRecord?
             do {
                 consumedSession = try sessionStore.consumeAfterClaudeTaskSync(
@@ -27061,6 +27072,7 @@ struct CMUXCLI {
                     workspaceId: liveEndTarget.workspaceId,
                     surfaceId: liveEndTarget.surfaceId,
                     turnId: parsedInput.turnId,
+                    scope: sessionEndTaskStoreScope,
                     deadlineUptime: ProcessInfo.processInfo.systemUptime
                         + Self.claudeSessionEndTaskSyncLockBudgetSeconds
                 )

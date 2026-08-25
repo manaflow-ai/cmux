@@ -105,7 +105,10 @@ extension CMUXCLI {
             // Swift actor cannot serialize. The durable-store-scoped lock spans
             // every configured Claude root: a later hook reads the latest files
             // only after the earlier snapshot and ownership transition finish.
-            try sessionStore.withClaudeTaskSyncLock(deadlineUptime: hookDeadlineUptime) {
+            try sessionStore.withClaudeTaskSyncLock(
+                deadlineUptime: hookDeadlineUptime,
+                scope: taskStoreIdentity.rawValue
+            ) {
                 let currentRecord = try sessionStore.lookup(sessionId: sessionID)
                 if isClaudeTeamDeleteHook(parsedInput) {
                     if let deletionTaskDirectoryName = deletedTeamTaskDirectoryName
@@ -278,13 +281,6 @@ extension CMUXCLI {
                             including: (matchingTeamRecord?.workspaceIDs ?? [])
                                 + [resolvedTarget.workspaceId]
                         )
-                    guard try clearRetiredClaudeTaskListDestinations(
-                        destinationTransition.retiredRecords,
-                        sessionStore: sessionStore,
-                        client: client,
-                        telemetry: telemetry,
-                        deadlineUptime: hookDeadlineUptime
-                    ) else { return }
                     let destinationWorkspaceIDs = destinationTransition.workspaceIDs
                     guard try migrateLegacyClaudeTaskChecklistOwnerIfNeeded(
                         currentRecord: currentRecord,
@@ -307,6 +303,13 @@ extension CMUXCLI {
                         surfaceId: resolvedTarget.surfaceId,
                         reconciliationWorkspaceIDs: destinationWorkspaceIDs,
                         socketPassword: socketPassword,
+                        deadlineUptime: hookDeadlineUptime
+                    ) else { return }
+                    guard try clearRetiredClaudeTaskListDestinations(
+                        destinationTransition.retiredRecords,
+                        sessionStore: sessionStore,
+                        client: client,
+                        telemetry: telemetry,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
                     try persistClaudeTaskListDestinations(
@@ -513,13 +516,6 @@ extension CMUXCLI {
                         taskStoreIdentity: taskStoreIdentity,
                         including: [resolvedTarget.workspaceId]
                     )
-                guard try clearRetiredClaudeTaskListDestinations(
-                    destinationTransition.retiredRecords,
-                    sessionStore: sessionStore,
-                    client: client,
-                    telemetry: telemetry,
-                    deadlineUptime: hookDeadlineUptime
-                ) else { return }
                 guard try migrateLegacyClaudeTaskChecklistOwnerIfNeeded(
                     currentRecord: currentRecord,
                     sessionID: sessionID,
@@ -571,6 +567,13 @@ extension CMUXCLI {
                       delivery.retainedWorkspaceIDs.contains(normalizedWorkspaceID) else {
                     return
                 }
+                guard try clearRetiredClaudeTaskListDestinations(
+                    destinationTransition.retiredRecords,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry,
+                    deadlineUptime: hookDeadlineUptime
+                ) else { return }
                 guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
                     currentRecord: currentRecord,
                     taskDirectoryName: sessionSnapshot.directoryName,
