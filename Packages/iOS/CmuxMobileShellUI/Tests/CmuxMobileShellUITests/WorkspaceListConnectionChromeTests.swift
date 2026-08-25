@@ -173,8 +173,12 @@ import Testing
     }
 
     @Test
-    func macUpdateHintIndicatorShowsOnlyWithoutConnectionChrome() {
+    func macUpdateHintIndicatorStaysVisibleWithHealthyTransportPath() {
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(
+            connectionStatus: .connected,
+            activeTransportPath: "iroh direct"
+        ).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
