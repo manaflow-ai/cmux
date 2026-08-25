@@ -295,8 +295,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-copilot-new-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let siblingSurfaceId = "33333333-3333-3333-3333-333333333333"
         let originalSessionId = "copilot-session-original"
         let replacementSessionId = "copilot-session-new"
+        let siblingSessionId = "copilot-session-sibling"
+        let unknownSessionId = "copilot-session-without-start"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -314,7 +317,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             switch method {
             case "surface.list":
-                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": surfaceId, "ref": "surface:1"],
+                            ["id": siblingSurfaceId, "ref": "surface:2"],
+                        ],
+                    ]
+                )
             case "surface.resume.set":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
             case "surface.resume.clear":
@@ -346,10 +358,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runCopilotHook(_ subcommand: String, input: String) -> ProcessRunResult {
+        func runCopilotHook(
+            _ subcommand: String,
+            surface targetSurfaceId: String,
+            input: String
+        ) -> ProcessRunResult {
             runProcess(
                 executablePath: cliPath,
-                arguments: ["hooks", "copilot", subcommand],
+                arguments: [
+                    "hooks", "copilot", subcommand,
+                    "--workspace", workspaceId,
+                    "--surface", targetSurfaceId,
+                ],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
@@ -358,13 +378,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let originalStart = runCopilotHook(
             "session-start",
+            surface: surfaceId,
             input: #"{"session_id":"\#(originalSessionId)","source":"startup","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(originalStart.timedOut, originalStart.stderr)
         XCTAssertEqual(originalStart.status, 0, originalStart.stderr)
 
+        let siblingStart = runCopilotHook(
+            "session-start",
+            surface: siblingSurfaceId,
+            input: #"{"session_id":"\#(siblingSessionId)","source":"startup","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(siblingStart.timedOut, siblingStart.stderr)
+        XCTAssertEqual(siblingStart.status, 0, siblingStart.stderr)
+
         let replacementStart = runCopilotHook(
             "session-start",
+            surface: surfaceId,
             input: #"{"session_id":"\#(replacementSessionId)","source":"new","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(replacementStart.timedOut, replacementStart.stderr)
@@ -373,6 +403,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let lateHookCommandStart = state.snapshot().count
         let lateStop = runCopilotHook(
             "stop",
+            surface: surfaceId,
             input: #"{"session_id":"\#(originalSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"stale completion"}"#
         )
         XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
@@ -421,16 +452,44 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "A delayed hook from the abandoned conversation must not change visible state: \(lateHookCommands)"
         )
 
+        let unknownHookCommandStart = commands.count
+        let unknownStop = runCopilotHook(
+            "stop",
+            surface: surfaceId,
+            input: #"{"session_id":"\#(unknownSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"completion without SessionStart"}"#
+        )
+        XCTAssertFalse(unknownStop.timedOut, unknownStop.stderr)
+        XCTAssertEqual(unknownStop.status, 0, unknownStop.stderr)
+        let unknownHookCommands = Array(state.snapshot().dropFirst(unknownHookCommandStart))
+        XCTAssertTrue(
+            unknownHookCommands.contains { command in
+                guard let request = self.jsonObject(command),
+                      request["method"] as? String == "surface.resume.set",
+                      let params = request["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == unknownSessionId
+            },
+            "An unknown session without a positive tombstone must retain the existing fail-open behavior: \(unknownHookCommands)"
+        )
+
         let storeURL = root.appendingPathComponent("copilot-hook-sessions.json", isDirectory: false)
         let store = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         )
         let sessions = try XCTUnwrap(store["sessions"] as? [String: Any])
-        XCTAssertEqual(Set(sessions.keys), [replacementSessionId])
+        XCTAssertEqual(
+            Set(sessions.keys),
+            [replacementSessionId, siblingSessionId, unknownSessionId]
+        )
         XCTAssertNil(store["pendingSupersededSessionCleanup"])
+        let tombstones = try XCTUnwrap(store["supersededSessionTombstones"] as? [String: Any])
+        XCTAssertEqual(Set(tombstones.keys), [originalSessionId])
         let activeBySurface = try XCTUnwrap(store["activeSessionsBySurface"] as? [String: Any])
         let active = try XCTUnwrap(activeBySurface[surfaceId] as? [String: Any])
         XCTAssertEqual(active["sessionId"] as? String, replacementSessionId)
+        let siblingActive = try XCTUnwrap(activeBySurface[siblingSurfaceId] as? [String: Any])
+        XCTAssertEqual(siblingActive["sessionId"] as? String, siblingSessionId)
     }
 
     func testAntigravityStopAndNotificationsUseGenericNotificationPath() throws {

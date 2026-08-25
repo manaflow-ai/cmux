@@ -66,7 +66,8 @@ extension CMUXCLI {
             configDirResolver: { CMUXCLI.resolvedOmpAgentDirectory().path },
             sessionStoreSuffix: "omp", disableEnvVar: "CMUX_OMP_HOOKS_DISABLED",
             hookMarker: "cmux hooks omp", format: .flat,
-            events: []
+            events: [],
+            sessionStartSupersessionPolicy: .everySessionStart
         ),
         AgentHookDef(
             name: "campfire", displayName: "Campfire", statusKey: "campfire",
@@ -190,6 +191,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            sessionStartSupersessionPolicy: .sameSurfaceSources(["new"]),
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(

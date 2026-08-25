@@ -50,6 +50,7 @@ extension CMUXCLI {
         /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
+        let sessionStartSupersessionPolicy: SessionStartSupersessionPolicy
         /// Events that install a `cmux hooks feed --source <name>` bridge.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
@@ -71,6 +72,16 @@ extension CMUXCLI {
         enum HookDispatch {
             case ambient
             case pinned(marker: String)
+        }
+
+        enum SessionStartSupersessionPolicy {
+            case disabled
+            // OMP preserves its historical process-wide replacement semantics
+            // without tombstoning delayed hooks.
+            case everySessionStart
+            // Copilot rotates one conversation in one pane while keeping sibling
+            // pane sessions in the same process alive.
+            case sameSurfaceSources(Set<String>)
         }
 
         struct HookEvent {
@@ -123,6 +134,7 @@ extension CMUXCLI {
              dispatch: HookDispatch = .ambient,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
+             sessionStartSupersessionPolicy: SessionStartSupersessionPolicy = .disabled,
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil,
              postInstallNote: String? = nil) {
@@ -138,6 +150,7 @@ extension CMUXCLI {
             self.dispatch = dispatch
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
+            self.sessionStartSupersessionPolicy = sessionStartSupersessionPolicy
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
@@ -145,6 +158,34 @@ extension CMUXCLI {
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
             self.postInstallNote = postInstallNote
+        }
+
+        func supersedesSameProcessSession(source: String?) -> Bool {
+            switch sessionStartSupersessionPolicy {
+            case .disabled:
+                return false
+            case .everySessionStart:
+                return true
+            case .sameSurfaceSources(let sources):
+                let normalizedSource = source?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                return sources.contains(normalizedSource)
+            }
+        }
+
+        var tracksSurfaceSessionIdentity: Bool {
+            if case .sameSurfaceSources = sessionStartSupersessionPolicy {
+                return true
+            }
+            return false
+        }
+
+        var supportsSameProcessSessionSupersession: Bool {
+            if case .disabled = sessionStartSupersessionPolicy {
+                return false
+            }
+            return true
         }
     }
 

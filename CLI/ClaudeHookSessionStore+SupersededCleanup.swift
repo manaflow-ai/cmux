@@ -9,7 +9,8 @@ extension ClaudeHookSessionStore {
     func supersededSessionCleanupCandidates(
         in state: inout ClaudeHookSessionStoreFile,
         keepingSessionId: String,
-        owner: ClaudeHookSessionRecord
+        owner: ClaudeHookSessionRecord,
+        scopeToSurface: Bool = false
     ) -> [ClaudeHookSessionRecord] {
         state.pendingSupersededSessionCleanup.removeValue(forKey: keepingSessionId)
         guard let pid = owner.pid,
@@ -24,6 +25,7 @@ extension ClaudeHookSessionStore {
                 && $0.pid == pid
                 && $0.pidStartSeconds == startSeconds
                 && $0.pidStartMicroseconds == startMicroseconds
+                && (!scopeToSurface || $0.surfaceId == owner.surfaceId)
         }
         let supersededIDs = Set(superseded.map(\.sessionId))
         let enqueuedAt = Date().timeIntervalSince1970
@@ -33,6 +35,9 @@ extension ClaudeHookSessionStore {
             record.supersededCleanupLastAttemptAt = nil
             record.supersededCleanupAttemptCount = 0
             state.pendingSupersededSessionCleanup[record.sessionId] = record
+            if scopeToSurface {
+                state.supersededSessionTombstones[record.sessionId] = enqueuedAt
+            }
         }
         if !supersededIDs.isEmpty {
             state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {

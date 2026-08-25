@@ -6,6 +6,10 @@ struct ClaudeHookSessionStoreFile: Codable {
     // Superseded records stay durable for retry without remaining visible to
     // store consumers as simultaneously live session claimants.
     var pendingSupersededSessionCleanup: [String: ClaudeHookSessionRecord] = [:]
+    // Written only by same-surface supersession. Successful cleanup removes the
+    // retry record, but late hooks still need positive evidence that this exact
+    // session was superseded.
+    var supersededSessionTombstones: [String: TimeInterval] = [:]
     var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
     // The pane-scoped active boundary. The workspace slot only remembers ONE
     // active session, so once another pane promotes (e.g. a forked conversation
@@ -19,6 +23,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case version
         case sessions
         case pendingSupersededSessionCleanup
+        case supersededSessionTombstones
         case activeSessionsByWorkspace
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
@@ -33,6 +38,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         pendingSupersededSessionCleanup = try container.decodeIfPresent(
             [String: ClaudeHookSessionRecord].self,
             forKey: .pendingSupersededSessionCleanup
+        ) ?? [:]
+        supersededSessionTombstones = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .supersededSessionTombstones
         ) ?? [:]
         activeSessionsByWorkspace = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
@@ -54,6 +63,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         try container.encode(sessions, forKey: .sessions)
         if !pendingSupersededSessionCleanup.isEmpty {
             try container.encode(pendingSupersededSessionCleanup, forKey: .pendingSupersededSessionCleanup)
+        }
+        if !supersededSessionTombstones.isEmpty {
+            try container.encode(supersededSessionTombstones, forKey: .supersededSessionTombstones)
         }
         if !activeSessionsByWorkspace.isEmpty {
             try container.encode(activeSessionsByWorkspace, forKey: .activeSessionsByWorkspace)

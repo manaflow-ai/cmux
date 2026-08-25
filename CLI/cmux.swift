@@ -214,8 +214,16 @@ private struct CodexMonitorLeaseRecord: Codable {
 }
 
 final class ClaudeHookSessionStore {
+    struct PromptMutationResult {
+        var staleTerminalTurn = false
+        var nested = false
+        var supersededSession = false
+    }
+
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let supersededSessionTombstoneAgeSeconds: TimeInterval = 60 * 60
+    private static let maxSupersededSessionTombstones = 128
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -408,11 +416,19 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
-        rejectTerminalTurn: Bool = false
-    ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
+        rejectTerminalTurn: Bool = false,
+        rejectSupersededSameProcessSession: Bool = false
+    ) throws -> PromptMutationResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
+        guard !normalized.isEmpty else { return PromptMutationResult() }
         return try withLockedState { state in
+            if rejectSupersededSameProcessSession,
+               isTombstonedSupersededSessionEvent(
+                   in: state,
+                   sessionId: normalized
+               ) {
+                return PromptMutationResult(supersededSession: true)
+            }
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -425,7 +441,7 @@ final class ClaudeHookSessionStore {
             if rejectTerminalTurn,
                let normalizedTurnId,
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                return (staleTerminalTurn: true, nested: false)
+                return PromptMutationResult(staleTerminalTurn: true)
             }
             update(
                 &record,
@@ -456,7 +472,7 @@ final class ClaudeHookSessionStore {
                     record.activePromptTurnIds = nil
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: true)
+                    return PromptMutationResult(nested: true)
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId {
                     var removedTurnCount = 0
@@ -476,26 +492,26 @@ final class ClaudeHookSessionStore {
                     markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
+                    return PromptMutationResult(nested: totalDepth > 1)
                 }
                 if turnStack.last == normalizedTurnId {
                     let totalDepth = max(legacyDepth, turnStack.count)
                     setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
+                    return PromptMutationResult(nested: totalDepth > 1)
                 }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                 record.lastPromptTurnId = normalizedTurnId
                 state.sessions[normalized] = record
-                return (staleTerminalTurn: false, nested: totalDepth > 1)
+                return PromptMutationResult(nested: totalDepth > 1)
             }
             let existingTurnStackDepth = activePromptTurnStack(from: record).count
             record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
-            return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
+            return PromptMutationResult(nested: (record.activePromptDepth ?? 0) > 1)
         }
     }
 
@@ -517,11 +533,19 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
+        autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        rejectSupersededSameProcessSession: Bool = false
+    ) throws -> PromptMutationResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return PromptMutationResult() }
         return try withLockedState { state in
+            if rejectSupersededSameProcessSession,
+               isTombstonedSupersededSessionEvent(
+                   in: state,
+                   sessionId: normalized
+               ) {
+                return PromptMutationResult(supersededSession: true)
+            }
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -582,7 +606,7 @@ final class ClaudeHookSessionStore {
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
-                        return nested
+                        return PromptMutationResult(nested: nested)
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
@@ -601,16 +625,16 @@ final class ClaudeHookSessionStore {
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
-                    return true
+                    return PromptMutationResult(nested: true)
                 }
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
-                    return true
+                    return PromptMutationResult(nested: true)
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return false
+                    return PromptMutationResult()
                 }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
@@ -621,7 +645,7 @@ final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
                 state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
+                return PromptMutationResult(nested: totalDepthBeforeStop > 1)
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
@@ -644,7 +668,7 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return PromptMutationResult(nested: depthBeforeStop > 1)
         }
     }
 
@@ -669,11 +693,21 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false
-    ) throws -> [ClaudeHookSessionRecord] {
+        supersedesSameProcessSession: Bool = false,
+        supersedesSameProcessSessionOnSameSurfaceOnly: Bool = false,
+        rejectSupersededSameProcessSession: Bool = false
+    ) throws -> (accepted: Bool, superseded: [ClaudeHookSessionRecord]) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return [] }
+        guard !normalized.isEmpty else { return (accepted: false, superseded: []) }
         return try withLockedState { state in
+            if rejectSupersededSameProcessSession,
+               isTombstonedSupersededSessionEvent(
+                   in: state,
+                   sessionId: normalized
+               ) {
+                return (accepted: false, superseded: [])
+            }
+            state.supersededSessionTombstones.removeValue(forKey: normalized)
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -723,7 +757,8 @@ final class ClaudeHookSessionStore {
                 superseded = supersededSessionCleanupCandidates(
                     in: &state,
                     keepingSessionId: normalized,
-                    owner: record
+                    owner: record,
+                    scopeToSurface: supersedesSameProcessSessionOnSameSurfaceOnly
                 )
             } else {
                 superseded = []
@@ -743,7 +778,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
-            return superseded
+            return (accepted: true, superseded: superseded)
         }
     }
 
@@ -1277,6 +1312,14 @@ final class ClaudeHookSessionStore {
         )
     }
 
+    private func isTombstonedSupersededSessionEvent(
+        in state: ClaudeHookSessionStoreFile,
+        sessionId: String
+    ) -> Bool {
+        state.sessions[sessionId] == nil
+            && state.supersededSessionTombstones[sessionId] != nil
+    }
+
     private func authoritativeSessionStartProcessIsNewer(
         _ incomingPID: Int?,
         than activeRecord: ClaudeHookSessionRecord
@@ -1721,6 +1764,18 @@ final class ClaudeHookSessionStore {
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
+        }
+        let tombstoneCutoff = now - Self.supersededSessionTombstoneAgeSeconds
+        state.supersededSessionTombstones = state.supersededSessionTombstones.filter {
+            $0.value >= tombstoneCutoff
+        }
+        if state.supersededSessionTombstones.count > Self.maxSupersededSessionTombstones {
+            let newest = state.supersededSessionTombstones
+                .sorted { $0.value > $1.value }
+                .prefix(Self.maxSupersededSessionTombstones)
+            state.supersededSessionTombstones = Dictionary(
+                uniqueKeysWithValues: newest.map { ($0.key, $0.value) }
+            )
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
             guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
@@ -31843,7 +31898,14 @@ export default CMUXSessionRestore;
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
             )
-            var supersededOMPRecords: [ClaudeHookSessionRecord] = []
+            let sessionStartSource = input.object.flatMap {
+                firstString(in: $0, keys: ["source"])
+            } ?? input.rawObject.flatMap {
+                firstString(in: $0, keys: ["source"])
+            }
+            let supersedesSameProcessSession = !suppressVisibleMutations
+                && def.supersedesSameProcessSession(source: sessionStartSource)
+            var supersededSessionRecords: [ClaudeHookSessionRecord] = []
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
@@ -31867,7 +31929,7 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
                 } else {
-                    supersededOMPRecords = (try? store.upsert(
+                    let result = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31878,9 +31940,13 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
-                        supersedesSameProcessSession: def.name == "omp"
-                    )) ?? []
-                    acceptedSessionStart = true
+                        markActive: def.tracksSurfaceSessionIdentity,
+                        supersedesSameProcessSession: supersedesSameProcessSession,
+                        supersedesSameProcessSessionOnSameSurfaceOnly:
+                            def.tracksSurfaceSessionIdentity
+                    )
+                    supersededSessionRecords = result?.superseded ?? []
+                    acceptedSessionStart = result?.accepted ?? true
                 }
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -31962,7 +32028,7 @@ export default CMUXSessionRestore;
             if !suppressVisibleMutations {
                 if let owner = try? store.lookup(sessionId: sessionId) {
                     clearSupersededAgentHookSessions(
-                        supersededOMPRecords,
+                        supersededSessionRecords,
                         owner: owner,
                         statusKey: def.statusKey,
                         store: store,
@@ -31982,7 +32048,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            if def.name == "omp", let mapped {
+            if def.supportsSameProcessSessionSupersession, let mapped {
                 clearSupersededAgentHookSessions(
                     [],
                     owner: mapped,
@@ -32136,8 +32202,15 @@ export default CMUXSessionRestore;
                             client: client,
                             workspaceId: workspaceId
                         ),
-                        rejectTerminalTurn: def.name == "codex"
-                    )) ?? (staleTerminalTurn: false, nested: false)
+                        rejectTerminalTurn: def.name == "codex",
+                        rejectSupersededSameProcessSession: def.tracksSurfaceSessionIdentity
+                    )) ?? .init()
+                    if recordResult.supersededSession {
+                        telemetry.breadcrumb("\(def.name)-hook.prompt-submit.superseded-session")
+                        didSendFeedTelemetry = true
+                        print("{}")
+                        return
+                    }
                     if recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
                         return
@@ -32188,7 +32261,7 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand
                     )) ?? false
                 } else {
-                    _ = try? store.upsert(
+                    let result = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -32198,9 +32271,10 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        rejectSupersededSameProcessSession: def.tracksSurfaceSessionIdentity
                     )
-                    acceptedRunningUpdate = true
+                    acceptedRunningUpdate = result?.accepted ?? true
                 }
                 if !acceptedRunningUpdate || codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
@@ -32325,7 +32399,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            if def.name == "omp", let mapped {
+            if def.supportsSameProcessSessionSupersession, let mapped {
                 clearSupersededAgentHookSessions(
                     [],
                     owner: mapped,
@@ -32448,9 +32522,9 @@ export default CMUXSessionRestore;
             } else {
                 terminalActivePromptTurnIdsForStop = []
             }
-            let nestedPromptStop: Bool
+            let promptStopResult: ClaudeHookSessionStore.PromptMutationResult
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                promptStopResult = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -32468,11 +32542,19 @@ export default CMUXSessionRestore;
                         parsedInput: input,
                         client: client,
                         workspaceId: workspaceId
-                    )
-                )) ?? false
+                    ),
+                    rejectSupersededSameProcessSession: def.tracksSurfaceSessionIdentity
+                )) ?? .init()
             } else {
-                nestedPromptStop = false
+                promptStopResult = .init()
             }
+            if promptStopResult.supersededSession {
+                telemetry.breadcrumb("\(def.name)-hook.stop.superseded-session")
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let nestedPromptStop = promptStopResult.nested
             // One ancestry walk per hook event, shared by the suppression gate
             // and the notify payload's subagent tag.
             let isNestedAgentSession = nestedAgentSessionDetected(
@@ -32491,32 +32573,48 @@ export default CMUXSessionRestore;
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
-            // The journal records the turn boundary unconditionally: the
-            // reducer's per-session fold handles stale sessions (a newer
-            // running session outranks this one) and subagent tagging keeps
-            // nested sessions off the pane badge — no emit-side guessing.
             let stopHadFailure = codexFailure != nil || antigravityFailure != nil
-            emitJournal(
-                stopHadFailure ? .errorReported : .turnCompleted,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                isSubagent: isNestedAgentSession,
-                pendingWork: antigravityHasActiveBackgroundWork,
-                detail: stopHadFailure ? body : nil
-            )
+            func emitStopJournal() {
+                emitJournal(
+                    stopHadFailure ? .errorReported : .turnCompleted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: isNestedAgentSession,
+                    pendingWork: antigravityHasActiveBackgroundWork,
+                    detail: stopHadFailure ? body : nil
+                )
+            }
+            if sessionId.isEmpty || suppressVisibleMutations {
+                emitStopJournal()
+            }
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                                  pid: pid,
-                                  launchCommand: resumeLaunchCommand,
-                                  agentLifecycle: lifecycleAfterStop,
-                                  lastSubtitle: subtitle,
-                                  lastBody: body,
-                                  lastNotificationStatus: stopNotificationStatus,
-                                  updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
+                let result = try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: resumeLaunchCommand,
+                    agentLifecycle: lifecycleAfterStop,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastNotificationStatus: stopNotificationStatus,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle)
+                        ? .running
+                        : runtimeStatus(for: stopNotificationStatus),
+                    updateRuntimeStatus: true,
+                    rejectSupersededSameProcessSession: def.tracksSurfaceSessionIdentity
+                )
+                if result?.accepted == false {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.superseded-session-after-boundary")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
+                emitStopJournal()
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
