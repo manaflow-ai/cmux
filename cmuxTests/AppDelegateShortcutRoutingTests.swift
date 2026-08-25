@@ -12513,6 +12513,51 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserCaptureShortcutSettingExcludesWebInspectorResponders() {
+        guard let appDelegate = AppDelegate.shared,
+              let harness = makeBrowserFocusModeHarness() else {
+            XCTFail("Expected AppDelegate and browser focus harness")
+            return
+        }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: settingKey)
+
+        let inspectorContainer = FakeWKInspectorContainerView(frame: NSRect(x: 0, y: 0, width: 160, height: 80))
+        let inspectorChild = FocusableTestView(frame: inspectorContainer.bounds)
+        inspectorContainer.addSubview(inspectorChild)
+        harness.webView.addSubview(inspectorContainer)
+        XCTAssertTrue(harness.window.makeFirstResponder(inspectorChild))
+
+        guard let commandP = makeKeyDownEvent(
+            key: "p",
+            modifiers: [.command],
+            keyCode: 35,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+P event")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandP),
+            "Browser capture must leave Web Inspector keyboard handling untouched"
+        )
+        XCTAssertFalse(
+            appDelegate.forwardStaleShortcutToFocusedBrowser(commandP),
+            "Stale-menu forwarding must not redirect Web Inspector commands to the page"
+        )
+    }
+
     func testRemappedGoToWorkspaceDefaultReachesFocusedBrowserWebView() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
