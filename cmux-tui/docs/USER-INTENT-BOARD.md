@@ -2,7 +2,7 @@
 
 Audit snapshot: 2026-08-24.
 
-Audit base: aggregate-final at `79b7047457329447e4c24d2a5c133634135818f4`. This document records explicit user requests found in local
+Audit base: aggregate-final at `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`. This document records explicit user requests found in local
 session history. It does not claim that an implementation is complete. For the
 aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
 
@@ -46,6 +46,8 @@ aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md)
 | UI-24 | Give products built on cmux-tui their own isolated TUI sessions, and evaluate rebuilding Firstmate on the cmux-tui primitives. Evidence: `~/.claude/history.jsonl:90220`, 2026-08-24T22:19:40Z UTC. | Open. No product-session namespace, isolation policy, or Firstmate feasibility scope is documented. | Launch two product sessions with independent IDs, layouts, PTYs, and auth capabilities. Write a bounded Firstmate feasibility slice and reject any design that shares a PTY owner or bypasses the cmux-tui control boundary. |
 
 ## Aggregate residuals that affect these asks
+
+UI-25: workflow selector and CLI workflow controls must share one stable action path, preserve provider/workflow identity, and report unavailable selectors. This remains open pending interactive-selector and CLI behavior proof.
 
 The linked technical-debt board is authoritative for implementation status. At
 this audit base it records no local Rust compile or test evidence, incomplete

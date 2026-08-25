@@ -1,8 +1,8 @@
 # cmux-tui aggregate change log
 
-Correction: exact aggregate HEAD is `79b7047457329447e4c24d2a5c133634135818f4`, 80 commits ahead of `origin/main` at this audit. Current hosted status is tracked in `PR-INTENT-BOARD.md`.
+Correction: exact aggregate HEAD is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`, 747 commits ahead of `origin/main` at this audit. Current hosted status is tracked in `PR-INTENT-BOARD.md`; do not claim review or hosted green.
 
-Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`79b7047457329447e4c24d2a5c133634135818f4`](https://github.com/manaflow-ai/cmux/commit/79b7047457329447e4c24d2a5c133634135818f4). The code branch is 80 commits ahead of `origin/main` before this documentation update. This update records the current aggregate state; earlier tip details remain historical.
+Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`387b4185f28e8baf040207f3e7ec9ffb50f3b53b`](https://github.com/manaflow-ai/cmux/commit/387b4185f28e8baf040207f3e7ec9ffb50f3b53b). The code branch is 747 commits ahead of `origin/main` before this documentation update. This update records workflow/CLI selector fixes and the main merge; earlier tip details remain historical.
 
 Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
 

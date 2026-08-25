@@ -3,7 +3,7 @@
 Audit date: 2026-08-24. This board records the GitHub search and exact check
 state used for the aggregate merge. A mergeable label is not acceptance proof.
 The aggregate branch currently includes the cross-platform hardening through
-`79b7047457329447e4c24d2a5c133634135818f4`. The current #10603 head is
+`387b4185f28e8baf040207f3e7ec9ffb50f3b53b`. The current #10603 head is
 `49a2cc5a3776f4dc73b525e14213570acec42f59`; its app-host unit test shards
 2-4, swift-package-tests, tests, and ci-status checks are failing, so the
 branch is not green.
@@ -15,6 +15,11 @@ the Go canonical fallback correction, C++ exact-parent/CMake include fix,
 bounded Rust workspace reads, watcher sink termination, and preview/shell
 ownership fixes. These are documented with full commit SHAs and exact revert
 commands in `TECH-DEBT-CHANGELOG.md`.
+
+Final aggregate commits include main merge `14abca2963`, workflow and CLI
+selector work, and fixes in `52c7ca4735`, `2c73791935`, `8196bb8300`,
+`551134c765`, `909f4907e8`, `d39cba3843`, `9ae4173935`, `526b5b611d`, and
+`387b4185f2`. Do not infer hosted or review-green status from these commits.
 
 ## Aggregate
 
