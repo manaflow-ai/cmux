@@ -72,18 +72,9 @@ final class MobileAttachTicketStore {
         now: Date = Date()
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
-        let payloadTicket: CmxAttachTicket
-        if case .some(.ticketOnly) = target {
-            payloadTicket = try legacyCompatibleCompactTicket(
-                disclosedTicket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility
-            )
-        } else {
-            payloadTicket = disclosedTicket
-        }
         var payload: [String: Any] = [
-            "ticket": try Self.jsonObject(payloadTicket),
-            "routes": payloadTicket.routes.mobileHostJSONObjects(
+            "ticket": try Self.jsonObject(disclosedTicket),
+            "routes": disclosedTicket.routes.mobileHostJSONObjects(
                 for: .authenticated,
                 at: now
             )

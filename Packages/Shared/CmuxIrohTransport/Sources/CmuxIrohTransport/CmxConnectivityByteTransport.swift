@@ -16,6 +16,9 @@ actor CmxConnectivityByteTransport:
     private var session: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
+    private var pathObservationTasks: [UUID: Task<Void, Never>] = [:]
+    private var pathObservationContinuations:
+        [UUID: AsyncStream<CmxTransportPath>.Continuation] = [:]
 
     init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
         self.request = request
@@ -43,6 +46,7 @@ actor CmxConnectivityByteTransport:
         do {
             return try await session.receiveControl(maximumByteCount: 64 * 1_024)
         } catch {
+            finishAllPathObservations()
             self.session = nil
             await releaseOwnedControlSession(
                 reason: .controlReadFailed,
@@ -58,6 +62,7 @@ actor CmxConnectivityByteTransport:
         do {
             try await session.sendControl(data)
         } catch {
+            finishAllPathObservations()
             self.session = nil
             await releaseOwnedControlSession(
                 reason: .controlWriteFailed,
@@ -70,6 +75,7 @@ actor CmxConnectivityByteTransport:
     func close() async {
         guard !closed else { return }
         closed = true
+        finishAllPathObservations()
         session = nil
         await releaseOwnedControlSession(
             reason: .controlOwnerReleased,
@@ -107,16 +113,57 @@ actor CmxConnectivityByteTransport:
             }
         }
         let changes = await session.observedSelectedPathChanges()
-        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task {
-                for await path in changes {
-                    guard !Task.isCancelled else { return }
-                    continuation.yield(await session.transportPath(for: path))
-                }
-                continuation.finish()
+        let observationID = UUID()
+        let stream = AsyncStream<CmxTransportPath>(
+            bufferingPolicy: .bufferingNewest(1)
+        ) { continuation in
+            pathObservationContinuations[observationID] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.cancelPathObservation(observationID) }
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
+        let task = Task { [weak self, session] in
+            for await path in changes {
+                guard !Task.isCancelled else { return }
+                let projected = await session.transportPath(for: path)
+                guard !Task.isCancelled else { return }
+                await self?.yieldPathObservation(
+                    observationID,
+                    value: projected
+                )
+            }
+            await self?.finishPathObservation(observationID)
+        }
+        pathObservationTasks[observationID] = task
+        return stream
+    }
+
+    private func cancelPathObservation(_ id: UUID) {
+        pathObservationTasks.removeValue(forKey: id)?.cancel()
+        pathObservationContinuations.removeValue(forKey: id)?.finish()
+    }
+
+    private func finishPathObservation(_ id: UUID) {
+        pathObservationTasks[id] = nil
+        pathObservationContinuations.removeValue(forKey: id)?.finish()
+    }
+
+    private func yieldPathObservation(
+        _ id: UUID,
+        value: CmxTransportPath
+    ) {
+        pathObservationContinuations[id]?.yield(value)
+    }
+
+    private func finishAllPathObservations() {
+        for task in pathObservationTasks.values {
+            task.cancel()
+        }
+        pathObservationTasks.removeAll()
+        for continuation in pathObservationContinuations.values {
+            continuation.finish()
+        }
+        pathObservationContinuations.removeAll()
     }
 
     nonisolated static func mobileTransportPath(
