@@ -163,9 +163,9 @@ extension RemoteTmuxControlConnection {
 
     /// All four live subscriptions (reflow, cwd, header, title) for a pane in ONE
     /// `refresh-client`. tmux accepts multiple `-B` directives per command,
-    /// so this is exactly equivalent to the three separate sends but costs
-    /// one FIFO slot instead of three. Under rapid pane churn the per-pane
-    /// subscription sends dominate the command stream, and collapsing 3→1
+    /// so this is exactly equivalent to four separate sends but costs
+    /// one FIFO slot instead of four. Under rapid pane churn the per-pane
+    /// subscription sends dominate the command stream, and collapsing 4→1
     /// keeps the FIFO from backing up faster than tmux drains it.
     func subscribePaneAll(paneId: Int) {
         send(
