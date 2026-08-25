@@ -314,6 +314,10 @@ enum AgentHookNotificationPolicy {
                   globMatches(basePattern, value: commandBase) else {
                 return false
             }
+            if !argumentPattern.contains("*"), !argumentPattern.contains("?") {
+                return commandArguments == argumentPattern
+                    || commandArguments.hasPrefix(argumentPattern + " ")
+            }
             return globMatches(argumentPattern, value: commandArguments)
         }
         if !pattern.contains("*"), !pattern.contains("?") {

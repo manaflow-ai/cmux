@@ -749,7 +749,7 @@ final class ClaudeHookSessionStore {
     }
 
     private func cursorPendingSurfaceKey(workspaceId: String, surfaceId: String) -> String {
-        "(workspaceId)|(surfaceId)"
+        "\(workspaceId)|\(surfaceId)"
     }
 
     private func addCursorPendingIndex(
