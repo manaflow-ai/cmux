@@ -112,7 +112,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 host: host,
                 port: port,
                 maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds,
+                transportPath: .debugLoopback
             )
         case .iroh, .websocket:
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)

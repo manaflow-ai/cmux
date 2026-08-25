@@ -233,15 +233,15 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
-            // Preserve the released-client Tailscale grammar only when every
-            // disclosed route is Tailscale. A mixed ticket must retain Iroh and
-            // LAN routes so the phone can later honor a pinned mode after the
-            // initial pairing; the v2 grammar has nowhere to encode them.
-            if ticket.routes.allSatisfy({ $0.kind == .tailscale }),
-               let pairingURL = tailscaleCompatibilityAttachURL(
-                   for: ticket,
-                   pairingURLScheme: pairingURLScheme
-               ) {
+            // Keep the released-client Tailscale grammar whenever a compatible
+            // Tailscale route exists. Older phones cannot decode the newer
+            // `.lan` route kind in compact v1 payloads; current phones recover
+            // the complete LAN/Iroh route set from authenticated host status
+            // after this compatibility dial succeeds.
+            if let pairingURL = tailscaleCompatibilityAttachURL(
+                for: ticket,
+                pairingURLScheme: pairingURLScheme
+            ) {
                 return pairingURL
             }
             // A current client can bootstrap LAN Only from an identity-only
@@ -287,8 +287,8 @@ final class MobileAttachTicketStore {
             }) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
-            // The compact grammar is the lossless current-client fallback for
-            // mixed route classes; unlike v2 it can carry `.iroh` and `.lan`.
+            // The compact grammar is the fallback when no released-compatible
+            // Tailscale URL exists (for example an Iroh+LAN-only ticket).
             return try compactAttachURL(
                 for: ticket,
                 routeDisclosureMode: .legacyPrivateNetworkCompatibility,

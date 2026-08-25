@@ -202,7 +202,10 @@ extension MobileShellComposite {
         }
         return pairedMacs.allSatisfy {
             let method = connectionMethod(for: $0)
-            return method != .automatic && method != .iroh && method != .direct
+            return method != .automatic
+                && method != .iroh
+                && method != .direct
+                && method != .lan
         }
     }
 
