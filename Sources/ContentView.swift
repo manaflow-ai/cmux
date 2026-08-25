@@ -11572,17 +11572,20 @@ struct VerticalTabsSidebar: View, Equatable {
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
             if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                for workspaceId in panelIdsByWorkspaceId.keys
-                where renderContext.workspaceById[workspaceId] != nil {
-                    scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+                var panelIdsWithoutCurrentWorkspace = Set<UUID>()
+                for (workspaceId, panelIds) in panelIdsByWorkspaceId {
+                    if renderContext.workspaceById[workspaceId] != nil {
+                        scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+                    } else {
+                        panelIdsWithoutCurrentWorkspace.formUnion(panelIds)
+                    }
                 }
                 // Restored workspaces can rotate their UUID while retaining
                 // the panel id. Resolve those panel-only index entries against
                 // the current owner so their activity/elapsed snapshot updates.
-                let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
-                guard !changedPanelIds.isEmpty else { return }
+                guard !panelIdsWithoutCurrentWorkspace.isEmpty else { return }
                 for workspace in renderContext.tabs
-                where !changedPanelIds.isDisjoint(with: workspace.panels.keys) {
+                where !panelIdsWithoutCurrentWorkspace.isDisjoint(with: workspace.panels.keys) {
                     scheduleWorkspaceSnapshotRefresh(workspaceId: workspace.id)
                 }
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
