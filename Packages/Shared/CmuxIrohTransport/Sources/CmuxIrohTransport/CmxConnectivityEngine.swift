@@ -541,9 +541,14 @@ public actor CmxConnectivityEngine {
                 // The request is the policy authority. A stale/default mode
                 // returned by a context provider must not widen a pinned dial
                 // before the session validates its plan.
-                try CmxTransportModePolicy(request.transportMode).validate(
-                    irohDialPlan: context.dialPlan
-                )
+                let isPreDiscoveryLANPlan = request.transportMode == .lan
+                    && context.dialPlan.publicPaths.isEmpty
+                    && context.dialPlan.privateFallbackPaths.isEmpty
+                if !isPreDiscoveryLANPlan {
+                    try CmxTransportModePolicy(request.transportMode).validate(
+                        irohDialPlan: context.dialPlan
+                    )
+                }
                 let session = try CmxIrohClientSession(
                     endpoint: endpoint,
                     targetIdentity: peerID.identity,

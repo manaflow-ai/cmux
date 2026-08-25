@@ -72,7 +72,12 @@ public actor CmxIrohClientSession {
         self.protocolConfiguration = protocolConfiguration
         self.diagnostics = diagnostics
         self.peerAlias = DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
-        try CmxTransportModePolicy(transportMode).validate(irohDialPlan: dialPlan)
+        let isPreDiscoveryLANPlan = transportMode == .lan
+            && dialPlan.publicPaths.isEmpty
+            && dialPlan.privateFallbackPaths.isEmpty
+        if !isPreDiscoveryLANPlan {
+            try CmxTransportModePolicy(transportMode).validate(irohDialPlan: dialPlan)
+        }
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 

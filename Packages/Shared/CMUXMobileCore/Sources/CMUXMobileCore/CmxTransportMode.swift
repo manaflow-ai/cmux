@@ -258,7 +258,13 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// Validates one route at the transport-factory boundary.
     public func validate(route: CmxAttachRoute) throws {
         guard let required = mode.pinnedClass else { return }
-        if mode == .lan, route.kind == .iroh {
+        if mode == .lan {
+            guard route.kind == .iroh else {
+                throw CmxTransportModeError.routeClassMismatch(
+                    expected: required,
+                    actual: route.transportClass
+                )
+            }
             return
         }
         guard route.transportClass == required else {
@@ -361,6 +367,7 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             )
         case .lan:
             guard plan.publicPaths.isEmpty,
+                  !plan.privateFallbackPaths.isEmpty,
                   plan.privateFallbackPaths.allSatisfy({ $0.source == .lan }) else {
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .lan,
