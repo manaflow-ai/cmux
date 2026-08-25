@@ -1,4 +1,7 @@
-import { gzipSync } from "node:zlib";
+import { constants as zlibConstants, gzip } from "node:zlib";
+import { promisify } from "node:util";
+
+const gzipAsync = promisify(gzip);
 import { readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -188,6 +191,20 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// Step-level latency attribution for the create path. The workflow recorder only
+// shows provider_create as one block, so CMUX_VM_DEBUG_TIMINGS=1 additionally logs
+// one line per driver step (volume, sandbox create, daemon upload, preview) — slow
+// creates get measured, not guessed at.
+async function timedStep<T>(step: string, run: () => Promise<T>): Promise<T> {
+  if (env("CMUX_VM_DEBUG_TIMINGS") !== "1") return run();
+  const start = performance.now();
+  try {
+    return await run();
+  } finally {
+    console.info(`[blaxel] timing step=${step} ms=${Math.round(performance.now() - start)}`);
+  }
+}
+
 function controlHeaders(): Record<string, string> {
   return {
     "X-Blaxel-Authorization": `Bearer ${requireEnv("BL_API_KEY")}`,
@@ -284,7 +301,11 @@ async function daemonBinaryBase64Gzip(): Promise<string> {
   if (source.sha256) {
     verifyDaemonDigest(binary, source.sha256);
   }
-  const gz = gzipSync(binary, { level: 9 }).toString("base64");
+  // Compression level is create latency, not egress savings: on a ~10.7MB Go
+  // binary, level 9 measured 32s for 5.86MB vs level 1's 2.6s for 6.20MB — 29s
+  // of every cold create to save 0.3MB (<1s of upload). Best-speed, and async
+  // so the encode does not stall every other request on the event loop.
+  const gz = (await gzipAsync(binary, { level: zlibConstants.Z_BEST_SPEED })).toString("base64");
   cachedDaemonB64 = gz;
   return gz;
 }
@@ -315,10 +336,11 @@ export class BlaxelProvider implements VMProvider {
           let created: BlaxelSandbox | null = null;
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
             if (homeVolume) {
-              await this.ensureHomeVolume(homeVolume);
+              const volume = homeVolume;
+              await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume));
             }
             try {
-              created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
+              created = await timedStep("create_sandbox", () => blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
                 metadata: { name },
                 spec: {
                   runtime: {
@@ -329,7 +351,7 @@ export class BlaxelProvider implements VMProvider {
                   },
                   ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
                 },
-              });
+              }));
             } catch (err) {
               const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
               if (!conflict || attempt === 3) throw err;
@@ -341,11 +363,11 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
-          await this.bootstrapDaemon(name, sandboxUrl);
+          await timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl));
           // The daemon preview is minted through the same branded path attach uses, so a
           // machine is born at https://<name>.vm.cmux.sh (or <name>-cmux.preview.bl.run)
           // rather than an opaque hash it would then keep for life.
-          const previewUrl = await this.ensurePreview(name);
+          const previewUrl = await timedStep("ensure_preview", () => this.ensurePreview(name));
           span.setAttribute("cmux.vm.id", name);
           return {
             provider: "blaxel",
@@ -365,33 +387,33 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async bootstrapDaemon(name: string, sandboxUrl: string): Promise<void> {
-    const b64 = await daemonBinaryBase64Gzip();
-    await blaxelFetch(
+    const b64 = await timedStep("daemon_binary_encode", () => daemonBinaryBase64Gzip());
+    await timedStep("daemon_upload", () => blaxelFetch(
       "PUT",
       // Leading slash after /filesystem: relative paths root at /blaxel, absolute paths need
       // the extra separator (`/filesystem//tmp/...`).
       `${sandboxUrl}/filesystem//tmp/cmuxd.b64`,
       { content: b64, permissions: "0600" },
       { timeoutMs: 180_000 },
-    );
+    ));
     await blaxelFetch(
       "PUT",
       `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
       { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
     );
-    const install = await this.sandboxExec(
+    const install = await timedStep("daemon_install", () => this.sandboxExec(
       sandboxUrl,
       `base64 -d /tmp/cmuxd.b64 | gunzip > ${CMUXD_BINARY_PATH} && chmod 755 ${CMUXD_BINARY_PATH} && rm /tmp/cmuxd.b64 && chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux && ${CMUXD_BINARY_PATH} version`,
-    );
+    ));
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `daemon install in ${name} failed: ${install.stderr || install.stdout}`);
     }
-    await this.startDaemonProcess(sandboxUrl);
-    await this.startWatcherProcess(sandboxUrl);
+    await timedStep("daemon_start", () => this.startDaemonProcess(sandboxUrl));
+    await timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl));
     // Runtime state, so it re-applies on resurrection too (this method runs on both paths).
     // Must precede the VNC heal: the heal only succeeds once the hostname resolves.
-    await this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined);
-    await this.startDesktopVncHeal(sandboxUrl);
+    await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
+    await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
     // Agents and dev essentials come with the machine, installed in the background so attach
     // is never delayed. The .bashrc seed is write-once: /root persists, and a user's edits win.
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
