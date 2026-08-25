@@ -58,6 +58,11 @@ final class SharedLiveAgentIndex {
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
+    // A synchronous loader cannot be interrupted once it is inside its
+    // process/filesystem scan. Share one detached loader across refresh
+    // wrappers so an ownership timeout never starts an unbounded second scan.
+    private var indexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
+    private var indexLoaderTaskGeneration: UUID?
     private var refreshTask: Task<Void, Never>?
     private var refreshTaskGeneration: UUID?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
@@ -270,6 +275,7 @@ final class SharedLiveAgentIndex {
     }
 
     deinit {
+        indexLoaderTask?.cancel()
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
@@ -1248,10 +1254,28 @@ final class SharedLiveAgentIndex {
         forcePublish: Bool,
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
-        let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
+        let loaderGeneration: UUID
+        let loadTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
+        if let existingTask = indexLoaderTask,
+           let existingGeneration = indexLoaderTaskGeneration {
+            loaderGeneration = existingGeneration
+            loadTask = existingTask
+        } else {
+            let indexLoader = self.indexLoader
+            let generation = UUID()
+            loaderGeneration = generation
+            let task = Task.detached(priority: .utility) {
+                indexLoader()
+            }
+            indexLoaderTaskGeneration = generation
+            indexLoaderTask = task
+            loadTask = task
+        }
+        let result = await loadTask.value
+        if indexLoaderTaskGeneration == loaderGeneration {
+            indexLoaderTask = nil
+            indexLoaderTaskGeneration = nil
+        }
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
             return [:]

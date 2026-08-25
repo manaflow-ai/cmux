@@ -3845,6 +3845,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingExplicitKeyDownSurfaceID: UUID?
     private var pendingExplicitKeyDownKeyCodes: [UInt16: Int] = [:]
     private var pendingExplicitKeyUpEvents: [UInt16: [NSEvent]] = [:]
+    private var pendingExplicitKeyUpEventCount = 0
     private static let maximumPendingExplicitKeyDownEvents = 32
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
@@ -4194,6 +4195,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyDown(with: event)
             if remainingKeyDowns <= 0,
                let queuedKeyUps = pendingExplicitKeyUpEvents.removeValue(forKey: event.keyCode) {
+                pendingExplicitKeyUpEventCount -= queuedKeyUps.count
                 for queuedKeyUp in queuedKeyUps {
                     keyUp(with: queuedKeyUp)
                 }
@@ -4201,6 +4203,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
+        pendingExplicitKeyUpEventCount = 0
     }
 
     fileprivate func discardPendingExplicitKeyDownEvents() {
@@ -4208,6 +4211,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingExplicitKeyDownSurfaceID = nil
         pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
+        pendingExplicitKeyUpEventCount = 0
     }
 
     override func viewDidMoveToWindow() {
@@ -6257,7 +6261,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func keyUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         if pendingExplicitKeyDownKeyCodes[event.keyCode] != nil {
+            guard pendingExplicitKeyUpEventCount < Self.maximumPendingExplicitKeyDownEvents else {
+                return
+            }
             pendingExplicitKeyUpEvents[event.keyCode, default: []].append(event)
+            pendingExplicitKeyUpEventCount += 1
             return
         }
         guard let surface = ensureSurfaceReadyForInput() else {
