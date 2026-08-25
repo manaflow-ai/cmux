@@ -294,9 +294,9 @@ extension AppDelegate {
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
-                    await ProcessDetectedResumeIndexes.loadFresh(
+                    await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
                         ttyDeviceBindings: bindings
-                    )
+                    ) ?? .cached(restorableAgentIndex: .empty)
                 }
             guard self.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: route.windowId
@@ -424,7 +424,7 @@ extension AppDelegate {
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
-        if freezeWindowlessRoutes {
+        if freezeWindowlessRoutes, let suppliedRestorableAgentIndex {
             var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
             for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
                 guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
@@ -445,12 +445,10 @@ extension AppDelegate {
                 }
                 candidateOrphanedRoutes.append(route)
             }
-            let restorableAgentIndexForFreeze = suppliedRestorableAgentIndex
-                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             _ = freezeWindowlessRecoverableMainWindowRoutes(
                 candidateOrphanedRoutes,
                 windowsByWindowId: windowsByWindowId,
-                restorableAgentIndex: restorableAgentIndexForFreeze,
+                restorableAgentIndex: suppliedRestorableAgentIndex,
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex
             )
         }

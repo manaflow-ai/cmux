@@ -34,6 +34,40 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
+    /// Loads fresh process state with a bounded lifecycle deadline.
+    static func loadFreshWithDeadline(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        deadline: Duration = .seconds(5),
+        sleepUntilDeadline: @escaping @Sendable (Duration) async -> Bool = { duration in
+            do {
+                // Genuine recovery deadline; cancellation returns the fail-closed result.
+                try await ContinuousClock().sleep(for: duration)
+                return true
+            } catch {
+                return false
+            }
+        }
+    ) async -> ProcessDetectedResumeIndexes? {
+        await withCheckedContinuation { continuation in
+            let gate = AgentForkTimeoutResumeGate<ProcessDetectedResumeIndexes?>(continuation)
+            let worker = Task.detached(priority: .utility) {
+                let result = loadFreshSynchronously(
+                    homeDirectory: homeDirectory,
+                    fileManager: fileManager,
+                    ttyDeviceBindings: ttyDeviceBindings
+                )
+                _ = gate.resume(returning: result)
+            }
+            Task {
+                guard await sleepUntilDeadline(deadline) else { return }
+                worker.cancel()
+                _ = gate.resume(returning: nil)
+            }
+        }
+    }
+
     /// Synchronous implementation for detached loading and focused tests.
     /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
     static func loadFreshSynchronously(
