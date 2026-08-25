@@ -59,6 +59,14 @@ for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
 edit the file and save and it hot-reloads. If several extensions share a base
 name, `.js` wins over `.swift`, which wins over `.json`.
 
+The same files also work as **right-sidebar panels** (extensions next to
+Files/Find/Vault): `cmux right-sidebar set custom <name>` selects one and adds
+a Custom button to the right sidebar's mode bar. The panel gets the same data
+keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
+`panel-info` (selected-workspace overview with clickable ports and PRs) and
+`panel-todo` (an interactive scratch checklist) are right-panel-shaped
+examples.
+
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 

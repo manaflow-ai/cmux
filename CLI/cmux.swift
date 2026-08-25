@@ -17840,10 +17840,13 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
-                                             Show, switch mode, and focus
+              set <files|find|vault|sessions|feed|dock|custom> [sidebar-name]
+                                             Show, switch mode, and focus. `custom`
+                                             renders a JS/Swift sidebar from
+                                             ~/.config/cmux/sidebars as a right panel;
+                                             the optional name picks which one.
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
+              files|find|vault|sessions|feed|dock|custom
                                              Alias for show + set + focus
 
             Flags:
@@ -17854,6 +17857,7 @@ struct CMUXCLI {
             Examples:
               cmux right-sidebar toggle
               cmux right-sidebar set find
+              cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
             """)
         case "sidebar":

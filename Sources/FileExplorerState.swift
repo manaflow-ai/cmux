@@ -73,6 +73,12 @@ final class FileExplorerState: ObservableObject {
         defaults.set(name, forKey: Self.customSidebarNameKey)
     }
 
+    /// The persisted right-sidebar custom-sidebar name, readable without an
+    /// instance (mode availability checks run from static contexts).
+    static func persistedCustomSidebarName(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customSidebarNameKey)?.nilIfEmpty
+    }
+
     func toggle() {
         setVisible(!isVisible)
     }
@@ -115,9 +121,6 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        if mode == .customSidebar {
-            return .files
-        }
-        return mode.isAvailable(defaults: defaults) ? mode : .files
+        mode.isAvailable(defaults: defaults) ? mode : .files
     }
 }

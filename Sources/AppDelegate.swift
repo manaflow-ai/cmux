@@ -7008,7 +7008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch command {
         case .focus:
             requiresWindowFocus = true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             requiresWindowFocus = focus
         case .toggle, .show, .hide, .getState:
             requiresWindowFocus = false
@@ -7067,6 +7067,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 state.setVisible(true)
                 state.mode = mode
                 context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
+            }
+            return .ok
+
+        case .setCustomSidebar(let name, let focus):
+            guard CmuxExtensionSidebarSelection.customSidebarsEnabled else {
+                return .failure(String(localized: "rightSidebar.remote.error.customSidebarsDisabled", defaultValue: "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"))
+            }
+            if let name {
+                guard CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) != nil else {
+                    return .failure(String(localized: "rightSidebar.remote.error.customSidebarNotFound", defaultValue: "ERROR: No custom sidebar named '\(name)' in ~/.config/cmux/sidebars"))
+                }
+                state.selectCustomSidebar(name: name)
+            }
+            guard let selected = state.customSidebarName,
+                  CmuxExtensionSidebarSelection.customSidebarFileURL(forName: selected) != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.customSidebarUnset", defaultValue: "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"))
+            }
+            if focus {
+                guard focusRightSidebarInActiveMainWindow(mode: .customSidebar, focusFirstItem: true, preferredWindow: preferredWindow) else {
+                    return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
+                }
+            } else {
+                state.setVisible(true)
+                state.mode = .customSidebar
+                context?.keyboardFocusCoordinator.rememberRightSidebarMode(.customSidebar)
             }
             return .ok
         case .getState:

@@ -51347,13 +51347,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -147958,6 +147958,40 @@
         }
       }
     },
+    "rightSidebar.customSidebar.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom sidebar selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバーが選択されていません"
+          }
+        }
+      }
+    },
+    "rightSidebar.customSidebar.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick one with: cmux right-sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set custom <name> で選択してください"
+          }
+        }
+      }
+    },
     "rightSidebar.customSidebar.missing": {
       "extractionState": "manual",
       "localizations": {
@@ -148147,6 +148181,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ERROR: アプリデリゲートを利用できません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar named '%@' in ~/.config/cmux/sidebars"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: ~/.config/cmux/sidebars に「%@」というカスタムサイドバーはありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarUnset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーが未選択です。right_sidebar set custom <name> を実行してください"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーは無効です（設定 → ベータ機能で有効にしてください）"
           }
         }
       }
@@ -148429,13 +148514,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }

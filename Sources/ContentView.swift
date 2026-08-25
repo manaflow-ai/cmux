@@ -2009,6 +2009,9 @@ struct ContentView: View {
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+            },
+            customSidebarDataContext: { now in
+                rightSidebarCustomSidebarDataContext(now: now)
             }
         )
         .frame(width: rightSidebarWidth)
