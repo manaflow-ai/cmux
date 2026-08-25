@@ -50,7 +50,7 @@ extension CMUXCLI {
                   !lines.isEmpty else { return nil }
             return (
                 lines,
-                textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
+                textFileGrowthMetric(path: transcriptPath, fallbackLineCount: 0)
             )
         }()
         if reconcilePendingAutoNamingTitleIfNeeded(
@@ -262,7 +262,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             lines: lines,
-            lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
+            lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: 0),
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,

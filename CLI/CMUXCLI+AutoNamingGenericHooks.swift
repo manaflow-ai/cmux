@@ -42,6 +42,11 @@ extension CMUXCLI {
         guard probe["enabled"] as? Bool == true else { return false }
         guard probe["workspace_user_owned"] as? Bool == true else { return true }
         guard hasReplayableAutoNamingState(session) else { return false }
+        if session?.autoNameTitleReconciliationGeneration == nil,
+           max(0, session?.autoNameTitleReconciliationAttemptCount ?? 0)
+                >= ClaudeHookSessionStore.maxAutoNameTitleReconciliationAttempts {
+            return false
+        }
         if session?.autoNameTitleReconciliationGeneration != nil
             || session?.autoNameInFlightAt != nil {
             return true
@@ -163,7 +168,7 @@ extension CMUXCLI {
                       !lines.isEmpty else {
                     return nil
                 }
-                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
+                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: 0)
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
@@ -406,8 +411,6 @@ extension CMUXCLI {
             sanitized,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            expectedWorkspaceTitle: outcome.lastTitle,
-            expectedPanelTitle: outcome.lastTitle,
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry

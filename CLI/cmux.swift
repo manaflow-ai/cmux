@@ -242,7 +242,7 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
-    private static let maxAutoNameTitleReconciliationAttempts = 4
+    static let maxAutoNameTitleReconciliationAttempts = 4
 
     private let statePath: String
     private let fileManager: FileManager
@@ -1925,7 +1925,10 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: false,
-                agentLifecycle: .unknown,
+                // Compact SessionStart continues the existing agent lifecycle;
+                // unlike a fresh session, it must not overwrite running/idle/
+                // needs-input state while only refreshing identity metadata.
+                agentLifecycle: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
