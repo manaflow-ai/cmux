@@ -2413,6 +2413,7 @@ mod tests {
             socket_dir: PathBuf::from("/run/cmux-tui-501"),
             read_dir: None,
             ensure_socket_path: None,
+            control: None,
         });
         let manager =
             PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
