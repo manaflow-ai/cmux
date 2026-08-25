@@ -169,9 +169,16 @@ struct DetectedSSHSession: Equatable {
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
-        for option in sshOptions {
+        let nonInteractiveSSHOptions = SSHAgentSocketResolver().removingOptions(
+            named: "RequestTTY",
+            from: sshOptions
+        )
+        for option in nonInteractiveSSHOptions {
             args += ["-o", option]
         }
+        // Terminal TTY intent is shared in the workspace configuration, but
+        // scp is a batch protocol and must always keep PTY allocation disabled.
+        args += ["-o", "RequestTTY=no"]
 
         args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
