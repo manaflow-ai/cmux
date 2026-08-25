@@ -3,7 +3,7 @@ import Foundation
 
 extension CMUXCLI {
     /// Returns whether a leading token mixes a TTY flag with another short SSH option.
-    private func isMixedTTYOptionCluster(_ argument: String) -> Bool {
+    func isMixedTTYOptionCluster(_ argument: String) -> Bool {
         guard argument.count > 2,
               argument.first == "-",
               argument.dropFirst().first != "-" else {
