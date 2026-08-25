@@ -350,15 +350,14 @@ public actor CmxIrohHostRuntime {
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
             }
-            let publishInline: Bool
-            if requiresRelayReadiness {
-                publishInline = true
-            } else {
-                publishInline = await initialPublicationReady(
-                    engine: connectivityEngine
-                )
-                try requireCurrent(revision)
-            }
+            // Every path re-checks verified readiness immediately before
+            // publication. Relay-required activations arrive here only after
+            // the blocking waitForUsableHomeRelay() above succeeded, so the
+            // check returns true for them without a second wait.
+            let publishInline = await initialPublicationReady(
+                engine: connectivityEngine
+            )
+            try requireCurrent(revision)
             let publishedFreshBinding: Bool
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery,
