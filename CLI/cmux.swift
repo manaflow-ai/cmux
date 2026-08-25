@@ -181,9 +181,14 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func fingerprint(for value: String) -> String {
-            SHA256.hash(data: Data(value.utf8))
-                .map { String(format: "%02x", $0) }
-                .joined()
+            let hexadecimal = Array("0123456789abcdef".utf8)
+            var encoded: [UInt8] = []
+            encoded.reserveCapacity(64)
+            for byte in SHA256.hash(data: Data(value.utf8)) {
+                encoded.append(hexadecimal[Int(byte >> 4)])
+                encoded.append(hexadecimal[Int(byte & 0x0f)])
+            }
+            return String(decoding: encoded, as: UTF8.self)
         }
 
         private static func redactedPreview(for value: String) -> String {
@@ -399,16 +404,21 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         toolUseId: String? = nil
-    ) throws -> (matched: Bool, hasRemaining: Bool, expired: Bool) {
+    ) throws -> (
+        matched: Bool,
+        hasRemaining: Bool,
+        expired: Bool,
+        remainingDisplayCommand: String?
+    ) {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (matched: false, hasRemaining: false, expired: false)
+            return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
         }
         return try withLockedState { state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
-                return (matched: false, hasRemaining: false, expired: false)
+                return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
             }
             let now = Date().timeIntervalSince1970
             let beforePruneCount = pending.count
@@ -433,7 +443,12 @@ final class ClaudeHookSessionStore {
                     record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
                     state.sessions[normalizedSession] = record
                 }
-                return (matched: false, hasRemaining: !pending.isEmpty, expired: expired)
+                return (
+                    matched: false,
+                    hasRemaining: !pending.isEmpty,
+                    expired: expired,
+                    remainingDisplayCommand: pending.last?.displayCommand
+                )
             }
             pending.remove(at: matchIndex)
             let hasRemaining = !pending.isEmpty
@@ -464,7 +479,12 @@ final class ClaudeHookSessionStore {
                 record.lastNotificationStatus = nil
             }
             state.sessions[normalizedSession] = record
-            return (matched: true, hasRemaining: hasRemaining, expired: expired)
+            return (
+                matched: true,
+                hasRemaining: hasRemaining,
+                expired: expired,
+                remainingDisplayCommand: pending.last?.displayCommand
+            )
         }
     }
 
@@ -29118,7 +29138,7 @@ struct CMUXCLI {
             let command = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["command"])
             }
-            let body = command.map(normalizedSingleLine)
+            let body = command.map { redactClaudeSensitiveSpans(normalizedSingleLine($0)) }
                 ?? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
             return classifyAgentHookNotification(
                 def: def,
@@ -32183,17 +32203,16 @@ export default CMUXSessionRestore;
             )
             if cwdURL.path != projectRoot.path,
                cwdURL.path.hasPrefix(projectRoot.path + "/") {
-                let relativePath = String(cwdURL.path.dropFirst(projectRoot.path.count))
-                var directory = projectRoot
-                for component in relativePath.split(separator: "/") {
-                    directory.appendPathComponent(String(component), isDirectory: true)
-                    applyConfig(
-                        at: directory
-                            .appendingPathComponent(".cursor", isDirectory: true)
-                            .appendingPathComponent("cli.json", isDirectory: false),
-                        readsApprovalMode: false
-                    )
-                }
+                // Keep the hook's synchronous policy lookup bounded: the
+                // global file, repository root, and current project directory
+                // cover the supported effective layers without walking every
+                // ancestor on a command-heavy shell path.
+                applyConfig(
+                    at: cwdURL
+                        .appendingPathComponent(".cursor", isDirectory: true)
+                        .appendingPathComponent("cli.json", isDirectory: false),
+                    readsApprovalMode: false
+                )
             }
             return (mode, allowedShellCommands, deniedShellCommands)
         }()
@@ -32757,6 +32776,34 @@ export default CMUXSessionRestore;
                 return
             }
             if resolution.hasRemaining {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                let pendingSubtitle = String(
+                    localized: "agent.generic.notification.subtitle.permission",
+                    defaultValue: "Permission"
+                )
+                let pendingBody = resolution.remainingDisplayCommand
+                    ?? String(
+                        localized: "agent.generic.notification.body.approvalNeeded",
+                        defaultValue: "Approval needed"
+                    )
+                let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
+                    pending: false,
+                    agentKind: def.name,
+                    isSubagent: false
+                )
+                let pendingPayload = notificationPayload(
+                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                    subtitle: pendingSubtitle,
+                    body: pendingBody,
+                    meta: pendingMeta
+                )
+                _ = try? sendV1Command(
+                    "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)",
+                    client: client
+                )
                 emitJournal(
                     .stateChanged,
                     workspaceId: workspaceId,
