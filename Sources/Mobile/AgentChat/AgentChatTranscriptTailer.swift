@@ -22,6 +22,9 @@ actor AgentChatTranscriptTailer {
         /// The transcript was truncated/replaced and the seq space
         /// restarted; clients must re-anchor.
         var didReset = false
+        /// A tool result positively authorized an artifact mutation even when
+        /// no visible chat row was emitted for the sidechain.
+        var didAuthorizeArtifactMutation = false
     }
 
     private let sessionID: String
@@ -279,7 +282,12 @@ actor AgentChatTranscriptTailer {
         trimCacheIfNeeded()
         // Updates for messages that already fell out of the cache are still
         // pushed: a live client may hold them in its window.
-        guard !outcome.messages.isEmpty || !updated.isEmpty else { return }
+        let didAuthorizeArtifactMutation = outcome.artifactReferences.contains {
+            $0.provenance == .created
+        }
+        guard !outcome.messages.isEmpty || !updated.isEmpty || didAuthorizeArtifactMutation else {
+            return
+        }
         var discoveredTitle: String?
         if !reportedTitle, let title {
             reportedTitle = true
@@ -290,7 +298,8 @@ actor AgentChatTranscriptTailer {
             Batch(
                 appended: outcome.messages,
                 updated: updated,
-                discoveredTitle: discoveredTitle
+                discoveredTitle: discoveredTitle,
+                didAuthorizeArtifactMutation: didAuthorizeArtifactMutation
             )
         )
     }

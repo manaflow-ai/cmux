@@ -438,6 +438,44 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     @MainActor
+    @Test func sidechainMutationAuthorizationSchedulesCaptureWithoutVisibleRow() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = UUID().uuidString
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(
+                    store: OutOfOrderCaptureStore(suspendsFirstImport: false)
+                )
+            )
+        )
+
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [],
+                updated: [],
+                discoveredTitle: nil,
+                didAuthorizeArtifactMutation: true
+            ),
+            sessionID: sessionID
+        )
+
+        #expect(service.artifactCaptureDebounceTasks[sessionID] != nil)
+    }
+
+    @MainActor
     @Test func deinitCancelsActiveAutomaticCaptureTask() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

@@ -43,13 +43,28 @@ public struct TerminalArtifactPathDetector: Sendable {
         var seen: Set<String> = []
         var result: [String] = []
         let stripped = Self.strippingTerminalEscapeSequences(text)
-        for raw in stripped.split(whereSeparator: \.isWhitespace) {
-            let candidate = Self.trimmedCandidate(String(raw))
-            guard Self.isPathLike(candidate), seen.insert(candidate).inserted else {
-                continue
+        var tokenStart: String.Index?
+        var index = stripped.startIndex
+        while index < stripped.endIndex, result.count < limit {
+            let character = stripped[index]
+            if character.isWhitespace {
+                if let tokenStart {
+                    let candidate = Self.trimmedCandidate(String(stripped[tokenStart..<index]))
+                    if Self.isPathLike(candidate), seen.insert(candidate).inserted {
+                        result.append(candidate)
+                    }
+                }
+                tokenStart = nil
+            } else if tokenStart == nil {
+                tokenStart = index
             }
-            result.append(candidate)
-            if result.count == limit { break }
+            index = stripped.index(after: index)
+        }
+        if result.count < limit, let tokenStart {
+            let candidate = Self.trimmedCandidate(String(stripped[tokenStart..<stripped.endIndex]))
+            if Self.isPathLike(candidate), seen.insert(candidate).inserted {
+                result.append(candidate)
+            }
         }
         return result
     }

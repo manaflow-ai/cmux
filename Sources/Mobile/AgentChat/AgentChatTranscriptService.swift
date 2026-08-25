@@ -670,7 +670,9 @@ final class AgentChatTranscriptService {
         let containsAuthorizedArtifactMutation = Self.batchContainsAuthorizedArtifactMutation(
             batch.appended + batch.updated
         )
-        if completedAt != nil || containsAuthorizedArtifactMutation,
+        if completedAt != nil
+            || batch.didAuthorizeArtifactMutation
+            || containsAuthorizedArtifactMutation,
            let completedRecord = registry.record(sessionID: sessionID) {
             scheduleDebouncedArtifactCapture(for: completedRecord)
         }
