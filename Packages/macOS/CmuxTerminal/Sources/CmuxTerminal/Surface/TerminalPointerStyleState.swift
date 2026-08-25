@@ -29,14 +29,15 @@ public struct TerminalPointerStyleState {
 
     /// The cursor AppKit should present for the current surface state.
     public var effectiveCursor: NSCursor {
+        if isCmuxLinkHoverActive { return .pointingHand }
         guard isFocused else { return .iBeam }
-        if isCmuxLinkHoverActive || isGhosttyLinkHoverActive {
+        if isGhosttyLinkHoverActive {
             return .pointingHand
         }
         return ghosttyCursor
     }
 
-    /// Whether the focused surface is currently showing the cmux link override.
+    /// Whether this surface is currently showing the cmux link override.
     public var cmuxLinkHoverActive: Bool { isCmuxLinkHoverActive }
 
     /// Whether Ghostty's transient hyperlink pointer is active.
@@ -56,7 +57,7 @@ public struct TerminalPointerStyleState {
     public mutating func apply(_ event: TerminalPointerStyleEvent) -> Bool {
         switch event {
         case .runtimeActivated(let runtimeLifetimeId):
-            let shouldInvalidate = isFocused && (
+            let shouldInvalidate = (
                 ghosttyShape != nil ||
                 isCmuxLinkHoverActive ||
                 isGhosttyLinkHoverActive
@@ -73,7 +74,7 @@ public struct TerminalPointerStyleState {
 
         case .runtimeReset(let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
-            let shouldInvalidate = isFocused && (
+            let shouldInvalidate = (
                 ghosttyShape != nil ||
                 isCmuxLinkHoverActive ||
                 isGhosttyLinkHoverActive
@@ -92,7 +93,7 @@ public struct TerminalPointerStyleState {
                activeRuntimeLifetimeId != runtimeLifetimeId {
                 return false
             }
-            let shouldInvalidate = isFocused && (
+            let shouldInvalidate = (
                 ghosttyShape != nil ||
                 isCmuxLinkHoverActive ||
                 isGhosttyLinkHoverActive
@@ -151,13 +152,12 @@ public struct TerminalPointerStyleState {
             guard isFocused != focused else { return false }
             isFocused = focused
             if !focused {
-                isCmuxLinkHoverActive = false
                 isGhosttyLinkHoverActive = false
             }
             return true
 
         case .cmuxLinkHoverChanged(let active):
-            let nextActive = isFocused && active
+            let nextActive = active
             guard isCmuxLinkHoverActive != nextActive else { return false }
             isCmuxLinkHoverActive = nextActive
             return true

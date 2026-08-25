@@ -382,7 +382,7 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.dragCopy)
     }
 
-    @Test("cmux link hover overrides OSC 22 and clears on focus loss")
+    @Test("cmux link hover overrides OSC 22 without requiring terminal focus")
     func linkHoverPrecedence() {
         var state = TerminalPointerStyleState()
         let runtimeLifetimeId = activate(&state)
@@ -400,8 +400,10 @@ struct TerminalPointerStyleStateTests {
 
         state.apply(.cmuxLinkHoverChanged(true))
         state.apply(.focusChanged(false))
-        state.apply(.focusChanged(true))
-        #expect(state.effectiveCursor == NSCursor.crosshair)
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
+
+        state.apply(.cmuxLinkHoverChanged(false))
+        #expect(state.effectiveCursor == NSCursor.iBeam)
     }
 
     private func activate(_ state: inout TerminalPointerStyleState) -> UUID {
