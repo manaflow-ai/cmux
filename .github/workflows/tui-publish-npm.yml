@@ -213,6 +213,11 @@ jobs:
               --source-ref "refs/tags/$RELEASE_TAG"
           done
 
+      # cmux-relay and its platform packages are validated and attested above
+      # as part of the artifact contract, but they are NOT published here: the
+      # relay's npm dist-tags move only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml), so a routine TUI release can never take over
+      # cmux-relay@latest from the shipping relay.
       - name: Publish platform packages
         run: |
           set -euo pipefail
@@ -221,12 +226,7 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
-            cmux-relay-darwin-arm64
-            cmux-relay-darwin-x64
-            cmux-relay-linux-x64
-            cmux-relay-linux-arm64
             cmux-tui-win32-x64
-            cmux-relay-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
@@ -240,11 +240,6 @@ jobs:
           - cmux-tui-linux-x64
           - cmux-tui-linux-arm64
           - cmux-tui-win32-x64
-          - cmux-relay-darwin-arm64
-          - cmux-relay-darwin-x64
-          - cmux-relay-linux-x64
-          - cmux-relay-linux-arm64
-          - cmux-relay-win32-x64
 
           Trusted publisher settings for each package:
           - Repository: manaflow-ai/cmux
@@ -261,6 +256,3 @@ jobs:
           # Deliberately do not pass --tag: this coordinated TUI publish takes
           # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
           npm publish --provenance dist/npm-packages/cmux
-
-      - name: Publish cmux-relay launcher package
-        run: npm publish --provenance dist/npm-packages/cmux-relay
