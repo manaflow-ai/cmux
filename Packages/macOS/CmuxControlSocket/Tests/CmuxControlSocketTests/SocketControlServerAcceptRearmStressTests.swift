@@ -4,7 +4,7 @@ import Foundation
 import os
 import Testing
 
-@testable import CmuxControlSocket
+@_spi(CmuxControlSocketTesting) @testable import CmuxControlSocket
 
 private struct RecordedRearm: Sendable {
     let generation: UInt64

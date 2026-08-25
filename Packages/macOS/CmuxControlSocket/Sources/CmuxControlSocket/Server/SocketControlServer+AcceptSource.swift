@@ -152,10 +152,13 @@ extension SocketControlServer {
     /// re-fire on a hot errno; those re-fires return here without counting
     /// or emitting, matching the legacy cadence where the source was already
     /// suspended by this point.
-    // Internal for the package's deterministic state-machine coverage. The
-    // test drives this same recovery decision after binding a real listener;
-    // it does not bypass path ownership or connection authentication.
-    nonisolated func handleAcceptFailure(
+    // SPI for the package's deterministic state-machine coverage. The test
+    // drives this same recovery decision after binding a real listener; it
+    // does not bypass path ownership or connection authentication. Keeping
+    // this out of the ordinary public API prevents production clients from
+    // manufacturing an accept failure transition.
+    @_spi(CmuxControlSocketTesting)
+    public nonisolated func handleAcceptFailure(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32
