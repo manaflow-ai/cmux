@@ -154,7 +154,8 @@ extension GitMetadataService {
             repository: ResolvedGitRepository,
             seenConfigPaths: inout Set<String>,
             depth: Int,
-            homeDirectory: URL
+            homeDirectory: URL,
+            isCommonConfigScope: Bool
         ) {
             guard depth <= Self.maximumIncludeDepth,
                   !exceeded else {
@@ -168,6 +169,7 @@ extension GitMetadataService {
 
             var currentRemoteName: String?
             var allowsInclude = false
+            var currentSectionIsExtensions = false
             for rawLine in config.components(separatedBy: .newlines) {
                 let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
                     .trimmingCharacters(in: .whitespaces)
@@ -175,6 +177,8 @@ extension GitMetadataService {
                     currentRemoteName = GitMetadataService.gitConfigRemoteName(
                         fromSectionHeader: line
                     )
+                    currentSectionIsExtensions = isCommonConfigScope
+                        && line.lowercased() == "[extensions]"
                     if line.lowercased() == "[include]" {
                         allowsInclude = true
                     } else if let condition = GitMetadataService.gitConfigIncludeIfCondition(
@@ -199,6 +203,12 @@ extension GitMetadataService {
 
                 let parts = line.split(separator: "=", maxSplits: 1).map {
                     $0.trimmingCharacters(in: .whitespaces)
+                }
+                if currentSectionIsExtensions,
+                   parts.first?.lowercased() == "worktreeconfig" {
+                    if let enabled = GitMetadataService.gitConfigBooleanValue(parts.count == 2 ? parts[1] : "true") {
+                        worktreeConfigEnabled = enabled
+                    }
                 }
                 if currentRemoteName != nil,
                    parts.count == 2,
@@ -225,7 +235,8 @@ extension GitMetadataService {
                     repository: repository,
                     seenConfigPaths: &seenConfigPaths,
                     depth: depth + 1,
-                    homeDirectory: homeDirectory
+                    homeDirectory: homeDirectory,
+                    isCommonConfigScope: isCommonConfigScope
                 )
             }
         }
@@ -271,12 +282,24 @@ extension GitMetadataService {
         )
         var discoverySeenConfigPaths: Set<String> = []
         for configURL in rootConfigURLs {
+            let isCommonConfigScope = discoveryBudget.isCommonConfig(configURL)
             discoveryBudget.discoverRemoteURLs(
                 from: configURL,
                 repository: repository,
                 seenConfigPaths: &discoverySeenConfigPaths,
                 depth: 0,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                isCommonConfigScope: isCommonConfigScope
+            )
+        }
+        if discoveryBudget.worktreeConfigEnabled {
+            discoveryBudget.discoverRemoteURLs(
+                from: gitWorktreeConfigURL(repository: repository),
+                repository: repository,
+                seenConfigPaths: &discoverySeenConfigPaths,
+                depth: 0,
+                homeDirectory: homeDirectory,
+                isCommonConfigScope: false
             )
         }
         let discoveredRemoteURLs = discoveryBudget.discoveredRemoteURLs
@@ -296,7 +319,8 @@ extension GitMetadataService {
                 depth: 0,
                 isCommonConfigScope: isCommonConfigScope,
                 discoveredRemoteURLs: discoveredRemoteURLs,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                isHasConfigGated: false
             )
         }
         if budget.worktreeConfigEnabled {
@@ -310,7 +334,8 @@ extension GitMetadataService {
                 depth: 0,
                 isCommonConfigScope: false,
                 discoveredRemoteURLs: discoveredRemoteURLs,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                isHasConfigGated: false
             )
         }
         let rawRemoteVOutput = lines.isEmpty ? nil : lines.joined()
@@ -556,7 +581,8 @@ extension GitMetadataService {
         depth: Int,
         isCommonConfigScope: Bool,
         discoveredRemoteURLs: Set<String>,
-        homeDirectory: URL
+        homeDirectory: URL,
+        isHasConfigGated: Bool
     ) {
         guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
               !budget.exceeded else {
@@ -582,6 +608,7 @@ extension GitMetadataService {
         var currentURLRewriteReplacement: String?
         var currentSectionAllowsIncludePath = false
         var currentSectionIsExtensions = false
+        var currentSectionIsHasConfig = false
 
         for rawLine in config.components(separatedBy: .newlines) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
@@ -595,7 +622,9 @@ extension GitMetadataService {
                     && line.lowercased() == "[extensions]"
                 if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
+                    currentSectionIsHasConfig = false
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
+                    currentSectionIsHasConfig = condition.lowercased().hasPrefix("hasconfig:")
                     currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
                         condition,
                         repository: repository,
@@ -605,6 +634,7 @@ extension GitMetadataService {
                     )
                 } else {
                     currentSectionAllowsIncludePath = false
+                    currentSectionIsHasConfig = false
                 }
                 continue
             }
@@ -618,7 +648,8 @@ extension GitMetadataService {
                 budget.recordWorktreeConfigSetting(parts.count == 2 ? parts[1] : "true")
             }
 
-            if let currentRemoteName,
+            if !isHasConfigGated,
+               let currentRemoteName,
                parts.count == 2,
                parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
@@ -664,7 +695,8 @@ extension GitMetadataService {
                 depth: depth + 1,
                 isCommonConfigScope: isCommonConfigScope,
                 discoveredRemoteURLs: discoveredRemoteURLs,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                isHasConfigGated: isHasConfigGated || currentSectionIsHasConfig
             )
         }
     }
