@@ -15,6 +15,9 @@ public enum HivePairOutcome: Equatable, Sendable {
     case loopbackRejected
     /// The link belongs to a different signed-in account than this Mac.
     case accountMismatch
+    /// A tokenless V2 link carries only a Tailscale route; it cannot establish
+    /// the host identity needed before a bearer-capable session is persisted.
+    case unsupportedManualRoute
     /// The registry row has no dialable route to persist.
     case noRoutes
     /// Persisting the pairing failed (local store error).

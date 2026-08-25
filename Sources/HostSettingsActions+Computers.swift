@@ -134,6 +134,7 @@ extension HostSettingsActions {
         case .codeNotFound: return .codeNotFound
         case .loopbackRejected: return .loopbackRejected
         case .accountMismatch: return .accountMismatch
+        case .unsupportedManualRoute: return .noRoutes
         case .noRoutes: return .noRoutes
         case .storeFailed: return .failed
         }

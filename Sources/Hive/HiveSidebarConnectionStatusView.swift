@@ -6,8 +6,9 @@ import SwiftUI
 /// has zero mirrored workspaces to show. Without this, an offline or still-
 /// connecting computer renders a fully blank sidebar with no indication of
 /// why — the mirror attach loop
-/// (`HiveComputerMirrorController.attach(deviceID:into:)`) gives up silently
-/// after ~10s, and the sidebar's scope filter then has nothing to display.
+/// (`HiveComputerMirrorController.attach(deviceID:into:)`) may fail before a
+/// session object exists, and the sidebar's scope filter then has nothing to
+/// display.
 ///
 /// Reuses the same localized strings and phase mapping as
 /// `HiveViewerRootView` in CmuxHiveUI (the standalone viewer window's
@@ -24,8 +25,13 @@ struct HiveSidebarConnectionStatusView: View {
 
         init(phase: HiveRemoteMacSession.Phase?) {
             switch phase {
-            case nil, .idle:
+            case .idle:
                 self = .neverAttempted
+            case nil:
+                // A device-scoped sidebar can reach this state when admission
+                // fails before a session object exists. Surface a retryable
+                // failure instead of leaving an indefinite spinner.
+                self = .failed
             case .connecting, .reconnecting:
                 self = .connecting
             case .connected:

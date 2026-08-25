@@ -54,6 +54,7 @@ final class HiveComputerMirrorController {
     }
 
     private var mirrorsByKey: [MirrorKey: DeviceMirror] = [:]
+    private var deviceIDByWorkspaceID: [UUID: String] = [:]
 
     /// Last remote grid dimensions applied to one mirror surface (closure
     /// state; a class so the frame handler can mutate its capture).
@@ -97,11 +98,12 @@ final class HiveComputerMirrorController {
     /// The device a mirror workspace belongs to, or `nil` for local
     /// workspaces. Drives the sidebar's computer scope filter.
     func deviceID(forWorkspace workspaceId: UUID) -> String? {
-        for mirror in mirrorsByKey.values
-        where mirror.workspaceIdByRemoteID.values.contains(workspaceId) {
-            return mirror.deviceID
-        }
-        return nil
+        deviceIDByWorkspaceID[workspaceId]
+    }
+
+    /// Whether any window currently owns a remote mirror workspace.
+    var hasMirrors: Bool {
+        !mirrorsByKey.isEmpty
     }
 
     /// Open a paired computer's viewer honoring the `computers.presentation`
@@ -337,8 +339,14 @@ final class HiveComputerMirrorController {
                 tabManager.hiveSidebarScopeModel.scope = .thisMac
             }
             for (_, workspaceId) in mirror.workspaceIdByRemoteID {
+                deviceIDByWorkspaceID.removeValue(forKey: workspaceId)
                 guard let workspace = tabManager.workspacesById[workspaceId] else { continue }
                 tabManager.closeWorkspace(workspace)
+            }
+        }
+        if mirror.tabManager == nil {
+            for workspaceId in mirror.workspaceIdByRemoteID.values {
+                deviceIDByWorkspaceID.removeValue(forKey: workspaceId)
             }
         }
         mirror.terminalsByRemoteID.removeAll()
@@ -367,6 +375,7 @@ final class HiveComputerMirrorController {
             let locallyClosed = tabManager.workspacesById[workspaceId] == nil
             guard locallyClosed || !remoteIDs.contains(remoteID) else { continue }
             mirror.workspaceIdByRemoteID.removeValue(forKey: remoteID)
+            deviceIDByWorkspaceID.removeValue(forKey: workspaceId)
             for terminalID in mirror.terminalIDsByRemoteWorkspaceID[remoteID] ?? [] {
                 mirror.terminalsByRemoteID.removeValue(forKey: terminalID)?.detach()
                 mirror.panelIdByRemoteTerminalID.removeValue(forKey: terminalID)
@@ -398,6 +407,7 @@ final class HiveComputerMirrorController {
         for remote in workspaces {
             if let workspaceId = mirror.workspaceIdByRemoteID[remote.id],
                let workspace = tabManager.workspacesById[workspaceId] {
+                deviceIDByWorkspaceID[workspaceId] = mirror.deviceID
                 let nextWorkspaceTitle = localizedWorkspaceTitle(
                     remoteTitle: remote.title,
                     computerName: mirror.computerName
@@ -429,6 +439,7 @@ final class HiveComputerMirrorController {
             // registered for it).
             workspace.isRemoteTmuxMirror = true
             mirror.workspaceIdByRemoteID[remote.id] = workspace.id
+            deviceIDByWorkspaceID[workspace.id] = mirror.deviceID
             let defaultPanelIds = Array(workspace.panels.keys)
             addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, session: session)
             for panelId in defaultPanelIds where workspace.panels[panelId] != nil {

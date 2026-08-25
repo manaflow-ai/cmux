@@ -348,6 +348,13 @@ public final class HiveComputerDirectory {
             // the first connection adopt the host-reported identity.
             let macDeviceID: String
             if ticket.macDeviceID.isEmpty {
+                guard !ticket.routes.contains(where: { $0.kind == .tailscale }) else {
+                    // A tokenless V2 link intentionally omits the host
+                    // identity. Do not persist a synthetic Tailscale row: it
+                    // could never pass the viewer's authenticated admission
+                    // and would report a misleading successful pairing.
+                    return .unsupportedManualRoute
+                }
                 guard let synthesized = Self.syntheticDeviceID(for: ticket.routes) else {
                     return .invalidLink
                 }

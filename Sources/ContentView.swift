@@ -10293,14 +10293,18 @@ struct VerticalTabsSidebar: View {
 #endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
         let scope = hiveScope.scope
-        let tabs = scope == .allComputers
-            ? tabManager.tabs
-            : tabManager.tabs.filter { workspace in
+        let tabs: [Workspace]
+        if scope == .allComputers
+            || (scope == .thisMac && !HiveComputerMirrorController.shared.hasMirrors) {
+            tabs = tabManager.tabs
+        } else {
+            tabs = tabManager.tabs.filter { workspace in
                 HiveSidebarScopeModel.isVisible(
                     deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
                     scope: scope
                 )
             }
+        }
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut

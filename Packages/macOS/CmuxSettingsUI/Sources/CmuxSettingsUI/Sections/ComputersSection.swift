@@ -337,7 +337,7 @@ public struct ComputersSection: View {
         case .accountMismatch:
             return String(localized: "settings.computers.pairResult.accountMismatch", defaultValue: "That computer is signed in to a different account.")
         case .noRoutes:
-            return String(localized: "settings.computers.pairResult.noRoutes", defaultValue: "That computer hasn't advertised a reachable address yet. Make sure Tailscale is running on it.")
+            return String(localized: "settings.computers.pairResult.noRoutes", defaultValue: "That pairing has no trusted route. Pair from a Computers registry row and make sure Tailscale is running on both Macs.")
         case .failed:
             return String(localized: "settings.computers.pairResult.failed", defaultValue: "Pairing failed. Try again.")
         }

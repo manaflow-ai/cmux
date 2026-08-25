@@ -358,7 +358,7 @@ private func makeDirectory(
     }
 
     @MainActor
-    @Test func pairFromV2LinkSynthesizesIdentityUntilHandshake() async throws {
+    @Test func pairFromV2TailscaleLinkRequiresRegistryIdentity() async throws {
         let (store, cleanup) = try makeTempStore()
         defer { cleanup() }
         // A v2 pairing link (the QR payload) names routes only, never a
@@ -384,13 +384,10 @@ private func makeDirectory(
         let directory = makeDirectory(registry: .ok([]), store: store)
 
         let outcome = await directory.pair(link: link)
-        #expect(outcome == .paired(deviceID: "manual-100.64.0.7:8123"))
+        #expect(outcome == .unsupportedManualRoute)
         let persisted = try await store.loadAll(stackUserID: "user-1", teamID: "team-1")
-        #expect(persisted.first?.macDeviceID == "manual-100.64.0.7:8123")
-        #expect(persisted.first?.routes.first?.endpoint == .hostPort(host: "100.64.0.7", port: 8123))
-        let row = try #require(directory.computers.first)
-        #expect(row.isPaired)
-        #expect(row.displayName == "100.64.0.7:8123")
+        #expect(persisted.isEmpty)
+        #expect(directory.computers.isEmpty)
     }
 
     @MainActor

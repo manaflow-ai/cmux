@@ -200,9 +200,12 @@ import Testing
             ]
         )
 
-        #expect(try resolver.containsRemotePeerAddress("100.71.210.41", statusJSON: status))
-        #expect(!(try resolver.containsRemotePeerAddress("100.72.1.9", statusJSON: status)))
-        #expect(!(try resolver.containsRemotePeerAddress("100.70.1.5", statusJSON: status)))
+        let remoteAdmitted = try resolver.containsRemotePeerAddress("100.71.210.41", statusJSON: status)
+        let unknownRejected = try resolver.containsRemotePeerAddress("100.72.1.9", statusJSON: status)
+        let localRejected = try resolver.containsRemotePeerAddress("100.70.1.5", statusJSON: status)
+        #expect(remoteAdmitted)
+        #expect(!unknownRejected)
+        #expect(!localRejected)
     }
 
     private func statusJSON(

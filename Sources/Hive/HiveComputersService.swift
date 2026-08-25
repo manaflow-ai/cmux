@@ -223,7 +223,13 @@ final class HiveComputersService {
     /// that only happens before the first attach, which already retries on
     /// its own.
     func retryConnection(deviceID: String) {
-        embeddedSessions[deviceID]?.connect()
+        if let session = embeddedSessions[deviceID] {
+            session.connect()
+            return
+        }
+        Task { @MainActor [weak self] in
+            _ = await self?.embeddedSession(deviceID: deviceID)
+        }
     }
 
     /// Dev builds may pair over loopback so two instances on one machine can
