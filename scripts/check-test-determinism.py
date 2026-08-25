@@ -304,7 +304,7 @@ _NETWORK_VERB = re.compile(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
-  | \.open\s*\(                                  # xhr.open(method, url)
+  | (?i:\b(?:xhr|xhttp|xmlhttprequest)\s*\.\s*open\s*\()  # xhr.open(method, url)
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib3.*\.request\s*\(
   | \burllib\b
@@ -367,7 +367,7 @@ _SHELL_CALL_LAUNCHER = re.compile(
     r"""(?x)
     \bos\.(?:system|popen)\s*\(
   | \bsubprocess\.get(?:status)?output\s*\(
-  | (?<![A-Za-z0-9_.])(?:eval|exec|execSync|execaCommand|execaCommandSync)\s*\(
+  | (?<![A-Za-z0-9_.])(?:eval|execSync|execaCommand|execaCommandSync)\s*\(
   | \b(?:childProcess|child_process)\.(?:exec|execSync)\s*\(
     """
 )
