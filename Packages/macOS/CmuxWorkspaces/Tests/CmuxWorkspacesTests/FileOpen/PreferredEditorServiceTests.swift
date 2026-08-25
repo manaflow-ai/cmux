@@ -22,6 +22,23 @@ private struct FixedEditor: PreferredEditorReading {
 @Suite("PreferredEditorService")
 @MainActor
 struct PreferredEditorServiceTests {
+    @Test(arguments: [
+        "nvim", "/opt/homebrew/bin/nvim", "env nvim", "/usr/bin/env nvim",
+        "env FOO=1 nvim", "env -u TERM nvim", "FOO=1 /usr/bin/nvim",
+        "env -S nvim --clean", "env -S \"nvim --clean\"", "vim --clean"
+    ])
+    func terminalEditorCommandsAreDetected(command: String) {
+        #expect(PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
+    @Test(arguments: [
+        "code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper",
+        "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed"
+    ])
+    func graphicalEditorCommandsAreNotDetected(command: String) {
+        #expect(!PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
     private func makeScratchDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-open-\(UUID().uuidString)", isDirectory: true)
@@ -71,6 +88,7 @@ struct PreferredEditorServiceTests {
         try #"""
         #!/bin/sh
         touch '\#(marker.path)'
+        exit 1
         """#.write(to: editor, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: editor.path
@@ -84,11 +102,11 @@ struct PreferredEditorServiceTests {
         )
         let url = URL(fileURLWithPath: "/tmp/plain.txt")
 
-        service.open(url)
+        await withCheckedContinuation { continuation in
+            opener.onOpen = { continuation.resume() }
+            service.open(url)
+        }
 
-        // Give an incorrectly spawned helper a bounded opportunity to leave
-        // its marker before asserting that the command was never launched.
-        try await Task.sleep(for: .milliseconds(100))
         #expect(opener.openedURLs == [url])
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }

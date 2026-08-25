@@ -12,7 +12,10 @@ public import CmuxTestSupport
 ///    intercepted (no process or system open).
 /// 2. With no configured editor command, the file opens with the system
 ///    default handler.
-/// 3. Otherwise `/bin/sh -c "<command> '<path>'"` is spawned with silenced
+/// 3. A known terminal editor is rejected because a GUI process cannot
+///    provide it a controlling terminal, and the file opens with the system
+///    default handler instead.
+/// 4. Otherwise `/bin/sh -c "<command> '<path>'"` is spawned with silenced
 ///    stdio; a launch failure or a nonzero exit (e.g. command-not-found
 ///    exiting 127) falls back to the system default handler.
 ///
@@ -25,6 +28,73 @@ public import CmuxTestSupport
 /// `DispatchQueue.main.async` fallback.
 @MainActor
 public struct PreferredEditorService: FileOpening {
+    /// Executables that require a terminal and cannot be presented by the
+    /// GUI process with the preferred-editor launch path.
+    static let terminalEditorNames: Set<String> = [
+        "vi", "vim", "nvim", "nano", "emacs", "hx", "helix", "kak",
+        "kakoune", "less"
+    ]
+
+    /// Detects a known terminal editor at the executable position of a
+    /// command, including common env wrappers and assignments.
+    static func isTerminalEditorCommand(_ command: String) -> Bool {
+        let tokens = command.split { $0 == " " || $0 == "\t" }
+        guard !tokens.isEmpty else { return false }
+
+        var executableIndex = 0
+        while executableIndex < tokens.count {
+            let token = String(tokens[executableIndex])
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            let basename = URL(fileURLWithPath: token).lastPathComponent
+
+            if basename == "env" {
+                executableIndex += 1
+                while executableIndex < tokens.count {
+                    let value = String(tokens[executableIndex])
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                    if value == "--" {
+                        executableIndex += 1
+                        break
+                    }
+                    if value.contains("=") {
+                        executableIndex += 1
+                        continue
+                    }
+                    if value == "-S" || value == "--split-string" {
+                        executableIndex += 1
+                        continue
+                    }
+                    if value == "-u" || value == "--unset" || value == "-C"
+                        || value == "--chdir" {
+                        executableIndex += 2
+                        continue
+                    }
+                    if value.hasPrefix("-") {
+                        executableIndex += 1
+                        continue
+                    }
+                    break
+                }
+                break
+            }
+
+            // Shell environment assignments may precede the executable
+            // without an explicit env command.
+            if token.contains("=") && !token.hasPrefix("/") {
+                executableIndex += 1
+                continue
+            }
+            break
+        }
+
+        guard executableIndex < tokens.count else { return false }
+        let executable = URL(
+            fileURLWithPath: String(tokens[executableIndex])
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        ).lastPathComponent
+        return terminalEditorNames.contains(executable)
+    }
+
     private let editor: any PreferredEditorReading
     private let capture: any TestCaptureWriting
     private let systemOpener: any SystemFileOpening
@@ -65,6 +135,14 @@ public struct PreferredEditorService: FileOpening {
         }
 
         guard let command = editor.resolvedCommand else {
+            systemOpener.openWithSystemDefault(url)
+            return
+        }
+
+        // A TUI editor has no usable UI when launched from cmux's GUI process.
+        // Reject it before spawning, rather than leaking the editor and its
+        // plugin children with standard streams attached to /dev/null.
+        guard !Self.isTerminalEditorCommand(command) else {
             systemOpener.openWithSystemDefault(url)
             return
         }
