@@ -1691,6 +1691,7 @@ impl OrderedControlQueue {
             let completed = queue.drain_closing().await;
             queue.closing_running.store(false, Ordering::Release);
             queue.closing_notify.notify_waiters();
+            queue.retry_closing_after_worker(completed);
             if let (Some(coordinator), Some(target)) = (
                 queue.coordinator.get().and_then(Weak::upgrade),
                 queue.target.get().and_then(Weak::upgrade),
@@ -1709,6 +1710,35 @@ impl OrderedControlQueue {
                 coordinator.remove_retired_target(&target);
             }
         });
+    }
+
+    /// Transfer a failed full-queue retry to a fresh close worker after the
+    /// previous worker clears `closing_running`. The wire worker can observe
+    /// the old flag and decline to schedule; this hand-off closes that race.
+    fn retry_closing_after_worker(self: &Arc<Self>, completed: bool) {
+        if completed {
+            return;
+        }
+        let (closing_retry, wire_pending, wire_running) = {
+            let state = self.state.lock().expect("ordered control queue lock");
+            let wire_pending =
+                !self.wire_pending.lock().expect("ordered control pending lock").is_empty();
+            (
+                !state.closing.is_empty()
+                    && state.closing_waiters.is_empty()
+                    && state.closing_inflight.is_empty()
+                    && !state.closing_failed,
+                wire_pending,
+                self.wire_running.load(Ordering::Acquire),
+            )
+        };
+        if closing_retry {
+            if wire_pending && !wire_running {
+                self.start_wire_drain();
+            } else if !wire_pending && !wire_running {
+                self.schedule_closing();
+            }
+        }
     }
 
     async fn drain_closing(&self) -> bool {
@@ -8985,6 +9015,47 @@ mod tests {
         let claim_index = events.iter().position(|event| event == "send:set-client-sizing");
         assert!(input_index > claim_index, "input overtook replacement claim: {events:?}");
         assert!(!old_endpoint.is_active());
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn failed_close_retry_handoff_restarts_an_idle_worker() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-close-retry-handoff.sock"),
+            surface_id: 44,
+        };
+        coordinator
+            .join(key.clone(), 1, 44, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 1).expect("endpoint");
+
+        // Model the previous close worker returning after a full-queue retry:
+        // the endpoint remains in `closing`, but no close waiter or wire
+        // command is present. The worker hand-off must start a fresh close
+        // without waiting for a later viewer event.
+        {
+            let mut state = target.queue.state.lock().unwrap();
+            endpoint.active.store(false, Ordering::Release);
+            state.closing.push(Arc::clone(&endpoint));
+        }
+        target.queue.retry_closing_after_worker(false);
+        control.wait_for_end().await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.queue.state.lock().unwrap().closing.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("close retry handoff left a stale closing endpoint");
+        assert!(!target.queue.closing_running.load(Ordering::Acquire));
         coordinator.leave(&key, 1);
     }
 
