@@ -44,6 +44,7 @@ struct CmxConnectivityPeerSessionTests {
             diagnosticLog: log
         )
 
+        await builder.release()
         _ = try await peer.connectedSession(for: request)
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()

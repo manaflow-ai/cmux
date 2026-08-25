@@ -445,7 +445,12 @@ final class ComputerUseCursorOverlayController {
         }
     }
 
-    private func fade(_ panel: NSPanel, to alpha: CGFloat, animated: Bool, completion: (() -> Void)? = nil) {
+    private func fade(
+        _ panel: NSPanel,
+        to alpha: CGFloat,
+        animated: Bool,
+        completion: (@Sendable () -> Void)? = nil
+    ) {
         guard animated else {
             panel.alphaValue = alpha
             completion?()
