@@ -1593,6 +1593,49 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                 f"{uncorrelated_stopped_state!r}"
             )
 
+        terminal_reorder_session_id = (
+            f"structured-background-work-terminal-reorder-{os.getpid()}"
+        )
+        terminal_reorder_turn_id = "terminal-reorder-turn"
+        terminal_reorder_payload = {
+            "session_id": terminal_reorder_session_id,
+            "turn_id": terminal_reorder_turn_id,
+            "cwd": str(root),
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            ["hooks", "codex", "prompt-submit"],
+            terminal_reorder_payload,
+            bounds_env,
+        )
+        terminal_reorder_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                **terminal_reorder_payload,
+                "hook_event_name": "Stop",
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, terminal_reorder_stop_start)
+        record_work(
+            source="codex",
+            session_id=terminal_reorder_session_id,
+            turn_id=terminal_reorder_turn_id,
+            work_id=None,
+            env=bounds_env,
+        )
+        terminal_reorder_state = session_state(
+            bounds_state_dir,
+            "codex",
+            terminal_reorder_session_id,
+        )
+        if terminal_reorder_state.get("backgroundWorkOverflowTurnKeys"):
+            raise AssertionError(
+                "A terminal turn's late no-id SubagentStart latched overflow: "
+                f"{terminal_reorder_state!r}"
+            )
+
         before_stop = len(fake.frames)
         run_hook(
             ["hooks", "codex", "stop"],

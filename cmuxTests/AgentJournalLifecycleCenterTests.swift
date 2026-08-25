@@ -10,6 +10,91 @@ import Testing
 
 @Suite("Agent journal lifecycle center")
 struct AgentJournalLifecycleCenterTests {
+    @MainActor
+    @Test func liveClaudeCompletionJournalAppliesIdleDespiteLiveProcess() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let processID = getpid()
+        let generation = try #require(
+            Workspace.agentPIDProcessIdentity(pid: processID)
+        )
+        workspace.recordAgentPID(
+            key: "claude_code",
+            pid: processID,
+            panelId: panelID,
+            processIdentity: generation,
+            refreshPorts: false
+        )
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agent-journal-live-completion-(UUID().uuidString)",
+                isDirectory: true
+            )
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: databaseURL)
+        defer {
+            workspace.clearAgentPID(
+                key: "claude_code",
+                panelId: panelID,
+                clearStatus: true,
+                refreshPorts: false
+            )
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+            try? FileManager.default.removeItem(at: databaseURL.deletingLastPathComponent())
+        }
+
+        let targetWorkspace = workspace.id.uuidString
+        let targetPanel = panelID.uuidString
+        let started = AgentJournalEventDraft(
+            eventId: "live-claude-start",
+            kind: .turnStarted,
+            occurredAtMs: 1,
+            source: "claude",
+            agentKey: "claude_code",
+            sessionId: "live-claude-session",
+            workspaceId: targetWorkspace,
+            surfaceId: targetPanel
+        )
+        let completed = AgentJournalEventDraft(
+            eventId: "live-claude-complete",
+            kind: .turnCompleted,
+            occurredAtMs: 2,
+            source: "claude",
+            agentKey: "claude_code",
+            sessionId: "live-claude-session",
+            workspaceId: targetWorkspace,
+            surfaceId: targetPanel
+        )
+        for draft in [started, completed] {
+            let json = try #require(
+                String(data: JSONEncoder().encode(draft), encoding: .utf8)
+            )
+            #expect(center.handleAppendCommand(json).hasPrefix("OK"))
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .idle {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .idle,
+            "A live Claude process must not block its journaled completion from applying."
+        )
+    }
+
     @Test func appendCommandCommitsDurablyAndReplaysIdempotently() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-journal-center-\(UUID().uuidString)", isDirectory: true)

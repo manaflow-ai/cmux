@@ -183,4 +183,83 @@ struct AgentReconciliationFinalReviewTests {
             )
         }
     }
+
+    @Test func malformedAndCrossWorkspaceAttentionBeginTargetsFailClosed() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let foreignWorkspace = tabManager.addWorkspace(select: false)
+        let panelID = try #require(workspace.focusedPanelId)
+        let foreignPanelID = try #require(foreignWorkspace.focusedPanelId)
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: workspace.id,
+                panelId: panelID
+            )
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: foreignWorkspace.id,
+                panelId: foreignPanelID
+            )
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            if tabManager.tabs.contains(where: { $0.id == foreignWorkspace.id }) {
+                tabManager.closeWorkspace(foreignWorkspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let generation = AgentPIDProcessIdentity(
+            pid: 7_778,
+            startSeconds: 701,
+            startMicroseconds: 71
+        )
+        let base: [String: Any] = [
+            "source": "amp",
+            "session_id": "attention-begin-target-validation",
+            "observation_id": "attention-begin-target-validation-observation",
+            "scope_id": "attention-begin-target-validation-scope",
+            "workspace_id": workspace.id.uuidString,
+            "pid": String(generation.pid),
+            "pid_start_seconds": String(generation.startSeconds),
+            "pid_start_microseconds": String(generation.startMicroseconds),
+        ]
+
+        var malformed = base
+        malformed["surface_id"] = "not-a-surface-uuid"
+        guard case .err(let malformedCode, _, _) =
+            TerminalController.shared.v2AgentAttentionBegin(params: malformed)
+        else {
+            Issue.record("A present malformed surface_id must be rejected.")
+            return
+        }
+        #expect(malformedCode == "invalid_params")
+
+        var foreign = base
+        foreign["observation_id"] = "attention-begin-foreign-observation"
+        foreign["scope_id"] = "attention-begin-foreign-scope"
+        foreign["surface_id"] = foreignPanelID.uuidString
+        let foreignResult = TerminalController.shared.v2AgentAttentionBegin(
+            params: foreign
+        )
+        guard case .ok(let foreignPayload) = foreignResult else {
+            Issue.record("A cross-workspace surface should be ignored safely.")
+            return
+        }
+        #expect(foreignPayload["status"] as? String == "ignored")
+        #expect(
+            !workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: panelID
+            )
+        )
+        #expect(
+            !foreignWorkspace.sidebarAgentRuntimeObservation
+                .hasAgentFeedAttention(key: "amp", panelId: foreignPanelID)
+        )
+    }
 }
