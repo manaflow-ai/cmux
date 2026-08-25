@@ -3732,7 +3732,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         }
                     }
                     for panelId in completedPanelIds {
-                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
+                        guard let observation = index.sidebarEntry(workspaceId: self.id, panelId: panelId) else {
                             continue
                         }
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)

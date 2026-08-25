@@ -1824,7 +1824,10 @@ struct RestorableAgentSessionIndex: Sendable {
             // durable Hermes session. Preserve the earliest verified anchor so
             // a later transport update cannot reset the sidebar duration.
             canonical.startedAt = [record.startedAt, sibling.startedAt]
-                .compactMap { $0 }
+                .compactMap { anchor in
+                    guard let anchor, anchor.isFinite, anchor > 0 else { return nil }
+                    return anchor
+                }
                 .min()
             return canonical
         }
