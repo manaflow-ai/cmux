@@ -125,4 +125,35 @@ struct TerminalPointerStyleViewTests {
         #expect(didInvalidateCursorRects)
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
+
+    @Test("focus regain restores a stationary link base pointer")
+    func focusRegainRestoresStationaryLinkBasePointer() {
+        let view = GhosttyNSView(frame: .zero)
+        let runtimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: runtimeLifetimeId
+        )
+        view.applyTerminalPointerStyle(.focusChanged(true))
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: runtimeLifetimeId
+            )
+        )
+        view.applyTerminalPointerStyle(
+            .ghosttyLinkHoverChanged(
+                true,
+                runtimeLifetimeId: runtimeLifetimeId
+            )
+        )
+        view.applyTerminalPointerStyle(.focusChanged(false))
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+
+        let didInvalidateCursorRects = view.applyTerminalPointerStyle(
+            .focusChanged(true)
+        )
+
+        #expect(didInvalidateCursorRects)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
+    }
 }
