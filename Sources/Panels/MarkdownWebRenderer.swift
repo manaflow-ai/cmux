@@ -347,13 +347,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+            let normalizedPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
             guard isLoaded, let webView else {
-                return .snapshot(.none(kind: .markdown, filePath: filePath))
+                return .snapshot(.none(kind: .markdown, filePath: normalizedPath))
             }
             return await WebSurfaceSelectionReader().read(
                 webView: webView,
                 kind: .markdown,
-                filePath: filePath
+                filePath: normalizedPath
             )
         }
 
