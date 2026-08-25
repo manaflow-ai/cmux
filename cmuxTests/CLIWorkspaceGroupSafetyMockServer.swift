@@ -110,6 +110,12 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
                 "operation": "closed_workspaces",
                 "closed_workspace_count": 2,
             ]
+        case "workspace.group.new_workspace":
+            result = [
+                "group_id": "11111111-1111-1111-1111-111111111111",
+                "workspace_id": "11111111-1111-4111-1111-111111111111",
+                "workspace_ref": "workspace:7",
+            ]
         default:
             result = [:]
         }
