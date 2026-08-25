@@ -162,16 +162,12 @@ extension CMUXCLI {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
         _ = Darwin.close(duplicate)
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-project-open", isDirectory: true)
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        cleanupTemporaryProjectFiles(in: temporaryDirectory)
+        let temporaryURL = temporaryDirectory
             .appendingPathComponent("cmux-project-file-\(UUID().uuidString)")
             .appendingPathExtension(openedPath.pathExtension)
         do {
-            try FileManager.default.createDirectory(
-                at: temporaryURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            cleanupTemporaryProjectFiles(in: temporaryURL.deletingLastPathComponent())
             try data.write(to: temporaryURL, options: .atomic)
         } catch {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
@@ -200,16 +196,14 @@ extension CMUXCLI {
             options: [.skipsHiddenFiles]
         ) else { return }
         for entry in entries.prefix(256) {
-            guard entry.lastPathComponent.hasPrefix("cmux-project-file-"),
-                  let values = try? entry.resourceValues(
-                      forKeys: [.isRegularFileKey, .contentModificationDateKey]
-                  ),
-                  values.isRegularFile == true,
-                  let modifiedAt = values.contentModificationDate,
-                  modifiedAt < cutoff else {
+            guard entry.lastPathComponent.hasPrefix("cmux-project-file-") else { continue }
+            var status = stat()
+            guard lstat(entry.path, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  Date(timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)) < cutoff else {
                 continue
             }
-            try? FileManager.default.removeItem(at: entry)
+            _ = unlink(entry.path)
         }
     }
 

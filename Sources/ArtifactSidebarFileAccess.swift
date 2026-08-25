@@ -93,7 +93,23 @@ struct ArtifactSidebarFileAccess {
             _ = Darwin.close(descriptor)
             return nil
         }
-        let rootPath = artifactRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        let rootDescriptor = Darwin.open(
+            artifactRoot.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard rootDescriptor >= 0 else {
+            _ = Darwin.close(descriptor)
+            return nil
+        }
+        defer { _ = Darwin.close(rootDescriptor) }
+        var rootStatus = stat()
+        guard fstat(rootDescriptor, &rootStatus) == 0,
+              (rootStatus.st_mode & S_IFMT) == S_IFDIR,
+              let openedRootPath = openedPath(for: rootDescriptor) else {
+            _ = Darwin.close(descriptor)
+            return nil
+        }
+        let rootPath = openedRootPath.path
         let path = openedPath.path
         guard path == rootPath
                 || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/") else {
@@ -102,7 +118,7 @@ struct ArtifactSidebarFileAccess {
         }
         return OpenedFile(
             sourceURL: openedPath,
-            artifactRoot: artifactRoot.resolvingSymlinksInPath().standardizedFileURL,
+            artifactRoot: openedRootPath,
             descriptor: descriptor
         )
     }
