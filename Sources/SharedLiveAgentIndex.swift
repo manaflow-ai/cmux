@@ -601,18 +601,21 @@ final class SharedLiveAgentIndex {
 
     /// Enables immediate PID watcher/reload work only while the default
     /// activity sidebar owns a visible monitoring lease.
-    func setSidebarProcessMonitoringEnabled(_ enabled: Bool, ownerID: UUID) {
+    @discardableResult
+    func setSidebarProcessMonitoringEnabled(_ enabled: Bool, ownerID: UUID) -> Bool {
+        let wasEnabled = sidebarProcessMonitoringEnabled
         if enabled {
             sidebarProcessMonitoringOwners.insert(ownerID)
         } else {
             sidebarProcessMonitoringOwners.remove(ownerID)
         }
         let shouldEnable = !sidebarProcessMonitoringOwners.isEmpty
-        guard sidebarProcessMonitoringEnabled != shouldEnable else { return }
+        guard sidebarProcessMonitoringEnabled != shouldEnable else { return false }
         sidebarProcessMonitoringEnabled = shouldEnable
         if !shouldEnable {
             disarmSidebarProcessExitWatchers()
         }
+        return !wasEnabled && shouldEnable
     }
 
     /// Whether runtime PID mutations may use the sidebar-only fast path.

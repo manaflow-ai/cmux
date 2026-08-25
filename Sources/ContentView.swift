@@ -11639,12 +11639,17 @@ struct VerticalTabsSidebar: View, Equatable {
                 SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
                 return
             }
-            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true, ownerID: windowId)
+            let becameMonitoringOwner = SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(
+                true,
+                ownerID: windowId
+            )
             // The app prewarms this index at launch, but a sidebar can mount
             // before that detached load publishes. Await the same shared load
             // once from the lifecycle boundary so the first snapshot cannot
             // permanently miss hook-backed activity.
-            if SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() == nil {
+            if becameMonitoringOwner {
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            } else if SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() == nil {
                 _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             }
             guard isPresented, !Task.isCancelled else { return }
