@@ -2293,6 +2293,58 @@ def test_non_codex_structured_work_replays_deferred_stop(
             f"{session_state!r}"
         )
 
+    with FakeCmuxSocket(socket_path, None) as fake:
+        # OMP/Campfire-style generic hooks may not expose a turn id at all.
+        # Their session-scoped Stop is still authoritative once the exact
+        # process is live and no structured work remains.
+        sessionless_id = f"pi-sessionless-stop-{os.getpid()}"
+        sessionless_payload = {
+            "session_id": sessionless_id,
+            "cwd": str(root),
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            sessionless_payload,
+        )
+        sessionless_stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "stop",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            {
+                **sessionless_payload,
+                "hook_event_name": "Stop",
+            },
+        )
+        sessionless_commands = wait_for_raw_command(
+            fake,
+            sessionless_stop_start,
+            "set_agent_lifecycle pi idle",
+        )
+        if not any(
+            command.startswith("notify_target_async ")
+            for command in sessionless_commands
+        ):
+            raise AssertionError(
+                "session-scoped generic Stop did not route completion "
+                f"notification: {sessionless_commands!r}"
+            )
+
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home"

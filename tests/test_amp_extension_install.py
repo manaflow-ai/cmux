@@ -1100,26 +1100,15 @@ try {
     messages: []
   }, hangingCtx);
   await hangingEnd;
-  if (stopCalls().length !== beforeHangingEnd + 1) {
-    throw new Error("the hanging native state emitted a false settled boundary");
-  }
-
-  await dispatchControlledTimers(30 * 60 * 1_000);
-  if (hangingThread.observerCount() !== 1) {
+  if (stopCalls().length !== beforeHangingEnd + 2) {
     throw new Error(
-      "a pending turn lost its event-driven native-state observer"
+      "the hanging native state did not fall back after its snapshot deadline"
     );
   }
-  const beforeNativeIdle = stopCalls().length;
-  hangingThread.setState("idle");
-  await waitFor(
-    () => stopCalls().length === beforeNativeIdle + 1,
-    "a late native idle event did not settle the pending turn"
-  );
   const hangingSettlement = JSON.parse(stopCalls().at(-1).stdin);
   if (hangingSettlement.cmux_turn_boundary !== "settled") {
     throw new Error(
-      `Amp late native idle did not publish settlement: ${
+      `Amp snapshot timeout did not publish settlement: ${
         JSON.stringify(hangingSettlement)
       }`
     );
