@@ -144,6 +144,9 @@ import Testing
         environment["GIT_DIR"] = unrelatedRepository.gitDirectory
         environment["GIT_WORK_TREE"] = unrelated.path
         environment["GIT_COMMON_DIR"] = unrelatedRepository.commonDirectory
+        environment["GIT_CONFIG_COUNT"] = "1"
+        environment["GIT_CONFIG_KEY_0"] = "core.worktree"
+        environment["GIT_CONFIG_VALUE_0"] = unrelated.path
         let reader = SystemGitReferenceReader(
             runner: SystemWorkspaceChangesGitRunner(environment: environment)
         )

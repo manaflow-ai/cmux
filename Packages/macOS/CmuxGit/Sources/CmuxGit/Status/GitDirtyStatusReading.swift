@@ -6,24 +6,29 @@ protocol GitDirtyStatusReading: Sendable {
 }
 
 struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
-    private let runner: any WorkspaceChangesGitRunning
+    private let runnerSelector: GitReferenceRunnerSelector
 
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
     ) {
-        let resolver = SystemGitExecutableResolver()
-        runner = SystemWorkspaceChangesGitRunner(
-            executableURL: resolver.referenceExecutableURLs().first,
-            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
+        runnerSelector = GitReferenceRunnerSelector(
+            wallTimeLimit: boundedCommandWallTimeLimit
         )
     }
 
     init(runner: any WorkspaceChangesGitRunning) {
-        self.runner = runner
+        self.runnerSelector = GitReferenceRunnerSelector(runner: runner)
     }
 
     func isDirty(workTreeRoot: String) -> Bool? {
         do {
+            let repository = GitMetadataService.resolveGitRepository(containing: workTreeRoot)
+            let runner = if let repository {
+                runnerSelector.select(repository: repository)
+            } else {
+                runnerSelector.firstRunner
+            }
+            guard let runner else { return nil }
             let result = try runner.run(
                 arguments: [
                     "status",

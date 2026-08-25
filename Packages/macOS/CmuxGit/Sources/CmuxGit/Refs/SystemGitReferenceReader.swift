@@ -8,9 +8,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Configs above this bound use Git plumbing instead of an unbounded scan.
     private static let maximumReferenceStorageConfigByteCount = 1 * 1_024 * 1_024
 
-    /// Candidate runners used only for non-files reference storage.
-    private let runners: [any WorkspaceChangesGitRunning]
-    private let probesReferenceFormat: Bool
+    private let runnerSelector: GitReferenceRunnerSelector
     private let storageProbe: any GitReferenceStorageProbing
     private let configReader: GitConfigFileReader
     private let boundedCommandWallTimeLimit: TimeInterval
@@ -22,15 +20,10 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         configReader: GitConfigFileReader = GitConfigFileReader(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        let executableResolver = SystemGitExecutableResolver(environment: environment)
-        self.runners = executableResolver.referenceExecutableURLs().map { executableURL in
-            SystemWorkspaceChangesGitRunner(
-                executableURL: executableURL,
-                environment: environment,
-                boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
-            ) as any WorkspaceChangesGitRunning
-        }
-        self.probesReferenceFormat = true
+        self.runnerSelector = GitReferenceRunnerSelector(
+            environment: environment,
+            wallTimeLimit: boundedCommandWallTimeLimit
+        )
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
@@ -42,8 +35,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         storageProbe: (any GitReferenceStorageProbing)? = nil,
         configReader: GitConfigFileReader = GitConfigFileReader()
     ) {
-        self.runners = [runner]
-        self.probesReferenceFormat = runner is SystemWorkspaceChangesGitRunner
+        self.runnerSelector = GitReferenceRunnerSelector(runner: runner)
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
@@ -55,10 +47,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         storageProbe: (any GitReferenceStorageProbing)? = nil,
         configReader: GitConfigFileReader = GitConfigFileReader()
     ) {
-        self.runners = runners.isEmpty
-            ? [SystemWorkspaceChangesGitRunner()]
-            : runners
-        self.probesReferenceFormat = true
+        self.runnerSelector = GitReferenceRunnerSelector(runners: runners)
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
@@ -121,7 +110,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Builds a snapshot from Git's storage-independent plumbing commands.
     private func plumbingSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
         let deadline = DispatchTime.now() + boundedCommandWallTimeLimit
-        guard let runner = referenceRunner(repository: repository, deadline: deadline) else {
+        guard let runner = runnerSelector.select(repository: repository, deadline: deadline) else {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
                 headSignature: nil,
@@ -193,27 +182,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             headSignature: headSignature,
             currentCommit: currentCommit
         )
-    }
-
-    /// Selects one executable whose reference-format probe succeeds.
-    private func referenceRunner(
-        repository: ResolvedGitRepository,
-        deadline: DispatchTime
-    ) -> (any WorkspaceChangesGitRunning)? {
-        guard probesReferenceFormat else { return runners.first }
-        for runner in runners {
-            guard case .value(let format) = commandOutput(
-                arguments: ["rev-parse", "--show-ref-format"],
-                repository: repository,
-                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
-                runner: runner,
-                deadline: deadline
-            ) else { continue }
-            if format == "files" || format == "reftable" {
-                return runner
-            }
-        }
-        return nil
     }
 
     /// Resolves a branch ref and verifies that HEAD still names it afterward.

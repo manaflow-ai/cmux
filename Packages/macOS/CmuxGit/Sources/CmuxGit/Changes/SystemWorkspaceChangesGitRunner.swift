@@ -14,6 +14,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         "GIT_NAMESPACE",
         "GIT_OBJECT_DIRECTORY",
         "GIT_WORK_TREE",
+        "GIT_CONFIG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
     ]
 
     private let executableURL: URL
@@ -30,6 +36,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             ?? URL(fileURLWithPath: "/usr/bin/git")
         var scopedEnvironment = environment
         for key in Self.repositorySelectionEnvironmentKeys {
+            scopedEnvironment.removeValue(forKey: key)
+        }
+        let commandScopedKeys = scopedEnvironment.keys.filter {
+            $0.hasPrefix("GIT_CONFIG_KEY_") || $0.hasPrefix("GIT_CONFIG_VALUE_")
+        }
+        for key in commandScopedKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
