@@ -321,32 +321,32 @@ mod tests {
         assert!(!p.authored(), "stale partial CSI must not leak across a replay");
         p.scan(b"\x1b[6 q");
         assert!(p.authored());
-        }
     }
+}
 
-    #[test]
-    fn bell_only_terminates_osc_strings() {
+#[test]
+fn bell_only_terminates_osc_strings() {
+    let mut p = CursorStyleProvenance::default();
+    p.scan(b"\x1b]payload\x07\x1b[5 q");
+    assert!(p.authored());
+    for opener in [b'P', b'_', b'^', b'X'] {
         let mut p = CursorStyleProvenance::default();
-        p.scan(b"\x1b]payload\x07\x1b[5 q");
-        assert!(p.authored());
-        for opener in [b'P', b'_', b'^', b'X'] {
-            let mut p = CursorStyleProvenance::default();
-            p.scan(&[0x1b, opener]);
-            p.scan(b"payload\x07\x1b[5 q");
-            assert!(!p.authored(), "BEL must not close non-OSC string");
-            p.scan(b"\x1b\\\x1b[5 q");
-            assert!(p.authored(), "ST must close non-OSC string");
-        }
+        p.scan(&[0x1b, opener]);
+        p.scan(b"payload\x07\x1b[5 q");
+        assert!(!p.authored(), "BEL must not close non-OSC string");
+        p.scan(b"\x1b\\\x1b[5 q");
+        assert!(p.authored(), "ST must close non-OSC string");
     }
+}
 
-    #[test]
-    fn can_and_sub_abort_string_bodies() {
-        for opener in [b']', b'P', b'_', b'^', b'X'] {
-            for abort in [0x18, 0x1a] {
-                let mut p = CursorStyleProvenance::default();
-                p.scan(&[0x1b, opener, abort]);
-                p.scan(b"\x1b[5 q");
-                assert!(p.authored(), "CAN/SUB must abort the string");
-            }
+#[test]
+fn can_and_sub_abort_string_bodies() {
+    for opener in [b']', b'P', b'_', b'^', b'X'] {
+        for abort in [0x18, 0x1a] {
+            let mut p = CursorStyleProvenance::default();
+            p.scan(&[0x1b, opener, abort]);
+            p.scan(b"\x1b[5 q");
+            assert!(p.authored(), "CAN/SUB must abort the string");
         }
     }
+}
