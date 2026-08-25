@@ -223,6 +223,24 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(pathHints.isEmpty)
     }
 
+    @Test func legacyAttachURLStripsLANForReleasedPhoneDecoders() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes.map(\.kind) == [.iroh])
+        #expect(decoded.routes.first?.endpoint == try irohRoute(withPathHint: false).endpoint)
+        #expect(decoded.authToken == nil)
+    }
+
     @Test func physicalDeviceMixedRoutesKeepLegacyTailscaleQRCodeCompatibility() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(

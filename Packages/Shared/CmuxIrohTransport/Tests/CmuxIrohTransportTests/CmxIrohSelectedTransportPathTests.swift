@@ -37,15 +37,27 @@ struct CmxIrohSelectedTransportPathTests {
         #expect(CmxIrohIPAddressScope.host(from: "192.168.1.20:443") == "192.168.1.20")
         let path = CmxIrohObservedConnectionPath.privateNetwork(address: "100.100.20.40:443")
         #expect(
-            CmxConnectivityByteTransport.mobileTransportPath(path, mode: .automatic)
+            CmxConnectivityByteTransport.mobileTransportPath(
+                path,
+                mode: .automatic,
+                source: .tailscale
+            )
                 == .tailscale(address: "100.100.20.40:443")
         )
         #expect(
-            CmxConnectivityByteTransport.mobileTransportPath(path, mode: .lan)
+            CmxConnectivityByteTransport.mobileTransportPath(
+                path,
+                mode: .lan,
+                source: .tailscale
+            )
                 == .tailscale(address: "100.100.20.40:443")
         )
         #expect(
-            CmxConnectivityByteTransport.mobileTransportPath(path, mode: .iroh)
+            CmxConnectivityByteTransport.mobileTransportPath(
+                path,
+                mode: .iroh,
+                source: .tailscale
+            )
                 == .tailscale(address: "100.100.20.40:443")
         )
         #expect(
