@@ -185,6 +185,9 @@ struct ClaudeHookSessionRecord: Codable {
     // confirmed title apply; the in-flight marker dedupes concurrent Stops.
     var autoNameLastTitle: String?
     var autoNameLastLineCount: Int?
+    /// Last time a missing file-backed transcript was searched for by the
+    /// synchronous Stop hook. The timestamp coalesces repeated discovery scans.
+    var autoNameTranscriptDiscoveryLastAttemptAt: TimeInterval?
     /// Transcript high-water observed by any hook pass, including passes that
     /// cannot generate a title. This is separate from the successful naming
     /// baseline so compaction remains detectable while naming is suppressed.
@@ -277,6 +280,43 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Reserves one bounded transcript discovery scan for a session.
+    @discardableResult
+    func claimAutoNamingTranscriptDiscovery(
+        sessionId: String,
+        now: Date,
+        minimumInterval: TimeInterval = 60
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return false }
+            let timestamp = now.timeIntervalSince1970
+            if let previous = record.autoNameTranscriptDiscoveryLastAttemptAt,
+               timestamp - previous < minimumInterval {
+                return false
+            }
+            record.autoNameTranscriptDiscoveryLastAttemptAt = timestamp
+            record.updatedAt = timestamp
+            state.sessions[normalized] = record
+            return true
+        }
+    }
+
+    /// Persists a transcript path discovered from a Codex session directory.
+    func recordAutoNamingTranscriptPath(sessionId: String, path: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !trimmedPath.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.transcriptPath != trimmedPath else { return }
+            record.transcriptPath = trimmedPath
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
         }
     }
 
@@ -33374,7 +33414,18 @@ export default CMUXSessionRestore;
                           autoNamingSource(for: def) == .codexRollout else {
                         return recorded
                     }
-                    return findCodexTranscriptPath(sessionId: sessionId, env: env)
+                    guard (try? store.claimAutoNamingTranscriptDiscovery(
+                        sessionId: sessionId,
+                        now: Date()
+                    )) == true,
+                    let discovered = findCodexTranscriptPath(sessionId: sessionId, env: env) else {
+                        return nil
+                    }
+                    try? store.recordAutoNamingTranscriptPath(
+                        sessionId: sessionId,
+                        path: discovered
+                    )
+                    return discovered
                 }()
                 let autoNamingFallbackLineCount: Int? = {
                     guard workspaceUserOwned, hasReplayableAutoName,

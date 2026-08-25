@@ -42,8 +42,12 @@ extension CMUXCLI {
         guard probe["enabled"] as? Bool == true else { return false }
         guard probe["workspace_user_owned"] as? Bool == true else { return true }
         guard hasReplayableAutoNamingState(session) else { return false }
-        if session?.autoNameTitleReconciliationGeneration != nil
-            || session?.autoNameInFlightAt != nil {
+        // One detached worker already owns the store claim. Overlapping Stop
+        // hooks must not fork another process while that marker is live.
+        if session?.autoNameInFlightAt != nil {
+            return false
+        }
+        if session?.autoNameTitleReconciliationGeneration != nil {
             return true
         }
         guard let currentProgress, let session else { return false }

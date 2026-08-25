@@ -265,6 +265,12 @@ extension CMUXCLI {
         }
         let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
             ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
+        if let transcriptPath {
+            try? sessionStore.recordAutoNamingTranscriptPath(
+                sessionId: sessionId,
+                path: transcriptPath
+            )
+        }
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
