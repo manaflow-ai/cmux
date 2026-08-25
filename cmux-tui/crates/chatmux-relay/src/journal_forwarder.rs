@@ -8,18 +8,27 @@
 
 use std::collections::HashMap;
 #[cfg(unix)]
+use std::collections::HashSet;
+#[cfg(unix)]
 use std::collections::VecDeque;
 use std::future::Future;
+#[cfg(unix)]
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::Mutex;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use tokio::io::AsyncBufReadExt;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -33,13 +42,19 @@ const DEFAULT_FLUSH_DEBOUNCE: Duration = Duration::from_millis(500);
 const DEFAULT_MIN_BACKOFF: Duration = Duration::from_secs(1);
 const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(60);
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const IDENTITY_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_RECONNECT_MIN: Duration = Duration::from_secs(1);
 const DEFAULT_RECONNECT_MAX: Duration = Duration::from_secs(30);
 const SOCKET_SCAN_INTERVAL: Duration = Duration::from_secs(15);
-const SOCKET_NAME_MAX: usize = 64;
+const MAX_DISCOVERED_SESSIONS: usize = 128;
+const MAX_SOCKET_ENTRIES_PER_ROOT: usize = 512;
 const SUBSCRIBE_REQUEST_ID: &str = "chatmux-journal-subscribe";
 const PROTOCOL: &str = "cmux.protocol/2";
 const DEFAULT_CURSOR_PATH: &str = "/tmp/.chatmux-relay-cursors.json";
+// Control prefix: it cannot pass core session-name validation and is never
+// serialized as `sessionName`. It is only a local cursor/task key for hashed
+// socket filenames whose original name is not recoverable.
+const OPAQUE_SESSION_PREFIX: &str = "\u{001f}opaque:";
 
 #[cfg(unix)]
 static NEXT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
@@ -61,6 +76,7 @@ pub struct PendingSession {
 #[serde(rename_all = "camelCase")]
 pub struct SessionBatch {
     pub session_id: String,
+    #[serde(rename = "sessionName", skip_serializing_if = "is_opaque_session_key")]
     pub session_name: String,
     pub records: Vec<Value>,
     pub cursor: JournalCursor,
@@ -107,6 +123,44 @@ pub fn parse_journal_line(line: &str) -> Option<Value> {
     }
     let value = serde_json::from_str::<Value>(line).ok()?;
     (value.is_object() && value.get("type").and_then(Value::as_str).is_some()).then_some(value)
+}
+
+#[cfg(unix)]
+async fn read_bounded_line<R>(reader: &mut R, max_bytes: usize) -> std::io::Result<Option<String>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            return if bytes.is_empty() {
+                Ok(None)
+            } else {
+                String::from_utf8(bytes).map(Some).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "journal line is not UTF-8",
+                    )
+                })
+            };
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(buffer.len(), |index| index + 1);
+        if bytes.len().saturating_add(take) > max_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "journal line exceeds the configured bound",
+            ));
+        }
+        bytes.extend_from_slice(&buffer[..take]);
+        reader.consume(take);
+        if newline.is_some() {
+            return String::from_utf8(bytes).map(Some).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "journal line is not UTF-8")
+            });
+        }
+    }
 }
 
 fn cursor_from_record(record: &Value, generation: Option<&str>) -> Option<JournalCursor> {
@@ -229,6 +283,7 @@ struct Shared {
     cursors: Arc<tokio::sync::Mutex<HashMap<String, JournalCursor>>>,
     cursor_path: PathBuf,
     cancellation: CancellationToken,
+    claims: Arc<Mutex<HashSet<String>>>,
 }
 
 #[cfg(unix)]
@@ -247,17 +302,18 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         cursors: Arc::new(tokio::sync::Mutex::new(cursors)),
         cursor_path: PathBuf::from(DEFAULT_CURSOR_PATH),
         cancellation: cancellation.clone(),
+        claims: Arc::new(Mutex::new(HashSet::new())),
     };
-    let socket_dir = socket_directory();
+    let socket_dirs = socket_directories();
     let mut tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
     let mut scan = tokio::time::interval(SOCKET_SCAN_INTERVAL);
     scan.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    discover_sessions(&shared, &socket_dir, &mut tasks).await;
+    discover_sessions(&shared, &socket_dirs, &mut tasks).await;
     loop {
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => break,
-            _ = scan.tick() => discover_sessions(&shared, &socket_dir, &mut tasks).await,
+            _ = scan.tick() => discover_sessions(&shared, &socket_dirs, &mut tasks).await,
         }
     }
     for (_, task) in tasks {
@@ -272,42 +328,287 @@ fn build_http_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Erro
 #[cfg(unix)]
 async fn discover_sessions(
     shared: &Shared,
-    socket_dir: &Path,
+    socket_dirs: &[PathBuf],
     tasks: &mut HashMap<String, JoinHandle<()>>,
 ) {
     tasks.retain(|_, task| !task.is_finished());
-    let Ok(mut entries) = tokio::fs::read_dir(socket_dir).await else { return };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else { continue };
-        let Some(session_name) = file_name.strip_suffix(".sock") else { continue };
-        if !valid_session_name(session_name) || tasks.contains_key(session_name) {
+    let sessions = discover_session_candidates(socket_dirs).await;
+    for candidate in sessions {
+        if tasks.contains_key(&candidate.key) {
             continue;
         }
-        let path = entry.path();
-        let session = session_name.to_owned();
+        // Include every resolver directory even when only one currently has
+        // the socket. A session can move from the preferred directory to a
+        // fallback after startup, and one worker can fail over without a
+        // duplicate subscription race.
+        let key = candidate.key.clone();
+        let session_name = candidate.session_name.clone();
+        let paths = candidate.socket_paths;
         let worker = shared.clone();
         tasks.insert(
-            session_name.to_owned(),
+            key,
             tokio::spawn(async move {
-                run_session(worker, session, path).await;
+                run_session(worker, session_name, candidate.key, paths).await;
             }),
         );
     }
 }
 
 #[cfg(unix)]
-fn valid_session_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= SOCKET_NAME_MAX
-        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SessionCandidate {
+    key: String,
+    session_name: Option<String>,
+    socket_paths: Vec<PathBuf>,
 }
 
 #[cfg(unix)]
-fn socket_directory() -> PathBuf {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-        .or_else(|| std::env::var_os("TMPDIR"))
-        .unwrap_or_else(|| "/tmp".into());
-    PathBuf::from(runtime).join(format!("cmux-tui-{}", unsafe { libc::geteuid() }))
+async fn discover_session_candidates(socket_dirs: &[PathBuf]) -> Vec<SessionCandidate> {
+    let mut candidates = HashMap::<String, SessionCandidate>::new();
+    let mut safe_socket_dirs = Vec::new();
+    for socket_dir in socket_dirs {
+        if !safe_socket_directory(socket_dir).await {
+            continue;
+        }
+        safe_socket_dirs.push(socket_dir.clone());
+        let Ok(mut entries) = tokio::fs::read_dir(socket_dir).await else { continue };
+        let mut entries_seen = 0;
+        while entries_seen < MAX_SOCKET_ENTRIES_PER_ROOT {
+            let Ok(Some(entry)) = entries.next_entry().await else { break };
+            entries_seen += 1;
+            let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+            let Some(session_name) = file_name.strip_suffix(".sock") else { continue };
+            let Ok(metadata) = tokio::fs::symlink_metadata(entry.path()).await else { continue };
+            // Do not follow an attacker-controlled symlink and do not connect
+            // to arbitrary files masquerading as sockets.
+            if metadata.file_type().is_symlink()
+                || !metadata.file_type().is_socket()
+                || metadata.uid() != unsafe { libc::getuid() }
+            {
+                continue;
+            }
+            let (key, display_name, hashed_root) = if is_hashed_socket_directory(socket_dir) {
+                if !valid_hashed_socket_stem(session_name) {
+                    continue;
+                }
+                (opaque_session_key(session_name), None, true)
+            } else {
+                if !valid_session_name(session_name) {
+                    continue;
+                }
+                (session_name.to_owned(), Some(session_name.to_owned()), false)
+            };
+            if !candidates.contains_key(&key) && candidates.len() >= MAX_DISCOVERED_SESSIONS {
+                continue;
+            }
+            let candidate = candidates.entry(key.clone()).or_insert_with(|| SessionCandidate {
+                key,
+                session_name: display_name.clone(),
+                socket_paths: Vec::new(),
+            });
+            if candidate.session_name.is_none() && !hashed_root {
+                candidate.session_name = display_name;
+            }
+            let path = entry.path();
+            if !candidate.socket_paths.contains(&path) {
+                candidate.socket_paths.push(path);
+            }
+        }
+    }
+    // A normal name can be found in either normal resolver root. Include both
+    // paths so a daemon that moves between preferred and fallback roots keeps
+    // one worker. Hashed stems are opaque and are restricted to hashed roots.
+    let normal_dirs = safe_socket_dirs.iter().filter(|dir| !is_hashed_socket_directory(dir));
+    let hashed_dirs = safe_socket_dirs.iter().filter(|dir| is_hashed_socket_directory(dir));
+    for candidate in candidates.values_mut() {
+        if candidate.session_name.is_some() {
+            for dir in normal_dirs.clone() {
+                let stem = candidate
+                    .session_name
+                    .as_deref()
+                    .or_else(|| candidate.key.strip_prefix(OPAQUE_SESSION_PREFIX))
+                    .unwrap_or_default();
+                let path = dir.join(format!("{stem}.sock"));
+                if !candidate.socket_paths.contains(&path) {
+                    candidate.socket_paths.push(path);
+                }
+            }
+        } else {
+            for dir in hashed_dirs.clone() {
+                let stem = candidate
+                    .session_name
+                    .as_deref()
+                    .or_else(|| candidate.key.strip_prefix(OPAQUE_SESSION_PREFIX))
+                    .unwrap_or_default();
+                let path = dir.join(format!("{stem}.sock"));
+                if !candidate.socket_paths.contains(&path) {
+                    candidate.socket_paths.push(path);
+                }
+            }
+        }
+    }
+    candidates.into_values().collect()
+}
+
+#[cfg(all(unix, test))]
+async fn discover_session_names(socket_dirs: &[PathBuf]) -> HashSet<String> {
+    discover_session_candidates(socket_dirs)
+        .await
+        .into_iter()
+        .map(|candidate| candidate.session_name.unwrap_or(candidate.key))
+        .collect()
+}
+
+#[cfg(unix)]
+async fn safe_socket_directory(path: &Path) -> bool {
+    let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
+    !metadata.file_type().is_symlink()
+        && metadata.is_dir()
+        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.permissions().mode() & 0o077 == 0
+}
+
+#[cfg(unix)]
+async fn safe_socket_entry(path: &Path) -> bool {
+    let Some(parent) = path.parent() else { return false };
+    if !safe_socket_directory(parent).await {
+        return false;
+    }
+    let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
+    !metadata.file_type().is_symlink()
+        && metadata.file_type().is_socket()
+        && metadata.uid() == unsafe { libc::getuid() }
+}
+
+#[cfg(unix)]
+fn is_hashed_socket_directory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("cmux-tui-hashed-"))
+}
+
+#[cfg(unix)]
+fn valid_hashed_socket_stem(name: &str) -> bool {
+    name.len() == 64
+        && name.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+#[cfg(unix)]
+fn opaque_session_key(stem: &str) -> String {
+    format!("{OPAQUE_SESSION_PREFIX}{stem}")
+}
+
+fn is_opaque_session_key(name: &str) -> bool {
+    name.starts_with(OPAQUE_SESSION_PREFIX)
+}
+
+#[cfg(unix)]
+fn valid_session_key(name: &str) -> bool {
+    valid_session_name(name)
+        || (name.strip_prefix(OPAQUE_SESSION_PREFIX).is_some_and(valid_hashed_socket_stem))
+}
+
+#[cfg(unix)]
+fn parse_session_identity(response: &str) -> Option<String> {
+    let envelope = parse_journal_line(response.trim_end_matches(['\r', '\n']))?;
+    if envelope.get("type").and_then(Value::as_str) != Some("response")
+        || envelope.get("id").and_then(Value::as_str) != Some("chatmux-journal-identity")
+        || envelope.get("ok").and_then(Value::as_bool) != Some(true)
+    {
+        return None;
+    }
+    let sessions = envelope.get("result")?.as_array()?;
+    if sessions.len() != 1 {
+        return None;
+    }
+    let session = sessions.first()?.as_object()?;
+    let name = session.get("name")?.as_str()?;
+    valid_session_name(name).then(|| name.to_owned())
+}
+
+#[cfg(unix)]
+fn identity_matches(expected_name: &Option<String>, session_key: &str, actual_name: &str) -> bool {
+    if let Some(expected_name) = expected_name {
+        return expected_name == actual_name;
+    }
+    let Some(stem) = session_key.strip_prefix(OPAQUE_SESSION_PREFIX) else { return false };
+    let digest = Sha256::digest(actual_name.as_bytes());
+    format!("{digest:x}") == stem
+}
+
+#[cfg(unix)]
+struct SessionClaim {
+    claims: Arc<Mutex<HashSet<String>>>,
+    name: String,
+}
+
+#[cfg(unix)]
+impl Drop for SessionClaim {
+    fn drop(&mut self) {
+        if let Ok(mut claims) = self.claims.lock() {
+            claims.remove(&self.name);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn claim_session(claims: &Arc<Mutex<HashSet<String>>>, name: &str) -> Option<SessionClaim> {
+    let mut claimed = claims.lock().ok()?;
+    if !claimed.insert(name.to_owned()) {
+        return None;
+    }
+    drop(claimed);
+    Some(SessionClaim { claims: Arc::clone(claims), name: name.to_owned() })
+}
+
+#[cfg(all(unix, test))]
+fn socket_paths_for_session(socket_dirs: &[PathBuf], session_name: &str) -> Vec<PathBuf> {
+    socket_dirs.iter().map(|directory| directory.join(format!("{session_name}.sock"))).collect()
+}
+
+#[cfg(unix)]
+fn valid_session_name(name: &str) -> bool {
+    !name.is_empty()
+        && !matches!(name, "." | "..")
+        && name.chars().all(|character| {
+            character != '/'
+                && character != '\\'
+                && character != '\0'
+                && !character.is_control()
+                && !matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        })
+}
+
+#[cfg(unix)]
+fn socket_directories() -> Vec<PathBuf> {
+    let runtime = absolute_env_path("XDG_RUNTIME_DIR")
+        .or_else(|| absolute_env_path("TMPDIR"))
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    socket_directories_for(&runtime, unsafe { libc::getuid() })
+}
+
+#[cfg(unix)]
+fn absolute_env_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)?;
+    path.is_absolute().then_some(path)
+}
+
+/// Resolver-compatible socket roots in preference order. The cmux-tui server
+/// uses the normal root first, then `/tmp`, then hashed roots when a Unix
+/// socket path cannot fit `sockaddr_un`; scan all roots because the relay may
+/// start before or after a daemon selected any one of them.
+fn socket_directories_for(runtime_base: &Path, uid: u32) -> Vec<PathBuf> {
+    let preferred = runtime_base.join(format!("cmux-tui-{uid}"));
+    let fallback = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
+    let preferred_hashed = runtime_base.join(format!("cmux-tui-hashed-{uid}"));
+    let fallback_hashed = Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}"));
+    let mut directories = Vec::with_capacity(4);
+    for directory in [preferred, fallback, preferred_hashed, fallback_hashed] {
+        if !directories.iter().any(|existing| existing == &directory) {
+            directories.push(directory);
+        }
+    }
+    directories
 }
 
 #[cfg(unix)]
@@ -316,33 +617,123 @@ fn stream_id() -> String {
 }
 
 #[cfg(unix)]
-async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf) {
+async fn run_session(
+    shared: Shared,
+    session_name: Option<String>,
+    session_key: String,
+    socket_paths: Vec<PathBuf>,
+) {
     let mut failures = 0_u32;
     let mut volatile_resume = None;
+    let mut claim: Option<SessionClaim> = None;
     loop {
         if shared.cancellation.is_cancelled() {
             return;
         }
-        let stream = match tokio::time::timeout(
-            Duration::from_secs(3),
-            tokio::net::UnixStream::connect(&socket_path),
-        )
-        .await
-        {
-            Ok(Ok(stream)) => stream,
-            _ => {
-                failures = failures.saturating_add(1);
-                if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
-                    return;
-                }
+        let mut stream = None;
+        for socket_path in &socket_paths {
+            if !safe_socket_entry(socket_path).await {
                 continue;
             }
+            let connected = await_with_cancellation(
+                &shared.cancellation,
+                tokio::time::timeout(
+                    Duration::from_secs(3),
+                    tokio::net::UnixStream::connect(socket_path),
+                ),
+            )
+            .await;
+            match connected {
+                None => return,
+                Some(Ok(Ok(connected_stream))) => {
+                    stream = Some(connected_stream);
+                    break;
+                }
+                Some(Ok(Err(_)) | Err(_)) => {}
+            }
+        }
+        let Some(stream) = stream else {
+            failures = failures.saturating_add(1);
+            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+                return;
+            }
+            continue;
         };
         let (read_half, mut write_half) = stream.into_split();
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let identity_request = json!({
+            "protocol": PROTOCOL,
+            "type": "request",
+            "id": "chatmux-journal-identity",
+            "operation": "session.list",
+            "params": {"machine": "current"},
+        });
+        let Ok(mut identity_line) = serde_json::to_vec(&identity_request) else { return };
+        identity_line.push(b'\n');
+        if tokio::select! {
+            biased;
+            _ = shared.cancellation.cancelled() => return,
+            result = tokio::time::timeout(
+                IDENTITY_HANDSHAKE_TIMEOUT,
+                tokio::io::AsyncWriteExt::write_all(&mut write_half, &identity_line),
+            ) => !matches!(result, Ok(Ok(()))),
+        } {
+            failures = failures.saturating_add(1);
+            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+                return;
+            }
+            continue;
+        }
+        let identity_read = tokio::select! {
+            biased;
+            _ = shared.cancellation.cancelled() => return,
+            result = tokio::time::timeout(
+                IDENTITY_HANDSHAKE_TIMEOUT,
+                read_bounded_line(&mut reader, MAX_JOURNAL_LINE_BYTES),
+            ) => result,
+        };
+        let Some(identity_name) = identity_read
+            .ok()
+            .and_then(Result::ok)
+            .flatten()
+            .and_then(|line| parse_session_identity(&line))
+        else {
+            failures = failures.saturating_add(1);
+            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+                return;
+            }
+            continue;
+        };
+        if !identity_matches(&session_name, &session_key, &identity_name) {
+            failures = failures.saturating_add(1);
+            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+                return;
+            }
+            continue;
+        }
+        if let Some(existing) = claim.as_ref() {
+            if existing.name != identity_name {
+                return;
+            }
+        } else {
+            claim = claim_session(&shared.claims, &identity_name);
+            if claim.is_none() {
+                // Another worker already verified this session identity.
+                return;
+            }
+        }
+        let wire_session_name = Some(identity_name);
+        let effective_session_key = wire_session_name.as_deref().unwrap_or(&session_key).to_owned();
         let stream_id = stream_id();
         let cursor = match volatile_resume.take() {
             Some(cursor) => Some(cursor),
-            None => shared.cursors.lock().await.get(&session_name).cloned(),
+            None => {
+                let cursors = shared.cursors.lock().await;
+                cursors
+                    .get(&effective_session_key)
+                    .cloned()
+                    .or_else(|| cursors.get(&session_key).cloned())
+            }
         };
         let request = json!({
             "protocol": PROTOCOL,
@@ -363,18 +754,29 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
                 return;
             };
             params.remove("cursor");
+            if session_name.is_none() {
+                // A hash leaf does not identify the original session name. Do
+                // not start at the current head, or events created before the
+                // first scan would be lost before a cursor can be persisted.
+                params.insert("start".to_owned(), json!("beginning"));
+            }
         }
         let Ok(mut request_line) = serde_json::to_vec(&request) else { return };
         request_line.push(b'\n');
         if tokio::select! {
             biased;
             _ = shared.cancellation.cancelled() => return,
-            result = tokio::io::AsyncWriteExt::write_all(&mut write_half, &request_line) => result.is_err(),
+            result = tokio::time::timeout(
+                DEFAULT_REQUEST_TIMEOUT,
+                tokio::io::AsyncWriteExt::write_all(&mut write_half, &request_line),
+            ) => !matches!(result, Ok(Ok(()))),
         } {
+            failures = failures.saturating_add(1);
+            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+                return;
+            }
             continue;
         }
-        let mut reader = tokio::io::BufReader::new(read_half);
-        let mut line = String::new();
         let mut subscribed = false;
         let mut generation = cursor.as_ref().map(|cursor| cursor.generation.clone());
         let mut last_delivered = None;
@@ -383,20 +785,25 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
         let mut flush_timer = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
         let mut cursor_invalid = false;
         loop {
-            line.clear();
             tokio::select! {
                 biased;
                 _ = shared.cancellation.cancelled() => return,
                 _ = &mut flush_timer, if flush_armed => {
                     flush_armed = false;
-                    if !flush_pending(&shared, &session_name, &generation, &mut pending).await {
+                    if !flush_pending(
+                        &shared,
+                        &effective_session_key,
+                        wire_session_name.as_deref(),
+                        &generation,
+                        &mut pending,
+                    )
+                    .await
+                    {
                         return;
                     }
                 }
-                result = tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line) => {
-                    let Ok(bytes) = result else { break };
-                    if bytes == 0 { break }
-                    if bytes > MAX_JOURNAL_LINE_BYTES { continue }
+                result = read_bounded_line(&mut reader, MAX_JOURNAL_LINE_BYTES) => {
+                    let Ok(Some(line)) = result else { break };
                     let Some(envelope) = parse_journal_line(line.trim_end_matches(['\r', '\n'])) else { continue };
                     if !subscribed {
                         if envelope.get("type").and_then(Value::as_str) != Some("response")
@@ -425,7 +832,7 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
                             }
                             pending.push(envelope);
                             if pending.len() >= MAX_BATCH_RECORDS {
-                                if !flush_pending(&shared, &session_name, &generation, &mut pending).await { return; }
+                                if !flush_pending(&shared, &effective_session_key, wire_session_name.as_deref(), &generation, &mut pending).await { return; }
                                 flush_armed = false;
                             } else {
                                 flush_armed = true;
@@ -444,7 +851,14 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
             }
         }
         if !pending.is_empty()
-            && !flush_pending(&shared, &session_name, &generation, &mut pending).await
+            && !flush_pending(
+                &shared,
+                &effective_session_key,
+                wire_session_name.as_deref(),
+                &generation,
+                &mut pending,
+            )
+            .await
         {
             return;
         }
@@ -453,7 +867,12 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
         }
         if cursor_invalid {
             volatile_resume = None;
-            shared.cursors.lock().await.remove(&session_name);
+            let mut cursors = shared.cursors.lock().await;
+            cursors.remove(&effective_session_key);
+            if effective_session_key != session_key {
+                cursors.remove(&session_key);
+            }
+            drop(cursors);
             persist_cursors(&shared).await;
             failures = 0;
         } else {
@@ -468,7 +887,8 @@ async fn run_session(shared: Shared, session_name: String, socket_path: PathBuf)
 #[cfg(unix)]
 async fn flush_pending(
     shared: &Shared,
-    session_name: &str,
+    session_key: &str,
+    session_name: Option<&str>,
     generation: &Option<String>,
     pending: &mut Vec<Value>,
 ) -> bool {
@@ -476,7 +896,7 @@ async fn flush_pending(
         return true;
     }
     let entry = PendingSession {
-        session_name: session_name.to_owned(),
+        session_name: session_name.unwrap_or(session_key).to_owned(),
         generation: generation.clone(),
         records: std::mem::take(pending),
     };
@@ -650,7 +1070,7 @@ async fn load_cursor_file(path: &Path) -> HashMap<String, JournalCursor> {
         .unwrap_or_default()
         .into_iter()
         .filter(|(name, cursor)| {
-            valid_session_name(name) && parse_cursor(Some(&json!(cursor))).is_some()
+            valid_session_key(name) && parse_cursor(Some(&json!(cursor))).is_some()
         })
         .collect()
 }
@@ -687,6 +1107,176 @@ mod tests {
             parse_journal_line(r#"{"type":"stream_item"}"#).expect("valid envelope")["type"],
             "stream_item"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bounded_reader_rejects_an_unterminated_oversized_line() {
+        let payload = vec![b'x'; 32];
+        let mut reader = tokio::io::BufReader::new(std::io::Cursor::new(payload));
+        assert!(read_bounded_line(&mut reader, 16).await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identity_handshake_requires_one_verified_session() {
+        let valid = json!({
+            "type": "response",
+            "id": "chatmux-journal-identity",
+            "ok": true,
+            "result": [{"name": "legacy name"}],
+        })
+        .to_string();
+        assert_eq!(parse_session_identity(&valid), Some(String::from("legacy name")));
+        let ambiguous = json!({
+            "type": "response",
+            "id": "chatmux-journal-identity",
+            "ok": true,
+            "result": [{"name": "one"}, {"name": "two"}],
+        })
+        .to_string();
+        assert!(parse_session_identity(&ambiguous).is_none());
+        assert!(identity_matches(&Some(String::from("legacy name")), "legacy", "legacy name"));
+        assert!(!identity_matches(&Some(String::from("legacy name")), "legacy", "other"));
+        let stem = format!("{:x}", Sha256::digest("legacy name".as_bytes()));
+        assert!(identity_matches(&None, &opaque_session_key(&stem), "legacy name"));
+        assert!(!identity_matches(&None, &opaque_session_key(&stem), "other"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_roots_match_server_preferred_fallback_and_hashed_order() {
+        let roots = socket_directories_for(Path::new("/run/user/501"), 501);
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from("/run/user/501/cmux-tui-501"),
+                PathBuf::from("/tmp/cmux-tui-501"),
+                PathBuf::from("/run/user/501/cmux-tui-hashed-501"),
+                PathBuf::from("/tmp/cmux-tui-hashed-501"),
+            ]
+        );
+        let tmp_roots = socket_directories_for(Path::new("/tmp"), 501);
+        assert_eq!(
+            tmp_roots,
+            vec![PathBuf::from("/tmp/cmux-tui-501"), PathBuf::from("/tmp/cmux-tui-hashed-501"),]
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn discovery_merges_preferred_and_fallback_without_duplicate_session_workers() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::net::UnixListener;
+
+        let root =
+            std::env::temp_dir().join(format!("chatmux-relay-discovery-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        let preferred = root.join("preferred");
+        let fallback = root.join("fallback");
+        tokio::fs::create_dir_all(&preferred).await.expect("preferred directory");
+        tokio::fs::create_dir_all(&fallback).await.expect("fallback directory");
+        tokio::fs::set_permissions(&preferred, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("preferred directory permissions");
+        tokio::fs::set_permissions(&fallback, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("fallback directory permissions");
+        let preferred_main =
+            UnixListener::bind(preferred.join("main.sock")).expect("preferred socket entry");
+        let fallback_main =
+            UnixListener::bind(fallback.join("main.sock")).expect("fallback socket entry");
+        let fallback_late =
+            UnixListener::bind(fallback.join("late.sock")).expect("fallback-only socket entry");
+
+        let dirs = vec![preferred.clone(), fallback.clone()];
+        let names = discover_session_names(&dirs).await;
+        assert_eq!(names, HashSet::from([String::from("main"), String::from("late")]));
+        let main_paths = socket_paths_for_session(&dirs, "main");
+        assert_eq!(main_paths, vec![preferred.join("main.sock"), fallback.join("main.sock")]);
+
+        drop(preferred_main);
+        drop(fallback_main);
+        drop(fallback_late);
+        tokio::fs::remove_dir_all(root).await.expect("remove discovery fixture");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hashed_socket_stem_is_opaque_and_session_name_is_omitted() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::net::UnixListener;
+
+        let root = PathBuf::from("/tmp/cmh");
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        let hashed = root.join("cmux-tui-hashed-501");
+        tokio::fs::create_dir_all(&hashed).await.expect("hashed directory");
+        tokio::fs::set_permissions(&hashed, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("hashed directory permissions");
+        let stem = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let listener =
+            UnixListener::bind(hashed.join(format!("{stem}.sock"))).expect("hashed socket entry");
+
+        let candidates = discover_session_candidates(std::slice::from_ref(&hashed)).await;
+        assert_eq!(candidates.len(), 1);
+        let candidate = &candidates[0];
+        assert!(candidate.session_name.is_none());
+        assert_eq!(candidate.key, opaque_session_key(stem));
+        assert!(candidate.socket_paths.iter().all(|path| path.starts_with(&hashed)));
+
+        let batch = SessionBatch {
+            session_id: "generation".to_owned(),
+            session_name: candidate.key.clone(),
+            records: vec![record("generation", "1")],
+            cursor: cursor("generation", "1"),
+        };
+        let body = serde_json::to_value(json!({"sessions": [batch]})).expect("batch JSON");
+        assert!(body["sessions"][0].get("sessionName").is_none());
+
+        drop(listener);
+        tokio::fs::remove_dir_all(root).await.expect("remove hashed fixture");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn discovery_rejects_insecure_roots_and_symlink_entries() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        use std::os::unix::net::UnixListener;
+
+        let root = PathBuf::from(format!("/tmp/cms-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        let insecure = root.join("insecure");
+        tokio::fs::create_dir_all(&insecure).await.expect("insecure directory");
+        tokio::fs::set_permissions(&insecure, std::fs::Permissions::from_mode(0o755))
+            .await
+            .expect("insecure permissions");
+        let listener = UnixListener::bind(insecure.join("main.sock")).expect("socket");
+        assert!(discover_session_candidates(std::slice::from_ref(&insecure)).await.is_empty());
+        drop(listener);
+        let _ = tokio::fs::remove_file(insecure.join("main.sock")).await;
+
+        tokio::fs::set_permissions(&insecure, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("private permissions");
+        let target = insecure.join("target.sock");
+        let target_listener = UnixListener::bind(&target).expect("target socket");
+        symlink(&target, insecure.join("alias.sock")).expect("socket symlink");
+        let candidates = discover_session_candidates(std::slice::from_ref(&insecure)).await;
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].key, "target");
+
+        drop(target_listener);
+        tokio::fs::remove_dir_all(root).await.expect("remove insecure fixture");
+    }
+
+    #[test]
+    fn session_name_validation_matches_core_component_rules() {
+        assert!(valid_session_name("legacy name: λ"));
+        assert!(valid_session_name(&"x".repeat(512)));
+        for invalid in ["", ".", "..", "a/b", "a\\b", "a\u{0000}b", "a\u{2028}b"] {
+            assert!(!valid_session_name(invalid), "accepted invalid session {invalid:?}");
+        }
     }
 
     #[test]
