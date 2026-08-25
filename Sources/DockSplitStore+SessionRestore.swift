@@ -213,14 +213,18 @@ extension DockSplitStore {
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
-        let restoreAgentIndex: RestorableAgentSessionIndex? = if restorableAgent != nil ||
-            resumeBinding?.isAgentHookBinding == true {
+        let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+        let restoreAgentIndex: RestorableAgentSessionIndex? = if shouldCheckAgentOwnership {
             SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
         } else {
             nil
         }
-        let restoreOwnershipAmbiguous = restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true
+        let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
+            restoreAgentIndex == nil ||
+            (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
+                restoreAgentIndex?.entry(workspaceId: workspaceId, panelId: snapshot.id) == nil)
+        )
         let resumeBindingForStartup = hibernation != nil ||
             restoreOwnershipAmbiguous ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)

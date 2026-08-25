@@ -2665,6 +2665,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 selected = candidate
             }
             let selectedIsLive = Self.entryHasLiveProcess(selected)
+            let liveCandidateCount = candidates.reduce(into: 0) { count, candidate in
+                if Self.entryHasLiveProcess(candidate) { count += 1 }
+            }
             let topRankCount = candidates.reduce(into: 0) { count, candidate in
                 guard Self.entryHasLiveProcess(candidate) == selectedIsLive,
                       candidate.updatedAt == selected.updatedAt else {
@@ -2672,7 +2675,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 count += 1
             }
-            if topRankCount > 1 {
+            if liveCandidateCount > 1 || topRankCount > 1 {
                 // Equal top-ranked owner records have no reliable panel-only winner.
                 ambiguousPanelIds.insert(panelId)
             }

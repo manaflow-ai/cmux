@@ -484,11 +484,12 @@ extension Workspace {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
-        if liveIndex?.hasAmbiguousPanel(panelId) == true {
+        let liveEntry = liveIndex?.entry(workspaceId: id, panelId: panelId)
+        if liveIndex?.hasAmbiguousPanel(panelId) == true, liveEntry == nil {
             return false
         }
         return !AgentResumeLiveness.hasLiveProcess(
-            for: liveIndex?.entry(workspaceId: id, panelId: panelId),
+            for: liveEntry,
             kind: kind,
             sessionId: checkpointId
         )

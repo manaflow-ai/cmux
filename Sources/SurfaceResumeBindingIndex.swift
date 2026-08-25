@@ -35,6 +35,9 @@ struct SurfaceResumeBindingIndex: Sendable {
                 let selectedIdentity = "\(selected.kind ?? ""):\(selected.checkpointId ?? selected.command)"
                 if candidateIdentity > selectedIdentity { selected = candidate }
             }
+            let processDetectedCount = candidates.reduce(into: 0) { count, candidate in
+                if candidate.isProcessDetected { count += 1 }
+            }
             let topRankCount = candidates.reduce(into: 0) { count, candidate in
                 guard candidate.isProcessDetected == selected.isProcessDetected,
                       candidate.updatedAt == selected.updatedAt else {
@@ -42,7 +45,7 @@ struct SurfaceResumeBindingIndex: Sendable {
                 }
                 count += 1
             }
-            if topRankCount > 1 {
+            if processDetectedCount > 1 || topRankCount > 1 {
                 ambiguousPanelIds.insert(panelId)
             }
             bindingsByPanelId[panelId] = selected

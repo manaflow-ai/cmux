@@ -1313,12 +1313,12 @@ extension Workspace {
     ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-            if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId) {
+            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+            if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
                 // A missing panel-only winner is uncertainty, not proof that a
                 // process-backed binding exited; preserve the existing binding.
                 continue
             }
-            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
 
             if let detectedBinding, detectedBinding.isPlainSSHProcessDetectedBinding {
                 // A fresh process observation is authoritative evidence that
@@ -1399,10 +1399,10 @@ extension Workspace {
             return storedBinding
         }
 
-        if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId) {
+        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+        if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
             return storedBinding
         }
-        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else {
             if storedBinding.isPlainSSHProcessDetectedBinding {
@@ -1480,14 +1480,18 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
-            let restoreAgentIndex: RestorableAgentSessionIndex? = if restorableAgent != nil ||
-                resumeBinding?.isAgentHookBinding == true {
+            let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+                (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+            let restoreAgentIndex: RestorableAgentSessionIndex? = if shouldCheckAgentOwnership {
                 SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
             } else {
                 nil
             }
-            let restoreOwnershipAmbiguous = restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true
+            let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
+                restoreAgentIndex == nil ||
+                (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
+                    restoreAgentIndex?.entry(workspaceId: id, panelId: snapshot.id) == nil)
+            )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 restoreOwnershipAmbiguous ||
