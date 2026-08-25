@@ -584,6 +584,17 @@ struct ClaimFence {
     endpoint_ptr: usize,
 }
 
+struct OwnerResizeFence {
+    generation: u64,
+    owner_id: u64,
+    grid: SizingGrid,
+    endpoint_ptr: usize,
+    /// The response for the verification request already queued after the
+    /// resize report. `None` means the bounded queue could not accept the
+    /// complete pair; input must fail closed until a new generation.
+    response: Option<oneshot::Receiver<Option<Value>>>,
+}
+
 struct OrderedControlQueue {
     surface_id: i64,
     self_ref: OnceLock<Weak<OrderedControlQueue>>,
@@ -636,6 +647,10 @@ struct OrderedControlQueueState {
     /// `apply_target` consumes this marker instead of queueing a duplicate
     /// pair. A failed verified claim clears the marker before a real retry.
     claim_fence: Option<ClaimFence>,
+    /// A non-claim owner resize and its verification request were reserved as
+    /// one adjacent wire batch. Input may append after this pair, but never
+    /// between the report and request. A missing response marks QueueFull.
+    owner_resize_fence: Option<OwnerResizeFence>,
     /// Endpoints removed from the target but not yet acknowledged by the
     /// daemon. A new explicit claim must wait for every old transport's
     /// ordered close barrier before it can write authority commands.
@@ -675,6 +690,7 @@ impl OrderedControlQueue {
                 pending_resize: None,
                 last_resize: None,
                 claim_fence: None,
+                owner_resize_fence: None,
                 closing: Vec::new(),
                 closing_waiters: Vec::new(),
                 closing_failed: false,
@@ -794,6 +810,111 @@ impl OrderedControlQueue {
             state.pending_resize = None;
             false
         }
+    }
+
+    /// Reserve a non-claim owner resize and its verification request as one
+    /// adjacent wire batch. The queue lock remains held while both commands
+    /// are appended, so input cannot enter between the report and request.
+    /// `response == None` is a visible QueueFull fence: the caller has no
+    /// request id to report and must fail this generation closed.
+    fn enqueue_owner_resize_batch_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        owner_id: u64,
+        grid: SizingGrid,
+        generation: u64,
+    ) -> (bool, bool) {
+        if state.closed
+            || state.closing_failed
+            || !self.close_barrier_ready_locked(state)
+            || self.current_generation() != generation
+            || !endpoint.is_active()
+        {
+            return (false, false);
+        }
+        if state.claim_fence.is_some() {
+            return (false, false);
+        }
+        if let Some(fence) = state.owner_resize_fence.take() {
+            if fence.generation == generation
+                && fence.owner_id == owner_id
+                && fence.grid == grid
+                && fence.endpoint_ptr == endpoint_ptr(endpoint)
+            {
+                state.owner_resize_fence = Some(fence);
+                return (true, false);
+            }
+            // A newer generation supersedes the old verification response.
+            // Its queued command carries the old generation and will be
+            // rejected by the wire actor; dropping this receiver prevents a
+            // stale worker from committing authority.
+        }
+        if state
+            .pending_resize
+            .as_ref()
+            .is_some_and(|(_, pending, _, claim)| *claim || !Arc::ptr_eq(pending, endpoint))
+        {
+            return (false, false);
+        }
+
+        let mut pending = self.wire_pending.lock().expect("ordered control pending lock");
+        if pending.len().saturating_add(2) > MAX_ORDERED_CONTROL_COMMANDS {
+            state.pending_resize = None;
+            state.owner_resize_fence = Some(OwnerResizeFence {
+                generation,
+                owner_id,
+                grid,
+                endpoint_ptr: endpoint_ptr(endpoint),
+                response: None,
+            });
+            return (true, false);
+        }
+
+        // The pending metadata has not reached the wire yet. Replace it with
+        // this latest report and append the verification request immediately
+        // after it. Both commands are accepted under the same queue lock.
+        state.pending_resize = None;
+        let (reply, response) = oneshot::channel();
+        pending.push_back(OrderedControlCommand {
+            endpoint: Arc::clone(endpoint),
+            generation: Some(generation),
+            expected_owner: Some(owner_id),
+            requires_unowned: false,
+            kind: OrderedControlCommandKind::Send {
+                command: "resize-surface".to_owned(),
+                params: json!({
+                    "surface": self.surface_id,
+                    "cols": grid.cols,
+                    "rows": grid.rows,
+                }),
+            },
+        });
+        pending.push_back(OrderedControlCommand {
+            endpoint: Arc::clone(endpoint),
+            generation: Some(generation),
+            expected_owner: Some(owner_id),
+            requires_unowned: false,
+            kind: OrderedControlCommandKind::Request {
+                command: "resize-surface".to_owned(),
+                params: json!({
+                    "surface": self.surface_id,
+                    "cols": grid.cols,
+                    "rows": grid.rows,
+                }),
+                reply,
+            },
+        });
+        drop(pending);
+        state.last_resize = Some((generation, owner_id, endpoint_ptr(endpoint), grid, false));
+        state.owner_resize_fence = Some(OwnerResizeFence {
+            generation,
+            owner_id,
+            grid,
+            endpoint_ptr: endpoint_ptr(endpoint),
+            response: Some(response),
+        });
+        (true, true)
     }
 
     /// Add one command to the session mutation queue. Callers hold the queue
@@ -1253,6 +1374,7 @@ impl OrderedControlQueue {
             // Drop that stale metadata before deciding whether input failed;
             // a superseded resize is not a transport failure.
             let stale_pending = self.discard_stale_pending_locked(&mut state);
+            self.discard_stale_owner_resize_fence_locked(&mut state);
             let close_ready = state.closing.iter().all(|closing| {
                 state.closing_waiters.iter().any(|(pointer, _)| *pointer == endpoint_ptr(closing))
                     || state.closing_inflight.contains(&endpoint_ptr(closing))
@@ -1267,7 +1389,10 @@ impl OrderedControlQueue {
             let claim_without_fence = claim_requested
                 && state.claim_fence.is_none()
                 && !state.pending_resize.as_ref().is_some_and(|(_, _, _, claim)| *claim);
-            if state.closing_failed || !close_ready || claim_without_fence {
+            let owner_batch_failed = state.owner_resize_fence.as_ref().is_some_and(|fence| {
+                fence.generation == self.current_generation() && fence.response.is_none()
+            });
+            if state.closing_failed || !close_ready || claim_without_fence || owner_batch_failed {
                 (false, false)
             } else {
                 let flushed = stale_pending || self.flush_resize_locked(&mut state);
@@ -1381,6 +1506,14 @@ impl OrderedControlQueue {
         }) {
             state.claim_fence = None;
         }
+        if state.owner_resize_fence.as_ref().is_some_and(|fence| {
+            fence.owner_id == endpoint.viewer_id && fence.endpoint_ptr == endpoint_ptr(endpoint)
+        }) {
+            // The queued request belongs to the detached generation. Drop its
+            // waiter before the FIFO close is appended so a late response
+            // cannot commit authority after detach.
+            state.owner_resize_fence = None;
+        }
         if !state.closing.iter().any(|current| Arc::ptr_eq(current, endpoint)) {
             state.closing.push(Arc::clone(endpoint));
         }
@@ -1391,6 +1524,7 @@ impl OrderedControlQueue {
         state.closed = true;
         state.pending_resize = None;
         state.claim_fence = None;
+        state.owner_resize_fence = None;
         state.closing.clear();
         state.closing_waiters.clear();
         state.closing_inflight.clear();
@@ -1644,6 +1778,16 @@ impl OrderedControlQueue {
             state.claim_fence = None;
         }
         true
+    }
+
+    fn discard_stale_owner_resize_fence_locked(&self, state: &mut OrderedControlQueueState) {
+        if state
+            .owner_resize_fence
+            .as_ref()
+            .is_some_and(|fence| fence.generation != self.current_generation())
+        {
+            state.owner_resize_fence = None;
+        }
     }
 }
 
@@ -2177,12 +2321,16 @@ impl TerminalSizing {
                         && owner.endpoint.is_active()
                         && state.applied != Some(grid)
                     {
-                        target.queue.enqueue_resize_locked(
-                            &mut queue_state,
-                            &owner.endpoint,
-                            grid,
-                            false,
-                        )
+                        target
+                            .queue
+                            .enqueue_owner_resize_batch_locked(
+                                &mut queue_state,
+                                &owner.endpoint,
+                                owner_id,
+                                grid,
+                                generation,
+                            )
+                            .1
                     } else {
                         false
                     }
@@ -2391,6 +2539,7 @@ impl TerminalSizing {
         } else {
             None
         };
+        target.queue.discard_stale_owner_resize_fence_locked(queue_state);
         target.queue.clear_stale_claim_fence_locked(
             queue_state,
             candidate.and_then(|(candidate_id, candidate_grid)| {
@@ -2415,6 +2564,20 @@ impl TerminalSizing {
         }
         let should_start = if claim {
             target.queue.reserve_resize_locked(queue_state, endpoint, grid, generation)
+        } else if let Some(owner_id) = expected_owner {
+            // Owner reports must reserve their verification request beside the
+            // resize. This prevents input from entering after an eager report
+            // flush but before `apply_target` can enqueue the request.
+            target
+                .queue
+                .enqueue_owner_resize_batch_locked(
+                    queue_state,
+                    endpoint,
+                    owner_id,
+                    grid,
+                    generation,
+                )
+                .1
         } else {
             target.queue.enqueue_resize_locked(queue_state, endpoint, grid, false)
         };
@@ -2440,6 +2603,7 @@ impl TerminalSizing {
             return OwnerResizeRequestOutcome::Stale;
         }
         let (reply, response) = oneshot::channel();
+        let mut prequeued_response = None;
         let batch: Result<(), OwnerResizeRequestOutcome> = {
             // All coordinator mutations use queue -> target-state order. Do
             // not await while either lock is held; the wire worker performs
@@ -2460,6 +2624,28 @@ impl TerminalSizing {
                 || queue_state.claim_fence.is_some()
             {
                 Err(OwnerResizeRequestOutcome::Stale)
+            } else if let Some(mut fence) = queue_state.owner_resize_fence.take() {
+                if fence.generation != generation
+                    || fence.owner_id != owner_id
+                    || fence.grid != grid
+                    || fence.endpoint_ptr != endpoint_ptr(endpoint)
+                {
+                    // A newer generation must not consume an older response
+                    // fence. Its queued command carries the old generation
+                    // and will be rejected by the wire actor.
+                    queue_state.owner_resize_fence = Some(fence);
+                    Err(OwnerResizeRequestOutcome::Stale)
+                } else if let Some(response) = fence.response.take() {
+                    // The update path already appended resize+request as one
+                    // adjacent batch. Consume only the response receiver;
+                    // input may safely append after the queued request.
+                    prequeued_response = Some(response);
+                    Ok(())
+                } else {
+                    // QueueFull is represented by a fence without a reply
+                    // receiver. Keep the generation fail-closed.
+                    Err(OwnerResizeRequestOutcome::QueueFull)
+                }
             } else {
                 // A pending resize belongs to this owner queue. It may be
                 // stale after a coalesced update, so replace it with the
@@ -2520,6 +2706,9 @@ impl TerminalSizing {
             return outcome;
         }
         target.queue.start_wire_drain();
+        if let Some(response) = prequeued_response {
+            return OwnerResizeRequestOutcome::Reply(response.await.ok().flatten());
+        }
         OwnerResizeRequestOutcome::Reply(response.await.ok().flatten())
     }
 
@@ -2700,6 +2889,8 @@ impl TerminalSizing {
         state.owner = None;
         state.claim_requested = None;
         target.queue.clear_stale_claim_fence_locked(&mut queue_state, None);
+        target.queue.discard_stale_owner_resize_fence_locked(&mut queue_state);
+        queue_state.owner_resize_fence = None;
         self.advance_generation(target);
         false
     }
@@ -6346,6 +6537,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cmux_protocol_ten_refuses_open_when_sizing_target_is_frozen() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control = SizingControl::new(10, &[]);
+        let h = harness_with_control(Some(cmux), None, None, Some(Arc::new(control.clone())));
+
+        // Retire the same daemon surface with a failed close barrier. A
+        // protocol-10+ raw attach must report a fixed failure, not degrade to
+        // a whole-session shell that bypasses the sizing generation fence.
+        let old_control = SizingControl::new(10, &[]);
+        old_control.set_end_ok(false);
+        let key =
+            SizingKey { socket_path: PathBuf::from("/run/cmux-tui-501/main.sock"), surface_id: 40 };
+        h.manager
+            .inner
+            .sizing
+            .join(
+                key.clone(),
+                1,
+                40,
+                Arc::new(old_control.clone()),
+                SizingGrid { cols: 80, rows: 24 },
+            )
+            .expect("initial sizing join")
+            .await
+            .expect("initial sizing worker");
+        h.manager.inner.sizing.leave(&key, 1);
+        old_control.wait_for_end().await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frozen = h
+                    .manager
+                    .inner
+                    .sizing
+                    .targets
+                    .lock()
+                    .unwrap()
+                    .get(&key)
+                    .is_some_and(|target| target.queue.state.lock().unwrap().closing_failed);
+                if frozen {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("sizing target did not become frozen");
+
+        h.open_at_version(
+            10,
+            "p1",
+            "main",
+            serde_json::json!({ "surface": "40" }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        let sent = h.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["type"], "pty_error");
+        assert_eq!(sent[0]["code"], "failed");
+        assert!(sent[0]["message"].as_str().unwrap_or_default().contains("sizing"));
+        assert!(!sent.iter().any(|frame| ty(frame) == "pty_opened"));
+        assert!(control.ended(), "failed open must close the raw control");
+    }
+
+    #[tokio::test]
     async fn raw_surface_attach_uses_daemon_returned_socket_path() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
         let daemon_socket = PathBuf::from("/private/cmux/custom.sock");
@@ -7750,12 +8007,22 @@ mod tests {
             .expect("initial sizing worker");
         let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
         let before = control.events().len();
+        let before_sends = control.sends().len();
+        let before_requests = control.requests().len();
+        control.block_sizing();
         coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 30 });
         endpoint.enqueue_input(b"ordered-update-input");
-        control.wait_for_sends(2).await;
+        control.wait_for_requests(before_requests + 1).await;
+        let blocked_events = control.events();
+        assert_eq!(
+            blocked_events[before..].iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["send:resize-surface", "request:resize-surface"]
+        );
+        control.release_sizing();
+        control.wait_for_sends(before_sends + 2).await;
         let events = control.events();
-        let suffix: Vec<&str> = events[before..before + 2].iter().map(String::as_str).collect();
-        assert_eq!(suffix, vec!["send:resize-surface", "send:send"]);
+        let suffix: Vec<&str> = events[before..before + 3].iter().map(String::as_str).collect();
+        assert_eq!(suffix, vec!["send:resize-surface", "request:resize-surface", "send:send"]);
         coordinator.leave(&key, 1);
     }
 
@@ -7774,6 +8041,8 @@ mod tests {
             .await
             .expect("initial sizing worker");
         let before = owner.events().len();
+        let before_sends = owner.sends().len();
+        let before_requests = owner.requests().len();
         coordinator
             .join(key.clone(), 2, 38, Arc::new(viewer.clone()), SizingGrid { cols: 80, rows: 24 })
             .expect("viewer sizing barrier")
@@ -7781,10 +8050,11 @@ mod tests {
             .expect("viewer sizing worker");
         let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
         endpoint.enqueue_input(b"ordered-join-input");
-        owner.wait_for_sends(2).await;
+        owner.wait_for_requests(before_requests + 1).await;
+        owner.wait_for_sends(before_sends + 2).await;
         let events = owner.events();
-        let suffix: Vec<&str> = events[before..before + 2].iter().map(String::as_str).collect();
-        assert_eq!(suffix, vec!["send:resize-surface", "send:send"]);
+        let suffix: Vec<&str> = events[before..before + 3].iter().map(String::as_str).collect();
+        assert_eq!(suffix, vec!["send:resize-surface", "request:resize-surface", "send:send"]);
         coordinator.leave(&key, 2);
         coordinator.leave(&key, 1);
     }
