@@ -4238,6 +4238,11 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        let isCursorShellHookCommand = command == "hooks"
+            && commandArgs.first?.lowercased() == "cursor"
+            && ["shell-exec", "shell-done", "shell-failed"].contains(
+                commandArgs.dropFirst().first?.lowercased() ?? ""
+            )
 
         if command == "version" {
             print(versionSummary())
@@ -4582,6 +4587,10 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
+        let cursorHookSocketTimeout: TimeInterval? = isCursorShellHookCommand ? 0.35 : nil
+        let cursorHookDeadline: Date? = isCursorShellHookCommand
+            ? Date.now.addingTimeInterval(3.0)
+            : nil
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -4599,7 +4608,11 @@ struct CMUXCLI {
             ]
         )
         do {
-            try client.connect()
+            if let cursorHookDeadline {
+                try client.connect(deadline: cursorHookDeadline)
+            } else {
+                try client.connect()
+            }
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
@@ -4652,7 +4665,9 @@ struct CMUXCLI {
         try authenticateClientIfNeeded(
             client,
             explicitPassword: socketPasswordArg,
-            socketPath: resolvedSocketPath
+            socketPath: resolvedSocketPath,
+            responseTimeout: cursorHookSocketTimeout,
+            deadline: cursorHookDeadline
         )
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
@@ -32142,7 +32157,9 @@ export default CMUXSessionRestore;
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
-        let cursorShellTargetResolutionTimeout: TimeInterval? = cursorShellEvent ? 0.35 : nil
+        let cursorShellLifecycleEvent = def.name == "cursor"
+            && ["shell-exec", "shell-done", "shell-failed"].contains(subcommand)
+        let cursorShellTargetResolutionTimeout: TimeInterval? = cursorShellLifecycleEvent ? 0.35 : nil
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
@@ -32709,7 +32726,7 @@ export default CMUXSessionRestore;
             if let strictPiTarget {
                 return strictPiTarget
             }
-            if cursorShellEvent {
+            if cursorShellLifecycleEvent {
                 // Cursor's beforeShellExecution callback must return its
                 // native decision promptly. Use only the already-claimed or
                 // persisted target for this shell path; process/TTY probing
