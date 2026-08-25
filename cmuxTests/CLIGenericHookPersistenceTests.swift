@@ -10,6 +10,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let executable: String
         let launchArguments: [String]
         let extraEnvironment: [String: String]
+        let existingLaunchArguments: [String]?
         let expectedArguments: [String]
         let expectedEnvironment: [String: String]?
         let expectedSource: String?
@@ -25,7 +26,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             expectedArguments: [String],
             expectedEnvironment: [String: String]?,
             expectedSource: String? = nil,
-            expectedRejectionReason: String? = nil
+            expectedRejectionReason: String? = nil,
+            existingLaunchArguments: [String]? = nil
         ) {
             self.agent = agent
             self.subcommand = subcommand
@@ -33,6 +35,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             self.executable = executable
             self.launchArguments = launchArguments
             self.extraEnvironment = extraEnvironment
+            self.existingLaunchArguments = existingLaunchArguments
             self.expectedArguments = expectedArguments
             self.expectedEnvironment = expectedEnvironment
             self.expectedSource = expectedSource
@@ -120,11 +123,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 sessionId: "gemini-decode-failed-session-123",
                 executable: "/Users/example/.bun/bin/gemini",
                 launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64",
+                    "GEMINI_CLI_HOME": "/tmp/gemini decode-failed home",
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini decode-failed home"],
+                expectedSource: "rejected",
+                expectedRejectionReason: "argvDecodeFailed"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-decode-failed-empty-environment-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
                 extraEnvironment: ["CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64"],
                 expectedArguments: [],
                 expectedEnvironment: nil,
-                expectedSource: "default",
+                expectedSource: "rejected",
                 expectedRejectionReason: "argvDecodeFailed"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-rejected-does-not-downgrade-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64",
+                    "GEMINI_CLI_HOME": "/tmp/gemini rejected home",
+                    "CMUX_GEMINI_PID": "999999999",
+                ],
+                existingLaunchArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "stable-model",
+                ],
+                expectedArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "stable-model",
+                ],
+                expectedEnvironment: nil,
+                expectedSource: "environment"
             ),
             GenericHookPersistenceScenario(
                 agent: "kiro",
@@ -4319,6 +4361,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
+        if let existingLaunchArguments = scenario.existingLaunchArguments {
+            let existingLaunchCommand: [String: Any] = [
+                "launcher": scenario.agent,
+                "executablePath": scenario.executable,
+                "arguments": existingLaunchArguments,
+                "workingDirectory": workspace.path,
+                "source": "environment",
+            ]
+            let existingStore: [String: Any] = [
+                "version": 1,
+                "sessions": [
+                    scenario.sessionId: [
+                        "sessionId": scenario.sessionId,
+                        "workspaceId": workspaceId,
+                        "surfaceId": surfaceId,
+                        "cwd": workspace.path,
+                        "startedAt": 1.0,
+                        "updatedAt": 1.0,
+                        "launchCommand": existingLaunchCommand,
+                    ],
+                ],
+            ]
+            let existingData = try JSONSerialization.data(withJSONObject: existingStore, options: [.sortedKeys])
+            try existingData.write(
+                to: root.appendingPathComponent("\(scenario.agent)-hook-sessions.json", isDirectory: false),
+                options: .atomic
+            )
+        }
+
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
@@ -4388,6 +4459,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         if let expectedRejectionReason = scenario.expectedRejectionReason {
             XCTAssertEqual(launchCommand["rejectionReason"] as? String, expectedRejectionReason)
+        }
+        if scenario.existingLaunchArguments != nil {
+            XCTAssertNil(
+                launchCommand["rejectionReason"],
+                "a rejected follow-up must not add a rejection marker to the preserved argv"
+            )
+            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            let resumeParams = try XCTUnwrap(
+                resumeSetRequests.last,
+                "a rejected follow-up must retain the existing resume binding"
+            )
+            XCTAssertTrue(
+                (resumeParams["command"] as? String)?.contains("stable-model") == true,
+                "the preserved argv must remain the authoritative resume command: \(resumeParams)"
+            )
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "a rejected follow-up must not clear a richer existing binding: \(state.commands)"
+            )
         }
 
         if scenario.agent == "kiro" {
@@ -4548,6 +4646,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let persistedLaunch = try XCTUnwrap(
             persisted["launchCommand"] as? [String: Any],
             "env-only launchCommand must be persisted for the fork path"
+        )
+        XCTAssertEqual(
+            persistedLaunch["source"] as? String,
+            "environment",
+            "an unavailable PID must keep the historical env-only fallback source"
+        )
+        XCTAssertEqual(
+            persistedLaunch["rejectionReason"] as? String,
+            "argvUnavailable",
+            "an unavailable PID should be distinguishable from a positively rejected capture"
         )
         XCTAssertEqual(
             (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,

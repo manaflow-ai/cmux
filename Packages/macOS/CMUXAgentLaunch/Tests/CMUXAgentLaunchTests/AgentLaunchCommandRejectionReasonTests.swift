@@ -68,6 +68,7 @@ struct AgentLaunchCommandRejectionReasonTests {
         var repaired = rejected
         repaired.arguments = ["/usr/local/bin/codex", "resume"]
         #expect(repaired.rejectionReason == nil)
+        #expect(repaired.isRejectedCapture == false)
     }
 
     /// The one combination cmux never writes, if a hand-edited or foreign record
@@ -84,6 +85,7 @@ struct AgentLaunchCommandRejectionReasonTests {
         let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: Data(stored.utf8))
         #expect(command.arguments == ["/usr/local/bin/codex", "--yolo"])
         #expect(command.rejectionReason == nil)
+        #expect(command.isRejectedCapture == false)
 
         let rewritten = try JSONEncoder().encode(command)
         let object = try #require(

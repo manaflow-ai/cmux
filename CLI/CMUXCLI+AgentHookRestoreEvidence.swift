@@ -54,7 +54,7 @@ extension CMUXCLI {
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
-        guard normalizedHookValue(launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        guard launchCommand?.isRejectedCapture != true else { return false }
         guard kind == "codex" else { return true }
         guard let launchCommand else { return true }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
@@ -81,7 +81,10 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+        if current?.isRejectedCapture == true {
+            if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
+                return preserved
+            }
             return current
         }
         if kind == "codex",
@@ -132,7 +135,10 @@ extension CMUXCLI {
         currentCwd: String?,
         mapped: ClaudeHookSessionRecord?
     ) -> String? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+        if current?.isRejectedCapture == true {
+            if mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) != nil {
+                return mapped?.cwd ?? currentCwd
+            }
             return currentCwd ?? mapped?.cwd
         }
         let currentSource = normalizedHookValue(current?.source)?.lowercased()
@@ -149,12 +155,39 @@ extension CMUXCLI {
         return currentCwd ?? mapped?.cwd
     }
 
+    private func mappedLaunchAfterRejectedCapture(
+        kind: String,
+        current: AgentHookLaunchCommandRecord?,
+        mapped: ClaudeHookSessionRecord?
+    ) -> AgentHookLaunchCommandRecord? {
+        guard let rejectionReason = current?.rejectionReason,
+              mappedLaunchFallbackIsSafe(for: rejectionReason),
+              let mappedLaunch = mapped?.launchCommand,
+              !mappedLaunch.isRejectedCapture,
+              AgentLaunchCaptureTrust.launcherDescribesKind(mappedLaunch.launcher, kind: kind),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(mappedLaunch.arguments),
+              agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mappedLaunch) else {
+            return nil
+        }
+        return mappedLaunch
+    }
+
+    private func mappedLaunchFallbackIsSafe(
+        for rejectionReason: AgentLaunchCaptureRejectionReason
+    ) -> Bool {
+        rejectionReason == .launcherDoesNotDescribeKind
+            || rejectionReason == .nativeProcessDoesNotDescribeKind
+            || rejectionReason == .argvLooksLikeShellWrapper
+            || rejectionReason == .argvUnavailable
+            || rejectionReason == .argvDecodeFailed
+    }
+
     func agentHookMappedSessionHasDurableTargetEvidence(
         kind: String,
         mapped: ClaudeHookSessionRecord?
     ) -> Bool {
         guard let mapped else { return false }
-        guard normalizedHookValue(mapped.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        guard mapped.launchCommand?.isRejectedCapture != true else { return false }
         guard kind == "codex" else { return true }
         if mapped.isRestorable == true { return true }
         if let transcriptPath = normalizedHookValue(mapped.transcriptPath),

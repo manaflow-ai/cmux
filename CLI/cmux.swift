@@ -2004,12 +2004,19 @@ final class ClaudeHookSessionStore {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
             let incomingHasArguments = !launchCommand.arguments.isEmpty
             let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            let incomingSource = normalizeOptional(launchCommand.source)?.lowercased()
+            let incomingRejectedCaptureCanReplaceExisting = incomingSource == "rejected"
+                && (!existingHasArguments
+                    || launchCommand.rejectionReason == nil
+                    || launchCommand.rejectionReason == .sanitizerRejectedArgv)
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
-            // earlier capture to an env-only stub.
-            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
+            // earlier capture to an env-only stub. A legacy source-only rejection and the sanitizer's
+            // explicit rejection retain their historical replacement behavior; newly classified
+            // rejection grounds do not erase a richer argv capture.
+            if incomingHasArguments || incomingRejectedCaptureCanReplaceExisting || (incomingSource == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
             } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
                       var existingLaunchCommand = record.launchCommand,
@@ -31319,7 +31326,7 @@ struct CMUXCLI {
         // The ground each argv candidate was discarded on, kept so a record that ends up storing no
         // argv says why instead of only that it has none. The two are tracked apart because they
         // are different candidates rather than two grounds for one argv; which of them names the
-        // record is AgentLaunchCaptureRejectionReason.recorded's rule, and grounds competing over
+        // record is AgentLaunchCaptureRejectionReason's selection rule, and grounds competing over
         // the SAME argv are ordered inside AgentLaunchCaptureArgvVerdict.
         var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
         var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
@@ -31353,6 +31360,9 @@ struct CMUXCLI {
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        let hasRejectedCandidate = [cmuxCaptureRejectionReason, processFallbackRejectionReason]
+            .compactMap { $0 }
+            .contains { $0 != .argvUnavailable }
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
@@ -31396,7 +31406,8 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord(
-            rejectionReason: AgentLaunchCaptureRejectionReason
+            rejectionReason: AgentLaunchCaptureRejectionReason,
+            hasRejectedCandidate: Bool
         ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
                 guard fallbackKind == "codex" || rejectionReason != .argvUnavailable else {
@@ -31405,24 +31416,25 @@ struct CMUXCLI {
                 return argvLessRecord(
                     executablePath: nil,
                     environment: nil,
-                    source: "default",
+                    source: hasRejectedCandidate ? "rejected" : "default",
                     rejectionReason: rejectionReason
                 )
             }
             return argvLessRecord(
                 executablePath: nil,
                 environment: environment,
-                source: "environment",
+                source: hasRejectedCandidate ? "rejected" : "environment",
                 rejectionReason: rejectionReason
             )
         }
 
         guard let arguments, !arguments.isEmpty else {
             return environmentOnlyRecord(
-                rejectionReason: AgentLaunchCaptureRejectionReason.recorded(
-                    cmuxCapture: cmuxCaptureRejectionReason,
+                rejectionReason: AgentLaunchCaptureRejectionReason(
+                    recordedFrom: cmuxCaptureRejectionReason,
                     processFallback: processFallbackRejectionReason
-                )
+                ),
+                hasRejectedCandidate: hasRejectedCandidate
             )
         }
 

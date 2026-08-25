@@ -281,6 +281,9 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
+        guard agent == "claude" || !sessionsListLaunchCommandIsRejected(record.launchCommand) else {
+            return false
+        }
         guard agent == "claude" else {
             return record.isRestorable != false
         }

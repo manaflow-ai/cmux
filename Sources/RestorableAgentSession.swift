@@ -2596,6 +2596,7 @@ struct RestorableAgentSessionIndex: Sendable {
         codexHasIndexedStore: Bool
     ) -> Bool {
         if kind == .codex {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
@@ -2639,6 +2640,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         guard kind == .claude else {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             return record.isRestorable != false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),

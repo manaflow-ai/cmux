@@ -201,6 +201,49 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
+    func testClaudeTranscriptKeepsRejectedLaunchCaptureRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-rejected-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let transcript = root.appendingPathComponent("claude-session.jsonl", isDirectory: false)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try "{\"type\":\"user\",\"sessionId\":\"rejected-claude-session\"}\n"
+            .write(to: transcript, atomically: true, encoding: .utf8)
+
+        let sessionId = "rejected-claude-session"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": cwd.path,
+                    "transcriptPath": transcript.path,
+                    "updatedAt": 10,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "arguments": [],
+                        "source": "rejected",
+                        "rejectionReason": "argvDecodeFailed",
+                    ],
+                ],
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceId, panelId: panelId)
+        )
+        XCTAssertEqual(snapshot.sessionId, sessionId)
+    }
+
+    @Test
     func testClaudeTranscriptCreatedAfterAbsentLoadInvalidatesSharedLookup() throws {
         let fm = FileManager.default
         let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -677,6 +720,51 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertFalse(
             resumeCommand.contains(driftedCwd.path),
             "resume must not cd into the drifted cwd; got: \(resumeCommand)"
+        )
+    }
+
+    @Test
+    func testRejectedNonClaudeLaunchCaptureIsNotIndexedForRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-gemini-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = driftedAgentHookRecord(
+            launcher: "gemini",
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedCwd: cwd.path,
+            launchCwd: cwd.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "gemini",
+            "executablePath": "/usr/local/bin/gemini",
+            "arguments": [],
+            "workingDirectory": cwd.path,
+            "environment": ["GEMINI_CLI_HOME": root.appendingPathComponent("gemini-home").path],
+            "capturedAt": 10,
+            "source": "rejected",
+            "rejectionReason": "argvDecodeFailed",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [sessionId: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a positively rejected non-Claude launch capture must not enter the restore index"
         )
     }
 

@@ -45,6 +45,20 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     /// a usable argv, and never set alongside one.
     public private(set) var rejectionReason: AgentLaunchCaptureRejectionReason?
 
+    /// Whether this record explicitly rejects its launch capture as restore evidence.
+    ///
+    /// ``AgentLaunchCaptureRejectionReason/argvUnavailable`` describes an absent
+    /// candidate and intentionally does not invalidate the historical environment
+    /// or default fallback. Every other reason, and the legacy `source` verdict,
+    /// is a positive rejection that must fail closed for resume and fork.
+    public var isRejectedCapture: Bool {
+        guard arguments.isEmpty else { return false }
+        if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
+            return true
+        }
+        return rejectionReason.map { $0 != .argvUnavailable } ?? false
+    }
+
     /// Creates a structured captured launch.
     ///
     /// - Parameters:

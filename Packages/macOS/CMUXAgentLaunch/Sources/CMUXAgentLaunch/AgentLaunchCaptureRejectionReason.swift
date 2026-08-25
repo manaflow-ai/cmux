@@ -15,11 +15,24 @@ import Foundation
 /// `AgentHibernationLifecycleState` does and silently rewrite the store with
 /// the wrong reason.
 public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hashable, Sendable {
+    /// The lossless machine-readable token stored alongside a launch verdict.
     public let rawValue: String
 
     /// Wraps a stored token, including one this build does not know.
     public init(rawValue: String) {
         self.rawValue = rawValue
+    }
+
+    /// Decodes the stable token written by the hook store.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(String.self))
+    }
+
+    /// Encodes the stable token without changing its wire representation.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     /// The `CMUX_AGENT_LAUNCH_*` capture describes a different agent than the
@@ -51,7 +64,7 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// the ground behind a stored `source: "rejected"`.
     public static let sanitizerRejectedArgv = Self(rawValue: "sanitizerRejectedArgv")
 
-    /// The ground a record names when a hook had two argv candidates and
+    /// Chooses the ground a record names when a hook had two argv candidates and
     /// discarded both: the `CMUX_AGENT_LAUNCH_*` capture cmux wrote at launch,
     /// and the argv read back from the hook's PID.
     ///
@@ -67,11 +80,11 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// - Parameters:
     ///   - cmuxCapture: The ground the `CMUX_AGENT_LAUNCH_*` capture was discarded on, if it was.
     ///   - processFallback: The ground the PID-derived argv was discarded on, if it was.
-    /// - Returns: The ground to store, defaulting to `argvUnavailable` when neither candidate existed.
-    public static func recorded(
-        cmuxCapture: Self?,
+    /// When both are absent, the initializer stores ``argvUnavailable``.
+    public init(
+        recordedFrom cmuxCapture: Self?,
         processFallback: Self?
-    ) -> Self {
-        cmuxCapture ?? processFallback ?? .argvUnavailable
+    ) {
+        self = cmuxCapture ?? processFallback ?? .argvUnavailable
     }
 }
