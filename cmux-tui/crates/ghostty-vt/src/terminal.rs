@@ -5323,8 +5323,8 @@ mod tests {
     #[test]
     fn c1_control_string_continuation_bytes_are_not_normalized() {
         let mut normalizer = C1Normalizer::default();
-        assert_eq!(normalizer.normalize(&[0xe2]), &[0xe2]);
-        assert_eq!(normalizer.normalize(&[0x98, 0x80]), &[0x98, 0x80]);
+        assert_eq!(normalizer.normalize(&[0xe2]).as_ref(), &[0xe2]);
+        assert_eq!(normalizer.normalize(&[0x98, 0x80]).as_ref(), &[0x98, 0x80]);
     }
 
     #[test]
