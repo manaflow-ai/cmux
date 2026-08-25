@@ -40,11 +40,12 @@ public struct NestedParentAssociation: Codable, Equatable, Sendable {
 
     func replacing(with candidate: NestedParentAssociation) -> NestedParentAssociation {
         guard candidate.key == key else {
-            guard !supersededKeys.contains(candidate.key),
-                  supersededKeys.count < Self.maximumSupersededKeys else {
+            guard !supersededKeys.contains(candidate.key) else {
                 return self
             }
-            let nextSupersededKeys = supersededKeys + [key]
+            let nextSupersededKeys = Array(
+                (supersededKeys + [key]).suffix(Self.maximumSupersededKeys)
+            )
             guard authority == .provider, candidate.authority == .heuristic else {
                 return NestedParentAssociation(
                     key: candidate.key,
@@ -96,8 +97,7 @@ public struct NestedParentAssociation: Codable, Equatable, Sendable {
     /// Whether a session-key replacement is rejected by the bounded replay guard.
     func rejectsSupersededSession(_ candidate: NestedParentAssociation) -> Bool {
         candidate.key != key
-            && (supersededKeys.contains(candidate.key)
-                || supersededKeys.count >= Self.maximumSupersededKeys)
+            && supersededKeys.contains(candidate.key)
     }
 
     private init(
