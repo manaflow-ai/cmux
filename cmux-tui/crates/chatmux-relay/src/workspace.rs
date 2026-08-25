@@ -58,6 +58,10 @@ const MAX_TIMEOUT_MS: i64 = 300_000;
 /// plane's pending-request cap and makes refusal explicit under load.
 pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
 
+// Include one byte for the line delimiter. The assembled patch still uses
+// DIFF_MAX_BYTES as its payload ceiling, so this only bounds one input line.
+const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
+
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
     let Some(roots) = value.as_array() else {
@@ -1441,6 +1445,53 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
     }
 }
 
+/// Read one git-diff line without allowing a missing newline to grow the
+/// buffer without bound. `fill_buf` is cancel-safe and `consume` is called
+/// only after the bytes have been accepted into the bounded line buffer.
+async fn read_bounded_git_diff_line<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    maximum: usize,
+) -> std::io::Result<Option<String>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt as _;
+
+    line.clear();
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            return if line.is_empty() { Ok(None) } else { decode_git_diff_line(line).map(Some) };
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(buffer.len(), |index| index + 1);
+        if line.len().saturating_add(take) > maximum {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "git diff line exceeds the configured bound",
+            ));
+        }
+        line.extend_from_slice(&buffer[..take]);
+        reader.consume(take);
+        if newline.is_some() {
+            return decode_git_diff_line(line).map(Some);
+        }
+    }
+}
+
+fn decode_git_diff_line(line: &mut Vec<u8>) -> std::io::Result<String> {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    }
+    std::str::from_utf8(line)
+        .map(str::to_owned)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
 /// Two-column XY code in the porcelain v1 spelling ("M " not "M.") — the
 /// wire schema pins v1's verbatim codes.
 fn porcelain_v1_xy(xy: &str) -> String {
@@ -1609,14 +1660,15 @@ async fn run_git_diff(
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
-    let stderr_task = child.stderr.take().map(|stderr| {
+    let mut stderr_task = child.stderr.take().map(|stderr| {
         tokio::spawn(async move {
             let mut bytes = Vec::new();
             let _ = tokio::io::AsyncReadExt::take(stderr, 64 * 1024).read_to_end(&mut bytes).await;
             bytes
         })
     });
-    let mut lines = tokio::io::BufReader::new(stdout).lines();
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line_bytes = Vec::with_capacity(GIT_DIFF_LINE_MAX_BYTES.min(8 * 1024));
     let mut patch = String::new();
     let mut current_file_start = 0_usize;
     let mut capped = false;
@@ -1625,15 +1677,21 @@ async fn run_git_diff(
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;
     loop {
-        let line = match lines.next_line().await {
-            Ok(Some(line)) => line,
-            Ok(None) => break,
-            Err(error) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(Refusal::failed(format!("could not read git diff: {error}")));
-            }
-        };
+        let line =
+            match read_bounded_git_diff_line(&mut reader, &mut line_bytes, GIT_DIFF_LINE_MAX_BYTES)
+                .await
+            {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    if let Some(task) = stderr_task.take() {
+                        let _ = task.await;
+                    }
+                    return Err(Refusal::failed(format!("could not read git diff: {error}")));
+                }
+            };
         if line.starts_with("diff --git ") {
             files += 1;
             if !capped {
@@ -2489,6 +2547,19 @@ mod tests {
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert!(!env.contains_key("GIT_CONFIG"));
         assert!(!env.contains_key("GIT_EXTERNAL_DIFF"));
+    }
+
+    #[tokio::test]
+    async fn bounded_git_diff_line_rejects_oversized_input_before_appending_it() {
+        let mut reader =
+            tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789\n"));
+        let mut line = Vec::new();
+        let error = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect_err("oversized diff line");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(line.len() <= 8, "reader appended bytes past its limit");
     }
 
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
