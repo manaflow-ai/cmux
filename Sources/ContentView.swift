@@ -11611,7 +11611,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
-        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)-\(renderContext.tabs.flatMap { $0.panels.keys }.sorted { $0.uuidString < $1.uuidString }.map(\.uuidString).joined(separator: ","))") {
+        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
             guard isPresented,
                   renderContext.showsAgentActivity,
                   CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
@@ -11631,6 +11631,36 @@ struct VerticalTabsSidebar: View, Equatable {
             SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(panelIDs: panelIDs)
             if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
+            }
+            while !Task.isCancelled {
+                let sharedIndex = SharedLiveAgentIndex.shared
+                let currentPanelIDs = Set(tabManager.tabs.flatMap { $0.panels.keys })
+                sharedIndex.armSidebarProcessExitWatchers(panelIDs: currentPanelIDs)
+                if sharedIndex.hasCachedProcessLivenessEntries() {
+                    var ownerByPanelID: [UUID: UUID] = [:]
+                    var ambiguousPanelIDs = Set<UUID>()
+                    for workspace in tabManager.tabs {
+                        for panelID in workspace.panels.keys {
+                            if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
+                                ambiguousPanelIDs.insert(panelID)
+                            } else {
+                                ownerByPanelID[panelID] = workspace.id
+                            }
+                        }
+                    }
+                    for panelID in ambiguousPanelIDs {
+                        ownerByPanelID.removeValue(forKey: panelID)
+                    }
+                    sharedIndex.refreshCachedProcessLivenessForSidebar(
+                        panelIDs: currentPanelIDs,
+                        currentWorkspaceIDByPanelID: ownerByPanelID
+                    )
+                }
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(30))
+                } catch {
+                    return
+                }
             }
         }
         .onChange(of: isPresented) { _, presented in

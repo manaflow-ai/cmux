@@ -195,7 +195,10 @@ extension Workspace {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
             if !isRemoteWorkspace {
-                SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(pid: Int(pid))
+                SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(
+                    pid: Int(pid),
+                    panelID: panelId
+                )
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }

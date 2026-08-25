@@ -86,6 +86,7 @@ final class SharedLiveAgentIndex {
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
+    private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -573,14 +574,20 @@ final class SharedLiveAgentIndex {
             }
         }
 
-        for processID in panelKeysByPID.keys {
+        for (processID, panelKeys) in panelKeysByPID {
+            let panelIDs = Set(panelKeys.map(\.panelId))
+            sidebarProcessPanelIDsByPID[processID, default: []].formUnion(panelIDs)
             armSidebarProcessExitWatcher(pid: processID)
         }
     }
 
     /// Arms a watcher immediately for a newly reported local agent PID.
-    func armSidebarProcessExitWatcher(pid: Int) {
-        guard pid > 0, sidebarProcessExitWatchers[pid] == nil else { return }
+    func armSidebarProcessExitWatcher(pid: Int, panelID: UUID? = nil) {
+        guard pid > 0 else { return }
+        if let panelID {
+            sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
+        }
+        guard sidebarProcessExitWatchers[pid] == nil else { return }
         let source = DispatchSource.makeProcessSource(
             identifier: pid_t(pid),
             eventMask: .exit,
@@ -597,7 +604,11 @@ final class SharedLiveAgentIndex {
 
     private func sidebarAgentProcessDidExit(_ processID: Int) {
         sidebarProcessExitWatchers.removeValue(forKey: processID)?.cancel()
-        requestSidebarIndexRefresh()
+        let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
+        refreshCachedProcessLivenessForSidebar(
+            panelIDs: panelIDs,
+            currentWorkspaceIDByPanelID: [:]
+        )
     }
 
 
