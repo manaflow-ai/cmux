@@ -532,6 +532,55 @@ fn control_socket_round_trip() {
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
+#[cfg(unix)]
+#[test]
+fn process_info_reports_live_foreground_cwd() {
+    let target = std::env::temp_dir()
+        .canonicalize()
+        .unwrap()
+        .join(format!("cmux-foreground-cwd-{}", std::process::id()));
+    std::fs::create_dir_all(&target).unwrap();
+    // The top-level PTY child changes directory and then replaces itself, so
+    // the live foreground process group leader's cwd diverges from every
+    // piece of recorded spawn metadata.
+    let script = format!("cd '{}' && exec sleep 30", target.display());
+    let mux = Mux::new(unique_session("test-foreground-cwd"), shell_opts(&script));
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let target_path = target.to_string_lossy().into_owned();
+    let request_id = AtomicU64::new(1);
+    let observed = wait_for(
+        || {
+            let id = request_id.fetch_add(1, Ordering::Relaxed);
+            let response = socket_request(
+                &mut writer,
+                &mut reader,
+                serde_json::json!({"id": id, "cmd": "process-info", "surface": surface.id}),
+            );
+            let data = response["data"].clone();
+            assert!(
+                data.as_object().is_some_and(|data| data.contains_key("foreground_cwd")),
+                "process-info omitted foreground_cwd: {data}"
+            );
+            (data["foreground_cwd"].as_str() == Some(target_path.as_str())).then_some(data)
+        },
+        Duration::from_secs(10),
+    );
+    let observed = observed.expect("foreground_cwd never reported the live subshell directory");
+    // The compatibility cwd field keeps its recorded value instead of
+    // adopting the live foreground directory.
+    assert_ne!(observed["cwd"].as_str(), Some(target_path.as_str()));
+
+    mux.close_surface(surface.id).unwrap();
+    cmux_tui_core::server::cleanup(&sock_path);
+    std::fs::remove_dir(&target).unwrap();
+}
+
 #[test]
 fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear() {
     let mut output = String::new();

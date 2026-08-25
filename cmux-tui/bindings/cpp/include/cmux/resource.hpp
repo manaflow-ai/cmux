@@ -1200,6 +1200,9 @@ struct ProcessInfoResult {
     std::optional<std::string> executable;
     std::vector<std::string> argv;
     std::optional<std::string> cwd;
+    // Working directory of the process group that owns the PTY, read at
+    // request time. Empty when the lookup fails.
+    std::optional<std::string> foreground_cwd;
     std::vector<std::uint32_t> children;
 };
 

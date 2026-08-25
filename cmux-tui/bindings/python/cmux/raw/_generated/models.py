@@ -681,6 +681,7 @@ class ProcessInfoResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ProcessInfoResult'
     command: Union[str, None]
     cwd: Union[str, None]
+    foreground_cwd: Union[str, None]
     pid: Union[int, None]
 
 

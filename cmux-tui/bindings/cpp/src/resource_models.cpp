@@ -1965,8 +1965,8 @@ TerminalCopyResult parse_terminal_copy(const Json& value) {
 ProcessInfoResult parse_process_info(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"pid", "executable", "argv", "cwd", "children"},
-        {"pid", "argv", "children"},
+        {"pid", "executable", "argv", "cwd", "foreground_cwd", "children"},
+        {"pid", "argv", "foreground_cwd", "children"},
         "process info result");
     return {
         static_cast<std::uint32_t>(uint_value(
@@ -1981,6 +1981,8 @@ ProcessInfoResult parse_process_info(const Json& value) {
                 return string_value(item, "process argv item");
             }),
         optional_string(object, "cwd", "process cwd"),
+        required_nullable_string(
+            object, "foreground_cwd", "process foreground_cwd"),
         array_value<std::uint32_t>(
             field(object, "children", "process info"),
             "process children",

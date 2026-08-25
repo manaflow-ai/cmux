@@ -3297,6 +3297,7 @@ public final class Client implements AutoCloseable {
             "executable",
             Wire.ARGV,
             Wire.CWD,
+            "foreground_cwd",
             "children"
         );
         return new Results.ProcessInfoResult(
@@ -3306,6 +3307,7 @@ public final class Client implements AutoCloseable {
                 .map(item -> Wire.string(item, "process argv item"))
                 .toList(),
             optionalString(fields, Wire.CWD),
+            requiredNullableString(fields, "foreground_cwd"),
             Wire.array(fields.get("children"), "process children").stream()
                 .map(item -> uint32(item, "process child"))
                 .toList()

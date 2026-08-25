@@ -877,6 +877,7 @@ class ResourceApiTests(unittest.TestCase):
                 "executable": "/bin/zsh",
                 "argv": ["/bin/zsh", "-l"],
                 "cwd": "/tmp",
+                "foreground_cwd": "/tmp/subshell",
                 "children": [43],
             },
             "terminal.viewer.resize": {
@@ -960,7 +961,9 @@ class ResourceApiTests(unittest.TestCase):
                     terminal.wait(cmux.TerminalWaitOptions("ready")).matched
                 )
                 self.assertEqual(terminal.copy().mode, "screen")
-                self.assertEqual(terminal.process().children, (43,))
+                process = terminal.process()
+                self.assertEqual(process.children, (43,))
+                self.assertEqual(process.foreground_cwd, "/tmp/subshell")
                 self.assertEqual(
                     terminal.resize_viewer(
                         "terminal-lease",

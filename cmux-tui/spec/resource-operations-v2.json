@@ -3928,6 +3928,17 @@
             "name": "string"
           }
         },
+        "foreground_cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails."
+        },
         "children": {
           "required": true,
           "type": {

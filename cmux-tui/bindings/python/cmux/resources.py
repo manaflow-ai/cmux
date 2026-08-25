@@ -1381,7 +1381,7 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
     payload = _mapping(value, "process info result")
     _strict_object(
         payload,
-        ("pid", "executable", "argv", "cwd", "children"),
+        ("pid", "executable", "argv", "cwd", "foreground_cwd", "children"),
         "process info result",
     )
     argv = payload.get("argv")
@@ -1398,6 +1398,7 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
         _optional_present_string(payload, "executable"),
         tuple(argv),
         _optional_present_string(payload, "cwd"),
+        _required_nullable_string(payload, "foreground_cwd"),
         decoded_children,
     )
 

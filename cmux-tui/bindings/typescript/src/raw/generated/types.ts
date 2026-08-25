@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6. */
+/* cmux-tui mux protocol 12, IR 2c052b184912e61ddb4d9c78b8e056767db8df1034be075e206ef1592b7f3e6b. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -372,6 +372,8 @@ export type PingResult = {
 export type ProcessInfoResult = {
   "command": (string) | null;
   "cwd": (string) | null;
+  /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails. */
+  "foreground_cwd": (string) | null;
   "pid": (number) | null;
 };
 
