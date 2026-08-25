@@ -60,10 +60,12 @@ struct SudoReviewRegressionTests {
         )
         try #require(outputDescriptor >= 0)
         defer { Darwin.close(outputDescriptor) }
+        let controlMarkers = SudoExecutionControlMarkers()
 
         var collector = SudoExecutionOutputCollector(
             outputDescriptor: outputDescriptor,
-            readinessMarker: nil
+            readinessMarker: nil,
+            controlMarkers: controlMarkers
         )
         let forgedMarker = SudoExecutionControlMarkers().executionTimedOut
         try collector.consume(Data("before".utf8) + forgedMarker + Data("after".utf8))
@@ -78,6 +80,15 @@ struct SudoReviewRegressionTests {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let launcher = TestRunnerLauncher()
+        let resourcePolicy = SudoResourcePolicy(
+            maximumPendingRequestCount: 16,
+            maximumPendingScriptBytes: 16 * 1_024 * 1_024
+        )
+        let admissionStore = SudoSpoolStore(
+            paths: fixture.paths,
+            resourcePolicy: resourcePolicy
+        )
+        try admissionStore.ensureDirectories()
         let broker = SudoBroker(
             paths: fixture.paths,
             dependencies: SudoBrokerDependencies(
@@ -88,12 +99,23 @@ struct SudoReviewRegressionTests {
                 watcher: nil,
                 requesterInspector: TestSudoProcessInspector()
             ),
-            messages: .testMessages
+            messages: .testMessages,
+            resourcePolicy: resourcePolicy
         )
         _ = try await broker.start()
         for index in 0..<10 {
             let id = "active-runner-\(index)"
-            _ = try fixture.enqueue(id: id, createdAt: .now)
+            let request = SudoRequest(
+                id: id,
+                reason: "regression test",
+                requesterIdentity: SudoTestFixture.defaultRequesterIdentity,
+                requesterCommand: "test-agent",
+                currentDirectory: "/tmp",
+                createdAt: .now
+            )
+            try admissionStore.enqueue(
+                SudoPendingRequest(request: request, script: "echo test\n")
+            )
             _ = try await broker.refresh()
             await broker.approve(id: id)
         }

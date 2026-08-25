@@ -56,6 +56,10 @@ struct SudoSpoolStore {
         guard scriptData.count <= resourcePolicy.maximumScriptBytes else {
             throw SudoSpoolError.scriptTooLarge
         }
+        let requestData = try Self.encoder.encode(pending.request)
+        guard requestData.count <= maximumRequestBytes else {
+            throw SudoSpoolError.requestMetadataTooLarge
+        }
         try withStoreLock(name: "admission") {
             let usage = pendingUsage(at: now())
             guard usage.requestCount < resourcePolicy.maximumPendingRequestCount,
@@ -84,7 +88,7 @@ struct SudoSpoolStore {
                     )
                 )
                 guard try writeAtomically(
-                    try Self.encoder.encode(pending.request),
+                    requestData,
                     to: requestURL,
                     permissions: 0o600,
                     exclusive: true
@@ -455,6 +459,7 @@ struct SudoSpoolStore {
 
     private func performMaintenance(at date: Date) {
         let cutoff = date.addingTimeInterval(-resourcePolicy.artifactRetentionSeconds)
+        pruneOrphanedRequestArtifacts(before: cutoff)
         pruneRegularFiles(
             in: paths.archive,
             before: cutoff,
@@ -496,9 +501,11 @@ struct SudoSpoolStore {
             let id = String(name.dropLast(3))
             guard Self.isValidRequestID(id), result(id: id) == nil else { continue }
             let requestURL = paths.requests.appendingPathComponent("\(id).json")
-            if let data = try? readData(at: requestURL, maximumBytes: maximumRequestBytes),
-               let request = try? Self.decoder.decode(SudoRequest.self, from: data),
-               request.approvalDeadline <= date {
+            guard let data = try? readData(at: requestURL, maximumBytes: maximumRequestBytes),
+                  let request = try? Self.decoder.decode(SudoRequest.self, from: data) else {
+                continue
+            }
+            if request.approvalDeadline <= date {
                 continue
             }
             let scriptURL = paths.requests.appendingPathComponent(name)
@@ -507,6 +514,25 @@ struct SudoSpoolStore {
             scriptBytes += info.size
         }
         return (requestCount, scriptBytes)
+    }
+
+    private func pruneOrphanedRequestArtifacts(before cutoff: Date) {
+        let names = (try? fileManager.contentsOfDirectory(atPath: paths.requests.path)) ?? []
+        for name in names where name.hasSuffix(".sh") || name.hasSuffix(".json") {
+            let id = name.hasSuffix(".sh")
+                ? String(name.dropLast(3))
+                : String(name.dropLast(5))
+            guard Self.isValidRequestID(id) else { continue }
+            let url = paths.requests.appendingPathComponent(name)
+            let counterpartName = name.hasSuffix(".sh") ? "\(id).json" : "\(id).sh"
+            let counterpartURL = paths.requests.appendingPathComponent(counterpartName)
+            guard !fileManager.fileExists(atPath: counterpartURL.path),
+                  let info = regularFileInfo(at: url),
+                  info.modifiedAt <= cutoff else {
+                continue
+            }
+            _ = unlink(url.path)
+        }
     }
 
     private func hasActiveEvidence(id: String) -> Bool {
@@ -821,6 +847,7 @@ enum SudoSpoolError: Error {
     case invalidRequestID
     case requestAlreadyExists
     case requestCapacityExceeded
+    case requestMetadataTooLarge
     case scriptTooLarge
     case approvedScriptAlreadyExists
     case executionAlreadyExists

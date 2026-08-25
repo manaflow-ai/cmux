@@ -6,6 +6,7 @@ struct SudoSpawnedProcess: Sendable {
     let outputURL: URL
     let standardInput: Data?
     let standardInputReadyMarker: Data?
+    let controlMarkers: SudoExecutionControlMarkers
     let io: SudoSpawnedProcessIO
 
 }

@@ -7,6 +7,7 @@ struct SudoExecutionOutputCollector {
 
     private let outputDescriptor: Int32
     private let readinessMarker: Data?
+    private let controlMarkers: SudoExecutionControlMarkers
     private let passwordMarker = Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8)
     private var pending = Data()
     private var persistedByteCount = 0
@@ -15,9 +16,14 @@ struct SudoExecutionOutputCollector {
     private(set) var privilegedFailure: SudoExecutionWaitDisposition?
     private(set) var inputReady: Bool
 
-    init(outputDescriptor: Int32, readinessMarker: Data?) {
+    init(
+        outputDescriptor: Int32,
+        readinessMarker: Data?,
+        controlMarkers: SudoExecutionControlMarkers
+    ) {
         self.outputDescriptor = outputDescriptor
         self.readinessMarker = readinessMarker
+        self.controlMarkers = controlMarkers
         inputReady = readinessMarker == nil
     }
 
@@ -98,11 +104,10 @@ struct SudoExecutionOutputCollector {
         if !inputReady, let readinessMarker {
             markers.append((readinessMarker, .readiness))
         }
-        let control = SudoExecutionControlMarkers()
-        markers.append((control.executionTimedOut, .privilegedTimeout))
-        markers.append((control.cleanupFailed, .privilegedCleanup))
-        markers.append((control.transportFailed, .privilegedTransport))
-        markers.append((control.launchFailed, .privilegedLaunch))
+        markers.append((controlMarkers.executionTimedOut, .privilegedTimeout))
+        markers.append((controlMarkers.cleanupFailed, .privilegedCleanup))
+        markers.append((controlMarkers.transportFailed, .privilegedTransport))
+        markers.append((controlMarkers.launchFailed, .privilegedLaunch))
         return markers
     }
 

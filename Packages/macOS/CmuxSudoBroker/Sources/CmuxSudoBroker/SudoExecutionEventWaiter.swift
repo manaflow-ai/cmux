@@ -21,7 +21,8 @@ struct SudoExecutionEventWaiter: Sendable {
         }
         var collector = SudoExecutionOutputCollector(
             outputDescriptor: descriptors.outputFile,
-            readinessMarker: process.standardInputReadyMarker
+            readinessMarker: process.standardInputReadyMarker,
+            controlMarkers: process.controlMarkers
         )
         var inputOffset = 0
         var inputWriteRegistered = false

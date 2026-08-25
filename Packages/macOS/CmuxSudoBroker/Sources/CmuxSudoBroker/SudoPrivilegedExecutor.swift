@@ -10,7 +10,6 @@ public struct SudoPrivilegedExecutor {
     private let supervisor: SudoPrivilegedProcessSupervisor
     private let effectiveUserID: @Sendable () -> uid_t
     private let errorDescriptor: Int32
-    private let markers: SudoExecutionControlMarkers
 
     /// Creates the production privileged executor for the bundled CLI.
     public init() {
@@ -18,36 +17,35 @@ public struct SudoPrivilegedExecutor {
         supervisor = SudoPrivilegedProcessSupervisor()
         effectiveUserID = { geteuid() }
         errorDescriptor = STDERR_FILENO
-        markers = SudoExecutionControlMarkers()
     }
 
     init(
         receiver: SudoPrivilegedScriptReceiver,
         supervisor: SudoPrivilegedProcessSupervisor,
         effectiveUserID: @Sendable @escaping () -> uid_t,
-        errorDescriptor: Int32,
-        markers: SudoExecutionControlMarkers = SudoExecutionControlMarkers()
+        errorDescriptor: Int32
     ) {
         self.receiver = receiver
         self.supervisor = supervisor
         self.effectiveUserID = effectiveUserID
         self.errorDescriptor = errorDescriptor
-        self.markers = markers
     }
 
     /// Runs one internal root executor invocation.
     ///
-    /// - Parameter arguments: Byte count, absolute deadline, and reviewed display name.
+    /// - Parameter arguments: Byte count, absolute deadline, reviewed display name, and control token.
     /// - Returns: The script status or a reserved broker failure status.
     public func run(arguments: [String]) -> Int32 {
         guard effectiveUserID() == 0 else { return 126 }
-        guard arguments.count == 3,
+        guard arguments.count == 4,
               let byteCount = Int(arguments[0]),
               (0...SudoResourcePolicy.standard.maximumScriptBytes).contains(byteCount),
               let deadlineInterval = TimeInterval(arguments[1]),
-              deadlineInterval.isFinite else {
+              deadlineInterval.isFinite,
+              SudoExecutionControlMarkers.isValidToken(arguments[3]) else {
             return 2
         }
+        let controlMarkers = SudoExecutionControlMarkers(token: arguments[3])
         let deadline = Date(timeIntervalSince1970: deadlineInterval)
         do {
             return try receiver.withReceivedDescriptor(
@@ -58,16 +56,20 @@ public struct SudoPrivilegedExecutor {
                         scriptDescriptor: descriptor,
                         displayName: arguments[2],
                         deadline: deadline
-                    )
+                    ),
+                    markers: controlMarkers
                 )
             }
         } catch {
-            emit(markers.transportFailed)
+            emit(controlMarkers.transportFailed)
             return 125
         }
     }
 
-    private func resultCode(_ outcome: SudoPrivilegedProcessOutcome) -> Int32 {
+    private func resultCode(
+        _ outcome: SudoPrivilegedProcessOutcome,
+        markers: SudoExecutionControlMarkers
+    ) -> Int32 {
         switch outcome {
         case .exited(let code):
             return code

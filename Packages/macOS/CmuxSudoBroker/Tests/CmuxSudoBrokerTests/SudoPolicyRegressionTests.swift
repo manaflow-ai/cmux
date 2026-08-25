@@ -104,9 +104,11 @@ struct SudoPolicyRegressionTests {
         defer {
             if shouldClose { Darwin.close(outputDescriptor) }
         }
+        let controlMarkers = SudoExecutionControlMarkers()
         var collector = SudoExecutionOutputCollector(
             outputDescriptor: outputDescriptor,
-            readinessMarker: nil
+            readinessMarker: nil,
+            controlMarkers: controlMarkers
         )
         let marker = Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8)
         let split = marker.count / 2
@@ -135,14 +137,16 @@ struct SudoPolicyRegressionTests {
         )
         try #require(outputDescriptor >= 0)
         defer { Darwin.close(outputDescriptor) }
+        let controlMarkers = SudoExecutionControlMarkers()
         var collector = SudoExecutionOutputCollector(
             outputDescriptor: outputDescriptor,
-            readinessMarker: nil
+            readinessMarker: nil,
+            controlMarkers: controlMarkers
         )
 
         try collector.consume(
             Data("before".utf8)
-                + SudoExecutionControlMarkers().executionTimedOut
+                + controlMarkers.executionTimedOut
                 + Data("after".utf8)
         )
         try collector.finish()

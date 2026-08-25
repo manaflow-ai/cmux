@@ -58,9 +58,14 @@ public actor SudoBroker {
         paths: SudoBrokerPaths,
         dependencies: SudoBrokerDependencies,
         messages: SudoFailureMessages,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        resourcePolicy: SudoResourcePolicy = .standard
     ) {
-        store = SudoSpoolStore(paths: paths, fileManager: fileManager)
+        store = SudoSpoolStore(
+            paths: paths,
+            resourcePolicy: resourcePolicy,
+            fileManager: fileManager
+        )
         self.dependencies = dependencies
         self.messages = messages
         let pair = AsyncStream.makeStream(
@@ -269,6 +274,25 @@ public actor SudoBroker {
                     note: messages.pamTidUnavailable
                 ),
                 auditStatus: "failed pam-preflight",
+                at: now
+            )
+            return
+        }
+
+        // Each launched runner owns a dedicated low-level reaper. Keep the
+        // number of live runners bounded before moving this request out of the
+        // pending spool so approval bursts cannot accumulate one thread per
+        // ninety-second execution grace period.
+        settleCompletedRecords()
+        guard runnerMonitorTasks.count < store.resourcePolicy.maximumActiveRunnerCount else {
+            settleIfPossible(
+                SudoResult(
+                    id: id,
+                    status: .failed,
+                    errorCode: .runnerLaunchFailed,
+                    note: messages.runnerLaunchFailed
+                ),
+                auditStatus: "failed active-runner-cap",
                 at: now
             )
             return

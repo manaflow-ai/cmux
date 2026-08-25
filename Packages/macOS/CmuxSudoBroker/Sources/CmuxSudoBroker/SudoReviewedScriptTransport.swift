@@ -6,6 +6,7 @@ struct SudoReviewedScriptTransport: Sendable, Equatable {
     let approvedScriptURL: URL
     let privilegedHelperExecutableURL: URL
     let deadline: Date
+    let controlToken: String
 
     var shellArguments: [String] {
         [
@@ -14,6 +15,7 @@ struct SudoReviewedScriptTransport: Sendable, Equatable {
             String(reviewedScript.count),
             String(deadline.timeIntervalSince1970),
             approvedScriptURL.standardizedFileURL.path,
+            controlToken,
         ]
     }
 }

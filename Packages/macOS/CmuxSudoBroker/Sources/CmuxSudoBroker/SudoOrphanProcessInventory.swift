@@ -38,7 +38,7 @@ struct SudoOrphanProcessInventory: Sendable {
 
     private func approvedScriptPath(arguments: [String]) -> String? {
         let prompt = SudoAuthenticationOutputDetector.passwordPrompt
-        if arguments.count == 13,
+        if arguments.count == 14,
            arguments[0...7].elementsEqual([
                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
                "-S", "-p", prompt,

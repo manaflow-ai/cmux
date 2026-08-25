@@ -162,6 +162,7 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             outputURL: command.outputURL,
             standardInput: command.standardInput,
             standardInputReadyMarker: command.standardInputReadyMarker,
+            controlMarkers: command.controlMarkers,
             io: io
         )
     }
