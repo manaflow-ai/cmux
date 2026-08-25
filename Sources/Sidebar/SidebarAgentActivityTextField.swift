@@ -109,23 +109,13 @@ final class SidebarAgentActivityTextField: NSTextField, SidebarAgentElapsedClock
         displayedState = state
         elapsedDisplayBucket = bucket
 
-        if elapsed != nil {
-            let payload = clock?.displayPayload(activity, now)
-                ?? SidebarAgentActivityDisplayPayload(activity: activity, at: now)
-            apply(
-                text: payload.text,
-                toolTip: payload.toolTip,
-                accessibilityLabel: payload.accessibilityLabel
-            )
-        } else {
-            let payload = clock?.displayPayload(activity, now)
-                ?? SidebarAgentActivityDisplayPayload(activity: activity, at: now)
-            apply(
-                text: payload.text,
-                toolTip: payload.toolTip,
-                accessibilityLabel: payload.accessibilityLabel
-            )
-        }
+        let payload = clock?.displayPayload(activity, now)
+            ?? SidebarAgentActivityDisplayPayload(activity: activity, at: now)
+        apply(
+            text: payload.text,
+            toolTip: payload.toolTip,
+            accessibilityLabel: payload.accessibilityLabel
+        )
     }
 
     private func apply(text: String, toolTip: String?, accessibilityLabel: String?) {

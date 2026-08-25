@@ -383,7 +383,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     func setAgentElapsedDisplayPayload(
-        _ payload: (@MainActor (SidebarWorkspaceAgentActivity, Date) -> SidebarAgentActivityDisplayPayload)?
+        _ payload: ((SidebarWorkspaceAgentActivity, Date) -> SidebarAgentActivityDisplayPayload)?
     ) {
         agentElapsedDisplayPayload = payload ?? { activity, now in
             SidebarAgentActivityDisplayPayload(activity: activity, at: now)

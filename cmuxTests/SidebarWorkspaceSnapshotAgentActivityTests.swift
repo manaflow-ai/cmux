@@ -143,6 +143,31 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(target.receivedDates == [tickDate])
     }
 
+    @MainActor
+    @Test
+    func elapsedDisplayCacheReusesPayloadWithinOneCompactBucket() {
+        let cache = SidebarAgentActivityDisplayCache()
+        let activity = SidebarWorkspaceAgentActivity(agents: [
+            SidebarAgentActivity(
+                id: "running-agent",
+                statusKey: "codex",
+                state: .running,
+                startedAt: 100
+            ),
+        ])
+
+        let first = cache.payload(
+            for: activity,
+            at: Date(timeIntervalSince1970: 110.1)
+        )
+        let second = cache.payload(
+            for: activity,
+            at: Date(timeIntervalSince1970: 110.9)
+        )
+
+        #expect(first == second)
+    }
+
     private static func evidence(
         panelID: UUID = codexPanelID,
         statusKey: String = "codex",
