@@ -380,19 +380,26 @@ export class BlaxelProvider implements VMProvider {
           // rather than an opaque hash it would then keep for life. The preview lives on
           // the control plane and only needs the sandbox to exist, so it is created in
           // parallel with the in-sandbox daemon bootstrap.
-          let previewUrl: string;
-          try {
-            [, previewUrl] = await Promise.all([
-              timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl)),
-              timedStep("ensure_preview", () => this.ensurePreview(name)),
-            ]);
-          } catch (err) {
-            // A machine that failed to bootstrap must not survive as an orphaned
-            // sandbox (its previews die with it); the durable home volume is kept —
-            // a retried create with the same volume reattaches it.
+          // Both branches settle before any rollback (allSettled, not all): a
+          // fast-failing bootstrap must not start deleting the sandbox while the
+          // preview POST is still in flight, or the late preview recreates the
+          // orphaned branded route the rollback exists to remove.
+          const [bootstrapResult, previewResult] = await Promise.allSettled([
+            timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl)),
+            timedStep("ensure_preview", () => this.ensurePreview(name)),
+          ]);
+          // A machine that failed to bootstrap must not survive as an orphaned
+          // sandbox (its previews die with it); the durable home volume is kept —
+          // a retried create with the same volume reattaches it.
+          if (bootstrapResult.status === "rejected") {
             await this.destroy(name).catch(() => undefined);
-            throw err;
+            throw bootstrapResult.reason;
           }
+          if (previewResult.status === "rejected") {
+            await this.destroy(name).catch(() => undefined);
+            throw previewResult.reason;
+          }
+          const previewUrl = previewResult.value;
           span.setAttribute("cmux.vm.id", name);
           return {
             provider: "blaxel",
