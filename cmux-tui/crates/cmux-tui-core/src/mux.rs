@@ -19483,7 +19483,11 @@ mod tests {
         {
             let budget = mux.kitty_image_budget.lock().unwrap();
             let entry = budget.entries.get(&created.id).expect("degraded reservation was removed");
-            assert!(!entry.owns_quota, "degraded reservation unexpectedly owned graphics quota");
+            assert_eq!(
+                entry.applied,
+                KittyGraphicsLimits::disabled(),
+                "a timed-out Kitty quota reservation must stay disabled while admitted"
+            );
         }
 
         {
