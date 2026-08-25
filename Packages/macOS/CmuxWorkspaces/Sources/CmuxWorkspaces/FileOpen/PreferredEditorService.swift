@@ -38,7 +38,7 @@ public struct PreferredEditorService: FileOpening {
     /// Detects a known terminal editor at the executable position of a
     /// command, including common env wrappers and assignments.
     static func isTerminalEditorCommand(_ command: String) -> Bool {
-        let tokens = shellWords(command)
+        var tokens = shellWords(command)
         guard !tokens.isEmpty else { return false }
 
         var executableIndex = 0
@@ -59,6 +59,17 @@ public struct PreferredEditorService: FileOpening {
                         continue
                     }
                     if value == "-S" || value == "--split-string" {
+                        // `env -S` parses its next argument as a fresh
+                        // whitespace-delimited command string. Re-tokenize
+                        // that payload without invoking a shell, preserving
+                        // the same quote and escape handling as the outer
+                        // command parser.
+                        guard executableIndex + 1 < tokens.count else {
+                            executableIndex += 1
+                            continue
+                        }
+                        let payload = shellWords(tokens[executableIndex + 1])
+                        tokens.replaceSubrange((executableIndex + 1)...(executableIndex + 1), with: payload)
                         executableIndex += 1
                         continue
                     }

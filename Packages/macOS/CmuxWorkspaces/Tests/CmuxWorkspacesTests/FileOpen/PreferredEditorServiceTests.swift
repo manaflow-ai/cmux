@@ -33,6 +33,12 @@ struct PreferredEditorServiceTests {
         #expect(PreferredEditorService.isTerminalEditorCommand(command))
     }
 
+    @Test("env -S re-tokenizes a quoted command payload")
+    func envSplitStringPayloadIsTokenized() {
+        #expect(PreferredEditorService.isTerminalEditorCommand("env -S \"FOO=1 nvim --clean\""))
+        #expect(!PreferredEditorService.isTerminalEditorCommand("env -S \"FOO=1 code --wait\""))
+    }
+
     @Test(arguments: [
         "code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper",
         "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed",
