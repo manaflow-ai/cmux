@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite(.serialized)
 struct SSHRemoteCommandCLIIntegrationTests {
     private typealias Harness = SSHStartupManualReconnectTests
@@ -47,6 +53,32 @@ struct SSHRemoteCommandCLIIntegrationTests {
             (result.stdout + result.stderr).contains("mixed short-option cluster"),
             Comment(rawValue: result.stdout + result.stderr)
         )
+    }
+
+    @Test
+    func testSCPOverridesTerminalTTYIntent() {
+        let session = DetectedSSHSession(
+            destination: "lawrence@example.com",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: ["RequestTTY=force", "ProxyJump=bastion"]
+        )
+
+        let scpArguments = session.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        #expect(scpArguments.contains("RequestTTY=no"))
+        #expect(!scpArguments.contains("RequestTTY=force"))
+        #expect(scpArguments.contains("ProxyJump=bastion"))
     }
 
     @Test

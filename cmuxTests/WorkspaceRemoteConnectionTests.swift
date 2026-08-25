@@ -3035,31 +3035,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
-    func testDetectedSSHSessionSCPOverridesTerminalTTYIntent() {
-        let session = DetectedSSHSession(
-            destination: "lawrence@example.com",
-            port: nil,
-            identityFile: nil,
-            configFile: nil,
-            jumpHost: nil,
-            controlPath: nil,
-            useIPv4: false,
-            useIPv6: false,
-            forwardAgent: false,
-            compressionEnabled: false,
-            sshOptions: ["RequestTTY=force", "ProxyJump=bastion"]
-        )
-
-        let scpArgs = session.scpArgumentsForTesting(
-            localPath: "/tmp/local.png",
-            remotePath: "/tmp/cmux-drop-123.png"
-        )
-
-        XCTAssertTrue(scpArgs.contains("RequestTTY=no"))
-        XCTAssertFalse(scpArgs.contains("RequestTTY=force"))
-        XCTAssertTrue(scpArgs.contains("ProxyJump=bastion"))
-    }
-
     func testDaemonTransportArgumentsReuseConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
