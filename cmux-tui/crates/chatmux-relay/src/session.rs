@@ -432,7 +432,12 @@ async fn relay_session(
     let (out_tx, mut critical_rx, mut watch_rx) = OutboundSink::channels();
     let pending = Arc::new(AtomicU64::new(0));
     let action_slots = Arc::new(Semaphore::new(8));
-    let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
+    let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot {
+        trust: String::new(),
+        roots: None,
+        owner: None,
+        negotiated_version: 0,
+    }));
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let workspace = crate::workspace::Connection::new(workspace_runtime, out_tx.clone());
     // A child token ends every task admitted by this physical connection on
