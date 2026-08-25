@@ -68,6 +68,8 @@ pub(crate) enum EnsureError {
     DifferentSession,
     /// The server identity was missing required lifecycle fields.
     InvalidIdentity,
+    /// The server speaks a protocol incompatible with this client.
+    UnsupportedProtocol,
 }
 
 /// One connect-and-identify attempt against the session socket.
@@ -160,6 +162,11 @@ fn attempt(
     };
     if identity["app"] != "cmux-tui" {
         return Err(EnsureError::WrongOwner);
+    }
+    if identity.get("protocol").and_then(Value::as_u64)
+        != Some(u64::from(cmux_tui_core::server::PROTOCOL_VERSION))
+    {
+        return Err(EnsureError::UnsupportedProtocol);
     }
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(false)) => return Ok(Attempt::Starting),

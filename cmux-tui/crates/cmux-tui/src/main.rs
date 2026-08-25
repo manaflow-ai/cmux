@@ -2276,6 +2276,9 @@ fn start_detached_owner_session(
             local_owner::EnsureError::InvalidIdentity => {
                 anyhow::bail!("{}", messages.invalid_identity)
             }
+            local_owner::EnsureError::UnsupportedProtocol => {
+                anyhow::bail!("{}", messages.unsupported_protocol)
+            }
         }
     }
     let remote = RemoteSession::connect(&socket_path)

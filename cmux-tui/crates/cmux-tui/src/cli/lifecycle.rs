@@ -340,6 +340,9 @@ fn run_ensure(
         Err(crate::local_owner::EnsureError::InvalidIdentity) => {
             local_error("server.invalid_identity", messages.invalid_identity, output, 3)
         }
+        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
+            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        }
     }
 }
 
