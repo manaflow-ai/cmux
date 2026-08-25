@@ -113,7 +113,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let rawTargetIndex: Int = {
             if let targetGroupId,
                let targetGroupIndex = groupOrder.firstIndex(of: targetGroupId) {
-                return targetGroupIndex + (context.edge == .bottom ? 1 : 0)
+                let isRootBoundaryAfterGroup = context.target?.groupId == nil
+                    && context.previousTarget?.groupId == targetGroupId
+                return targetGroupIndex
+                    + ((context.edge == .bottom || isRootBoundaryAfterGroup) ? 1 : 0)
             }
             // For a root workspace target, count group headers above the
             // pointer. This keeps the group-slot target independent of raw tab
@@ -435,7 +438,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupLayoutsById: groupLayoutsById
         )
         let requestedIndicator = logicalIndicator(for: rootTarget)
-        let tabIds = usesTopLevelRows
+        let baseTabIds = usesTopLevelRows
             ? topLevelWorkspaceIds(
                 workspaces: request.workspaces,
                 workspacesById: workspacesById,
@@ -444,7 +447,15 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 promotingWorkspaceId: request.draggedWorkspaceId
             )
             : request.workspaces.map(\.id)
-        let pinnedTabIds = usesTopLevelRows
+        let tabIds = usesTopLevelRows
+            ? topLevelWorkspaceIdsIncludingEmptyGroups(
+                baseIds: baseTabIds,
+                request: request,
+                workspacesById: workspacesById,
+                groupByAnchorId: groupByAnchorId
+            )
+            : baseTabIds
+        let basePinnedTabIds = usesTopLevelRows
             ? topLevelPinnedWorkspaceIds(
                 workspaces: request.workspaces,
                 workspacesById: workspacesById,
@@ -453,6 +464,13 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 promotingWorkspaceId: request.draggedWorkspaceId
             )
             : Set(request.workspaces.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+        let pinnedTabIds = usesTopLevelRows
+            ? basePinnedTabIds.union(
+                request.groups.compactMap { group in
+                    group.isEmpty && group.isPinned ? group.anchorWorkspaceId : nil
+                }
+            )
+            : basePinnedTabIds
         guard let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -520,12 +538,18 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupLayoutsById: groupLayoutsById
         )
         let requestedIndicator = logicalIndicator(for: rootTarget)
-        let topLevelIds = topLevelWorkspaceIds(
+        let baseTopLevelIds = topLevelWorkspaceIds(
             workspaces: request.workspaces,
             workspacesById: workspacesById,
             groupsById: groupsById,
             groupByAnchorId: groupByAnchorId,
             promotingWorkspaceId: nil
+        )
+        let topLevelIds = topLevelWorkspaceIdsIncludingEmptyGroups(
+            baseIds: baseTopLevelIds,
+            request: request,
+            workspacesById: workspacesById,
+            groupByAnchorId: groupByAnchorId
         )
         let proposedInsertionIndex = insertionPosition(for: requestedIndicator, tabIds: topLevelIds)
         let result = SidebarDropPlanner().crossWindowInsertion(
@@ -539,6 +563,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 groupsById: groupsById,
                 groupByAnchorId: groupByAnchorId,
                 promotingWorkspaceId: nil
+            ).union(
+                request.groups.compactMap { group in
+                    group.isEmpty && group.isPinned ? group.anchorWorkspaceId : nil
+                }
             ),
             pointerY: rootTarget.pointerY,
             targetHeight: rootTarget.targetHeight
@@ -783,6 +811,39 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let lower = min(firstIndex + 1 + pinnedMemberCount, workspaces.count)
         let upper = min(lastIndex + 1, workspaces.count)
         return min(lower, upper)...max(lower, upper)
+    }
+
+    /// Inserts header-only groups into the same top-level row space used by
+    /// root drop planning. Their stored group order is preserved within each
+    /// pin tier, matching the sidebar renderer.
+    private func topLevelWorkspaceIdsIncludingEmptyGroups(
+        baseIds: [UUID],
+        request: SidebarWorkspaceReorderDropRequest,
+        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> [UUID] {
+        var ids = baseIds
+        for (index, group) in request.groups.enumerated() where group.isEmpty {
+            guard !ids.contains(group.anchorWorkspaceId) else { continue }
+            let nextLiveSameTierGroup = request.groups.dropFirst(index + 1).first {
+                !$0.isEmpty && $0.isPinned == group.isPinned
+            }
+            if let nextLiveSameTierGroup,
+               let insertionIndex = ids.firstIndex(of: nextLiveSameTierGroup.anchorWorkspaceId) {
+                ids.insert(group.anchorWorkspaceId, at: insertionIndex)
+            } else if group.isPinned {
+                let pinnedCount = ids.reduce(into: 0) { count, id in
+                    let isPinned = groupByAnchorId[id]?.isPinned
+                        ?? workspacesById[id]?.isPinned
+                        ?? false
+                    if isPinned { count += 1 }
+                }
+                ids.insert(group.anchorWorkspaceId, at: pinnedCount)
+            } else {
+                ids.append(group.anchorWorkspaceId)
+            }
+        }
+        return ids
     }
 
     private func topLevelWorkspaceIds(
