@@ -2,7 +2,7 @@
 
 Current snapshot: 2026-08-25. The aggregate branch is
 `codex/tui-techdebt-aggregate-wave39` at
-`951db83c3545f9ad4fce67f420f6998d1832ba02`, based on `origin/main`
+`ea326c45bb7d8ceb3d0a29a5239af0144c0444c4`, based on `origin/main`
 `bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
 now points to that exact head and is mergeable; required checks and the final
 exact-head autoreview are still pending. A mergeable label is not acceptance
@@ -10,7 +10,7 @@ proof.
 
 The prior 2026-08-24 values are historical. The aggregate includes the
 cross-platform hardening, PTY generation and delivery gates, bounded readers,
-stale-close identity checks, owned SSH staging cleanup, and the merged web
+stale-close identity checks, owned no-clobber SSH staging, and the merged web
 determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
@@ -23,7 +23,7 @@ commands in `TECH-DEBT-CHANGELOG.md`.
 
 Final aggregate commits include the merge of current main
 [`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
-the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
+ the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
 legacy socket scan fix `ae2fa91709`, the Go write-progress fixes through
 `4a50dd64b2`, and the Java path test `3e85c7dd05`. Do not infer hosted or
 review-green status from these commits.
