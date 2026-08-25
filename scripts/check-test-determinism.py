@@ -306,7 +306,7 @@ _NETWORK_VERB = re.compile(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
-  | (?i:\b(?:xhr|xhttp|xmlhttprequest)\s*\.\s*open\s*\()  # xhr.open(method, url)
+  | \.open\s*\(                                  # XMLHttpRequest.open(method, url)
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib3.*\.request\s*\(
   | \burllib\b
@@ -2605,6 +2605,95 @@ def _python_instance_binding_scope_bounds(
     )
 
 
+def _python_call_is_shadowed(
+    source: str,
+    call_start: int,
+    binding_indent: str,
+    reassignment_pattern: re.Pattern[str],
+    executable: bytes,
+) -> bool:
+    """Return whether a Python stored-client call is shadowed in its function."""
+    call_line_start = source.rfind("\n", 0, call_start) + 1
+    call_line = source[call_line_start:]
+    call_indent_match = re.match(r"[ \t]*", call_line)
+    call_indent = call_indent_match.group(0) if call_indent_match else ""
+    if len(call_indent) <= len(binding_indent):
+        return False
+
+    function_start: Optional[int] = None
+    function_indent = ""
+    scan_line_start = call_line_start
+    while scan_line_start > 0:
+        previous_end = scan_line_start - 1
+        previous_start = source.rfind("\n", 0, previous_end) + 1
+        previous_line = source[previous_start:previous_end]
+        stripped = previous_line.lstrip()
+        indent = previous_line[: len(previous_line) - len(stripped)]
+        if stripped and re.match(r"(?:async\s+)?def\b", stripped):
+            if len(indent) < len(call_indent):
+                function_start = previous_start
+                function_indent = indent
+                break
+        scan_line_start = previous_start
+    if function_start is None:
+        return False
+
+    function_end = _python_binding_scope_end(
+        source,
+        function_start,
+        function_indent,
+    )
+    body_start = source.find("\n", function_start, function_end)
+    if body_start == -1:
+        return False
+    body_start += 1
+
+    nested_function_ranges: list[tuple[int, int]] = []
+    line_start = body_start
+    while line_start < function_end:
+        line_end = source.find("\n", line_start, function_end)
+        if line_end == -1:
+            line_end = function_end
+        physical_line = source[line_start:line_end]
+        stripped = physical_line.lstrip()
+        indent = physical_line[: len(physical_line) - len(stripped)]
+        if stripped and len(indent) > len(function_indent) and re.match(
+            r"(?:async\s+)?def\b",
+            stripped,
+        ):
+            nested_function_ranges.append(
+                (
+                    line_start,
+                    _python_binding_scope_end(source, line_start, indent),
+                )
+            )
+        line_start = line_end + 1
+
+    for reassignment in reassignment_pattern.finditer(
+        source,
+        body_start,
+        function_end,
+    ):
+        if not executable[reassignment.start()]:
+            continue
+        if any(
+            nested_start <= reassignment.start() < nested_end
+            for nested_start, nested_end in nested_function_ranges
+        ):
+            continue
+        assignment_line_start = source.rfind("\n", 0, reassignment.start()) + 1
+        assignment_line = source[assignment_line_start:]
+        assignment_indent_match = re.match(r"[ \t]*", assignment_line)
+        assignment_indent = (
+            assignment_indent_match.group(0)
+            if assignment_indent_match
+            else ""
+        )
+        if len(assignment_indent) >= len(call_indent):
+            return True
+    return False
+
+
 def _javascript_binding_scope_bounds(
     source: str,
     constructor_start: int,
@@ -2947,11 +3036,18 @@ def _stored_fluent_client_verb_offsets(
                 break
             if not executable[call.start()]:
                 continue
-            if path_suffix == ".py" and not binding.is_instance_property:
-                line_start = source.rfind("\n", 0, call.start()) + 1
-                line_indent = re.match(r"[ \t]*", source[line_start:])
-                if line_indent is None or line_indent.group(0) != binding.binding_indent:
-                    continue
+            if (
+                path_suffix == ".py"
+                and not binding.is_instance_property
+                and _python_call_is_shadowed(
+                    source,
+                    call.start(),
+                    binding.binding_indent,
+                    reassignment_pattern,
+                    executable,
+                )
+            ):
+                continue
             target = _fluent_method_target(
                 source,
                 call.end() - 1,
@@ -3026,6 +3122,9 @@ def _direct_network_target_ranges(
         if following < len(line) and line[following] == "(":
             opening_paren = following
     if opening_paren == -1:
+        return []
+
+    if ".open" in matched_verb and not _is_xhr_open_call(line, match):
         return []
 
     constructor_opening_paren: Optional[int] = None
@@ -3126,6 +3225,37 @@ def _is_callable_declaration(
         semicolon = line.find(";", cursor)
         return brace != -1 and (semicolon == -1 or brace < semicolon)
     return False
+
+
+def _is_xhr_open_call(
+    line: str,
+    match: re.Match[str],
+) -> bool:
+    """Return whether a receiver is known or initialized as XMLHttpRequest."""
+    receiver_match = re.search(
+        r"(?P<receiver>[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*$",
+        line[: match.start()],
+    )
+    if receiver_match is None:
+        return False
+    receiver = re.sub(r"\s*\.\s*", ".", receiver_match.group("receiver"))
+    if receiver.rsplit(".", 1)[-1].lower() in {
+        "xhr",
+        "xhttp",
+        "xmlhttprequest",
+    }:
+        return True
+    receiver_pattern = r"\s*\.\s*".join(
+        re.escape(component)
+        for component in receiver.split(".")
+    )
+    return bool(
+        re.search(
+            rf"(?:\b(?:const|let|var)\s+)?{receiver_pattern}\s*=\s*new\s+XMLHttpRequest\s*\(",
+            line[: match.start()],
+            re.IGNORECASE,
+        )
+    )
 
 
 def _network_target_ranges(
@@ -3232,6 +3362,28 @@ def _live_network_verb_offsets(
         return []
     offsets: list[int] = []
     for match in _NETWORK_VERB.finditer(source):
+        target_ranges = _network_target_ranges(source, match, path_suffix)
+        if any(
+            _contains_public_network_url(source[start:end])
+            for start, end in target_ranges
+        ):
+            offsets.append(match.start())
+    return offsets
+
+
+def _xhr_open_network_verb_offsets(
+    source: str,
+    path_suffix: str,
+) -> list[int]:
+    """Return XHR ``open`` offsets whose target is a public network URL."""
+    if path_suffix not in _JAVASCRIPT_SUFFIXES:
+        return []
+    offsets: list[int] = []
+    for match in _NETWORK_VERB.finditer(source):
+        if ".open" not in match.group(0).lower():
+            continue
+        if not _is_xhr_open_call(source, match):
+            continue
         target_ranges = _network_target_ranges(source, match, path_suffix)
         if any(
             _contains_public_network_url(source[start:end])
@@ -3471,6 +3623,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 network_source,
                 suffix,
             )
+        )
+        live_network_lines.update(
+            1 + network_source.count("\n", 0, offset)
+            for offset in _xhr_open_network_verb_offsets(network_source, suffix)
         )
     else:
         live_network_lines = set()
