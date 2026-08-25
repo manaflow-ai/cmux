@@ -653,6 +653,19 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
+            let currentResumeBinding: SurfaceResumeBindingSnapshot?
+            if let capturedBinding = restore.resumeBinding {
+                guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
+                      currentBinding.isAgentHookBinding,
+                      currentBinding.isSameManagedSession(as: capturedBinding),
+                      currentBinding.autoResume == true else {
+                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                    continue
+                }
+                currentResumeBinding = currentBinding
+            } else {
+                currentResumeBinding = nil
+            }
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
@@ -699,7 +712,7 @@ extension Workspace {
                     )
                 }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
-            } else if let binding = restore.resumeBinding {
+            } else if let binding = currentResumeBinding ?? restore.resumeBinding {
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
                     binding,
                     autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
@@ -763,7 +776,7 @@ extension Workspace {
                 terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
                     panelID: panelId,
                     snapshot: restore.restorableAgent,
-                    resumeBinding: restore.resumeBinding,
+                    resumeBinding: currentResumeBinding ?? restore.resumeBinding,
                     workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
                 )
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)

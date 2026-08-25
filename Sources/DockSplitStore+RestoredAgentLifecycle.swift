@@ -472,6 +472,19 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
+            let currentResumeBinding: SurfaceResumeBindingSnapshot?
+            if let capturedBinding = restore.resumeBinding {
+                guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
+                      currentBinding.isAgentHookBinding,
+                      currentBinding.isSameManagedSession(as: capturedBinding),
+                      currentBinding.autoResume == true else {
+                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                    continue
+                }
+                currentResumeBinding = currentBinding
+            } else {
+                currentResumeBinding = nil
+            }
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
@@ -518,7 +531,7 @@ extension DockSplitStore {
                     )
                 }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
-            } else if let binding = restore.resumeBinding {
+            } else if let binding = currentResumeBinding ?? restore.resumeBinding {
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
                     binding,
                     autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
@@ -573,6 +586,7 @@ extension DockSplitStore {
                     )
                 }
                 deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
+                clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
                 if restore.restorableAgent != nil {
                     restoredAgentLifecycle.setResumeState(
@@ -586,9 +600,10 @@ extension DockSplitStore {
                 terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
                     panelID: panelId,
                     snapshot: restore.restorableAgent,
-                    resumeBinding: restore.resumeBinding,
+                    resumeBinding: currentResumeBinding ?? restore.resumeBinding,
                     workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
                 )
+                clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
                 if let claim,
                    let pendingClaim = deferredAgentResumeClaimsByPanelId[panelId],
@@ -604,11 +619,20 @@ extension DockSplitStore {
 
     func removeDeferredAgentResumeRestore(panelId: UUID) {
         deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
+        clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
         if let claim = deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId) {
             AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: claim.kind,
                 sessionId: claim.sessionId
             )
+        }
+    }
+
+    private func clearDeferredAgentResumeRestoreTransfer(panelId: UUID) {
+        if var transfer = detachedSurfaceTransfersByPanelId[panelId],
+           transfer.deferredAgentResumeRestore != nil {
+            transfer.deferredAgentResumeRestore = nil
+            setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         }
     }
 
@@ -723,5 +747,8 @@ extension DockSplitStore {
             }
         }
         deferredAgentResumeRestoresByPanelId.removeAll()
+        for panelId in Array(detachedSurfaceTransfersByPanelId.keys) {
+            clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
+        }
     }
 }

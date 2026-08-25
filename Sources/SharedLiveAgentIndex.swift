@@ -59,7 +59,9 @@ final class SharedLiveAgentIndex {
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
+    private var refreshTaskGeneration: UUID?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var forkAvailabilityRefreshTaskGeneration: UUID?
     private var refreshCompletionGeneration = 0
     private var ownershipRefreshWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var ownershipRefreshWaiterTimers: [UUID: DispatchSourceTimer] = [:]
@@ -481,11 +483,13 @@ final class SharedLiveAgentIndex {
         while true {
             guard !Task.isCancelled else { return nil }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
+                abandonOwnershipRefreshTasks()
                 preservePendingHookChangeAfterOwnershipRefreshFailure()
                 return nil
             }
             if let refreshTask {
                 guard await awaitOwnershipRefreshTask(refreshTask, kind: .full) else {
+                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
@@ -505,6 +509,7 @@ final class SharedLiveAgentIndex {
             }
             if let forkAvailabilityRefreshTask {
                 guard await awaitOwnershipRefreshTask(forkAvailabilityRefreshTask, kind: .fork) else {
+                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
@@ -622,10 +627,14 @@ final class SharedLiveAgentIndex {
               forkAvailabilityRefreshTask == nil else {
             return
         }
+        let generation = UUID()
+        forkAvailabilityRefreshTaskGeneration = generation
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+            guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
+            self.forkAvailabilityRefreshTaskGeneration = nil
             self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
@@ -639,10 +648,14 @@ final class SharedLiveAgentIndex {
     private func startReload() {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
+        let generation = UUID()
+        refreshTaskGeneration = generation
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.reload(forcePublish: true)
+            guard self.refreshTaskGeneration == generation else { return }
             self.refreshTask = nil
+            self.refreshTaskGeneration = nil
             self.noteOwnershipRefreshCompleted(kind: .full, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
@@ -726,6 +739,22 @@ final class SharedLiveAgentIndex {
         ownershipRefreshWaiterKinds.removeValue(forKey: waiterID)
         ownershipRefreshWaiterTimers.removeValue(forKey: waiterID)?.cancel()
         continuation.resume(returning: result)
+    }
+
+    /// Cancels and detaches a refresh that outlived the ownership admission
+    /// deadline. The loader runs in a detached task and may not observe
+    /// cancellation promptly, so generation tokens keep its eventual
+    /// completion from clearing or mutating a replacement refresh.
+    private func abandonOwnershipRefreshTasks() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshTaskGeneration = nil
+        forkAvailabilityRefreshTask?.cancel()
+        forkAvailabilityRefreshTask = nil
+        forkAvailabilityRefreshTaskGeneration = nil
+        for waiterID in Array(ownershipRefreshWaiters.keys) {
+            finishOwnershipRefreshWaiter(waiterID, result: false)
+        }
     }
 
     private func preservePendingHookChangeAfterOwnershipRefreshFailure() {
@@ -963,10 +992,14 @@ final class SharedLiveAgentIndex {
               forkAvailabilityRefreshTask == nil else {
             return
         }
+        let generation = UUID()
+        forkAvailabilityRefreshTaskGeneration = generation
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+            guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
+            self.forkAvailabilityRefreshTaskGeneration = nil
             self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
