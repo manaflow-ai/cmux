@@ -41,7 +41,7 @@ extension WorkspacesModel {
                 guard let groupId = tab.groupId else {
                     return true
                 }
-                guard let group = groupsById[groupId] else { return true }
+                guard let group = groupsById[groupId] else { return false }
                 return tab.id != group.anchorWorkspaceId && !group.isCollapsed
             }
         case .focusedGroupMembers:
