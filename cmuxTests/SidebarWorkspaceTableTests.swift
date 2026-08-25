@@ -580,7 +580,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func contentEquivalentApplyKeepsPumpPaintedModelAndHeightInLockstep() async throws {
+    func pumpPaintedModelAndHeightStayInLockstepAcrossApplyAndRetirement() async throws {
         let workspace = Workspace()
         let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
         let pumpDescription = String(repeating: "live metadata ", count: 30)
@@ -606,6 +606,11 @@ struct SidebarWorkspaceTableTests {
             rebuild: { pumpModel },
             unreadRebuild: { _ in baseModel }
         )
+        let fillerRows = (0..<24).map { _ in
+            makeRowConfiguration(fixedHeight: 30)
+        }
+        let allRows = [row] + fillerRows
+        let allWorkspaceIds = allRows.map(\.workspaceId)
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -621,17 +626,18 @@ struct SidebarWorkspaceTableTests {
         }
 
         controller.apply(
-            rows: [row],
+            rows: allRows,
             actions: makeTableActions(),
-            workspaceIds: [workspace.id],
+            workspaceIds: allWorkspaceIds,
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
+        let table = container.tableView
         let cell = try #require(
-            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceRowTableCellView
         )
         #expect(
@@ -639,7 +645,7 @@ struct SidebarWorkspaceTableTests {
                 == pumpDescription
         )
 
-        let pumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let pumpHeight = controller.tableView(table, heightOfRow: 0)
         let authoritativeHeight = ceil(
             cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
         )
@@ -649,9 +655,9 @@ struct SidebarWorkspaceTableTests {
         // still reconcile the pump-painted cell and its matching height
         // override atomically.
         controller.apply(
-            rows: [row],
+            rows: allRows,
             actions: makeTableActions(),
-            workspaceIds: [workspace.id],
+            workspaceIds: allWorkspaceIds,
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
@@ -663,9 +669,8 @@ struct SidebarWorkspaceTableTests {
         let expectedHeight = ceil(
             cell.layoutContent(model: installedModel, width: cell.bounds.width, apply: false)
         )
-        let servedHeight = controller.tableView(container.tableView, heightOfRow: 0)
-        let tableHeight = container.tableView.rect(ofRow: 0).height
-            - container.tableView.intercellSpacing.height
+        let servedHeight = controller.tableView(table, heightOfRow: 0)
+        let tableHeight = table.rect(ofRow: 0).height - table.intercellSpacing.height
         #expect(
             abs(servedHeight - expectedHeight) < 0.5,
             "The delegate height must match the model left installed after an authoritative apply."
@@ -673,6 +678,22 @@ struct SidebarWorkspaceTableTests {
         #expect(
             abs(tableHeight - expectedHeight) < 0.5,
             "The AppKit row frame must match the model left installed after an authoritative apply."
+        )
+
+        container.clipView.scroll(to: NSPoint(x: 0, y: table.rect(ofRow: allRows.count - 1).maxY))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        #expect(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: false) == nil,
+            "Scrolling must retire the pump-painted cell before its override is checked."
+        )
+
+        let retiredHeight = controller.tableView(table, heightOfRow: 0)
+        #expect(
+            abs(retiredHeight - authoritativeHeight) < 0.5,
+            "A retired pump cell must not leave stale geometry attached to its workspace row."
         )
     }
 
