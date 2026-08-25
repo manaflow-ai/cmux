@@ -901,12 +901,33 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities.supportsMoveActions == true
         case .groupHeader(let groupID):
             configuration.groupsByID[groupID]
-                .flatMap { $0.liveAnchorWorkspaceID }
-                .flatMap { configuration.workspacesByID[$0] }?
-                .actionCapabilities.supportsMoveActions == true
+                .map { groupActionCapabilities(for: $0).supportsMoveActions }
+                ?? false
         case .chrome, .filterEmpty, .groupFooter:
             false
         }
+    }
+
+    /// Group actions are owned by the Mac connection, not by a particular
+    /// workspace row. Empty groups have no live anchor row, so use any live
+    /// workspace from the same Mac only as a capability witness.
+    fileprivate func groupActionCapabilities(
+        for group: MobileWorkspaceGroupPreview
+    ) -> MobileWorkspaceActionCapabilities {
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
+           let capabilities = configuration.workspacesByID[anchorWorkspaceID]?.actionCapabilities {
+            return capabilities
+        }
+        let owner = configuration.workspacesByID.values.first { workspace in
+            CmxMacAppInstanceIdentity(
+                macDeviceID: group.macDeviceID ?? "",
+                instanceTag: group.macInstanceTag
+            ) == CmxMacAppInstanceIdentity(
+                macDeviceID: workspace.macDeviceID ?? "",
+                instanceTag: workspace.macInstanceTag
+            )
+        }
+        return owner?.actionCapabilities ?? .none
     }
 
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
@@ -1035,9 +1056,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else {
                 return AnyView(EmptyView())
             }
-            let capabilities = group.liveAnchorWorkspaceID
-                .flatMap { configuration.workspacesByID[$0] }?
-                .actionCapabilities ?? .none
+            let capabilities = groupActionCapabilities(for: group)
             return AnyView(
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
@@ -1051,7 +1070,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                             && configuration.renameWorkspaceGroup != nil,
                         canSetGroupPinned: capabilities.supportsGroupActions
                             && configuration.setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: capabilities.supportsGroupActions
+                        canUngroupWorkspaceGroup: (!group.isPinned || !group.isEmpty)
+                            && capabilities.supportsGroupActions
                             && configuration.ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions
                             && configuration.deleteWorkspaceGroup != nil,

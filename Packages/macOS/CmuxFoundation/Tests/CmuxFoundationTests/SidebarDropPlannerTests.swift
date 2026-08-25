@@ -167,6 +167,60 @@ import Testing
         #expect(plan.draggedWorkspaceId == groupId)
     }
 
+    @Test func droppingIntoEmptyGroupPreservesHeaderSlot() throws {
+        let groupId = UUID()
+        let headerId = groupId
+        let beforeId = UUID()
+        let draggedId = UUID()
+        let afterId = UUID()
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: CGPoint(x: 12, y: 56),
+                draggedWorkspaceId: draggedId,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: beforeId, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedId, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: afterId, isPinned: false, groupId: nil),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: groupId,
+                        anchorWorkspaceId: headerId,
+                        isPinned: false,
+                        isEmpty: true
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: beforeId,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: headerId,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: afterId,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 80, width: 180, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        guard case .reorder(let targetIndex, _, let explicitGroupId) = plan.action else {
+            Issue.record("expected a workspace reorder into the empty group")
+            return
+        }
+        #expect(targetIndex == 1)
+        #expect(explicitGroupId == groupId)
+    }
+
     @Test func orderedWorkspaceDropTargetsMatchArrayWorkspaceAction() {
         let first = UUID()
         let second = UUID()

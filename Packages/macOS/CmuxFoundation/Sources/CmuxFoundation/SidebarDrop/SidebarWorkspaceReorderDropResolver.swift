@@ -290,7 +290,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             // group action still carries the destination group id; the model
             // will promote the dragged workspace to the new anchor and then
             // normalize it into the group's section.
-            let targetIndex = max(0, request.workspaces.count - 1)
+            let targetIndex = emptyGroupDropTargetIndex(
+                request: request,
+                groupId: explicitGroupId
+            )
             return SidebarWorkspaceReorderDropPlan(
                 draggedWorkspaceId: request.draggedWorkspaceId,
                 indicator: targetIndicator,
@@ -343,6 +346,37 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 explicitGroupId: explicitGroupId
             )
         )
+    }
+
+    /// Resolves an empty-header adoption into the raw tab index immediately
+    /// before the header's visual slot. The reorder coordinator expects a
+    /// removal-adjusted index, so account for the dragged workspace's current
+    /// position before returning the target.
+    private func emptyGroupDropTargetIndex(
+        request: SidebarWorkspaceReorderDropRequest,
+        groupId: UUID
+    ) -> Int {
+        let workspaceIds = Set(request.workspaces.map(\.id))
+        let header = request.targets.first {
+            $0.groupId == groupId && $0.isGroupHeader
+        }
+        let insertionIndex: Int
+        if let header {
+            insertionIndex = request.targets.filter { target in
+                target.frame.maxY <= header.frame.minY
+                    && workspaceIds.contains(target.workspaceId)
+            }.count
+        } else {
+            insertionIndex = request.workspaces.count
+        }
+        let adjustedIndex: Int
+        if let draggedIndex = request.workspaces.firstIndex(of: request.draggedWorkspaceId),
+           insertionIndex > draggedIndex {
+            adjustedIndex = insertionIndex - 1
+        } else {
+            adjustedIndex = insertionIndex
+        }
+        return max(0, min(adjustedIndex, max(0, request.workspaces.count - 1)))
     }
 
     private func rootScopedPlan(

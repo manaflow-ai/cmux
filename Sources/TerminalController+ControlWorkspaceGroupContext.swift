@@ -29,6 +29,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
             closeWorkspacesMustBeBoolean: String(
                 localized: "workspaceGroup.error.closeWorkspacesMustBeBoolean",
                 defaultValue: "close_workspaces must be a boolean"
+            ),
+            emptyPinnedCannotUngroup: String(
+                localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
+                defaultValue: "A pinned empty group can only be removed with Delete Group"
             )
         )
     }
@@ -118,7 +122,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
         groupID: UUID
     ) -> Int? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        guard tabManager.workspaceGroups.contains(where: { $0.id == groupID }) else { return -1 }
+        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else { return -1 }
+        if group.isPinned && group.isEmpty { return -2 }
         let keptCount = tabManager.tabs.lazy.filter { $0.groupId == groupID }.count
         tabManager.ungroupWorkspaceGroup(groupId: groupID)
         return keptCount

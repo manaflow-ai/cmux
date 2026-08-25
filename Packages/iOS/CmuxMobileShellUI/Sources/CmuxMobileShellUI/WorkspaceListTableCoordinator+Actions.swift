@@ -90,9 +90,7 @@ extension WorkspaceListTableCoordinator {
     func contextMenuActions(
         for group: MobileWorkspaceGroupPreview
     ) -> [UIMenuElement] {
-        let capabilities = group.liveAnchorWorkspaceID
-            .flatMap { configuration.workspacesByID[$0] }?
-            .actionCapabilities ?? .none
+        let capabilities = groupActionCapabilities(for: group)
         var sections: [UIMenuElement] = []
         var groupActions: [UIAction] = []
 
@@ -141,7 +139,8 @@ extension WorkspaceListTableCoordinator {
         }
 
         var destructiveActions: [UIAction] = []
-        if capabilities.supportsGroupActions,
+        if (!group.isPinned || !group.isEmpty),
+           capabilities.supportsGroupActions,
            let ungroupWorkspaceGroupRequest = configuration.ungroupWorkspaceGroupRequest {
             let action = UIAction(
                 title: L10n.string(

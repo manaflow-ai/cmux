@@ -111,6 +111,26 @@ import Testing
         #expect(items == [.groupHeader(empty, hasUnread: false)])
     }
 
+    @Test func emptyPinnedHeaderStaysOutsidePinnedGroupMembers() {
+        let liveGroup = group("live", anchor: "anchor", pinned: true)
+        let emptyGroup = group("empty", pinned: true, isEmpty: true)
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("anchor", group: "live"),
+                workspace("child", group: "live"),
+                workspace("outside"),
+            ],
+            groups: [liveGroup, emptyGroup]
+        )
+        #expect(items == [
+            .groupHeader(liveGroup, hasUnread: false),
+            .workspace(workspace("child", group: "live"), indented: true),
+            .groupFooter("live"),
+            .groupHeader(emptyGroup, hasUnread: false),
+            .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
     @Test func populatedExpandedGroupEndsWithItsDropSlot() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],

@@ -120,7 +120,14 @@ enum SidebarWorkspaceRenderItem {
                 case .groupHeader(let groupId, _):
                     return groupsById[groupId]?.isPinned == false
                 case .workspace(let workspaceId):
-                    return tabs.first(where: { $0.id == workspaceId })?.isPinned == false
+                    guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+                        return false
+                    }
+                    if let groupId = workspace.groupId,
+                       let group = groupsById[groupId] {
+                        return !group.isPinned
+                    }
+                    return !workspace.isPinned
                 }
             } ?? rendered.count
             rendered.insert(contentsOf: trailingPinned.map {

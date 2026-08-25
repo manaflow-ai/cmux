@@ -421,7 +421,8 @@ extension ControlCommandCoordinator {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "",
-            closeWorkspacesMustBeBoolean: ""
+            closeWorkspacesMustBeBoolean: "",
+            emptyPinnedCannotUngroup: ""
         )
     }
 

@@ -264084,6 +264084,23 @@
         }
       }
     },
+    "workspaceGroup.error.emptyPinnedCannotUngroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pinned empty group can only be removed with Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のピン留めグループは「グループを削除」でのみ削除できます"
+          }
+        }
+      }
+    },
     "workspaceGroup.error.invalidReferenceWorkspace": {
       "extractionState": "manual",
       "localizations": {

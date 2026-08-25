@@ -162,6 +162,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             case .groupHeader(let group, _):
                 return !group.isPinned
             case .workspace(let workspace, _):
+                if let groupID = workspace.groupID,
+                   let group = groupsByID[groupID] {
+                    return !group.isPinned
+                }
                 return !workspace.isPinned
             case .groupFooter:
                 return false

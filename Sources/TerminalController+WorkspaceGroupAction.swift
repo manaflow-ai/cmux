@@ -71,6 +71,17 @@ extension TerminalController {
                 }
                 tabManager.renameWorkspaceGroup(groupId: groupID, name: title)
             case .ungroup:
+                if tabManager.workspaceGroups.first(where: { $0.id == groupID }).map({ $0.isPinned && $0.isEmpty }) == true {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
+                            defaultValue: "A pinned empty group can only be removed with Delete Group"
+                        ),
+                        data: ["group_id": groupID.uuidString]
+                    )
+                    return
+                }
                 tabManager.ungroupWorkspaceGroup(groupId: groupID)
             case .delete:
                 let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
