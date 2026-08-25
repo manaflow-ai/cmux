@@ -8,6 +8,7 @@ struct SidebarWorkspaceRowColorMenu {
     let currentColorHex: String?
     let colorScheme: ColorScheme
 
+    /// Adds one menu item per palette entry and marks the matching current value.
     func addPaletteItems(
         to menu: NSMenu,
         palette: [WorkspaceTabColorEntry],
