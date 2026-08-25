@@ -557,6 +557,9 @@ fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
         }
     })?;
     let info = file.metadata()?;
+    if !info.file_type().is_file() {
+        return Err(HostError::Refusal("read only supports regular files".to_owned()));
+    }
     if info.len() > MAX_READ_BYTES {
         return Err(HostError::Refusal(format!(
             "file is {} bytes (max {MAX_READ_BYTES}); read a smaller file or use grep",
@@ -564,7 +567,12 @@ fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
         )));
     }
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    file.take(MAX_READ_BYTES.saturating_add(1)).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_READ_BYTES {
+        return Err(HostError::Refusal(format!(
+            "file grew beyond the {MAX_READ_BYTES} byte read limit"
+        )));
+    }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -647,7 +655,10 @@ struct ScopedDirEntry {
     is_dir: bool,
 }
 
-fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostError> {
+fn read_dir_scoped(
+    path: &HostScopedPath,
+    max_entries: usize,
+) -> Result<Vec<ScopedDirEntry>, HostError> {
     #[cfg(unix)]
     {
         use std::ffi::CStr;
@@ -667,6 +678,9 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostErr
         }
         let mut entries = Vec::new();
         loop {
+            if entries.len() >= max_entries {
+                break;
+            }
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
                 break;
@@ -690,6 +704,7 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostErr
     {
         let entries = std::fs::read_dir(&path.path).map_err(HostError::Io)?;
         Ok(entries
+            .take(max_entries)
             .flatten()
             .map(|entry| ScopedDirEntry {
                 name: entry.file_name(),
@@ -1418,7 +1433,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            let entries = match read_dir_scoped(&path) {
+            let entries = match read_dir_scoped(&path, MAX_LISTING_ENTRIES + 1) {
                 Ok(entries) => entries,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
@@ -1738,6 +1753,52 @@ mod tests {
         )
         .await;
         assert!(ls["result"]["listing"].as_str().unwrap().contains("note.txt"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn oversized_regular_file_is_refused_before_reading() {
+        let root = scratch("oversized-read");
+        let file = root.join("oversized.txt");
+        let handle = std::fs::File::create(&file).unwrap();
+        // A sparse file keeps this deterministic and avoids allocating a
+        // multi-megabyte buffer merely to exercise the size guard.
+        handle.set_len(MAX_READ_BYTES + 1).unwrap();
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+
+        let read = perform_action(
+            &json!({ "verb": "read", "actionId": "oversized", "allowedRoots": roots,
+                     "args": { "path": "oversized.txt" } }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(read["ok"], false);
+        assert_eq!(read["code"], "path_forbidden");
+        assert!(read["message"].as_str().unwrap().contains("max 2000000"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn directory_listing_caps_entries_and_marks_truncation() {
+        let root = scratch("listing-cap");
+        for index in 0..=MAX_LISTING_ENTRIES {
+            std::fs::File::create(root.join(format!("entry-{index:04}.txt"))).unwrap();
+        }
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+
+        let listing = perform_action(
+            &json!({ "verb": "ls", "actionId": "listing-cap", "allowedRoots": roots,
+                     "args": {} }),
+            &context,
+        )
+        .await;
+
+        let output = listing["result"]["listing"].as_str().unwrap();
+        assert!(output.ends_with("\n…[more entries]"));
+        assert_eq!(output.matches(".txt").count(), MAX_LISTING_ENTRIES);
         std::fs::remove_dir_all(&root).ok();
     }
 
