@@ -236,11 +236,14 @@ extension DockSplitStore {
             expectedKind: expectedAgentKind,
             expectedSessionId: expectedSessionId
         ) == true
+        let exactOwnerHasLiveProcess = restoreAgentIndex?.entry(
+            workspaceId: workspaceId,
+            panelId: snapshot.id
+        )?.processIDs.isEmpty == false
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             restoreAgentIndex == nil ||
             stablePanelHasConflictingLiveProcess ||
-            (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
-                restoreAgentIndex?.entry(workspaceId: workspaceId, panelId: snapshot.id) == nil)
+            (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
         )
         let resumeBindingForStartup = hibernation != nil ||
             restoreOwnershipAmbiguous ||

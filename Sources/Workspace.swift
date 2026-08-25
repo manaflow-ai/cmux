@@ -1522,11 +1522,14 @@ extension Workspace {
                 expectedKind: expectedAgentKind,
                 expectedSessionId: expectedSessionId
             ) == true
+            let exactOwnerHasLiveProcess = restoreAgentIndex?.entry(
+                workspaceId: id,
+                panelId: snapshot.id
+            )?.processIDs.isEmpty == false
             let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
                 restoreAgentIndex == nil ||
                 stablePanelHasConflictingLiveProcess ||
-                (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
-                    restoreAgentIndex?.entry(workspaceId: id, panelId: snapshot.id) == nil)
+                (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
