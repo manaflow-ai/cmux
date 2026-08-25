@@ -486,8 +486,24 @@ enum RightSidebarBetaFeatureSettings {
     static let defaultDockEnabled = false
 
     nonisolated static func isArtifactsEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: artifactsEnabledKey) != nil else { return defaultArtifactsEnabled }
-        return defaults.bool(forKey: artifactsEnabledKey)
+        isArtifactsEnabled(
+            defaults: defaults,
+            remoteEnabled: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.artifactsFlag
+            )
+        )
+    }
+
+    /// The local beta toggle is an opt-in, while the remote flag is the
+    /// authoritative production gate and kill switch.
+    nonisolated static func isArtifactsEnabled(
+        defaults: UserDefaults,
+        remoteEnabled: Bool
+    ) -> Bool {
+        let localEnabled = defaults.object(forKey: artifactsEnabledKey) == nil
+            ? defaultArtifactsEnabled
+            : defaults.bool(forKey: artifactsEnabledKey)
+        return localEnabled && remoteEnabled
     }
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {

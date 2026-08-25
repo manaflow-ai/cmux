@@ -26,6 +26,27 @@ struct ArtifactRightSidebarModeTests {
         }
     }
 
+    @Test("Remote Artifacts flag is a hard gate over the local beta opt-in")
+    func remoteFlagControlsLocalOptIn() {
+        withSavedArtifactsDefault { defaults in
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
+            #expect(!RightSidebarBetaFeatureSettings.isArtifactsEnabled(
+                defaults: defaults,
+                remoteEnabled: false
+            ))
+            #expect(RightSidebarBetaFeatureSettings.isArtifactsEnabled(
+                defaults: defaults,
+                remoteEnabled: true
+            ))
+
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
+            #expect(!RightSidebarBetaFeatureSettings.isArtifactsEnabled(
+                defaults: defaults,
+                remoteEnabled: true
+            ))
+        }
+    }
+
     @Test("CLI mode parsing recognizes artifacts")
     func parsesCLIArgument() {
         #expect(RightSidebarMode.from(cliArgument: "artifacts") == .artifacts)

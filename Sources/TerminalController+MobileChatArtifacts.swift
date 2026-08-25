@@ -281,7 +281,7 @@ extension TerminalController {
                 context: captureContext,
                 sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false)
             )
-            return .ok(ChatArtifactWire.payload(result) ?? [:])
+            return ChatArtifactWire.result(result)
         } catch {
             return .err(
                 code: "artifact_save_failed",

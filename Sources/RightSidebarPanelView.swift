@@ -32,6 +32,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    let featureFlags: CmuxFeatureFlags
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
@@ -69,6 +70,7 @@ struct RightSidebarPanelView: View {
         fileExplorerStore: FileExplorerStore,
         fileExplorerState: FileExplorerState,
         sessionIndexStore: SessionIndexStore,
+        featureFlags: CmuxFeatureFlags,
         titlebarHeight: CGFloat,
         windowAppearance: WindowAppearanceSnapshot,
         workspaceId: UUID?,
@@ -85,6 +87,7 @@ struct RightSidebarPanelView: View {
         self.fileExplorerStore = fileExplorerStore
         self.fileExplorerState = fileExplorerState
         self.sessionIndexStore = sessionIndexStore
+        self.featureFlags = featureFlags
         self.titlebarHeight = titlebarHeight
         self.windowAppearance = windowAppearance
         self.workspaceId = workspaceId
@@ -108,7 +111,7 @@ struct RightSidebarPanelView: View {
 
     private var availableModes: [RightSidebarMode] {
         RightSidebarMode.availableModes(
-            artifactsEnabled: artifactsEnabled,
+            artifactsEnabled: artifactsEnabled && featureFlags.isArtifactsEnabled,
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled
         )
@@ -183,6 +186,9 @@ struct RightSidebarPanelView: View {
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: artifactsEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: featureFlags.isArtifactsEnabled) { _, _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {

@@ -62,6 +62,11 @@ final class CmuxFeatureFlags {
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
+#if DEBUG
+    private nonisolated static let artifactsDefault = true
+#else
+    private nonisolated static let artifactsDefault = false
+#endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -166,6 +171,25 @@ final class CmuxFeatureFlags {
             defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
+    // FLAG(key: right-sidebar-artifacts-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Controls the project-local Artifacts and Notes surface, including its
+    // right-sidebar mode and automatic capture. The beta setting remains a
+    // local opt-in for dogfood; this remote flag is the production gate and
+    // kill switch. DEBUG keeps the feature available when PostHog is absent.
+    nonisolated static let artifactsFlag = CmuxFeatureFlagDefinition(
+        key: "right-sidebar-artifacts-enabled-release",
+        title: String(
+            localized: "featureFlags.artifacts.title",
+            defaultValue: "Artifacts & Notes"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.artifacts.description",
+            defaultValue: "Enables the project-local Artifacts and Notes sidebar and automatic capture."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.artifactsDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -292,6 +316,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.artifactsFlag,
         ]
     }()
 
@@ -341,6 +366,10 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    var isArtifactsEnabled: Bool {
+        effectiveValue(for: Self.artifactsFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
