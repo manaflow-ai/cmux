@@ -54,6 +54,13 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
   nonemptyString(announcement.id, `${path}.id`);
   version(announcement.minVersion, `${path}.minVersion`);
   version(announcement.maxVersion, `${path}.maxVersion`);
+  // An inverted range can never match any app version, so the announcement
+  // would be served, cached, and silently shown to nobody.
+  if (compareDottedVersions(announcement.minVersion, announcement.maxVersion) > 0) {
+    throw new Error(
+      `${path} version range is empty: minVersion ${announcement.minVersion} exceeds maxVersion ${announcement.maxVersion}`,
+    );
+  }
   if (announcement.releaseLabel !== undefined) {
     nonemptyString(announcement.releaseLabel, `${path}.releaseLabel`);
   }
@@ -101,6 +108,21 @@ function version(input: string | undefined, path: string): void {
   if (!VERSION_PATTERN.test(value)) {
     throw new Error(`${path} must be a dotted numeric version, got ${value}`);
   }
+}
+
+/**
+ * Dotted-numeric compare with the device's semantics (missing components
+ * count as zero): negative when a < b, zero when equal, positive when a > b.
+ */
+function compareDottedVersions(a: string, b: string): number {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  const count = Math.max(left.length, right.length);
+  for (let index = 0; index < count; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function webURL(input: string | undefined, path: string): void {
