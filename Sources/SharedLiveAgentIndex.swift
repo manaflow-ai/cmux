@@ -502,14 +502,10 @@ final class SharedLiveAgentIndex {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
-                completedRefreshPasses += 1
                 // Fork availability reloads may intentionally retain an
                 // unchanged index. Ownership-sensitive callers need the full
-                // refresh task below as well.
-                guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
-                    preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
-                }
+                // refresh task below as well, so this pass must not consume the
+                // bounded full-refresh retry budget.
                 continue
             }
             if changePending || deferredReloadTimer != nil {

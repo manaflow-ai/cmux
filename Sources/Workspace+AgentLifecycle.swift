@@ -485,6 +485,15 @@ extension Workspace {
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
         guard liveIndex?.hasAmbiguousPanel(panelId) != true else { return false }
+        // A recorded PID with unknown cached liveness is inconclusive, not an
+        // exited session. Preserve the automatic binding until a later scan
+        // can establish that the process is gone.
+        guard liveIndex?.hasUncertainStablePanelEntry(
+            panelId: panelId,
+            revalidateProcessEvidence: false
+        ) != true else {
+            return false
+        }
         let liveEntry = liveIndex?.entryForStablePanel(
             workspaceId: id,
             panelId: panelId,
