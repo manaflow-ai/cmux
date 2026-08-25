@@ -42,109 +42,109 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A program running within cmux would like to use your microphone."
+            "value": "A program running within cmux would like to use your microphone. Voice dictation also uses the microphone to transcribe your speech on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内で実行中のプログラムがマイクの使用を求めています。"
+            "value": "cmux 内で実行中のプログラムがマイクの使用を求めています。音声入力では、この Mac 上で音声を文字起こしするためにもマイクを使用します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中运行的程序想要使用您的麦克风。"
+            "value": "在 cmux 中运行的程序想要使用您的麦克风。语音输入还会使用麦克风在此 Mac 上转录您的语音。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中執行的程式想要使用您的麥克風。"
+            "value": "在 cmux 中執行的程式想要使用您的麥克風。語音輸入也會使用麥克風在此 Mac 上轉錄您的語音。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 내에서 실행 중인 프로그램이 마이크를 사용하려고 합니다."
+            "value": "cmux 내에서 실행 중인 프로그램이 마이크를 사용하려고 합니다. 음성 입력은 이 Mac에서 음성을 텍스트로 변환하기 위해서도 마이크를 사용합니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein in cmux ausgeführtes Programm möchte Ihr Mikrofon verwenden."
+            "value": "Ein in cmux ausgeführtes Programm möchte Ihr Mikrofon verwenden. Die Spracheingabe nutzt das Mikrofon außerdem, um Ihre Sprache auf diesem Mac zu transkribieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programa en ejecución dentro de cmux desea usar tu micrófono."
+            "value": "Un programa en ejecución dentro de cmux desea usar tu micrófono. El dictado también usa el micrófono para transcribir tu voz en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programme s'exécutant dans cmux souhaite utiliser votre microphone."
+            "value": "Un programme s'exécutant dans cmux souhaite utiliser votre microphone. La dictée utilise également le microphone pour transcrire votre voix sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono."
+            "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono. La dettatura usa inoltre il microfono per trascrivere la tua voce su questo Mac."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et program, der kører i cmux, vil gerne bruge din mikrofon."
+            "value": "Et program, der kører i cmux, vil gerne bruge din mikrofon. Diktering bruger også mikrofonen til at transskribere din tale på denne Mac."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Program działający w cmux chciałby użyć Twojego mikrofonu."
+            "value": "Program działający w cmux chciałby użyć Twojego mikrofonu. Dyktowanie używa również mikrofonu do transkrypcji mowy na tym Macu."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Программа, запущенная в cmux, хотела бы использовать ваш микрофон."
+            "value": "Программа, запущенная в cmux, хотела бы использовать ваш микрофон. Диктовка также использует микрофон для расшифровки вашей речи на этом Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Program koji se izvršava unutar cmux želi koristiti vaš mikrofon."
+            "value": "Program koji se izvršava unutar cmux želi koristiti vaš mikrofon. Glasovno diktiranje također koristi mikrofon za transkripciju vašeg govora na ovom Macu."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يرغب برنامج يعمل داخل cmux في استخدام الميكروفون."
+            "value": "يرغب برنامج يعمل داخل cmux في استخدام الميكروفون. يستخدم الإملاء الصوتي الميكروفون أيضًا لتحويل كلامك إلى نص على جهاز Mac هذا."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et program som kjører i cmux ønsker å bruke mikrofonen din."
+            "value": "Et program som kjører i cmux ønsker å bruke mikrofonen din. Diktering bruker også mikrofonen til å transkribere talen din på denne Mac-en."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um programa em execução no cmux gostaria de usar seu microfone."
+            "value": "Um programa em execução no cmux gostaria de usar seu microfone. O ditado por voz também usa o microfone para transcrever sua fala neste Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้ไมโครโฟนของคุณ"
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้ไมโครโฟนของคุณ การป้อนตามคำบอกยังใช้ไมโครโฟนเพื่อถอดเสียงพูดของคุณบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux içinde çalışan bir program mikrofonunuzu kullanmak istiyor."
+            "value": "cmux içinde çalışan bir program mikrofonunuzu kullanmak istiyor. Dikte özelliği, konuşmanızı bu Mac'te yazıya dökmek için mikrofonu da kullanır."
           }
         }
       }

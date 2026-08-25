@@ -99,13 +99,14 @@ public final class DictationController {
     /// engine is flushed and inserted before the session ends.
     public func stop() {
         guard isActive else { return }
-        if phase == .requestingAuthorization {
-            // No transcriber exists yet; runSession observes the phase
-            // change after the authorization awaits and unwinds.
-            phase = .stopping
-            return
-        }
+        let phaseAtStop = phase
         phase = .stopping
+        if phaseAtStop == .requestingAuthorization || phaseAtStop == .preparing {
+            // Cancellation is limited to startup: cancelling the streaming
+            // task after listening begins would skip the engine's final
+            // hypothesis instead of letting finishTranscribing flush it.
+            sessionTask?.cancel()
+        }
         let transcriber = activeTranscriber
         Task {
             await transcriber?.finishTranscribing()
@@ -113,37 +114,44 @@ public final class DictationController {
     }
 
     private func runSession(generation: Int) async {
-        guard await authorizeMicrophone() else {
-            fail(.microphoneAccessDenied, generation: generation)
-            return
-        }
-        guard await authorizeSpeechRecognition() else {
-            fail(.speechRecognitionAccessDenied, generation: generation)
-            return
-        }
-        guard sessionGeneration == generation, phase == .requestingAuthorization else {
-            // Stopped (or superseded) while a permission prompt was up.
-            settle(generation: generation)
-            return
-        }
-        guard inserter.beginSession() else {
-            fail(.insertionTargetUnavailable, generation: generation)
-            return
-        }
-        insertionSessionActive = true
-        phase = .preparing
-        let transcriber = makeTranscriber()
-        activeTranscriber = transcriber
         do {
+            try Task.checkCancellation()
+            guard await authorizeMicrophone() else {
+                fail(.microphoneAccessDenied, generation: generation)
+                return
+            }
+            try Task.checkCancellation()
+            guard await authorizeSpeechRecognition() else {
+                fail(.speechRecognitionAccessDenied, generation: generation)
+                return
+            }
+            try Task.checkCancellation()
+            guard sessionGeneration == generation, phase == .requestingAuthorization else {
+                // Stopped (or superseded) while a permission prompt was up.
+                settle(generation: generation)
+                return
+            }
+            guard inserter.beginSession() else {
+                fail(.insertionTargetUnavailable, generation: generation)
+                return
+            }
+            insertionSessionActive = true
+            phase = .preparing
+            let transcriber = makeTranscriber()
+            activeTranscriber = transcriber
             let events = try await transcriber.transcribe(locale: localeProvider())
-            if sessionGeneration == generation, phase == .stopping {
+            try Task.checkCancellation()
+            guard sessionGeneration == generation else { return }
+            if phase == .stopping {
                 // Stop raced engine startup; finish again so the engine the
                 // first finish could not see yet is torn down and the
                 // stream ends.
                 await transcriber.finishTranscribing()
-            } else if sessionGeneration == generation, phase == .preparing {
-                phase = .listening
+                settle(generation: generation)
+                return
             }
+            guard phase == .preparing else { return }
+            phase = .listening
             for try await event in events {
                 guard sessionGeneration == generation, isActive else { break }
                 await handle(event, generation: generation)
@@ -154,6 +162,13 @@ public final class DictationController {
                 fail(.insertionTargetUnavailable, generation: generation)
                 return
             }
+            settle(generation: generation)
+        } catch is CancellationError {
+            guard sessionGeneration == generation else { return }
+            // A cancelled startup may have raced far enough to create an
+            // engine. Tear it down before settling so stopping never leaves
+            // capture or model resources alive.
+            await activeTranscriber?.finishTranscribing()
             settle(generation: generation)
         } catch {
             let failure = (error as? DictationFailure)
@@ -198,6 +213,7 @@ public final class DictationController {
         guard sessionGeneration == generation, isActive else { return }
         endInsertionSessionIfActive()
         activeTranscriber = nil
+        sessionTask = nil
         phase = .idle
     }
 
@@ -208,6 +224,7 @@ public final class DictationController {
         guard sessionGeneration == generation, isActive else { return }
         endInsertionSessionIfActive()
         activeTranscriber = nil
+        sessionTask = nil
         phase = .failed(failure)
         failureHandler?(failure)
     }

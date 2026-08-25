@@ -85,7 +85,12 @@ nonisolated struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendabl
         if #available(macOS 26.0, *) {
             locales = await SpeechTranscriber.supportedLocales
         } else {
-            locales = Array(SFSpeechRecognizer.supportedLocales())
+            locales = SFSpeechRecognizer.supportedLocales().filter { locale in
+                // The system list also contains languages that can only use
+                // Apple's network recognizer. Voice dictation promises
+                // on-device processing, so do not offer those choices.
+                SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true
+            }
         }
         let current = Locale.current
         return locales
