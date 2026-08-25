@@ -77,4 +77,51 @@ struct TerminalPointerStyleViewTests {
 
         #expect(view.effectiveTerminalPointerCursor == NSCursor.crosshair)
     }
+
+    @Test("stale runtime teardown preserves replacement suppression")
+    func staleRuntimeTeardownPreservesReplacementSuppression() {
+        let view = GhosttyNSView(frame: .zero)
+        let oldRuntimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: oldRuntimeLifetimeId
+        )
+        view.applyTerminalPointerStyle(.focusChanged(true))
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: oldRuntimeLifetimeId
+            )
+        )
+
+        let replacementRuntimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: replacementRuntimeLifetimeId
+        )
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: replacementRuntimeLifetimeId
+            )
+        )
+        view.applyTerminalPointerStyle(
+            .ghosttyLinkHoverChanged(
+                true,
+                runtimeLifetimeId: replacementRuntimeLifetimeId
+            )
+        )
+        view.applyTerminalPointerStyle(.focusChanged(false))
+
+        view.runtimeSurfaceDidEnd(runtimeLifetimeId: oldRuntimeLifetimeId)
+        view.applyTerminalPointerStyle(.focusChanged(true))
+
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: replacementRuntimeLifetimeId
+            )
+        )
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
+    }
 }
