@@ -320,6 +320,16 @@ extension SurfaceResumeBindingSnapshot {
         return constrained
     }
 
+    /// Refreshes a persisted binding from a provenance-validated remote report.
+    func applyingAuthoritativeRemoteRestoreWorkingDirectorySelection(
+        _ selection: AgentRestoreWorkingDirectorySelection,
+        from agent: SessionRestorableAgentSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        var refreshed = self
+        refreshed.restoreWorkingDirectorySelection = nil
+        return refreshed.applyingRestoreWorkingDirectorySelection(selection, from: agent)
+    }
+
     /// Removes every persisted field that could reconstruct an unavailable agent restore.
     func invalidatingAgentRestoreRecipe() -> SurfaceResumeBindingSnapshot {
         var invalidated = self

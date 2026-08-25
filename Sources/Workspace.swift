@@ -1010,7 +1010,8 @@ extension Workspace {
 
     nonisolated static func resumeBindingForSessionRestore(
         _ binding: SurfaceResumeBindingSnapshot?,
-        restorableAgent: SessionRestorableAgentSnapshot?
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        authoritativeRemoteSelection: AgentRestoreWorkingDirectorySelection? = nil
     ) -> SurfaceResumeBindingSnapshot? {
         guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
@@ -1030,6 +1031,13 @@ extension Workspace {
                registration: restorableAgent.registration
            )?.rawValue != restorableAgent.kind.rawValue {
             return binding
+        }
+
+        if let authoritativeRemoteSelection {
+            return binding.applyingAuthoritativeRemoteRestoreWorkingDirectorySelection(
+                authoritativeRemoteSelection,
+                from: restorableAgent
+            )
         }
 
         if let storedSelection = restorableAgent.restoreWorkingDirectorySelection {
@@ -1425,7 +1433,8 @@ extension Workspace {
             )
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 locatedResumeBinding,
-                restorableAgent: retainedRestorableAgent
+                restorableAgent: retainedRestorableAgent,
+                authoritativeRemoteSelection: remoteRestoreWorkingDirectorySelection
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
