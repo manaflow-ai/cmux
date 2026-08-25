@@ -512,6 +512,15 @@ final class SharedLiveAgentIndex {
         index?.hasRecordedProcessGenerationsValue() == true
     }
 
+    /// Whether the process-generation cache is fresh enough for confident
+    /// sidebar liveness projection. Callers fail closed when this is false.
+    func sidebarLivenessIsFresh() -> Bool {
+        let anchor = lastSidebarLivenessRefreshAt ?? loadedAt
+        guard let anchor else { return false }
+        return dateProvider().timeIntervalSince(anchor)
+            < Self.sidebarLivenessRefreshInterval
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false

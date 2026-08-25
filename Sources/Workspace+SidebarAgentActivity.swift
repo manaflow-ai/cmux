@@ -11,7 +11,9 @@ extension Workspace {
         // Snapshot/body code must not schedule work. The shared index loader
         // publishes a notification when this cached value changes, and the
         // sidebar refresh handler rebuilds affected workspace snapshots.
-        let liveIndex = SharedLiveAgentIndex.shared.index
+        let sharedIndex = SharedLiveAgentIndex.shared
+        let liveIndex = sharedIndex.index
+        let indexLivenessIsFresh = sharedIndex.sidebarLivenessIsFresh()
         var evidenceByID: [String: SidebarAgentActivityEvidence] = [:]
         let panelIDs = Set(panels.keys)
             .union(agentLifecycleStatesByPanelId.keys)
@@ -72,11 +74,11 @@ extension Workspace {
                 // Only a matching, revalidated shared-index entry may promote
                 // it to live; otherwise fail closed and let a live lifecycle
                 // event (if present) carry the status without PID confidence.
-                let runtimeIndexEntry = indexEntry.flatMap { entry in
+                let runtimeIndexEntry = indexLivenessIsFresh ? indexEntry.flatMap { entry in
                     SidebarWorkspaceAgentActivity.canonicalStatusKey(
                         entry.snapshot.kind.rawValue
                     ) == canonicalStatusKey ? entry : nil
-                }
+                } : nil
                 let livenessByPIDKey = Dictionary(uniqueKeysWithValues: matchingPIDKeys.map {
                     let identity = agentPIDProcessIdentitiesByKey[$0]
                     let isLive: Bool
@@ -175,7 +177,9 @@ extension Workspace {
                     processLiveness: processLiveness,
                     hasExactProcessIdentity: exactProcessIsLive,
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
-                    hasLiveLifecycleSignal: lifecycle != nil && !suppressStaleLifecycle,
+                    hasLiveLifecycleSignal: lifecycle != nil
+                        && indexLivenessIsFresh
+                        && !suppressStaleLifecycle,
                     isHookBacked: false,
                     isExactProcessBinding: !matchingPIDKeys.isEmpty,
                     isHeuristicProcessDetection: false
@@ -240,8 +244,11 @@ extension Workspace {
                 updatedAt: indexEntry.updatedAt,
                 // A title/latest-file/fork-parent inference may aid restore,
                 // but it cannot make lifecycle state confident in the sidebar.
-                processLiveness: heuristicOnly ? .unknown : indexEntry.processLiveness,
+                processLiveness: heuristicOnly || !indexLivenessIsFresh
+                    ? .unknown
+                    : indexEntry.processLiveness,
                 hasExactProcessIdentity: !heuristicOnly
+                    && indexLivenessIsFresh
                     && indexEntry.processLiveness == .running
                     && !indexEntry.agentProcessIdentities.isEmpty,
                 isRuntimeBound: false,

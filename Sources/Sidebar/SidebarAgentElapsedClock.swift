@@ -14,10 +14,6 @@ final class SidebarAgentElapsedClock {
     @ObservationIgnored
     private let displayCache = SidebarAgentActivityDisplayCache()
 
-    /// Whether at least one realized running label needs clock updates.
-    @ObservationIgnored
-    private(set) var hasTargets = false
-
     var actions: SidebarAgentElapsedClockActions {
         let cache = displayCache
         return SidebarAgentElapsedClockActions(
@@ -32,15 +28,10 @@ final class SidebarAgentElapsedClock {
 
     private func register(_ target: any SidebarAgentElapsedClockTarget) {
         targets[ObjectIdentifier(target)] = SidebarAgentElapsedClockWeakTarget(value: target)
-        hasTargets = true
     }
 
     private func unregister(_ target: any SidebarAgentElapsedClockTarget) {
         targets.removeValue(forKey: ObjectIdentifier(target))
-        let nextHasTargets = !targets.isEmpty
-        if hasTargets != nextHasTargets {
-            hasTargets = nextHasTargets
-        }
     }
 
     func tick(at now: Date) {
@@ -54,10 +45,6 @@ final class SidebarAgentElapsedClock {
         }
         for identifier in releasedTargets {
             targets.removeValue(forKey: identifier)
-        }
-        let nextHasTargets = !targets.isEmpty
-        if hasTargets != nextHasTargets {
-            hasTargets = nextHasTargets
         }
     }
 }
