@@ -229,6 +229,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
   printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
+  printf 'workspace_id=%s\n' "${CMUX_WORKSPACE_ID-}"
   printf 'amp_api_key=%s\n' "${AMP_API_KEY-}"
   printf 'socket_password=%s\n' "${CMUX_SOCKET_PASSWORD-}"
   printf 'socket_capability=%s\n' "${CMUX_SOCKET_CAPABILITY-}"
@@ -1427,7 +1428,12 @@ try {
         if '"session_id":"T-amp-session-test"' not in stdin_log:
             print(f"FAIL: plugin did not pass session id, got {stdin_log!r}")
             return 1
-        if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
+        if (
+            "kind=amp" not in env_log
+            or "cwd=/tmp/amp-project" not in env_log
+            or "argv=" not in env_log
+            or "workspace_id=55555555-5555-5555-5555-555555555555" not in env_log
+        ):
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
         if "amp_api_key=secret-should-not-propagate" in env_log:
