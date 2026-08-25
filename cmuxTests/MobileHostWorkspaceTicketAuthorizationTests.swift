@@ -267,7 +267,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     @Test func physicalDeviceTailscaleAndLANFallbackStripsLANKind() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
-            workspaceID: "",
+            workspaceID: "workspace-scoped",
             terminalID: nil,
             routes: [try tailscaleRoute(), try lanRoute()],
             ttl: 3600

@@ -524,23 +524,23 @@ import Testing
             routes: [route],
             connectionMethodRawValue: MobileConnectionMethod.lan.rawValue
         )
-        let tailscale = try Self.pairedMac(
-            id: "mac-tailscale",
+        let iroh = try Self.pairedMac(
+            id: "mac-iroh",
             displayName: "Shared Mac",
             host: "unused",
             lastSeenAt: Date(timeIntervalSince1970: 20),
             isActive: false,
             routes: [route],
-            connectionMethodRawValue: MobileConnectionMethod.tailscale.rawValue
+            connectionMethodRawValue: MobileConnectionMethod.iroh.rawValue
         )
 
         let coalesced = MobileShellComposite.coalescePairedMacsByIrohEndpointAuthority(
-            [lan, tailscale],
+            [lan, iroh],
             supportedKinds: [.iroh],
             preferNonLoopback: true
         )
 
-        #expect(Set(coalesced.map(\.macDeviceID)) == ["mac-lan", "mac-tailscale"])
+        #expect(Set(coalesced.map(\.macDeviceID)) == ["mac-lan", "mac-iroh"])
     }
 
     @Test func scopedActionsDoNothingWithoutSignedInScope() async throws {
