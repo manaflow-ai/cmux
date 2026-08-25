@@ -230,14 +230,14 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             preferredHeight: preferredHeight,
             metrics: metrics
         ) {
+            // The mask asset is dilated a few pixels along its contour so the
+            // screen tucks under the opaque bezel ring (no page-background
+            // bleed at the seam) while staying inside the screen rectangle:
+            // a scale transform here once lifted the mask's top corners past
+            // the frame outline as visible tabs.
             OnboardingMaskedDeviceScreen(mask: screenMask) {
                 screen
             }
-            // Slide the screen slightly under the opaque bezel ring: the
-            // mask's antialiased border otherwise lets the page background
-            // ring through, which is invisible on light captures but reads
-            // as a bright bleed around dark ones.
-            .scaleEffect(1.02)
             OnboardingDeviceFrameImage(image: deviceFrame)
         }
     }
