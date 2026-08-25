@@ -695,6 +695,37 @@ struct SidebarWorkspaceTableTests {
             abs(retiredHeight - authoritativeHeight) < 0.5,
             "A retired pump cell must not leave stale geometry attached to its workspace row."
         )
+        let retiredTableHeight = table.rect(ofRow: 0).height - table.intercellSpacing.height
+        #expect(
+            abs(retiredTableHeight - authoritativeHeight) < 0.5,
+            "Retiring a pump cell must invalidate AppKit's cached row geometry."
+        )
+
+        container.clipView.scroll(to: .zero)
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+
+        let returnedCell = try #require(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let returnedModel = try #require(returnedCell.currentModelForMeasurement)
+        let returnedExpectedHeight = ceil(
+            returnedCell.layoutContent(
+                model: returnedModel,
+                width: returnedCell.bounds.width,
+                apply: false
+            )
+        )
+        let returnedTableHeight = table.rect(ofRow: 0).height - table.intercellSpacing.height
+        #expect(
+            abs(returnedTableHeight - returnedExpectedHeight) < 0.5,
+            "A row returning onscreen must use geometry for its newly installed model."
+        )
     }
 
     @Test
