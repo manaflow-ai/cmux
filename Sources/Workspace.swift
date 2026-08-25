@@ -1268,6 +1268,11 @@ extension Workspace {
             return nil
         }
         return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            .map { cachedIndex in
+                ProcessDetectedResumeIndexes.loadSynchronously(
+                    cachedRestorableAgentIndex: cachedIndex
+                ).restorableAgentIndex
+            }
             ?? RestorableAgentSessionIndex.load()
     }
 
@@ -1614,12 +1619,13 @@ extension Workspace {
                       let restorableAgent else {
                     return false
                 }
-                if restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true {
+                guard let restoreAgentIndex else { return true }
+                if restoreAgentIndex.hasAmbiguousPanel(snapshot.id) {
                     // Do not launch while panel ownership is ambiguous; a live process
                     // may still be attached to another owner record.
                     return true
                 }
-                let liveEntry = restoreAgentIndex?.entryForStablePanel(
+                let liveEntry = restoreAgentIndex.entryForStablePanel(
                     workspaceId: id,
                     panelId: snapshot.id
                 )

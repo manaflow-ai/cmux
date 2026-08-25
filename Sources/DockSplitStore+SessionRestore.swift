@@ -541,6 +541,11 @@ extension DockSplitStore {
             return nil
         }
         return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            .map { cachedIndex in
+                ProcessDetectedResumeIndexes.loadSynchronously(
+                    cachedRestorableAgentIndex: cachedIndex
+                ).restorableAgentIndex
+            }
             ?? RestorableAgentSessionIndex.load()
     }
 

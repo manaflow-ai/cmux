@@ -72,7 +72,6 @@ struct SurfaceResumeBindingIndex: Sendable {
     func bindingForStablePanel(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         let exact = bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
         if let exact, exact.isProcessDetected { return exact }
-        if let exact, ambiguousPanelIds.contains(panelId) { return exact }
         guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return bindingsByPanelId[panelId] ?? exact
     }

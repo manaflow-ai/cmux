@@ -1070,9 +1070,6 @@ struct RestorableAgentSessionIndex: Sendable {
     func entryForStablePanel(workspaceId: UUID, panelId: UUID) -> Entry? {
         let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
         if let exact, Self.entryHasLiveProcess(exact) { return exact }
-        // An exact owner key disambiguates equal-recency records; only a panel-only
-        // lookup must fail closed when no owner evidence is available.
-        if let exact, ambiguousPanelIds.contains(panelId) { return exact }
         guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return entriesByPanelId[panelId] ?? exact
     }
