@@ -330,6 +330,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
         case .automatic:
             return
         case .direct:
+            guard !plan.publicPaths.isEmpty else {
+                throw CmxTransportModeError.noRoute(mode: .direct, macDisplayName: nil)
+            }
             guard plan.privateFallbackPaths.isEmpty,
                   plan.publicPaths.allSatisfy({
                       $0.kind == .directAddress && $0.source == .customVPN
@@ -341,6 +344,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             }
         case .iroh:
             let hints = plan.publicPaths + plan.privateFallbackPaths
+            guard !hints.isEmpty else {
+                throw CmxTransportModeError.noRoute(mode: .iroh, macDisplayName: nil)
+            }
             guard let nonNative = hints.first(where: { $0.source != .native }) else {
                 return
             }
@@ -355,6 +361,7 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             )
         case .lan:
             guard plan.publicPaths.isEmpty,
+                  !plan.privateFallbackPaths.isEmpty,
                   plan.privateFallbackPaths.allSatisfy({ $0.source == .lan }) else {
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .lan,

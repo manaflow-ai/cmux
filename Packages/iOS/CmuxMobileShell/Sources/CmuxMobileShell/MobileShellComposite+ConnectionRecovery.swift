@@ -828,6 +828,9 @@ extension MobileShellComposite {
                 }
             } catch {
                 guard ifStillCurrent?() ?? true else { return .superseded }
+                if let modeError = error as? CmxTransportModeError {
+                    lastTransportModeError = modeError
+                }
                 outcome = .failed(Self.diagnosticFailureKind(for: error))
                 if let automaticReconnectAccountID {
                     recordAutomaticReconnectBackoff(

@@ -14,15 +14,16 @@ extension MobileShellComposite {
         activeTransportPath = .unavailable
         let clientID = ObjectIdentifier(client)
         transportPathObservationTask = Task { @MainActor [weak self, client] in
-            guard let self else { return }
             let initial = await client.currentTransportPath()
             guard !Task.isCancelled,
+                  let self,
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
             self.applyObservedTransportPath(initial, client: client)
             let changes = await client.transportPathChanges()
             for await path in changes {
                 guard !Task.isCancelled,
+                      let self,
                       self.remoteClient === client,
                       ObjectIdentifier(client) == clientID else { return }
                 self.applyObservedTransportPath(path, client: client)
