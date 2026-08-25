@@ -273,6 +273,7 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        sidebarLivenessRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -513,16 +514,21 @@ final class SharedLiveAgentIndex {
 
         let previousFingerprint = liveAgentProcessFingerprint
         let sourceGeneration = indexGeneration
+        let processRefreshTask = Task.detached(priority: .utility) {
+            let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+            return cachedIndex.revalidatingCachedProcesses(
+                against: processSnapshot,
+                panelIDs: panelIDs,
+                currentWorkspaceIDByPanelID: currentWorkspaceIDByPanelID
+            )
+        }
         sidebarLivenessRefreshTask = Task { @MainActor [weak self] in
+            let refreshed = await withTaskCancellationHandler {
+                await processRefreshTask.value
+            } onCancel: {
+                processRefreshTask.cancel()
+            }
             guard let self else { return }
-            let refreshed = await Task.detached(priority: .utility) {
-                let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
-                return cachedIndex.revalidatingCachedProcesses(
-                    against: processSnapshot,
-                    panelIDs: panelIDs,
-                    currentWorkspaceIDByPanelID: currentWorkspaceIDByPanelID
-                )
-            }.value
             guard !Task.isCancelled else {
                 self.sidebarLivenessRefreshTask = nil
                 return
@@ -664,7 +670,7 @@ final class SharedLiveAgentIndex {
                 } else if events.contains(.exec) {
                     self.refreshCachedProcessLivenessForSidebar(
                         panelIDs: self.sidebarProcessPanelIDsByPID[pid] ?? [],
-                        currentWorkspaceIDByPanelID: [:],
+                        currentWorkspaceIDByPanelID: self.sidebarProcessWorkspaceIDsByPID[pid] ?? [:],
                         force: true
                     )
                 }
