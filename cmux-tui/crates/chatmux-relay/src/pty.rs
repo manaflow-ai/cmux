@@ -1054,6 +1054,9 @@ impl Inner {
         let Some(control) = control.upgrade() else { return };
         if self.remove_attachment_if_current(pty_id, generation, &control) {
             control.kill();
+            // Overflow is a terminal viewer failure. `pty_error` is the
+            // protocol's close signal and tells the client to reattach; do
+            // not emit a second `pty_exit` for the removed attachment.
             send_pty_error(
                 context,
                 pty_id,

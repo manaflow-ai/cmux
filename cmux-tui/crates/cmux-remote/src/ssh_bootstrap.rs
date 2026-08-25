@@ -520,10 +520,11 @@ impl SshBootstrapper {
 }
 
 /// Build the remote upload command after the caller has created the staging
-/// directory exclusively with mode 0700. The directory creation is separate
-/// so a failed collision cannot trigger cleanup of an unrelated path.
+/// directory exclusively with mode 0700. `set -C` plus an explicit descriptor
+/// opens the payload with no-clobber semantics, so a same-UID process cannot
+/// redirect the stream through a planted payload symlink.
 fn upload_command(_parent: &str, _temporary_dir: &str, temporary: &str) -> String {
-    format!("cat > {temporary} && chmod 755 {temporary}")
+    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -717,9 +718,10 @@ mod tests {
             "~/.local/bin/.cmux-upload-test",
             "~/.local/bin/.cmux-upload-test/payload",
         );
-        assert!(command.contains("cat > ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("cat >&3"));
         assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
-        assert!(!command.contains("mkdir"));
+        assert!(!command.contains("cat >"));
     }
 
     #[test]
@@ -890,7 +892,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 installed = installed.display(),
                 staged = staged.display(),
             ),
@@ -949,7 +951,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 installed = installed.display(),
                 staged = staged.display(),
                 moved = moved.display(),
@@ -988,7 +990,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 staged = staged.display(),
             ),
         )
@@ -1033,7 +1035,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 staged = staged.display(),
             ),
         )
