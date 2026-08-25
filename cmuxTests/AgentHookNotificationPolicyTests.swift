@@ -94,14 +94,16 @@ struct AgentHookNotificationPolicyTests {
             let extended = try #require(category.metaSegment(
                 pending: true,
                 agentKind: "claude",
-                isSubagent: true
+                isSubagent: true,
+                correlationKey: "11111111-1111-1111-1111-111111111111"
             ))
-            #expect(extended == "c=\(category.rawValue);p=1;a=claude;n=1")
+            #expect(extended == "c=\(category.rawValue);p=1;a=claude;n=1;k=11111111-1111-1111-1111-111111111111")
             let parsed = try #require(AgentNotificationMeta(meta: extended))
             #expect(parsed.category.rawValue == category.rawValue)
             #expect(parsed.pending == true)
             #expect(parsed.agentKind == "claude")
             #expect(parsed.isSubagent == true)
+            #expect(parsed.correlationKey == "11111111-1111-1111-1111-111111111111")
         }
 
         // Nil context degrades to the legacy two-field form; an invalid slug

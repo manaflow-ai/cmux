@@ -1081,6 +1081,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return result
         }
 
+        func isCursorSurfaceClear(_ command: String) -> Bool {
+            command.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+        }
+
+        func isTargetedCursorSurfaceClear(_ command: String) -> Bool {
+            guard isCursorSurfaceClear(command),
+                  let rawKey = command.components(separatedBy: "--correlation-key=").last,
+                  let key = rawKey.split(whereSeparator: { $0.isWhitespace }).first else {
+                return false
+            }
+            return UUID(uuidString: String(key)) != nil
+        }
+
+        func isBroadCursorSurfaceClear(_ command: String) -> Bool {
+            isCursorSurfaceClear(command) && !command.contains("--correlation-key=")
+        }
+
         let start = runCursorHook(
             "prompt-submit",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
@@ -1139,7 +1156,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let responseCommands = Array(state.snapshot().dropFirst(responseCommandStart))
         XCTAssertTrue(
             responseCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "Expected Cursor's paired completion hook to clear the approval notification, saw \(responseCommands)"
         )
@@ -1182,7 +1199,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let remainingCompletionCommands = Array(state.snapshot().dropFirst(remainingCompletionStart))
         XCTAssertFalse(
             remainingCompletionCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isBroadCursorSurfaceClear($0)
             },
             "Refreshing a remaining Cursor approval must not clear unrelated surface notifications, saw \(remainingCompletionCommands)"
         )
@@ -1203,7 +1220,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let mismatchedCompletionCommands = Array(state.snapshot().dropFirst(mismatchedCompletionStart))
         XCTAssertFalse(
             mismatchedCompletionCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isBroadCursorSurfaceClear($0)
             },
             "An unrelated Cursor shell completion must not clear a pending approval, saw \(mismatchedCompletionCommands)"
         )
@@ -1227,7 +1244,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sandboxedCompletionCommands = Array(state.snapshot().dropFirst(sandboxedCompletionStart))
         XCTAssertFalse(
             sandboxedCompletionCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isBroadCursorSurfaceClear($0)
             },
             "A sandboxed completion must not consume an unsandboxed pending approval, saw \(sandboxedCompletionCommands)"
         )
@@ -1242,7 +1259,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let nonShellFailureCommands = Array(state.snapshot().dropFirst(nonShellFailureStart))
         XCTAssertFalse(
             nonShellFailureCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "A non-Shell failure must not resolve a pending Cursor shell approval, saw \(nonShellFailureCommands)"
         )
@@ -1257,7 +1274,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ordinaryShellFailureCommands = Array(state.snapshot().dropFirst(ordinaryShellFailureStart))
         XCTAssertFalse(
             ordinaryShellFailureCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "An ordinary Shell failure must not consume a pending approval, saw \(ordinaryShellFailureCommands)"
         )
@@ -1285,7 +1302,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertTrue(
             failureCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "Cursor's failure hook must clear a denied approval, saw \(failureCommands)"
         )
@@ -1319,7 +1336,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let duplicateCompletionCommands = Array(state.snapshot().dropFirst(duplicateCompletionStart))
         XCTAssertTrue(
             duplicateCompletionCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "A retried Cursor shell hook must not leave a duplicate approval pending, saw \(duplicateCompletionCommands)"
         )
@@ -1390,7 +1407,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let delayedReusedCompletionCommands = Array(state.snapshot().dropFirst(delayedReusedCompletionStart))
         XCTAssertFalse(
             delayedReusedCompletionCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isBroadCursorSurfaceClear($0)
             },
             "A command-only completion after a turn reuse must fail closed, saw \(delayedReusedCompletionCommands)"
         )
@@ -1412,7 +1429,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopCommands = Array(state.snapshot().dropFirst(stopStart))
         XCTAssertTrue(
             stopCommands.contains {
-                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+                isTargetedCursorSurfaceClear($0)
             },
             "Cursor stop/cancellation must clear a pending approval, saw \(stopCommands)"
         )
