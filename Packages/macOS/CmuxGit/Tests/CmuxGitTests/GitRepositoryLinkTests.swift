@@ -191,6 +191,33 @@ import Testing
         #expect(second.repositoryLink?.url.absoluteString == "https://github.com/appeared/repo")
     }
 
+    @Test func repositoryLinkCacheInvalidatesWhenSymlinkTargetChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let targetURL = fixture.root.appendingPathComponent("shared-config")
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        try """
+        [remote "origin"]
+            url = https://github.com/first/repo.git
+        """.write(to: targetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: configURL.path,
+            withDestinationPath: targetURL.path
+        )
+        let service = GitMetadataService()
+
+        let first = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(first.repositoryLink?.url.absoluteString == "https://github.com/first/repo")
+
+        try """
+        [remote "origin"]
+            url = https://github.com/second/repo.git
+        """.write(to: targetURL, atomically: true, encoding: .utf8)
+
+        let second = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))

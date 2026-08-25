@@ -61,8 +61,14 @@ actor GitRepositoryLinkCache {
         let key = Key(repository: repository)
         var statuses: [String: GitFileStatus?] = [:]
         for configURL in configURLs {
-            let path = configURL.standardizedFileURL.path
-            statuses.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            let normalizedURL = configURL.standardizedFileURL
+            let paths = Set([
+                normalizedURL.path,
+                normalizedURL.resolvingSymlinksInPath().path
+            ])
+            for path in paths {
+                statuses.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            }
         }
         entries[key] = Entry(configStatuses: statuses, headSignature: headSignature, link: link)
         markRecentlyUsed(key)

@@ -87,12 +87,11 @@ extension GitMetadataService {
         var seen: Set<String> = []
         for path in candidatePaths {
             let normalized = nativeStandardizedPath(path)
-            guard seen.insert(normalized).inserted else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
+            guard let watchRoot = existingWatchRoot(for: normalized),
+                  seen.insert(watchRoot).inserted else {
                 continue
             }
-            watchedPaths.append(normalized)
+            watchedPaths.append(watchRoot)
         }
 
         return GitWorkspaceMetadataWatchDescriptor(
@@ -145,6 +144,21 @@ extension GitMetadataService {
             result.append(normalized)
         }
         return result.sorted()
+    }
+
+    /// Returns an existing path to watch, falling back to the nearest existing
+    /// parent when a declared config/include path has not been created yet.
+    private nonisolated static func existingWatchRoot(for path: String) -> String? {
+        var candidate = URL(fileURLWithPath: path).standardizedFileURL
+        while true {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+                return nativeStandardizedPath(candidate.path)
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
+        }
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path

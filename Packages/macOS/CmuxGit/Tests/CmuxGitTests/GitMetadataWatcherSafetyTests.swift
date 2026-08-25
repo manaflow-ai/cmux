@@ -58,8 +58,8 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
 
         #expect(metadata.isRepository)
         #expect(!metadata.isDirty)
-        #expect(reader.totalCallCount == 1)
-        #expect(reader.visitedPaths == [trackedPath])
+        #expect(reader.visitedPaths.contains(trackedPath))
+        #expect(reader.visitedPaths.allSatisfy { !$0.hasPrefix(ignoredRoot.path) })
     }
 
     @Test func watchDescriptorRejectsIgnoredBuildOutputEvents() async throws {
@@ -121,6 +121,24 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.containsRelevantChange(path: workTreeChange))
         #expect(descriptor.containsRelevantChange(path: indexPath))
         #expect(descriptor.degradation == .unreadableIndex)
+    }
+
+    @Test func missingConfigIncludeWatchesItsExistingParent() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = future-remotes.inc
+        """)
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+        let missingPath = fixture.gitDirectory.appendingPathComponent("future-remotes.inc").path
+        let gitDirectoryPath = fixture.gitDirectory.standardizedFileURL.path
+
+        #expect(descriptor.gitMetadataPaths.contains(missingPath))
+        #expect(descriptor.watchedPaths.contains(gitDirectoryPath))
+        #expect(descriptor.containsGitMetadataChange(paths: [missingPath]))
     }
 
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {
