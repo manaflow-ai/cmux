@@ -587,6 +587,13 @@ extension CmxIrohHostRuntimeTests {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
+        let retryDeadline = now.addingTimeInterval(600)
+        let renewalDeadline = try #require(
+            CmxIrohHostRuntime.registrationRenewalDeadline(
+                binding: fixture.binding,
+                now: retryDeadline
+            )
+        )
         let currentPort: UInt16 = 55_123
         let endpoint = TestIrohEndpoint(
             identity: fixture.endpointID,
@@ -622,15 +629,15 @@ extension CmxIrohHostRuntimeTests {
         )
 
         try await runtime.start()
-        await clock.waitUntilSleepCount(1)
+        await clock.waitUntilSleeping()
         #expect(clock.observedSleepDeadlines() == [retryDeadline])
-
         clock.advance(to: retryDeadline)
 
         #expect(
             await broker.waitForRegistrationCount(1, timeout: .seconds(1)),
             "A cached activation must retry registration for its live endpoint generation"
         )
+        await clock.waitUntilSleepCount(2)
         let prepared = try #require(
             await broker.observedPreparedRegistrations().first
         )
@@ -639,7 +646,6 @@ extension CmxIrohHostRuntimeTests {
                 == CmxIrohDirectPorts(ipv4: currentPort, ipv6: nil)
         )
         #expect(await factory.observedConfigurations().count == 1)
-        await clock.waitUntilSleepCount(2)
         #expect(clock.observedSleepDeadlines() == [
             retryDeadline,
             renewalDeadline,

@@ -19,16 +19,16 @@ final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked Sendable
 
     func sleep(until deadline: Date) async throws {
         let id = UUID()
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-            deadlines.append(deadline)
-            defer { sleepWaiters.removeAll() }
-            return sleepWaiters
-        }
-        for waiter in waiters { waiter.resume() }
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
-                lock.withLock { sleepers[id] = continuation }
+                let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                    sleepers[id] = continuation
+                    deadlines.append(deadline)
+                    defer { sleepWaiters.removeAll() }
+                    return sleepWaiters
+                }
+                for waiter in waiters { waiter.resume() }
                 if Task.isCancelled { cancel(id: id) }
             }
         } onCancel: {
