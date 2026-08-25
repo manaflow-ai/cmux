@@ -188,7 +188,9 @@ extension Workspace {
         guard let owningTabManager,
               let host = remoteTmuxSessionMirror?.host,
               let startupInput = snapshot.forkStartupInput(
-                allowLauncherScript: false
+                allowLauncherScript: false,
+                // Typed into the remote host's shell after attach: keep POSIX.
+                dialect: .remoteHost
               ),
               let remoteConfiguration = SessionRemoteWorkspaceSnapshot(
                 transport: .ssh,

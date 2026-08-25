@@ -2302,11 +2302,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 private func openPhoneForwardingSettings(in window: NSWindow?) {
     guard let window,
           let appDelegate = AppDelegate.shared,
-          let context = appDelegate.contextForMainTerminalWindow(window) else {
+          let context = appDelegate.contextForMainTerminalWindow(window),
+          let workspace = context.tabManager.selectedWorkspace,
+          let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else {
         NSSound.beep()
         return
     }
-    context.sidebarSelectionState.selection = .notifications
+    context.sidebarSelectionState.selection = .tabs
+    _ = workspace.openOrFocusNotificationsSurface(inPane: paneId)
 }
 
 private struct NotificationsPopoverView: View {
@@ -2728,10 +2732,58 @@ final class UpdateTitlebarAccessoryController {
 
     func start() {
         guard !didStart else { return }
+        prewarmTitlebarSymbols()
         didStart = true
         attachToExistingWindows()
         installObservers()
         scheduleStartupWindowScans()
+    }
+
+    private func prewarmTitlebarSymbols() {
+        let iconSizes = TitlebarControlsStyle.allCases.map { $0.config.iconSize }
+        let dropdownSizes = TitlebarControlsStyle.allCases.map {
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: $0.config)
+        }
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell", "arrow.left", "arrow.right"],
+            pointSizes: iconSizes,
+            weight: .regular
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["plus", "cloud"],
+            pointSizes: iconSizes,
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.down"],
+            pointSizes: dropdownSizes,
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["arrow.down.to.line"],
+            pointSizes: [10],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["iphone"],
+            pointSizes: [12],
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.right"],
+            pointSizes: [9],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["xmark"],
+            pointSizes: [9],
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell.slash", "bell.badge"],
+            pointSizes: [30],
+            weight: .light
+        )
     }
 
     func attach(to window: NSWindow) {

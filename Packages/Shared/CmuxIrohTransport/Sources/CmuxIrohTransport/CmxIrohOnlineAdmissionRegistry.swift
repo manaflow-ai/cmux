@@ -33,7 +33,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
 
     private enum Revalidation {
         case active(Date)
-        case connectivity
+        case deferred
         case terminal(CmxIrohOnlineAdmissionInvalidationReason)
     }
 
@@ -269,7 +269,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
                 nextOnlineCheck = fetchedAt.addingTimeInterval(
                     Self.maximumOnlineSnapshotAge
                 )
-            case .connectivity:
+            case .deferred:
                 nextOnlineCheck = clock.now().addingTimeInterval(
                     Self.maximumOnlineSnapshotAge
                 )
@@ -307,9 +307,12 @@ public actor CmxIrohOnlineAdmissionRegistry {
             guard clock.now() < lease.expiresAt else {
                 return .terminal(.leaseExpired)
             }
-            return Self.isConnectivity(error) && policyRevision == revision
-                ? .connectivity
-                : .terminal(.revalidationFailed)
+            let preservesVerifiedState = CmxIrohTrustBrokerClientError
+                .preservesVerifiedStateDuringRefresh(error)
+            guard policyRevision == revision, preservesVerifiedState else {
+                return .terminal(.revalidationFailed)
+            }
+            return .deferred
         }
     }
 

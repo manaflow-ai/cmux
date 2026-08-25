@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum NotificationFeedHistoryInsertionChange: Sendable {
+enum NotificationFeedHistoryInsertionChange: Sendable {
     case none
     case insertedNew(UUID)
     case replacedExisting

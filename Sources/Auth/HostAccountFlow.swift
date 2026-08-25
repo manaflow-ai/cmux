@@ -141,9 +141,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func copySignInURL(_ url: URL) -> Bool {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        return pasteboard.setString(url.absoluteString, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            url.absoluteString,
+            to: .general
+        )
     }
 
     func signOut() async {

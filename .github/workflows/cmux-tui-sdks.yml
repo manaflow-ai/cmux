@@ -6,7 +6,11 @@ on:
       - main
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -23,10 +27,16 @@ on:
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
   pull_request:
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -43,6 +53,8 @@ on:
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
   workflow_dispatch:
 
 concurrency:
@@ -108,6 +120,12 @@ jobs:
 
       - name: Test SDK publishing workflow guards
         run: python3 tests/test_tui_publish_workflow_security.py -v
+
+      - name: Test TUI package artifact contract
+        run: python3 tests/test_tui_package_contract.py
+
+      - name: Test TUI npm artifact transfer contract
+        run: python3 tests/test_tui_npm_package_artifact.py
 
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py --published-only
@@ -486,11 +504,8 @@ jobs:
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
-      - name: Set up Rust 1.95
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          cargo +1.95.0 --version
-          rustc +1.95.0 --version
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -519,7 +534,7 @@ jobs:
         working-directory: cmux-tui
         run: |
           test "$(zig version)" = "0.16.0"
-          cargo +1.95.0 build -p cmux-tui --bin cmux-tui --locked
+          cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Set up Zig for SDK conformance
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
@@ -532,7 +547,6 @@ jobs:
           CXX: clang++
           CMUX_ZIG: zig
           NODE_OPTIONS: --experimental-websocket
-          RUSTUP_TOOLCHAIN: 1.95.0
         run: |
           test "$(zig version)" = "0.15.2"
           test "$(node -p 'typeof WebSocket')" = "function"

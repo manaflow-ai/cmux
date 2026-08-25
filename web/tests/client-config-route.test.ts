@@ -351,7 +351,7 @@ describe("client config", () => {
     expect(await response.json()).toEqual({ error: "client_config_unavailable" });
     expect(consoleError).toHaveBeenCalledWith(
       "client-config.route.rate_limit_error",
-      "firewall-unavailable",
+      { failure: "check_error" },
     );
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();

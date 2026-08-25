@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -14,6 +15,8 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
         runtimeKey: String? = nil,
         runtimeGeneration: TimeInterval? = nil
@@ -57,9 +60,11 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             runtimeKey: runtimeKey,
-            runtimeGeneration: runtimeGeneration
+            runtimeGeneration: runtimeGeneration,
+            agent: agent
         )
     }
 }
@@ -76,6 +81,8 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         notificationGeneration: UInt64,
         runtimeKey: String? = nil,
         runtimeGeneration: TimeInterval? = nil
@@ -113,10 +120,12 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
             notificationGeneration: notificationGeneration,
             runtimeKey: runtimeKey,
-            runtimeGeneration: runtimeGeneration
+            runtimeGeneration: runtimeGeneration,
+            agent: agent
         )
     }
 
@@ -141,9 +150,11 @@ extension TerminalNotificationStore {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
-            isFocusedPanel: request.isFocusedPanel
+            isFocusedPanel: request.isFocusedPanel,
+            agent: request.agent
         )
     }
 }

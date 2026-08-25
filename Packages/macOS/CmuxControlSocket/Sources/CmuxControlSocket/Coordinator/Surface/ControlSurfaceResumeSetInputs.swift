@@ -31,6 +31,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let autoResume: Bool
     /// Immutable hook-session start time used to order runtime ownership.
     public let runtimeGeneration: TimeInterval?
+    /// Verified Codex hook provenance used by the app-owned atomic replacement gate.
+    public let resumeEvidenceProvenance: String?
     /// The relay-claimed remote workspace, authenticated by the app context.
     public let remoteWorkspaceID: UUID?
     /// Raw relay parameters retained to authenticate their provenance.
@@ -49,6 +51,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
+    ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
         kind: String?,
@@ -60,9 +63,10 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         launchCommand: ControlAgentLaunchCommand?,
         permissionMode: String?,
         autoResume: Bool,
-        runtimeGeneration: TimeInterval?,
+        runtimeGeneration: TimeInterval? = nil,
         remoteWorkspaceID: UUID?,
-        remoteRelayParameters: [String: JSONValue]?
+        remoteRelayParameters: [String: JSONValue]?,
+        resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -75,6 +79,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.permissionMode = permissionMode
         self.autoResume = autoResume
         self.runtimeGeneration = runtimeGeneration
+        self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteRelayParameters = remoteRelayParameters
     }

@@ -8,6 +8,7 @@ import {
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -44,6 +45,13 @@ export default function middleware(request: NextRequest) {
     pathname === "/v1/responses" ||
     pathname === "/v1/codex/responses"
   ) {
+    return NextResponse.next();
+  }
+
+  // coderouter has one hostname-independent landing page. In particular,
+  // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
+  // the page deliberately lives outside the localized cmux site tree.
+  if (pathname === "/coderouter" || pathname === "/coderouter/") {
     return NextResponse.next();
   }
 
@@ -249,6 +257,28 @@ export default function middleware(request: NextRequest) {
   if (pathname === "/docs/remote-tmux" || pathname === "/docs/remote-tmux/") {
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/remote-tmux";
+    return NextResponse.rewrite(url);
+  }
+
+  const managedPoliciesMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/managed-policies\/?$/,
+  );
+  if (
+    managedPoliciesMatch &&
+    !managedPoliciesDocsLocales.includes(
+      managedPoliciesMatch[1] as (typeof managedPoliciesDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/managed-policies";
+    return NextResponse.redirect(url, 301);
+  }
+  if (
+    pathname === "/docs/managed-policies" ||
+    pathname === "/docs/managed-policies/"
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/managed-policies";
     return NextResponse.rewrite(url);
   }
 

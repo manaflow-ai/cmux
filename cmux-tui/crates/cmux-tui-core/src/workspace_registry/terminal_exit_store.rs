@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use super::resource_store::validate_resource_patch;
 use super::{
     RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
-    apply_resource_patch, canonical_json, read_terminal, transaction_resource_revision,
+    apply_resource_patch, canonical_json, read_terminal,
+    session_journal::append_resource_journal_record, transaction_resource_revision,
     transaction_terminal_revision, validate_terminal_transition,
 };
 use crate::terminal_host_protocol::TerminalExit;
@@ -142,7 +143,10 @@ impl WorkspaceRegistry {
             "exit": &exit,
         });
         let result_json = canonical_json(&result)?;
-        let changes_json = canonical_json(&changes)?;
+
+        if let Some((patch, _)) = topology {
+            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
+        }
 
         if let Some((patch, _)) = topology {
             apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
@@ -215,20 +219,18 @@ impl WorkspaceRegistry {
                 sqlite_resource_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_resource_revision,
-                i64::try_from(resource_revision)
-                    .context("resource revision exceeds SQLite integer range")?,
-                &mutation.origin,
-                &mutation.id,
-                &changes_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            next_resource_revision,
+            resource_revision,
+            &mutation.origin,
+            &mutation.id,
+            "terminal.exited",
+            None,
+            &result,
+            &changes,
         )?;
-        super::effect_store::prune_resource_events(&tx)?;
+        super::resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok((terminal, next_terminal_revision, next_resource_revision, false))
     }

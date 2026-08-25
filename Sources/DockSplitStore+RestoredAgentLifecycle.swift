@@ -1,50 +1,53 @@
 import CMUXAgentLaunch
 import CmuxWorkspaces
+import CmuxNotifications
 import CmuxSidebar
 import Darwin
 import Foundation
 
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
+        discardPendingTerminalTitleUpdate(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-        restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.clearAgentRuntimeReplacementTracking(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
+        syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
+        restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
         if previousState != state,
-           let pendingTitle = advanceTransferredRestoredPanelTitleBoundary(
+           let pendingTitle = advanceRestoredPanelTitleBoundary(
                panelId: panelId,
                state: state
            ) {
-            terminal.updateTitle(pendingTitle)
+            applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
 
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+            restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
         case (.commandRunning, .some(.manualResumeAvailable)):
-            restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-            restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredAgentLifecycle.setSnapshot(nil, panelId: panelId)
+            restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             if restoredAgent != nil {
                 markRestoredAgentCompleted(panelId: panelId)
             } else {
-                restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+                restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             }
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
@@ -116,30 +119,85 @@ extension DockSplitStore {
         }
     }
 
-    /// Keeps a Workspace-owned restore boundary coherent while its live panel
-    /// temporarily belongs to a Dock.
-    private func advanceTransferredRestoredPanelTitleBoundary(
+    /// Starts title admission for a terminal rebuilt directly inside this Dock.
+    func armRestoredPanelTitleBoundary(
+        panelId: UUID,
+        internallySeededInput: String?
+    ) {
+        let boundary = RestoredPanelTitleBoundary(
+            internallySeededInput: internallySeededInput,
+            shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
+                ?? .unknown
+        )
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
+    }
+
+    /// Advances either a Dock-owned boundary or one carried by a transferred panel.
+    private func advanceRestoredPanelTitleBoundary(
         panelId: UUID,
         state: PanelShellActivityState
     ) -> String? {
-        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
-              var boundary = transfer.restoredPanelTitleBoundary else {
+        guard var boundary = restoredPanelTitleBoundariesByPanelId[panelId] else {
             return nil
         }
         let pendingTitle = boundary.observe(shellState: state)
-        transfer.restoredPanelTitleBoundary = boundary.isReleased ? nil : boundary
-        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
         return pendingTitle
+    }
+
+    /// Returns whether a normalized raw PTY title crossed the active restore boundary.
+    func shouldApplyRestoredPanelTitle(panelId: UUID, rawTitle: String) -> Bool {
+        guard var boundary = restoredPanelTitleBoundariesByPanelId[panelId] else {
+            return true
+        }
+        let shouldApply = boundary.shouldApply(rawTitle: rawTitle)
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
+        return shouldApply
+    }
+
+    private func storeRestoredPanelTitleBoundary(
+        _ boundary: RestoredPanelTitleBoundary?,
+        panelId: UUID
+    ) {
+        if let boundary {
+            restoredPanelTitleBoundariesByPanelId[panelId] = boundary
+        } else {
+            restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
+        }
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId] else {
+            return
+        }
+        transfer.restoredPanelTitleBoundary = boundary
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
     }
 
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
         invalidatedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
+        storeRestoredPanelTitleBoundary(
+            detached.restoredPanelTitleBoundary,
+            panelId: detached.panelId
+        )
+        if let shellActivityState = detached.shellActivityState {
+            (detached.panel as? TerminalPanel)?.updateShellActivityState(
+                shellActivityState
+            )
+        }
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,
             resumeState: detached.restorableAgentResumeState,
-            completedGeneration: detached.restoredAgentCompletedGeneration
+            completedGeneration: detached.restoredAgentCompletedGeneration,
+            resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         restoredAgentLifecycle.seedAgentRuntimeReplacementTracking(
             detached.agentRuntimeReplacementTracking,
@@ -158,14 +216,15 @@ extension DockSplitStore {
                 )
             }
         }
-        if let directory = detached.restoredResumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
-        }
         if let runtime = detached.agentRuntime {
             agentRuntimeByPanelId[detached.panelId] = runtime
         } else {
             agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
         }
+        syncAgentNeedsInputAttention(
+            panelId: detached.panelId,
+            runtime: detached.agentRuntime
+        )
     }
 
     func configureAgentHibernationResume(for terminal: TerminalPanel) {
@@ -184,9 +243,12 @@ extension DockSplitStore {
         let preparation = terminal.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
         if restoredAgentLifecycle.snapshotsByPanelId[panelId] != nil {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = preparation.queuedStartupInput
-                ? .awaitingAutoResumeCommand
-                : .manualResumeAvailable
+            restoredAgentLifecycle.setResumeState(
+                preparation.queuedStartupInput
+                    ? .awaitingAutoResumeCommand
+                    : .manualResumeAvailable,
+                panelId: panelId
+            )
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         AgentHibernationController.shared.recordTerminalFocus(
@@ -281,7 +343,7 @@ extension DockSplitStore {
             return false
         }
         let recordsCurrentBinding = managedBinding?.matchesExactAgentRuntimeKey(key) == true
-        mutateAgentRuntime(panelId: panelId) { runtime in
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
             if Self.isStructuredAgentHookPIDKey(
                 key,
                 runtime: runtime,
@@ -340,9 +402,18 @@ extension DockSplitStore {
         panelId: UUID,
         lifecycle: AgentHibernationLifecycleState
     ) {
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             $0.agentLifecycleStates[key] = lifecycle
         }
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
+        var didClear = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
+        }
+        return didClear
     }
 
     @discardableResult
@@ -365,7 +436,7 @@ extension DockSplitStore {
                 panelId: panelId
             )
         }
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
@@ -386,6 +457,7 @@ extension DockSplitStore {
 
     private func mutateAgentRuntime(
         panelId: UUID,
+        updatesAgentAttention: Bool = false,
         mutation: (inout Workspace.DetachedAgentRuntimeState) -> Void
     ) {
         guard panels[panelId] != nil else { return }
@@ -410,6 +482,20 @@ extension DockSplitStore {
             transfer.agentRuntime = shouldKeep ? runtime : nil
             detachedSurfaceTransfersByPanelId[panelId] = transfer
         }
+        if updatesAgentAttention {
+            syncAgentNeedsInputAttention(
+                panelId: panelId,
+                runtime: shouldKeep ? runtime : nil
+            )
+        }
+    }
+
+    private func syncAgentNeedsInputAttention(
+        panelId: UUID,
+        runtime: Workspace.DetachedAgentRuntimeState?
+    ) {
+        let needsInput = runtime?.agentLifecycleStates.values.contains(.needsInput) == true
+        agentNeedsInputAttention.setAttention(needsInput, forSurfaceId: panelId)
     }
 
     @discardableResult

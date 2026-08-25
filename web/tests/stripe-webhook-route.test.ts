@@ -25,6 +25,7 @@ let applySubscriptionUpdateResult: unknown = {
 };
 const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
 const revokeCoderouterRouteTokens = mock(async () => {});
+const revokeCoderouterTeamRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
 const deferredTasks: Array<() => Promise<void>> = [];
 const sendProSignupWelcome = mock(async () => {
@@ -107,6 +108,7 @@ const POST = makeStripeWebhookHandler({
   applySubscriptionUpdate: applySubscriptionUpdate as never,
   sendProSignupWelcome,
   revokeCoderouterRouteTokens,
+  revokeCoderouterTeamRouteTokens,
   captureStripeBillingEvent,
   defer: (task) => deferredTasks.push(task),
 });
@@ -158,6 +160,7 @@ describe("Stripe billing webhook route", () => {
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     revokeCoderouterRouteTokens.mockClear();
+    revokeCoderouterTeamRouteTokens.mockClear();
     captureStripeBillingEvent.mockClear();
     deferredTasks.length = 0;
     sendProSignupWelcome.mockClear();
@@ -397,6 +400,37 @@ describe("Stripe billing webhook route", () => {
         status: "canceled",
       },
     );
+  });
+
+  test("revokes every selected-team route after Team cancellation", async () => {
+    applySubscriptionUpdateResult = {
+      scope: "team",
+      stackTeamId: "team_1",
+      isActive: false,
+    };
+    currentEvent = {
+      id: "evt_team_deleted",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_team",
+          customer: "cus_team",
+          status: "canceled",
+          metadata: { stackTeamId: "team_1", app: "cmux", plan: "team" },
+        },
+      },
+    };
+    retrievedSubscription = {
+      ...(currentEvent.data as { object: Record<string, unknown> }).object,
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(revokeCoderouterTeamRouteTokens).toHaveBeenCalledWith("team_1");
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
   });
 
   test("repairs delayed subscription events from Stripe's current state", async () => {

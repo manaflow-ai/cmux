@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91.
+// cmux-tui mux protocol 12, IR b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -95,6 +95,44 @@ pub struct BrowserFrame {
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserProviderAuthentication {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "bearer")]
+    Bearer,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderSnapshot {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<BrowserProviderAuthentication>,
+    pub available: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub clients: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    pub revision: u64,
+    pub targets: Vec<BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderTarget {
+    pub tab_id: String,
+    pub target_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderUnregisterResult {
+    pub removed: bool,
 }
 
 #[rustfmt::skip]
@@ -255,6 +293,65 @@ pub struct FocusDirectionResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrontendFocusTarget {
+    #[serde(rename = "pane")]
+    Pane,
+    #[serde(rename = "machine_rail")]
+    MachineRail,
+    #[serde(rename = "workspace_rail")]
+    WorkspaceRail,
+    #[serde(rename = "tabs_rail")]
+    TabsRail,
+    #[serde(rename = "projection_rail")]
+    ProjectionRail,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum FrontendJournalEvent {
+    #[serde(rename = "focus")]
+    Focus {
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        content_id: Optional<String>,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        pane_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        tab_id: Optional<String>,
+        target: FrontendFocusTarget,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        workspace_id: Optional<String>,
+    },
+    #[serde(rename = "resize")]
+    Resize {
+        cell_height: u16,
+        cell_width: u16,
+        cols: u16,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        rows: u16,
+    },
+    #[serde(rename = "viewport")]
+    Viewport {
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        offset: u64,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        settled: bool,
+        target: u64,
+    },
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrontendProjection {
     pub frontend: String,
@@ -308,6 +405,8 @@ pub struct IdentifyResult {
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lifecycle_ready: Option<bool>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
@@ -429,6 +528,7 @@ pub struct LivePane {
 pub struct MintTerminalRendererResult {
     pub endpoint: String,
     pub incarnation: String,
+    pub protocol_version: u16,
     pub rights: u32,
     pub terminal_id: String,
     pub token: String,
@@ -684,7 +784,7 @@ pub struct ResizeSurfaceResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolveTerminalResult {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
@@ -736,12 +836,16 @@ pub struct ResourceSelectors {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
-    pub pane: Id,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    pub workspace: Id,
+    pub terminal_revision: u64,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
@@ -890,6 +994,32 @@ pub struct TerminalEventsResult {
     pub generation: String,
     pub registry_id: String,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalExit {
+    pub exited_at_ms: u64,
+    pub outcome: TerminalExitOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum TerminalExitOutcome {
+    #[serde(rename = "exit")]
+    Exit {
+        code: i32,
+    },
+    #[serde(rename = "signal")]
+    Signal {
+        core_dumped: bool,
+        signal: i32,
+    },
+    #[serde(rename = "unknown")]
+    Unknown {
+        reason: String,
+    },
 }
 
 #[rustfmt::skip]
@@ -1184,24 +1314,26 @@ pub struct TerminalModifiers {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalPlacement {
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub key: String,
-    pub lifecycle: Nullable<String>,
-    pub pane: Id,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
     pub registry_id: String,
     pub replayed: bool,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
-    pub workspace: Id,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalRecord {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
     pub terminal_id: String,
