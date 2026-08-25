@@ -365,6 +365,8 @@ final class ClaudeHookSessionStore {
     private static let maxPendingCursorShellCommandLength = 64 * 1024
     private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
     private static let maxHookStateFileBytes = 8 * 1024 * 1024
+    private static let maxRecoverableHookStateFileBytes = 64 * 1024 * 1024
+    private static let maxRecoveredHookSessions = 512
     private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
     private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
     private static let maxRememberedTerminalPromptTurnIds = 32
@@ -764,6 +766,7 @@ final class ClaudeHookSessionStore {
             sessions.append(sessionId)
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
         }
+        state.pendingCursorApprovalIndexInitialized = true
     }
 
     private func removeCursorPendingIndex(
@@ -780,6 +783,7 @@ final class ClaudeHookSessionStore {
         } else {
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
         }
+        state.pendingCursorApprovalIndexInitialized = true
     }
 
     private func normalizedCursorShellCommand(_ command: String) -> String? {
@@ -2221,7 +2225,10 @@ final class ClaudeHookSessionStore {
         }
         var state = try loadUnlocked()
         pruneExpired(&state)
-        reconcileCursorPendingIndex(&state)
+        if !state.pendingCursorApprovalIndexInitialized {
+            reconcileCursorPendingIndex(&state)
+            state.pendingCursorApprovalIndexInitialized = true
+        }
         let result = try body(&state)
         if persist {
             if let deadline, Date.now >= deadline {
@@ -2298,12 +2305,15 @@ final class ClaudeHookSessionStore {
               let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
         }
-        if fileSize > Self.maxHookStateFileBytes {
+        if fileSize > Self.maxRecoverableHookStateFileBytes {
             return try quarantineOversizedState(at: stateURL)
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
             return try quarantineOversizedState(at: stateURL)
+        }
+        if fileSize > Self.maxHookStateFileBytes {
+            compactRecoveredState(&decoded)
         }
         backfillSurfaceActiveSlots(&decoded)
         return decoded
@@ -2328,6 +2338,30 @@ final class ClaudeHookSessionStore {
             index[key, default: []].append(sessionId)
         }
         state.pendingCursorApprovalSessionsBySurface = index
+    }
+
+    private func compactRecoveredState(_ state: inout ClaudeHookSessionStoreFile) {
+        guard state.sessions.count > Self.maxRecoveredHookSessions else { return }
+        var required = Set(state.activeSessionsByWorkspace.values.map(\.sessionId))
+        required.formUnion(state.activeSessionsBySurface.values.map(\.sessionId))
+        required.formUnion(state.sessions.compactMap { sessionId, record in
+            record.pendingCursorShellApprovals?.isEmpty == false ? sessionId : nil
+        })
+        let newest = state.sessions
+            .sorted { $0.value.updatedAt > $1.value.updatedAt }
+            .prefix(Self.maxRecoveredHookSessions)
+            .map(\.key)
+        let keep = Set(newest).union(required)
+        state.sessions = state.sessions.filter { keep.contains($0.key) }
+        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {
+            state.sessions[$0.value.sessionId] != nil
+        }
+        state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
+            state.sessions[$0.value.sessionId] != nil
+        }
+        state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter {
+            state.sessions[$0.key] != nil
+        }
     }
 
     /// Stores written before per-surface tracking (or rewritten by an older
@@ -35294,6 +35328,28 @@ export default CMUXSessionRestore;
         }
         if hookEventName == "PostToolUseFailure" {
             event["is_error"] = true
+            var failureDetails: [String: Any] = [:]
+            if let message = firstString(
+                in: fallbackObject,
+                keys: ["error_message", "errorMessage", "error", "message"]
+            ) {
+                failureDetails["message"] = truncate(
+                    redactClaudeSensitiveSpans(normalizedSingleLine(message)),
+                    maxLength: 500
+                )
+            }
+            if let failureType = firstString(in: fallbackObject, keys: ["failure_type", "failureType"]) {
+                failureDetails["type"] = String(failureType.prefix(80))
+            }
+            if let duration = fallbackObject["duration"] as? NSNumber {
+                failureDetails["duration"] = duration
+            }
+            if let interrupted = fallbackObject["is_interrupt"] as? Bool {
+                failureDetails["is_interrupt"] = interrupted
+            }
+            if !failureDetails.isEmpty {
+                event["failure"] = failureDetails
+            }
         }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = source == "cursor"

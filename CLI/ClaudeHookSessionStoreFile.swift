@@ -16,6 +16,7 @@ struct ClaudeHookSessionStoreFile: Codable {
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
     /// Bounded lookup index for Cursor approvals, keyed by workspace/surface.
     var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
+    var pendingCursorApprovalIndexInitialized: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -25,6 +26,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
         case pendingCursorApprovalSessionsBySurface
+        case pendingCursorApprovalIndexInitialized
     }
 
     init() {}
@@ -53,6 +55,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: [String]].self,
             forKey: .pendingCursorApprovalSessionsBySurface
         ) ?? [:]
+        pendingCursorApprovalIndexInitialized = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .pendingCursorApprovalIndexInitialized
+        ) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -76,6 +82,9 @@ struct ClaudeHookSessionStoreFile: Codable {
                 pendingCursorApprovalSessionsBySurface,
                 forKey: .pendingCursorApprovalSessionsBySurface
             )
+        }
+        if pendingCursorApprovalIndexInitialized {
+            try container.encode(true, forKey: .pendingCursorApprovalIndexInitialized)
         }
     }
 }
