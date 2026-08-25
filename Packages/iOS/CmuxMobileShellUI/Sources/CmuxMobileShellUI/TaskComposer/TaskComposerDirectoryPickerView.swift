@@ -45,7 +45,7 @@ struct TaskComposerDirectoryPickerView: View {
         suggested = index.suggestions(matching: "", limit: 6)
         // Home and Computer are permanent locations on the picker root, so
         // the quick chips only carry real remembered directories.
-        recents = suggested.prefix(5).filter { $0.path != "~" && $0.path != "/" }
+        recents = Array(suggested.filter { $0.path != "~" && $0.path != "/" }.prefix(5))
         self.selectedPath = selectedPath
         selectedPathID = MobileTaskDirectoryPathID(path: selectedPath)
         self.select = select
