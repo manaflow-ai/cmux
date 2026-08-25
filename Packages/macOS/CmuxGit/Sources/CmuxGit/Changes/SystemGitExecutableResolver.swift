@@ -52,6 +52,11 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         if let searchPath = environment["PATH"] {
             for entry in searchPath.split(separator: ":") {
                 guard entry.first == "/" else { continue }
+                guard entry.hasPrefix("/usr/")
+                    || entry.hasPrefix("/opt/")
+                    || entry.hasPrefix("/Library/") else {
+                    continue
+                }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)
                     .path
@@ -82,6 +87,11 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         if let searchPath = environment["PATH"] {
             for entry in searchPath.split(separator: ":") {
                 guard entry.first == "/" else { continue }
+                guard entry.hasPrefix("/usr/")
+                    || entry.hasPrefix("/opt/")
+                    || entry.hasPrefix("/Library/") else {
+                    continue
+                }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)
                     .path

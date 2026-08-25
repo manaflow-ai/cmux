@@ -131,6 +131,15 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
+            if depth + 1 >= safetyConfiguration.submoduleDepth
+                || remainingRepositoryCount <= 1
+                || DispatchTime.now() >= deadline {
+                pathsByRepository[submoduleRepository.workTreeRoot] = [
+                    submoduleRepository.gitDirectory,
+                    submoduleRepository.commonDirectory,
+                ]
+                continue
+            }
             let childResult = await collectBranchAwareConfigPaths(
                 repository: submoduleRepository,
                 depth: depth + 1,
@@ -142,6 +151,12 @@ extension GitMetadataService {
             visitedRoots = childResult.visitedRoots
             remainingRepositoryCount = childResult.remainingRepositoryCount
             pathsByRepository.merge(childResult.paths, uniquingKeysWith: { _, new in new })
+            if childResult.paths[submoduleRepository.workTreeRoot] == nil {
+                pathsByRepository[submoduleRepository.workTreeRoot] = [
+                    submoduleRepository.gitDirectory,
+                    submoduleRepository.commonDirectory,
+                ]
+            }
             indexSnapshotsByRepository.merge(
                 childResult.indexSnapshots,
                 uniquingKeysWith: { _, new in new }
