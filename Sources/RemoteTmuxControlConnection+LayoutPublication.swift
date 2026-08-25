@@ -180,8 +180,9 @@ extension RemoteTmuxControlConnection {
         var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
         for line in lines {
             // "%id left top width height active border-status :format…" —
-            // the expanded pane-border-format is last (it may contain
-            // spaces) behind the ':' sentinel (it may be empty).
+            // the expanded pane-border-format is the first part of the final
+            // field (it may contain spaces) behind the ':' sentinel; a unit
+            // separator then carries pane-title metadata.
             let parts = line.split(separator: " ", maxSplits: 7, omittingEmptySubsequences: false)
             guard parts.count >= 8,
                   let paneId = RemoteTmuxControlStreamParser.id(parts[0], sigil: "%"),

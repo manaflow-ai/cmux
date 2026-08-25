@@ -178,14 +178,15 @@ extension RemoteTmuxControlConnection {
     /// Fetches one window's REAL pane rectangles (plus the active flag, the
     /// window's `pane-border-status`, and the pane's EXPANDED
     /// `pane-border-format` — exactly the header text a native tmux client
-    /// would draw, custom formats included). The layout string is not ground
-    /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while panes touching the configured edge are shorter (and top-edge
-    /// panes also sit lower). Placement must render where panes actually are,
-    /// so a quarantined layout is published only by this fetch's reply. The
-    /// expanded format is LAST (it
-    /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
-    /// and a trailing empty field must survive line splitting).
+    /// would draw, custom formats included). The trailing field then carries
+    /// the raw pane title and host defaults after a unit-separator delimiter.
+    /// The layout string is not ground truth: under `pane-border-status` tmux
+    /// publishes the pre-title tree while panes touching the configured edge
+    /// are shorter (and top-edge panes also sit lower). Placement must render
+    /// where panes actually are, so a quarantined layout is published only by
+    /// this fetch's reply. The expanded header format may contain spaces and
+    /// may expand to EMPTY; the `:` sentinel and trailing empty fields must
+    /// survive line splitting.
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
         #if DEBUG

@@ -5,7 +5,8 @@ extension RemoteTmuxControlConnection {
     static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
         + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
 
-    /// The complete pane-rect format, with the variable-width header last.
+    /// The complete pane-rect format, with the variable-width header followed
+    /// by fixed-width pane-title metadata.
     static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
         + " #{pane_active} #{pane-border-status} :#{T:pane-border-format}"
         + "\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
