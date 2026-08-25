@@ -324,7 +324,7 @@ export function spawn(command, args, options) {
     nativeAttentionIdentifyAttempts += 1;
     const pidIndex = call.args.indexOf("--pid");
     const requestedPid = Number(call.args[pidIndex + 1]);
-    if (attempt === 0) {
+    if (globalThis.__cmuxAmpFailAllIdentityCaptures === true || attempt === 0) {
       closeStatus = 1;
     } else {
       stdout = JSON.stringify({
@@ -728,6 +728,49 @@ if (
     } end=${JSON.stringify(unacknowledgedConclusion)}`
   );
 }
+const identityFailureThread = makeThread(
+  "T-amp-native-identity-exhausted",
+  "running"
+);
+const identityFailureCtx = { thread: identityFailureThread };
+await handlers.get("agent.start")({
+  thread: identityFailureThread,
+  message: "release status after identity retries",
+  id: "msg-identity-exhausted"
+}, identityFailureCtx);
+globalThis.__cmuxAmpFailAllIdentityCaptures = true;
+const identityFailureBeginCount = attentionCalls("identify").length;
+identityFailureThread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("identify").length
+    >= identityFailureBeginCount + 3,
+  "Amp did not exhaust bounded native identity retries"
+);
+globalThis.__cmuxAmpFailAllIdentityCaptures = false;
+const statusBeforeIdentityRecovery = statusCalls().length;
+const identityRecoveryThread = makeThread(
+  "T-amp-native-identity-recovery",
+  "running"
+);
+const identityRecoveryCtx = { thread: identityRecoveryThread };
+await handlers.get("agent.start")({
+  thread: identityRecoveryThread,
+  message: "status after identity retry exhaustion",
+  id: "msg-identity-recovery"
+}, identityRecoveryCtx);
+await handlers.get("tool.call")({
+  thread: identityRecoveryThread,
+  toolUseID: "tool-identity-recovery",
+  tool: "Task",
+  input: { prompt: "prove status fanout recovered" }
+}, identityRecoveryCtx);
+if (statusCalls().length <= statusBeforeIdentityRecovery) {
+  throw new Error(
+    "Amp native identity retry exhaustion permanently suppressed status fanout"
+  );
+}
+identityFailureThread.setState("running");
+
 const approvalStatusThread = makeThread("T-amp-status-approval", "running");
 const approvalStatusCtx = { thread: approvalStatusThread };
 const siblingStatusThread = makeThread("T-amp-status-sibling", "running");

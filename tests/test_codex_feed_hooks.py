@@ -4033,6 +4033,49 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 after=delayed_start,
             )
 
+            delayed_directory_tool_call_id = (
+                f"cursor-call-delayed-directory-{id_suffix}"
+            )
+            delayed_directory_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-delayed-directory",
+                "tool_use_id": delayed_directory_tool_call_id,
+                "tool_input": {"command": "cargo test"},
+            }
+            shutil.rmtree(log_directory)
+            delayed_directory_start = len(fake.frames)
+            run_cursor_feed("preToolUse", delayed_directory_payload)
+            observer_deadline = time.monotonic() + 1
+            while time.monotonic() < observer_deadline:
+                if cursor_observer_pids(delayed_directory_tool_call_id):
+                    break
+                time.sleep(0.02)
+            log_directory.mkdir(parents=True, exist_ok=True)
+            log_path.write_text("", encoding="utf-8")
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                delayed_directory_tool_call_id,
+            )
+            delayed_directory_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=delayed_directory_start,
+            )
+            if delayed_directory_begin.get("params", {}).get("session_id") != "cursor-session":
+                raise AssertionError(
+                    "Cursor directory-creation observer targeted the wrong session: "
+                    f"{delayed_directory_begin!r}"
+                )
+            run_cursor_feed("postToolUse", {
+                **delayed_directory_payload,
+                "tool_output": "directory-created approval completed",
+            })
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=delayed_directory_start,
+            )
+
             auto_payload = {
                 **requested_payload,
                 "generation_id": "cursor-turn-2",

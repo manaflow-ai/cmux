@@ -239,6 +239,20 @@ struct AgentReconciliationFinalReviewTests {
         }
         #expect(malformedCode == "invalid_params")
 
+        let missingSurfaceResult =
+            TerminalController.shared.v2AgentAttentionBegin(params: base)
+        guard case .ok(let missingSurfacePayload) = missingSurfaceResult else {
+            Issue.record("A missing surface should be ignored without retargeting.")
+            return
+        }
+        #expect(missingSurfacePayload["status"] as? String == "ignored")
+        #expect(
+            !workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: panelID
+            )
+        )
+
         var foreign = base
         foreign["observation_id"] = "attention-begin-foreign-observation"
         foreign["scope_id"] = "attention-begin-foreign-scope"
