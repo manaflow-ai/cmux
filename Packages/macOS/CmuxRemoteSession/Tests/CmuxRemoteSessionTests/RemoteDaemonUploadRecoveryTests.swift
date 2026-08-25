@@ -284,6 +284,86 @@ extension RemoteDaemonUploadTests {
         #expect(!fileManager.fileExists(atPath: pidPath))
     }
 
+    @Test("Remote cleanup kills only the explicitly failed writer")
+    func cleanupScriptScopesCurrentWriter() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-scope-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = root
+            .appendingPathComponent("remote path's", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+            .path
+        let remoteDirectory = URL(fileURLWithPath: remotePath).deletingLastPathComponent()
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+
+        let currentPath = "\(remotePath).tmp-current"
+        let otherPath = "\(remotePath).tmp-other"
+        let currentPIDPath = "\(currentPath).pid"
+        let otherPIDPath = "\(otherPath).pid"
+        try Data("current".utf8).write(to: URL(fileURLWithPath: currentPath))
+        try Data("other".utf8).write(to: URL(fileURLWithPath: otherPath))
+
+        let currentWriter = Process()
+        currentWriter.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        currentWriter.arguments = ["30"]
+        currentWriter.standardInput = FileHandle.nullDevice
+        currentWriter.standardOutput = FileHandle.nullDevice
+        currentWriter.standardError = FileHandle.nullDevice
+        try currentWriter.run()
+        defer {
+            if currentWriter.isRunning {
+                currentWriter.terminate()
+                currentWriter.waitUntilExit()
+            }
+        }
+
+        let otherWriter = Process()
+        otherWriter.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        otherWriter.arguments = ["30"]
+        otherWriter.standardInput = FileHandle.nullDevice
+        otherWriter.standardOutput = FileHandle.nullDevice
+        otherWriter.standardError = FileHandle.nullDevice
+        try otherWriter.run()
+        defer {
+            if otherWriter.isRunning {
+                otherWriter.terminate()
+                otherWriter.waitUntilExit()
+            }
+        }
+
+        try Data("\(currentWriter.processIdentifier)\n".utf8)
+            .write(to: URL(fileURLWithPath: currentPIDPath))
+        try Data("\(otherWriter.processIdentifier)\n".utf8)
+            .write(to: URL(fileURLWithPath: otherPIDPath))
+
+        let currentCleanup = RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(
+            remotePath: remotePath,
+            currentTemporaryPath: currentPath
+        )
+        #expect(try Self.runShell(currentCleanup) == 0)
+        currentWriter.waitUntilExit()
+        #expect(!currentWriter.isRunning)
+        #expect(!fileManager.fileExists(atPath: currentPath))
+        #expect(!fileManager.fileExists(atPath: currentPIDPath))
+        #expect(otherWriter.isRunning)
+        #expect(fileManager.fileExists(atPath: otherPath))
+        #expect(fileManager.fileExists(atPath: otherPIDPath))
+
+        otherWriter.terminate()
+        otherWriter.waitUntilExit()
+        let staleCleanup = RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(
+            remotePath: remotePath
+        )
+        #expect(try Self.runShell(staleCleanup) == 0)
+        #expect(!fileManager.fileExists(atPath: otherPath))
+        #expect(!fileManager.fileExists(atPath: otherPIDPath))
+    }
+
     private func uploadRequestForRecovery(
         localBinary: URL,
         sshOptions: [String]
@@ -329,7 +409,7 @@ extension RemoteDaemonUploadTests {
         if command.contains("mkdir -p ") {
             return .createDirectory
         }
-        if command.contains("cat > ") || command.contains("cat <&3 > ") {
+        if command.contains("exec 4> ") || command.contains("cat <&3 >&4") {
             return .upload
         }
         if command.contains("chmod 755 "), command.contains("mv ") {

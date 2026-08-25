@@ -101,10 +101,17 @@ extension RemoteSessionCoordinator {
         # dup, cat exits 0 after writing an empty payload even though ssh had
         # a file-backed stdin stream to forward.
         exec 3<&0
+        # Keep the shell PID marker. Scoped recovery can signal this owner,
+        # and its trap then stops both the reader and watchdog children.
         set -C
-        cat <&3 > "$temp_path" &
+        # Open the payload once with noclobber, then write through the
+        # descriptor. This refuses a pre-existing payload symlink or file.
+        if ! exec 4> "$temp_path"; then
+          printf '%s\\n' 'cmux daemon upload could not create a unique temporary file' >&2
+          exit 76
+        fi
+        cat <&3 >&4 &
         cat_pid=$!
-        printf '%s\\n' "$cat_pid" > "$pid_path"
         (
           stall_checks=0
           previous_size=0
@@ -133,6 +140,7 @@ extension RemoteSessionCoordinator {
         cat_status=$?
         cat_pid=
         exec 3<&-
+        exec 4>&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
         watchdog_pid=
         rm -f -- "$pid_path"
@@ -368,6 +376,8 @@ extension RemoteSessionCoordinator {
     ) -> String {
         let quotedRemotePath = remotePath.shellSingleQuoted
         let processCleanup = """
+        # Reclaim only markers whose owner is gone. A live marker belongs to a
+        # concurrent upload and must not be signaled or glob-deleted.
         for cmux_pid_file in \(quotedRemotePath).tmp-*.pid; do
           [ -r "$cmux_pid_file" ] || continue
           cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
@@ -381,20 +391,26 @@ extension RemoteSessionCoordinator {
           esac
         done
         """
-        let specificRemoveTargets: String
+        let currentCleanup: String
         if let currentTemporaryPath {
             let quotedCurrentTemporaryPath = currentTemporaryPath.shellSingleQuoted
             let quotedCurrentPIDPath = "\(currentTemporaryPath).pid".shellSingleQuoted
-            specificRemoveTargets =
-                " \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)"
+            currentCleanup = """
+            if [ -r \(quotedCurrentPIDPath) ]; then
+              cmux_current_pid="$(cat \(quotedCurrentPIDPath) 2>/dev/null || true)"
+              case "$cmux_current_pid" in
+                ''|0|1|*[!0-9]*) ;;
+                *) [ "$cmux_current_pid" = "$$" ] || kill "$cmux_current_pid" 2>/dev/null || true ;;
+              esac
+            fi
+            rm -f -- \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)
+            """
         } else {
-            specificRemoveTargets = ""
+            currentCleanup = ":"
         }
         return """
         \(processCleanup)
-        if [ -n "\(currentTemporaryPath ?? "")" ]; then
-          rm -f --\(specificRemoveTargets)
-        fi
+        \(currentCleanup)
         """
     }
 

@@ -479,7 +479,7 @@ struct RemoteDaemonUploadTests {
         if command.contains("mkdir -p ") {
             return .createDirectory
         }
-        if command.contains("cat > ") || command.contains("cat <&3 > ") {
+        if command.contains("exec 4> ") || command.contains("cat <&3 >&4") {
             return .upload
         }
         if command.contains("chmod 755 "), command.contains("mv ") {
