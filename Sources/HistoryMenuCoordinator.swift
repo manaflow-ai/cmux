@@ -11,46 +11,13 @@ import Observation
 @MainActor
 @Observable
 final class HistoryMenuCoordinator {
-    /// Side-effecting History actions supplied by the app composition root.
-    struct Actions {
-        let reopenMostRecentlyClosedWorkspace: @MainActor (TabManager) -> Bool
-        let reopenMostRecentlyClosedItem: @MainActor (TabManager) -> Bool
-        let reopenClosedHistoryItem: @MainActor (UUID, TabManager) -> Bool
-        let reopenPreviousSession: @MainActor () -> Bool
-
-        /// No-op actions for projection-only tests.
-        static let unavailable = Actions(
-            reopenMostRecentlyClosedWorkspace: { _ in false },
-            reopenMostRecentlyClosedItem: { _ in false },
-            reopenClosedHistoryItem: { _, _ in false },
-            reopenPreviousSession: { false }
-        )
-    }
-
-    /// The menu's immutable render state for one active manager.
-    struct State: Equatable {
-        let managerIdentity: ObjectIdentifier?
-        let recentlyFocusedItems: [FocusHistoryMenuItem]
-        let recentlyClosed: ClosedItemHistoryMenuSnapshot
-        let canNavigateBack: Bool
-        let canNavigateForward: Bool
-
-        static let empty = State(
-            managerIdentity: nil,
-            recentlyFocusedItems: [],
-            recentlyClosed: ClosedItemHistoryMenuSnapshot(items: [], totalItemCount: 0, isLimited: false),
-            canNavigateBack: false,
-            canNavigateForward: false
-        )
-    }
-
-    private(set) var state = State.empty
+    private(set) var state = HistoryMenuState.empty
 
     @ObservationIgnored private let center: NotificationCenter
     @ObservationIgnored private let managerProvider: @MainActor () -> TabManager?
     @ObservationIgnored private let mainMenuProvider: @MainActor () -> NSMenu?
     @ObservationIgnored private let closedItemHistoryStore: ClosedItemHistoryStore
-    @ObservationIgnored private let actions: Actions
+    @ObservationIgnored private let actions: HistoryMenuActions
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private weak var projectedManager: TabManager?
     @ObservationIgnored private var projectedFocusHistoryRevision: UInt64?
@@ -62,7 +29,7 @@ final class HistoryMenuCoordinator {
         closedItemHistoryStore: ClosedItemHistoryStore,
         managerProvider: @escaping @MainActor () -> TabManager?,
         mainMenuProvider: @escaping @MainActor () -> NSMenu?,
-        actions: Actions
+        actions: HistoryMenuActions
     ) {
         self.center = center
         self.closedItemHistoryStore = closedItemHistoryStore
@@ -123,8 +90,8 @@ final class HistoryMenuCoordinator {
             projectedManager = nil
             projectedFocusHistoryRevision = nil
             projectedClosedHistoryRevision = nil
-            if state != .empty {
-                state = .empty
+            if state != HistoryMenuState.empty {
+                state = HistoryMenuState.empty
             }
             return
         }
@@ -138,7 +105,7 @@ final class HistoryMenuCoordinator {
             || projectedClosedHistoryRevision != closedHistoryRevision
         guard shouldRefreshFocus || shouldRefreshClosed else { return }
 
-        let nextState = State(
+        let nextState = HistoryMenuState(
             managerIdentity: ObjectIdentifier(manager),
             recentlyFocusedItems: shouldRefreshFocus
                 ? manager.recentlyFocusedFocusHistoryMenuItems(maxItemCount: 10)
