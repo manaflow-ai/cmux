@@ -139,7 +139,9 @@ struct CmxTransportModePolicyTests {
     @Test("LAN Iroh plans retain only LAN private paths")
     func lanIrohPlanKeepsOnlyLANPaths() throws {
         let plan = CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
-        try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: plan)
+        #expect(throws: CmxTransportModeError.self) {
+            try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: plan)
+        }
         let hints = try [
             CmxIrohPathHint(
                 kind: .directAddress,
@@ -170,6 +172,7 @@ struct CmxTransportModePolicyTests {
             CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: hints)
         )
         #expect(filtered.privateFallbackPaths.map(\.source) == [.lan])
+        try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: filtered)
     }
 
     @Test("Tailscale Only still rejects Iroh session construction")
