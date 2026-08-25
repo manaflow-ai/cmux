@@ -4169,6 +4169,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    fileprivate func discardPendingExplicitKeyDownEvents() {
+        pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
+        pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
+        pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let windowObserver {
@@ -9008,12 +9014,13 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
-            self.surfaceView.replayPendingExplicitKeyDownEventsIfReady()
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
+                self.surfaceView.discardPendingExplicitKeyDownEvents()
                 return
             }
+            self.surfaceView.replayPendingExplicitKeyDownEventsIfReady()
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
         observers.append(NotificationCenter.default.addObserver(

@@ -953,6 +953,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
+            self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
