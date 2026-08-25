@@ -232,6 +232,10 @@ extension CMUXCLI {
         ), claim.pending else {
             return false
         }
+        if claim.exhausted {
+            telemetry.breadcrumb("\(telemetryKey).exhausted")
+            return true
+        }
         guard let title = claim.title else {
             telemetry.breadcrumb("\(telemetryKey).in-flight")
             return true
