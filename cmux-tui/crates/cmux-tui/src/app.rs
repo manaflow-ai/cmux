@@ -3779,6 +3779,12 @@ enum WorkspaceRailTarget {
     Action(SidebarActionTarget),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkspacePreview {
+    origin: WorkspaceId,
+    target: WorkspaceId,
+}
+
 fn rail_page_size(area: Option<Rect>) -> usize {
     area.map_or(1, |area| usize::from(area.height.saturating_sub(1)).saturating_div(3).max(1))
 }
@@ -6820,6 +6826,7 @@ pub struct App {
     pub sidebar_workspace_selection: usize,
     pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
+    workspace_preview: Option<WorkspacePreview>,
     pub(crate) machine_rail_scroll: usize,
     pub(crate) machine_footer_scroll: usize,
     pub(crate) workspace_rail_scroll: usize,
@@ -8998,6 +9005,7 @@ fn run_with_machine_updates_inner(
         sidebar_workspace_selection: 0,
         sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
+        workspace_preview: None,
         machine_rail_scroll: 0,
         machine_footer_scroll: 0,
         workspace_rail_scroll: 0,
@@ -9966,6 +9974,7 @@ impl App {
         if index >= self.tree.workspaces.len() || !self.prepare_pty_input_before_mutation() {
             return;
         }
+        self.commit_workspace_preview();
         self.follow_sidebar_workspace(index);
         self.tree.active_workspace = index;
         self.select_workspace_for_client(Some(index), None);
@@ -10089,6 +10098,9 @@ impl App {
     }
 
     fn focus_rail(&mut self, kind: RailKind) {
+        if kind != RailKind::Workspace {
+            self.cancel_workspace_preview();
+        }
         self.focus = match kind {
             RailKind::Machine => FocusTarget::MachineRail,
             RailKind::Workspace => FocusTarget::WorkspaceRail,
@@ -10140,6 +10152,7 @@ impl App {
 
     fn leave_workspace_sidebar(&mut self) {
         if self.sidebar_rail_focused() {
+            self.cancel_workspace_preview();
             self.focus = FocusTarget::Pane;
         }
     }
@@ -12702,6 +12715,7 @@ impl App {
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
+        self.reconcile_workspace_preview();
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
@@ -13892,6 +13906,7 @@ impl App {
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         self.tabs_sidebar_width = self.sidebar_layout.tabs.map_or(0, |rect| rect.width);
         if self.sidebar_width == 0 && self.focus == FocusTarget::WorkspaceRail {
+            self.cancel_workspace_preview();
             self.focus = FocusTarget::Pane;
         }
         if self.machine_sidebar_width == 0 && self.focus == FocusTarget::MachineRail {
@@ -16051,6 +16066,9 @@ impl App {
     }
 
     fn claim_active_terminal_geometry(&mut self, force: bool) {
+        if self.workspace_preview.is_some() {
+            return;
+        }
         self.report_client_focus();
         let terminal = self.tree.active_screen().and_then(|screen| {
             let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
@@ -17067,6 +17085,61 @@ impl App {
         }
     }
 
+    fn preview_workspace(&mut self, index: usize) {
+        let Some(target) = self.tree.workspaces.get(index).map(|workspace| workspace.id) else {
+            return;
+        };
+        let Some(current) = self.tree.active_workspace().map(|workspace| workspace.id) else {
+            return;
+        };
+        let origin = self.workspace_preview.map_or(current, |preview| preview.origin);
+        if target == origin {
+            self.cancel_workspace_preview();
+            return;
+        }
+        self.workspace_preview = Some(WorkspacePreview { origin, target });
+        self.tree.active_workspace = index;
+    }
+
+    fn commit_workspace_preview(&mut self) {
+        self.workspace_preview = None;
+    }
+
+    fn cancel_workspace_preview(&mut self) {
+        let Some(preview) = self.workspace_preview.take() else { return };
+        let Some(index) = self
+            .tree
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == preview.origin)
+        else {
+            return;
+        };
+        self.tree.active_workspace = index;
+        self.sidebar_workspace_selection = index;
+        self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+    }
+
+    fn reconcile_workspace_preview(&mut self) {
+        let Some(preview) = self.workspace_preview else { return };
+        let Some(target_index) = self
+            .tree
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == preview.target)
+        else {
+            self.workspace_preview = None;
+            return;
+        };
+        if !self.tree.workspaces.iter().any(|workspace| workspace.id == preview.origin) {
+            self.workspace_preview = None;
+            return;
+        }
+        self.tree.active_workspace = target_index;
+        self.sidebar_workspace_selection = target_index;
+        self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+    }
+
     fn select_workspace_rail_target(&mut self, target: WorkspaceRailTarget) {
         match target {
             WorkspaceRailTarget::Workspace(id) => {
@@ -17079,9 +17152,11 @@ impl App {
                     }
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                    self.preview_workspace(index);
                 }
             }
             WorkspaceRailTarget::Recoverable(id) => {
+                self.cancel_workspace_preview();
                 if let Some(index) = self.machine_ui.as_ref().and_then(|ui| {
                     ui.recoverable_workspaces().iter().position(|workspace| workspace.id == id)
                 }) {
@@ -17090,6 +17165,7 @@ impl App {
                 }
             }
             WorkspaceRailTarget::Action(action) => {
+                self.cancel_workspace_preview();
                 self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
             }
         }
@@ -17127,6 +17203,7 @@ impl App {
         if self.prefix_armed {
             self.prefix_armed = false;
             if input.suppresses_alt_shortcut() {
+                self.cancel_workspace_preview();
                 self.focus = FocusTarget::Pane;
                 return KeyboardIngress::Handled(RenderAction::Draw);
             }
@@ -17136,6 +17213,7 @@ impl App {
             let Some(action) =
                 action_for_binding(&self.config.keys, &binding_key, binding_fallback.as_ref())
             else {
+                self.cancel_workspace_preview();
                 self.focus = FocusTarget::Pane;
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
@@ -17143,6 +17221,7 @@ impl App {
             let keep_machine_rail_focus =
                 self.machine_sidebar_focused() && action == Action::ProviderMenu;
             if !(keep_machine_rail_focus || was_sidebar_focused && action == Action::SendPrefix) {
+                self.cancel_workspace_preview();
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -17878,11 +17957,13 @@ impl App {
             && matches!(key.code, KeyCode::Right | KeyCode::Char('l'))
         {
             if !self.focus_adjacent_rail(RailKind::Workspace, 1) {
+                self.cancel_workspace_preview();
                 self.focus = FocusTarget::Pane;
             }
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Esc {
+            self.cancel_workspace_preview();
             self.focus = FocusTarget::Pane;
             return Ok(RenderAction::Draw);
         }
@@ -17921,14 +18002,17 @@ impl App {
                             if let Some(index) =
                                 self.tree.workspaces.iter().position(|workspace| workspace.id == id)
                             {
+                                self.commit_workspace_preview();
                                 self.select_workspace_for_client(Some(index), None);
                                 self.focus = FocusTarget::Pane;
                             }
                         }
                         Some(WorkspaceRailTarget::Action(action)) => {
+                            self.cancel_workspace_preview();
                             return self.invoke_sidebar_action(action);
                         }
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
+                            self.cancel_workspace_preview();
                             self.request_restore_managed_workspace(&id);
                             self.focus = FocusTarget::Pane;
                         }
@@ -18725,6 +18809,7 @@ impl App {
             Action::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
+                    self.cancel_workspace_preview();
                     self.session.invalidate_sidebar_plugin_sync();
                     self.focus = FocusTarget::Pane;
                 }
@@ -19412,6 +19497,7 @@ impl App {
         if self.sidebar_rail_focused() || self.sidebar_focus_pending {
             return;
         }
+        self.cancel_workspace_preview();
         self.sidebar_visible = true;
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
@@ -19447,6 +19533,7 @@ impl App {
     }
 
     fn toggle_sidebar_view(&mut self) {
+        self.cancel_workspace_preview();
         self.sidebar_view = self.sidebar_view.toggled();
         if self.config.sidebar.plugin.is_some() {
             return;
@@ -21097,8 +21184,37 @@ impl App {
         };
         let before = hoverable(self.hover);
         let after = hoverable(Some((x, y)));
+        let workspace_hover_changed = if self.workspace_sidebar_focused()
+            && self.sidebar_view == SidebarView::Workspaces
+            && self.drag.is_none()
+        {
+            match self.hit_at(x, y) {
+                Some(Hit::Workspace { id, .. }) => {
+                    let before = (
+                        self.sidebar_workspace_selection,
+                        self.workspace_preview,
+                        self.tree.active_workspace,
+                    );
+                    self.workspace_rail_follow_selection = true;
+                    self.select_workspace_rail_target(WorkspaceRailTarget::Workspace(id));
+                    before
+                        != (
+                            self.sidebar_workspace_selection,
+                            self.workspace_preview,
+                            self.tree.active_workspace,
+                        )
+                }
+                _ => false,
+            }
+        } else {
+            false
+        };
         self.hover = Some((x, y));
-        Ok(if before != after { RenderAction::Draw } else { RenderAction::None })
+        Ok(if before != after || workspace_hover_changed {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        })
     }
 
     fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -40625,6 +40741,88 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_previews_selection_until_enter_or_escape() {
+        let mux = Mux::new("workspace-sidebar-preview-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
+        app.sync_layout((100, 20));
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(app.workspace_preview, Some(WorkspacePreview { origin: first.id, target: second.id }));
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.active_surface(), Some(first.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+
+        app.focus = FocusTarget::WorkspaceRail;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn workspace_sidebar_hover_previews_when_rail_has_focus() {
+        let mux = Mux::new("workspace-sidebar-hover-preview-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Workspace { index: 1, .. }).then_some(*rect)
+            })
+            .expect("second workspace hit");
+
+        app.handle_hover_with_admission(row.x, row.y, KeyModifiers::NONE, None).unwrap();
+        app.sync_layout((100, 20));
+        assert_eq!(app.sidebar_workspace_selection, 1);
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(app.workspace_preview, Some(WorkspacePreview { origin: first.id, target: second.id }));
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn projection_enter_on_active_surface_returns_focus_to_pane() {
         let (mux, surface) = test_mux("projection-active-surface-enter-test", None);
         mux.report_agent(
@@ -42825,6 +43023,7 @@ mod tests {
             sidebar_workspace_selection: 0,
             sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
+            workspace_preview: None,
             machine_rail_scroll: 0,
             machine_footer_scroll: 0,
             workspace_rail_scroll: 0,
