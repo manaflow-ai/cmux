@@ -1158,6 +1158,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(secondApproval.status, 0, secondApproval.stderr)
         XCTAssertEqual(secondApproval.stdout, #"{"permission":"ask"}"# + "\n")
 
+        let thirdCommand = "python -c print('third')"
+        let thirdApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(thirdCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(thirdApproval.timedOut, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.status, 0, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let remainingCompletionStart = state.snapshot().count
+        let remainingCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(secondCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(remainingCompletion.timedOut, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.status, 0, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.stdout, "{}\n")
+        let remainingCompletionCommands = Array(state.snapshot().dropFirst(remainingCompletionStart))
+        XCTAssertFalse(
+            remainingCompletionCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "Refreshing a remaining Cursor approval must not clear unrelated surface notifications, saw \(remainingCompletionCommands)"
+        )
+        XCTAssertTrue(
+            remainingCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(thirdCommand)")
+            },
+            "Resolving one of two approvals must refresh the remaining command notice, saw \(remainingCompletionCommands)"
+        )
+
         let mismatchedCompletionStart = state.snapshot().count
         let mismatchedCompletion = runCursorHook(
             "shell-done",
@@ -1182,7 +1213,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sandboxedCompletionStart = state.snapshot().count
         let sandboxedCompletion = runCursorHook(
             "shell-done",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(secondCommand)","output":"","duration":1,"sandbox":true}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(thirdCommand)","output":"","duration":1,"sandbox":true}"#
         )
         XCTAssertFalse(sandboxedCompletion.timedOut, sandboxedCompletion.stderr)
         XCTAssertEqual(sandboxedCompletion.status, 0, sandboxedCompletion.stderr)
@@ -1197,7 +1228,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let nonShellFailureStart = state.snapshot().count
         let nonShellFailure = runCursorHook(
             "shell-failed",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"command":"\#(secondCommand)","file_path":"README.md"},"error_message":"Read failed","failure_type":"error"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"command":"\#(thirdCommand)","file_path":"README.md"},"error_message":"Read failed","failure_type":"error"}"#
         )
         XCTAssertFalse(nonShellFailure.timedOut, nonShellFailure.stderr)
         XCTAssertEqual(nonShellFailure.status, 0, nonShellFailure.stderr)
@@ -1212,7 +1243,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let failureStart = state.snapshot().count
         let failure = runCursorHook(
             "shell-failed",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(secondCommand)","cwd":"\#(root.path)"},"error_message":"User rejected","failure_type":"permission_denied","is_interrupt":true}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"User rejected","failure_type":"permission_denied","is_interrupt":true}"#
         )
         XCTAssertFalse(failure.timedOut, failure.stderr)
         XCTAssertEqual(failure.status, 0, failure.stderr)
