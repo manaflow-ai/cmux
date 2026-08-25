@@ -763,7 +763,7 @@ extension Workspace {
                 panelId: panelId
             )
             let admitted = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: startupInput
+                initialInput: restore.remoteResumeCommandEmbedded ? nil : startupInput
             )
             if !admitted {
                 if let claim {

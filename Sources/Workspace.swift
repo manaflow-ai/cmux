@@ -1570,6 +1570,27 @@ extension Workspace {
             } else {
                 nil
             }
+            let deferredPersistentSSHResumeCommand: String? = if restoreIndexUnavailable,
+                restoresRemoteWorkspaceTerminalSnapshot,
+                restorableAgent == nil,
+                let restoredRemotePTYSessionID {
+                let deferredBinding = sessionRestorePolicy.approvedSurfaceResumeBinding(
+                    resumeBinding,
+                    autoResumeAgentSessions: shouldAutoResumeAgent,
+                    promptForApproval: true,
+                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                )
+                persistentSSHResumeCommand(
+                    for: deferredBinding,
+                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
+                    expectedSurfaceID: snapshot.id,
+                    persistentPTYSessionID: restoredRemotePTYSessionID
+                )
+            } else {
+                nil
+            }
+            let effectivePersistentSSHResumeCommand =
+                restoredPersistentSSHResumeCommand ?? deferredPersistentSSHResumeCommand
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
@@ -1737,7 +1758,7 @@ extension Workspace {
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(
                     sessionID: $0,
-                    remoteCommand: restoredPersistentSSHResumeCommand
+                    remoteCommand: effectivePersistentSSHResumeCommand
                 )
             }
             let restoredStartupCommand =
@@ -1782,12 +1803,12 @@ extension Workspace {
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupCommand =
-                restoredPersistentSSHResumeCommand != nil &&
+                effectivePersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
-                deferredAgentResumeStartupInput != nil
+                (deferredAgentResumeStartupInput != nil && deferredPersistentSSHResumeCommand == nil)
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1945,6 +1966,7 @@ extension Workspace {
                         resumeBinding: resumeBinding,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
+                        remoteResumeCommandEmbedded: deferredPersistentSSHResumeCommand != nil,
                         workingDirectory: workingDirectory,
                         resumeWorkingDirectory: resumeSessionWorkingDirectory
                     )
