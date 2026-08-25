@@ -173,6 +173,52 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "permission_prompt must set the Needs input pill; saw \(snapshot)")
     }
 
+    /// Resuming must not overwrite the state the pane was restored with.
+    ///
+    /// Startup replay deliberately repaints `needsInput` and `error`, because a
+    /// pending question or an exhausted quota stays true across a relaunch. The
+    /// agent then comes back and fires SessionStart, so asserting "ready" there
+    /// would flip a restored orange or red pane green the moment its agent
+    /// returned - losing exactly the state the user needs to see.
+    @Test func resumingASessionDoesNotAssertReadyOverRestoredState() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "session-resume-preserve")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-session-resume-preserve",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-session-resume-preserve",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+
+        for source in ["resume", "compact"] {
+            let start = context.state.snapshot().count
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "session-start"],
+                environment: environment,
+                standardInput: #"{"session_id":"session-\#(source)","cwd":"/tmp/x","hook_event_name":"SessionStart","source":"\#(source)"}"#,
+                timeout: 15
+            )
+            #expect(handled.wait(timeout: .now() + 15) == .success)
+            harness.assertSuccessfulHook(result)
+            let commands = Array(context.state.snapshot().dropFirst(start))
+            let assertedPhases = AgentJournalAppendCapture.captures(in: commands)
+                .filter { $0.kind == "agent.state.changed" && $0.agentKey == "claude_code" }
+                .compactMap(\.declaredPhase)
+            #expect(
+                assertedPhases.isEmpty,
+                "source=\(source) must not assert a phase over restored state; saw \(commands)"
+            )
+        }
+    }
+
     /// Both error-shaped cues through one context and one mock server.
     ///
     /// One test rather than two, sharing a context: every context parks a

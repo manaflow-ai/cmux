@@ -25778,15 +25778,25 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if !suppressVisibleMutations {
+            // Only a genuinely fresh conversation may assert "ready".
+            //
+            // `resume` continues a session whose last phase is already journaled,
+            // and startup replay deliberately repaints `needsInput` and `error`
+            // because those stay true across a relaunch. Asserting ready here
+            // would overwrite exactly that: a pane restored orange on a pending
+            // question, or red on an exhausted quota, would flip green the moment
+            // its agent came back. `compact` is mid-session and can land inside a
+            // turn, so it is left alone too — anything but a new or cleared
+            // conversation lets the prior state stand.
+            let assertsReadyPhase = sessionStartSource == "startup" || isClearSessionStart
+            if assertsReadyPhase, !suppressVisibleMutations {
                 // A started agent is present and ready, not working: it sits at an
                 // empty prompt until the user submits something. `sessionStarted`
                 // alone reduces to `.unknown`, which renders as "no agent at all" —
                 // the pane border's no-agent neutral — so a live agent read as a
                 // plain terminal until its first turn ever started. Assert the
                 // ready phase explicitly; only `stateChanged` honors a declared
-                // phase. The status pill stays quiet for ordinary startup and
-                // resume, so this adds no startup chrome.
+                // phase. The status pill stays quiet, so this adds no chrome.
                 emitAgentJournalEvent(
                     client: client,
                     kind: .stateChanged,
