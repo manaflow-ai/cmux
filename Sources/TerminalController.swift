@@ -4175,12 +4175,32 @@ class TerminalController {
                 workspace.panels[id] != nil ? id : workspace.panelIdFromSurfaceId(TabID(uuid: id))
             }
             guard panelId == nil || resolvedPanelId != nil else { return }
+            // A remote mirror's unclaimed panel is authoritative for the whole
+            // mirror. Preflight that ownership before mutating the workspace so
+            // a rejected panel write cannot still emit `rename-session`.
+            let remotePanelOwnershipBlocked: Bool = {
+                guard workspace.isRemoteTmuxMirror,
+                      let resolvedPanelId,
+                      !(panelOnlyIfMultiple && workspace.panels.count < 2) else {
+                    return false
+                }
+                guard workspace.panelCustomTitleSources[resolvedPanelId] == .auto else {
+                    return true
+                }
+                if let expectedPanelTitle,
+                   workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle {
+                    return true
+                }
+                return false
+            }()
             if workspace.effectiveCustomTitleSource == .user ||
                (expectedWorkspaceTitle != nil &&
                 workspace.effectiveCustomTitleSource == .auto &&
-                workspace.customTitle != expectedWorkspaceTitle) {
-                // Manual ownership or a newer sibling-session auto-title wins.
-                // Reconciliation may still repair its independently owned panel.
+                workspace.customTitle != expectedWorkspaceTitle) ||
+               remotePanelOwnershipBlocked {
+                // Manual ownership, a newer sibling-session auto-title, or an
+                // authoritative remote panel wins. Reconciliation may still
+                // repair an independently owned local/remote panel.
                 workspaceApplySkipped = true
             } else {
                 workspaceApplied = tabManager.setCustomTitle(
@@ -4191,6 +4211,8 @@ class TerminalController {
             }
             if let resolvedPanelId {
                 if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if remotePanelOwnershipBlocked {
                     panelApplySkipped = true
                 } else if let expectedPanelTitle,
                           workspace.isRemoteTmuxMirror,
