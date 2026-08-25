@@ -580,7 +580,10 @@ async fn main() {
     let parsed = match parse_cli_args(std::env::args().skip(1)) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!("{}", error.message);
+            // Keep the machine-readable code stable while retaining the
+            // existing redacted message. Do not echo raw argv values here:
+            // positional arguments may contain copied credentials.
+            eprintln!("cmux-relay error [{}]: {}", error.code, error.message);
             eprintln!("Run `cmux-relay --help` for usage.");
             std::process::exit(2);
         }
