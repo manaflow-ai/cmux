@@ -76,6 +76,40 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .exited)
     }
 
+    @Test("Ownership-sensitive restore does not consume a warm cache")
+    func ownershipSensitiveRestoreDoesNotConsumeWarmCache() async throws {
+        let fixture = try makeFixture(prefix: "cmux-ownership-refresh")
+        defer { cleanup(fixture) }
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(fixture.processID),
+                startSeconds: Int64(fixture.updatedAt),
+                startMicroseconds: 0
+            )
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+        )
+
+        _ = await sharedIndex.indexRefreshingNow()
+        #expect(loadCount.withLock { $0 } == 1)
+        #expect(sharedIndex.currentIndexForOwnershipSensitiveRestore() == nil)
+        _ = await sharedIndex.indexRefreshingNow()
+        #expect(loadCount.withLock { $0 } == 2)
+    }
+
     @Test("A later process generation cannot satisfy a stale hook PID")
     func laterProcessGenerationCannotSatisfyStaleHookPID() throws {
         let fixture = try makeFixture(prefix: "cmux-pid-generation")
@@ -140,6 +174,67 @@ struct RestorableAgentProcessGenerationTests {
             workspaceId: fixture.workspaceID,
             panelId: fixture.panelID
         )?.processLiveness == .unknown)
+    }
+
+    @Test("Missing identity for a recorded live PID fails closed")
+    func missingIdentityForRecordedLivePIDFailsClosed() throws {
+        let fixture = try makeFixture(prefix: "cmux-partial-pid-identity")
+        defer { cleanup(fixture) }
+
+        let firstPID = fixture.processID
+        let secondPID = fixture.processID - 1
+        let recordedFirstIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(firstPID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        let currentFirstIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(firstPID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "partial-pid-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: (
+                snapshot: snapshot,
+                updatedAt: fixture.updatedAt + 1,
+                processIDs: [firstPID, secondPID],
+                agentProcessIDs: [firstPID, secondPID],
+                sessionIDSource: .explicit
+            )],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { pid in
+                pid == secondPID ? .present : .absent
+            },
+            processIdentityProvider: { pid in
+                pid == firstPID ? recordedFirstIdentity : nil
+            }
+        )
+
+        #expect(
+            index.hasUncertainStablePanelEntry(
+                panelId: fixture.panelID,
+                processIdentityProvider: { pid in
+                    pid == firstPID ? currentFirstIdentity : nil
+                },
+                processPresenceProvider: { pid in
+                    pid == secondPID ? .present : .absent
+                }
+            )
+        )
     }
 
     @Test("Shared cache publishes a same-PID process generation change")

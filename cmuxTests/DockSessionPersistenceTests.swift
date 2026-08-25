@@ -738,6 +738,43 @@ struct DockSessionPersistenceTests {
         )
     }
 
+    @Test("Stable-panel lookup fails closed when owner history exceeds its bound")
+    func stablePanelLookupFailsClosedForBoundedOwnerHistory() {
+        let panelID = UUID()
+        let owners = (0..<5).map { _ in UUID() }
+        let detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] =
+            Dictionary(uniqueKeysWithValues: owners.enumerated().map { offset, ownerID in
+                let key = RestorableAgentSessionIndex.PanelKey(
+                    workspaceId: ownerID,
+                    panelId: panelID
+                )
+                return (key, (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: "bounded-history-(offset)",
+                        workingDirectory: nil,
+                        launchCommand: nil
+                    ),
+                    updatedAt: TimeInterval(offset),
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ))
+            })
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent },
+            processIdentityProvider: { _ in nil }
+        )
+
+        #expect(index.hasAmbiguousPanel(panelID))
+        #expect(index.entryForStablePanel(workspaceId: owners[0], panelId: panelID) == nil)
+    }
+
     @Test("Stable-panel lookup revalidates a cached owner PID before preferring it")
     func stablePanelLookupRevalidatesCachedOwnerPID() throws {
         let fileManager = FileManager.default
@@ -821,6 +858,39 @@ struct DockSessionPersistenceTests {
             panelId: panelID
         )
         #expect(resolved?.snapshot.sessionId == currentSessionID)
+    }
+
+    @Test("Dock detach carries a deferred agent resume through the transfer")
+    @MainActor
+    func dockDetachCarriesDeferredAgentResumeThroughTransfer() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" },
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { store.closeAllPanels() }
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let stablePanelID = UUID()
+        store.deferredAgentResumeRestoresByPanelId[panelID] = DeferredAgentResumeRestore(
+            stablePanelID: stablePanelID,
+            restorableAgent: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "deferred-transfer-session",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            resumeBinding: nil,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            workingDirectory: "/tmp",
+            resumeWorkingDirectory: "/tmp"
+        )
+
+        let detached = try #require(store.detachSurface(panelId: panelID))
+        #expect(detached.deferredAgentResumeRestore?.stablePanelID == stablePanelID)
+        #expect(store.deferredAgentResumeRestoresByPanelId[panelID] == nil)
     }
 
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")

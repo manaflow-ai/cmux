@@ -45,6 +45,42 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
     }
 
+    @Test("Explicit input cancels a deferred agent resume before admission")
+    func explicitInputCancelsDeferredAgentResumeBeforeAdmission() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            initialInput: "resume codex session\n",
+            runtimeSpawnPolicy: .pacedSessionRestore
+                .requiringDeferredAgentResumeAdmission(),
+            dependencies: makeDependencies(
+                scheduler: scheduler,
+                nativeView: nativeView,
+                paneHost: paneHost
+            )
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        var cancellationCount = 0
+        surface.onStartupRestoreAdmissionCancelled = { cancellationCount += 1 }
+        surface.didReceiveExplicitInput()
+
+        #expect(cancellationCount == 1)
+        #expect(surface.suppressConfiguredInitialInput)
+        #expect(!surface.admitStartupRestoreRuntime(initialInput: "late resume\n"))
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+    }
+
     private func makeSurface(
         policy: TerminalSurfaceRuntimeSpawnPolicy,
         scheduler: RecordingRestoreSpawnScheduler,
@@ -56,7 +92,20 @@ struct TerminalSurfaceStartupRestorePolicyTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             runtimeSpawnPolicy: policy,
-            dependencies: TerminalSurfaceRuntimeDependencies(
+            dependencies: makeDependencies(
+                scheduler: scheduler,
+                nativeView: nativeView,
+                paneHost: paneHost
+            )
+        )
+    }
+
+    private func makeDependencies(
+        scheduler: RecordingRestoreSpawnScheduler,
+        nativeView: FakeTerminalSurfaceNativeView,
+        paneHost: FakeTerminalSurfacePaneHost
+    ) -> TerminalSurfaceRuntimeDependencies {
+        TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(
@@ -80,7 +129,6 @@ struct TerminalSurfaceStartupRestorePolicyTests {
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
-            )
         )
     }
 }
