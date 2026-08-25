@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
@@ -45,14 +46,60 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     }
 }
 
+/// The agent-state border resolved for one pane: the status that produced it
+/// and the color that status paints.
+///
+/// The status travels with the color because pane chrome has to rank the
+/// agent-state border against the unread notification ring, and the two are
+/// only distinguishable by *why* a color was chosen — the no-agent neutral is
+/// just another `WorkspaceAttentionColor`.
+struct AgentPaneStateBorder: Equatable {
+    let status: AgentStatus
+    let color: WorkspaceAttentionColor
+
+    /// The single ranking every pane renderer uses to pick its ring color.
+    ///
+    /// A live agent state outranks the unread ring. An agent posts its
+    /// turn-complete notification in the same instant it reports `.idle`, so
+    /// letting unread win would repaint every finished pane the same
+    /// notification blue and the idle/needsInput/error colors would never be
+    /// seen. The unread ring still outranks the no-agent neutral, so plain
+    /// terminals keep their notification ring unchanged.
+    static func ringColor(
+        _ border: AgentPaneStateBorder?,
+        showsUnreadRing: Bool,
+        unreadColor: @autoclosure () -> NSColor
+    ) -> NSColor? {
+        if let border, border.status != .none { return border.color.nsColor }
+        if showsUnreadRing { return unreadColor() }
+        return border?.color.nsColor
+    }
+}
+
 extension EnvironmentValues {
     @Entry var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 
-    /// The resolved agent-state border color for the pane subtree below this
-    /// value, or `nil` when no agent state should color the pane.
+    /// The resolved agent-state border for the pane subtree below this value,
+    /// or `nil` when no agent state should color the pane.
     ///
     /// Carried through the environment rather than as a view parameter so the
-    /// color reaches `GhosttyTerminalView` without threading a new argument
+    /// border reaches `GhosttyTerminalView` without threading a new argument
     /// through `PanelContentView` and `TerminalPanelView`.
-    @Entry var agentPaneStateColor: WorkspaceAttentionColor?
+    @Entry var agentPaneStateColor: AgentPaneStateBorder?
 }
+
+#if DEBUG
+extension NSColor {
+    /// `#RRGGBB` for debug logs. Dynamic catalog colors (`.systemBlue`) have no
+    /// components until they are converted, so convert before reading.
+    var debugRingHex: String {
+        guard let rgb = usingColorSpace(.sRGB) else { return "unconvertible" }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((rgb.redComponent * 255).rounded()),
+            Int((rgb.greenComponent * 255).rounded()),
+            Int((rgb.blueComponent * 255).rounded())
+        )
+    }
+}
+#endif

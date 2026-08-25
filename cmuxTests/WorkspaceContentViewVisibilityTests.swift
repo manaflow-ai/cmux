@@ -812,7 +812,10 @@ final class WorkspaceContentViewVisibilityTests {
                 enabled: true,
                 revision: 0,
                 lifecycles: running
-            ) == WorkspaceAttentionColor(configuredHex: AgentStatus.running.tintHex)
+            ) == AgentPaneStateBorder(
+                status: .running,
+                color: WorkspaceAttentionColor(configuredHex: AgentStatus.running.tintHex)
+            )
         )
     }
 
@@ -820,7 +823,10 @@ final class WorkspaceContentViewVisibilityTests {
     func agentPaneStateColorBordersAgentlessPanesBlack() {
         // A pane with no agent reporting — or only unknown states — is a plain
         // terminal and takes the neutral black border rather than none.
-        let noAgent = WorkspaceAttentionColor(configuredHex: PaneChromeSettings.noAgentPaneBorderHex)
+        let noAgent = AgentPaneStateBorder(
+            status: .none,
+            color: WorkspaceAttentionColor(configuredHex: PaneChromeSettings.noAgentPaneBorderHex)
+        )
         #expect(
             WorkspaceContentView.agentPaneStateColor(
                 enabled: true,
@@ -847,6 +853,71 @@ final class WorkspaceContentViewVisibilityTests {
                 enabled: false,
                 revision: 0,
                 lifecycles: nil
+            ) == nil
+        )
+    }
+
+    @Test
+    func agentStateBorderOutranksTheUnreadRing() {
+        // An agent posts its turn-complete notification in the same instant it
+        // reports `.idle`, so ranking unread first left every finished pane
+        // stuck on notification blue instead of turning green.
+        let idle = try! #require(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: ["claude_code": .idle]
+            )
+        )
+
+        #expect(
+            AgentPaneStateBorder.ringColor(
+                idle,
+                showsUnreadRing: true,
+                unreadColor: .systemBlue
+            ) == WorkspaceAttentionColor(configuredHex: AgentStatus.idle.tintHex).nsColor
+        )
+    }
+
+    @Test
+    func unreadRingStillOutranksTheNoAgentNeutral() {
+        // A plain terminal has no agent color to protect, so its unread ring
+        // must survive unchanged — and with the setting off there is no border
+        // at all.
+        let noAgent = try! #require(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: [:]
+            )
+        )
+
+        #expect(
+            AgentPaneStateBorder.ringColor(
+                noAgent,
+                showsUnreadRing: true,
+                unreadColor: .systemBlue
+            ) == NSColor.systemBlue
+        )
+        #expect(
+            AgentPaneStateBorder.ringColor(
+                nil,
+                showsUnreadRing: true,
+                unreadColor: .systemBlue
+            ) == NSColor.systemBlue
+        )
+        #expect(
+            AgentPaneStateBorder.ringColor(
+                noAgent,
+                showsUnreadRing: false,
+                unreadColor: .systemBlue
+            ) == noAgent.color.nsColor
+        )
+        #expect(
+            AgentPaneStateBorder.ringColor(
+                nil,
+                showsUnreadRing: false,
+                unreadColor: .systemBlue
             ) == nil
         )
     }

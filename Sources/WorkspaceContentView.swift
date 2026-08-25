@@ -196,14 +196,16 @@ struct WorkspaceContentView: View {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
-    /// Resolves one pane's agent lifecycle states into the border color the
-    /// pane subtree should carry, or `nil` to leave the pane unbordered.
+    /// Resolves one pane's agent lifecycle states into the border the pane
+    /// subtree should carry, or `nil` to leave the pane unbordered.
     ///
     /// The pane's lifecycle map reduces through `AgentStatus.resolve` — the same
     /// shared status the custom sidebars render — so a pane and its sidebar row
     /// read as one signal. A pane with no agent reporting (nil, empty, or only
     /// `unknown` states) is a plain terminal and takes the neutral no-agent
     /// border, so the only unbordered panes are those with the setting off.
+    /// The resolved status rides along so renderers can rank this border
+    /// against the unread ring (see `AgentPaneStateBorder.ringColor`).
     ///
     /// `revision` is unused by the computation; it exists so callers inside
     /// `body` take a read dependency on the agent-runtime observation counter,
@@ -212,12 +214,15 @@ struct WorkspaceContentView: View {
         enabled: Bool,
         revision: UInt64,
         lifecycles: [String: AgentHibernationLifecycleState]?
-    ) -> WorkspaceAttentionColor? {
+    ) -> AgentPaneStateBorder? {
         _ = revision
         guard enabled else { return nil }
         let status = lifecycles.map { AgentStatus.resolve(lifecycles: $0) } ?? .none
         let hex = status.tintHex ?? PaneChromeSettings.noAgentPaneBorderHex
-        return WorkspaceAttentionColor(configuredHex: hex)
+        return AgentPaneStateBorder(
+            status: status,
+            color: WorkspaceAttentionColor(configuredHex: hex)
+        )
     }
 
     static func panelVisibleInUI(

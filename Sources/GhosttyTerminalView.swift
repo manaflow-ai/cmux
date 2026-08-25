@@ -12591,11 +12591,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
             previousDesiredPortalZPriority != portalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
-        // Unread wins: the agent-state border only fills panes the unread ring
-        // is not already claiming, so this cannot regress notification display.
-        coordinator.desiredNotificationRingColor = showsUnreadNotificationRing
-            ? workspaceAttentionColorSnapshot.nsColor
-            : agentPaneStateColor?.nsColor
+        // Agent state wins over the unread ring: an agent posts its
+        // turn-complete notification in the same instant it reports `.idle`, so
+        // ranking unread first left every finished pane stuck on notification
+        // blue. Panes with no agent state still show the unread ring.
+        let previousRingColor = coordinator.desiredNotificationRingColor
+        coordinator.desiredNotificationRingColor = AgentPaneStateBorder.ringColor(
+            agentPaneStateColor,
+            showsUnreadRing: showsUnreadNotificationRing,
+            unreadColor: workspaceAttentionColorSnapshot.nsColor
+        )
+#if DEBUG
+        if previousRingColor != coordinator.desiredNotificationRingColor {
+            cmuxDebugLog(
+                "pane.ring surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "agent=\(agentPaneStateColor.map { String(describing: $0.status) } ?? "off") " +
+                "unread=\(showsUnreadNotificationRing ? 1 : 0) " +
+                "color=\(coordinator.desiredNotificationRingColor?.debugRingHex ?? "none")"
+            )
+        }
+#endif
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG

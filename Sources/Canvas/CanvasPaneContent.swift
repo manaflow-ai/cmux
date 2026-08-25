@@ -43,7 +43,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         panelId: UUID,
         container: NSView,
         workspaceAttentionColor: WorkspaceAttentionColor,
-        agentPaneStateColor: WorkspaceAttentionColor? = nil,
+        agentPaneStateColor: AgentPaneStateBorder? = nil,
         onFocusPanel: @escaping (UUID) -> Void,
         makeTerminalVisible: @MainActor (GhosttySurfaceScrollView) -> Void = { $0.setVisibleInUI(true) }
     ) {
@@ -63,7 +63,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
-            hostedView.setNotificationRing(color: agentPaneStateColor?.nsColor)
+            hostedView.setNotificationRing(color: agentPaneStateColor?.color.nsColor)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)
@@ -132,14 +132,14 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         inactiveOverlayOpacity: Double,
         sessionContentWidthPresentation: SessionContentWidthPresentation,
         workspaceAttentionColor: WorkspaceAttentionColor,
-        agentPaneStateColor: WorkspaceAttentionColor? = nil
+        agentPaneStateColor: AgentPaneStateBorder? = nil
     ) {
         switch content {
         case .terminal(let panel, _):
             let hostedView = panel.hostedView
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
-            hostedView.setNotificationRing(color: agentPaneStateColor?.nsColor)
+            hostedView.setNotificationRing(color: agentPaneStateColor?.color.nsColor)
             hostedView.setActive(isFocused)
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,
