@@ -8232,6 +8232,8 @@ private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         super.init()
     }
 
+    deinit {}
+
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
     }

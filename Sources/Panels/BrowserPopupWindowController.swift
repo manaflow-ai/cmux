@@ -446,6 +446,8 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         super.init()
     }
 
+    deinit {}
+
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
         cmuxDebugLog("popup.webViewDidClose")

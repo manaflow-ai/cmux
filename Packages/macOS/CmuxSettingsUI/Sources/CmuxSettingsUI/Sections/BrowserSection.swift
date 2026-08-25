@@ -336,7 +336,7 @@ public struct BrowserSection: View {
             SettingsCardDivider()
             hostnameEditor(
                 title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; regex-shaped rules and `*`/`?` wildcards are supported (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; `*`/`?` are wildcards, and regex rules containing them must use the `re:` prefix (legacy `.*`/`.+` rules remain supported) (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
                 json: "browser.urlsToAlwaysOpenExternally",
                 model: external
             )
