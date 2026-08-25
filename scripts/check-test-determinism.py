@@ -2063,6 +2063,68 @@ def _bounds_contain_offset(bounds: tuple[int, int], offset: int) -> bool:
     return bounds[0] <= offset < bounds[1]
 
 
+def _concatenated_literal_source(
+    line: str,
+    bounds: tuple[int, int],
+) -> Optional[str]:
+    """Reconstruct adjacent quoted literals joined by ``+`` from one argument."""
+    start, end = _trim_bounds(line, *bounds)
+    cursor = start
+    parts: list[str] = []
+    while cursor < end:
+        while cursor < end and line[cursor].isspace():
+            cursor += 1
+        if cursor >= end:
+            break
+        literal = _quoted_argument_bounds(line, cursor)
+        if literal is None:
+            return None
+        content_start, content_end = literal
+        quote_start = cursor
+        prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[cursor:end])
+        if prefix is not None:
+            quote_start += len(prefix.group(0))
+        delimiter = (
+            "`"
+            if line[quote_start] == "`"
+            else _quote_delimiter_at(line, quote_start)
+        )
+        parts.append(line[content_start:content_end])
+        cursor = content_end + len(delimiter)
+        while cursor < end and line[cursor].isspace():
+            cursor += 1
+        if cursor >= end:
+            break
+        if line[cursor] != "+":
+            return None
+        cursor += 1
+    return "".join(parts) if parts else None
+
+
+def _explicit_shell_literal_target_ranges(
+    line: str,
+    opening_paren: int,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    """Return a command argument range when explicit shell code is hardcoded."""
+    if not _call_uses_explicit_shell(line, opening_paren, path_suffix):
+        return []
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    command_argument = _select_call_argument(
+        arguments,
+        _ARGV_COMMAND_LABELS,
+        0,
+    )
+    if command_argument is None:
+        return []
+    source = _concatenated_literal_source(line, command_argument.value_bounds)
+    if source is None or not _contains_public_network_url(source):
+        return []
+    if _live_network_verb_offsets(source, ".sh"):
+        return [command_argument.value_bounds]
+    return []
+
+
 def _argv_execution_target_ranges(
     line: str,
     opening_paren: int,
@@ -2103,6 +2165,14 @@ def _argv_execution_target_ranges(
             return env_split_ranges
         if _bounds_contain_offset(env_split_source, verb_start):
             return []
+
+    literal_ranges = _explicit_shell_literal_target_ranges(
+        line,
+        opening_paren,
+        path_suffix,
+    )
+    if literal_ranges:
+        return literal_ranges
 
     executable_bounds = _argv_executable_bounds(
         line,
