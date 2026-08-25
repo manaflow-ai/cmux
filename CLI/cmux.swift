@@ -3687,6 +3687,11 @@ struct CMUXCLI {
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" {
             return false
         }
+        if normalizedCommand == "rpc",
+           commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                == "surface.read_selection" {
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
