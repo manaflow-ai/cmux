@@ -2108,13 +2108,10 @@ final class ClaudeHookSessionStore {
         } else if let active = state.activeSessionsByWorkspace[record.workspaceId] {
             guard active.sessionId == sessionId else {
                 // Legacy stores may predate per-surface active slots. Preserve
-                // a valid sibling-pane continuation when the workspace slot's
-                // record proves that it belongs to a different surface, while
-                // staying fail-closed if that proof is unavailable.
-                guard let activeRecord = state.sessions[active.sessionId],
-                      let activeSurfaceId = normalizeOptional(activeRecord.surfaceId),
-                      let recordSurfaceId = normalizeOptional(record.surfaceId),
-                      activeSurfaceId != recordSurfaceId else {
+                // a sibling-pane continuation only when the authoritative
+                // target surface also proves that this session is active.
+                guard targetIsAuthoritative,
+                      state.activeSessionsBySurface[targetSurfaceId]?.sessionId == sessionId else {
                     return false
                 }
             }

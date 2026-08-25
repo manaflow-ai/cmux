@@ -89,6 +89,7 @@ extension CMUXCLI {
             )
         case .codexRollout:
             guard let path = normalizedHookValue(transcriptPath),
+                  fallbackLineCount != nil,
                   FileManager.default.fileExists(atPath: NSString(string: path).expandingTildeInPath)
             else { return nil }
             return textFileGrowthMetric(path: path, fallbackLineCount: fallbackLineCount ?? 0)
@@ -101,7 +102,8 @@ extension CMUXCLI {
             let historyPath = sessionDirectory
                 .appendingPathComponent("chat_history.jsonl", isDirectory: false)
                 .path
-            guard FileManager.default.fileExists(atPath: historyPath) else { return nil }
+            guard fallbackLineCount != nil,
+                  FileManager.default.fileExists(atPath: historyPath) else { return nil }
             return textFileGrowthMetric(path: historyPath, fallbackLineCount: fallbackLineCount ?? 0)
         }
     }
