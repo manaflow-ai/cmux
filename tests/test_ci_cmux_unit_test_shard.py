@@ -11,16 +11,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
+TIMING_GENERATOR = ROOT / "scripts" / "ci" / "generate_test_timings.py"
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
     methods = "\n".join(
-        f"    func testGenerated{index:02d}() {{}}"
-        for index in range(1, 41)
+        f"    @Test func testGenerated{index:02d}() {{}}"
+        for index in range(1, 40)
     )
     (test_root / "LargeSuiteTests.swift").write_text(
         f"""
-final class LargeSuiteTests: XCTestCase {{
+import Testing
+
+struct LargeSuiteTests {{
 {methods}
 }}
 """.lstrip(),
@@ -29,7 +32,10 @@ final class LargeSuiteTests: XCTestCase {{
     (test_root / "LargeSuiteExtensionTests.swift").write_text(
         """
 extension LargeSuiteTests {
-    func testExtensionRegression() {}
+    @Test func testExtensionRegression() {}
+
+    @Test
+    func extensionOnFollowingLine() {}
 }
 """.lstrip(),
         encoding="utf-8",
@@ -47,6 +53,646 @@ final class {name}: XCTestCase {{
 """.lstrip(),
             encoding="utf-8",
         )
+
+
+def check_parameterized_swift_testing_counts() -> int:
+    """Parameterized cases and stacked attributes must count as real executions."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "ParameterizedCountingTests.swift").write_text(
+            """
+import Testing
+
+@Suite struct ParameterizedCountingTests {
+    private static let seeds: [UInt64] = [
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+    ]
+
+    @Test(arguments: seeds)
+    func seededCase(seed: UInt64) {}
+
+    @MainActor @Test(arguments: ["alpha", "beta", "gamma"])
+    func mainActorCase(name: String) {}
+
+    @Test(arguments: [1, 2] as [Int], [10, 20, 30])
+    func castedCartesianCase(lhs: Int, rhs: Int) {}
+
+    @Test func ordinaryCase() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--validate",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: parameterized discovery exited {result.returncode}")
+        return 1
+    if "representing 18 tests" not in result.stdout:
+        print(result.stdout, end="")
+        print(
+            "FAIL: parameterized Swift Testing cases, stacked attributes, or "
+            "Cartesian argument collections were not counted"
+        )
+        return 1
+
+    print("PASS: parameterized Swift Testing cases count as app-host executions")
+    return 0
+
+
+def check_runtime_parameterized_tests_fail_closed() -> int:
+    """An unknown parameter expansion must not bypass the hard process cap."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "RuntimeParameterizedTests.swift").write_text(
+            """
+import Testing
+
+@Suite struct RuntimeParameterizedTests {
+    private static var runtimeCases: [Int] { Array(0..<4) }
+
+    @Test(arguments: runtimeCases)
+    func runtimeExpandedCase(value: Int) {}
+
+    @Test func ordinaryCase() {}
+}
+
+@Suite struct PeerTests {
+    @Test func peerCase() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        output_directory = tmp_root / "batches"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--shard-index",
+                "1",
+                "--shard-total",
+                "1",
+                "--batch-selector-limit",
+                "24",
+                "--batch-test-limit",
+                "80",
+                "--batch-output-directory",
+                str(output_directory),
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    selector = "cmuxTests/RuntimeParameterizedTests/runtimeExpandedCase"
+    if (
+        result.returncode == 0
+        or selector not in result.stderr
+        or "runtime-expanded test count" not in result.stderr
+    ):
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print("FAIL: runtime-expanded parameterized tests must fail closed")
+        return 1
+
+    print("PASS: runtime-expanded parameterized tests cannot bypass the process cap")
+    return 0
+
+
+def check_nested_swift_testing_suites_keep_umbrella_selectors() -> int:
+    """Nested suites must retain their recursively selecting umbrella type."""
+    nested_methods = "\n".join(
+        f"    @Test func nestedCase{index:02d}() {{}}" for index in range(1, 42)
+    )
+    non_suffixed_methods = "\n".join(
+        f"        @Test func case{index:02d}() {{}}" for index in range(1, 82)
+    )
+    multiline_attribute_methods = "\n".join(
+        f"        @Test func scenario{index:02d}() {{}}" for index in range(1, 4)
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "BehaviorUmbrellaTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite(.serialized)
+struct BehaviorUmbrellaTests {{}}
+
+extension BehaviorUmbrellaTests {{
+    @Suite struct NestedBehaviorTests {{
+{nested_methods}
+    }}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        (test_root / "SharedStateSuites.swift").write_text(
+            """
+import Testing
+
+@Suite(.serialized)
+enum SharedStateSuites {}
+
+extension SharedStateSuites {
+    @Suite struct FirstSharedStateTests {
+        @Test func firstCase() {}
+    }
+
+    @Suite struct SecondSharedStateTests {
+        @Test func secondCase() {}
+    }
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        (test_root / "ExplicitlyAnnotatedUmbrellaTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite(.serialized)
+struct ExplicitlyAnnotatedUmbrellaTests {{}}
+
+extension ExplicitlyAnnotatedUmbrellaTests {{
+    @Suite struct Cases {{
+{non_suffixed_methods}
+    }}
+}}
+
+@Suite(.serialized)
+struct MultilineAnnotatedUmbrellaTests {{}}
+
+extension MultilineAnnotatedUmbrellaTests {{
+    @Suite
+    struct Scenarios {{
+{multiline_attribute_methods}
+    }}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--list",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        batch_result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--shard-index",
+                "1",
+                "--shard-total",
+                "1",
+                "--batch-selector-limit",
+                "24",
+                "--batch-test-limit",
+                "80",
+                "--batch-output-directory",
+                str(tmp_root / "batches"),
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: nested-suite discovery exited {result.returncode}")
+        return 1
+
+    selectors = {
+        fields[0]: int(fields[1])
+        for line in result.stdout.splitlines()
+        if len(fields := line.split("\t", 2)) == 3
+    }
+    expected = {
+        "cmuxTests/BehaviorUmbrellaTests": 41 * 200,
+        "cmuxTests/ExplicitlyAnnotatedUmbrellaTests": 81 * 200,
+        "cmuxTests/MultilineAnnotatedUmbrellaTests": 3 * 200,
+        "cmuxTests/SharedStateSuites": 2 * 200,
+    }
+    if selectors != expected:
+        print(result.stdout, end="")
+        print(
+            "FAIL: nested Swift Testing suites must stay under their recursively "
+            f"selecting umbrella with exact counts, got {selectors}"
+        )
+        return 1
+    if (
+        batch_result.returncode == 0
+        or "cmuxTests/ExplicitlyAnnotatedUmbrellaTests" not in batch_result.stderr
+        or "represents 81 tests" not in batch_result.stderr
+    ):
+        print(batch_result.stdout, end="")
+        print(batch_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: a non-suffixed nested @Suite must not bypass the process cap"
+        )
+        return 1
+
+    print("PASS: nested Swift Testing suites retain umbrella selectors and counts")
+    return 0
+
+
+def check_parameterized_method_fallback_weight() -> int:
+    """Method-split parameterized tests must retain per-case fallback weight."""
+    ordinary_methods = "\n".join(
+        f"    @Test func ordinaryCase{index:02d}() {{}}" for index in range(32)
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "ParameterizedFallbackWeightTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite struct ParameterizedFallbackWeightTests {{
+    @Test(arguments: [1, 2, 3, 4, 5, 6, 7, 8])
+    func parameterizedCase(value: Int) {{}}
+
+{ordinary_methods}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--list",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: parameterized fallback weighting exited {result.returncode}")
+        return 1
+    weights = {
+        fields[0]: int(fields[1])
+        for line in result.stdout.splitlines()
+        if len(fields := line.split("\t", 2)) == 3
+    }
+    selector = "cmuxTests/ParameterizedFallbackWeightTests/parameterizedCase"
+    if weights.get(selector) != 8 * 200:
+        print(result.stdout, end="")
+        print(
+            "FAIL: parameterized method fallback weight must scale by its "
+            f"eight cases, got {weights.get(selector)}"
+        )
+        return 1
+
+    print("PASS: parameterized method fallback weight scales by case count")
+    return 0
+
+
+def check_batched_swift_timing_aggregation() -> int:
+    """Timing refreshes must sum distinct partial Swift Testing batches."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        first_log = tmp_root / "shard-1.log"
+        first_log.write_text(
+            """
+Suite LargeSwiftTests passed after 20.0 seconds
+Suite LegacyOnlyTests passed after 5.0 seconds
+##[group]Run app-host process batch batch-001.args (3 selectors)
+Suite LargeSwiftTests passed after 2.0 seconds
+Suite SmallSwiftTests passed after 1.0 seconds
+##[endgroup]
+##[group]Run app-host process batch batch-002.args (2 selectors)
+Suite LargeSwiftTests passed after 3.0 seconds
+Suite LargeSwiftTests passed after 2.5 seconds
+##[endgroup]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        second_log = tmp_root / "shard-2.log"
+        second_log.write_text(
+            """
+Suite LegacyOnlyTests passed after 6.0 seconds
+##[group]Run app-host process batch batch-001.args (4 selectors)
+Suite LargeSwiftTests passed after 4.0 seconds
+##[endgroup]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        output = tmp_root / "timings.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TIMING_GENERATOR),
+                "--run-id",
+                "fixture-run",
+                "--output",
+                str(output),
+                str(first_log),
+                str(second_log),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: timing generation exited {result.returncode}")
+            return 1
+        manifest = json.loads(output.read_text(encoding="utf-8"))
+
+    suites = manifest["suites"]
+    if suites.get("LargeSwiftTests") != 9_000:
+        print(
+            "FAIL: distinct partial Swift Testing batches must sum to 9000 ms, "
+            f"got {suites.get('LargeSwiftTests')}"
+        )
+        return 1
+    if suites.get("LegacyOnlyTests") != 6_000:
+        print(
+            "FAIL: legacy unbatched Swift Testing observations must retain the "
+            f"largest duration, got {suites.get('LegacyOnlyTests')}"
+        )
+        return 1
+
+    print("PASS: Swift Testing timing refresh aggregates distinct process batches")
+    return 0
+
+
+def check_bounded_process_batches() -> int:
+    """Process batches must bound represented work and cover every selector once."""
+    import json
+
+    suite_names = (
+        "HeavyTests",
+        "WideTests",
+        "AlphaTests",
+        "BetaTests",
+        "GammaTests",
+        "DeltaTests",
+        "EpsilonTests",
+        "ZetaTests",
+        "TerminalWindowPortalLifecycleTests",
+        "TerminalOffscreenStartupTests",
+        "BrowserWindowPortalLifecycleTests",
+    )
+    test_counts = {name: 5 if name == "WideTests" else 2 for name in suite_names}
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        for name in suite_names:
+            methods = "\n".join(
+                f"    func testGenerated{index}() {{}}"
+                for index in range(1, test_counts[name] + 1)
+            )
+            (test_root / f"{name}.swift").write_text(
+                f"""
+final class {name}: XCTestCase {{
+{methods}
+}}
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+        manifest = tmp_root / "timings.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "default_test_ms": 200,
+                    "suites": {
+                        "HeavyTests": 600_000,
+                        **{name: 400 for name in suite_names if name != "HeavyTests"},
+                    },
+                    "methods": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        output_directory = tmp_root / "batches"
+        batch_command = [
+            sys.executable,
+            str(HELPER),
+            "--root",
+            str(tmp_root),
+            "--shard-index",
+            "1",
+            "--shard-total",
+            "1",
+            "--batch-selector-limit",
+            "2",
+            "--batch-test-limit",
+            "6",
+            "--batch-output-directory",
+            str(output_directory),
+            "--timings",
+            str(manifest),
+        ]
+        result = subprocess.run(
+            batch_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: batched shard helper exited {result.returncode}")
+            return 1
+
+        invalid_selector_limit_command = [*batch_command]
+        invalid_selector_limit_command[
+            invalid_selector_limit_command.index("--batch-selector-limit") + 1
+        ] = "0"
+        invalid_selector_limit = subprocess.run(
+            invalid_selector_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            invalid_selector_limit.returncode == 0
+            or "--batch-selector-limit must be >= 1"
+            not in invalid_selector_limit.stderr
+        ):
+            print(invalid_selector_limit.stdout, end="")
+            print(invalid_selector_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: zero selector limit must be rejected")
+            return 1
+
+        invalid_test_limit_command = [*batch_command]
+        invalid_test_limit_command[
+            invalid_test_limit_command.index("--batch-test-limit") + 1
+        ] = "0"
+        invalid_test_limit = subprocess.run(
+            invalid_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            invalid_test_limit.returncode == 0
+            or "--batch-test-limit must be >= 1" not in invalid_test_limit.stderr
+        ):
+            print(invalid_test_limit.stdout, end="")
+            print(invalid_test_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: zero represented-test limit must be rejected")
+            return 1
+
+        unsafe_test_limit_command = [*batch_command]
+        unsafe_test_limit_command[
+            unsafe_test_limit_command.index("--batch-test-limit") + 1
+        ] = "81"
+        unsafe_test_limit = subprocess.run(
+            unsafe_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            unsafe_test_limit.returncode == 0
+            or "--batch-test-limit must be <= 80" not in unsafe_test_limit.stderr
+        ):
+            print(unsafe_test_limit.stdout, end="")
+            print(unsafe_test_limit.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: a process test limit above the safety boundary must be rejected"
+            )
+            return 1
+
+        undersized_test_limit_command = [*batch_command]
+        undersized_test_limit_command[
+            undersized_test_limit_command.index("--batch-test-limit") + 1
+        ] = "1"
+        undersized_test_limit = subprocess.run(
+            undersized_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            undersized_test_limit.returncode == 0
+            or "exceeding --batch-test-limit 1" not in undersized_test_limit.stderr
+        ):
+            print(undersized_test_limit.stdout, end="")
+            print(undersized_test_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: a suite larger than the process test limit must be rejected")
+            return 1
+
+        batches = [
+            path.read_text(encoding="utf-8").splitlines()
+            for path in sorted(output_directory.glob("batch-*.args"))
+        ]
+        rerun = subprocess.run(
+            batch_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            rerun.returncode == 0
+            or "already contains process batches" not in rerun.stderr
+        ):
+            print(rerun.stdout, end="")
+            print(rerun.stderr, end="", file=sys.stderr)
+            print("FAIL: reused batch output directory must be rejected")
+            return 1
+
+    if not batches:
+        print("FAIL: batched shard helper emitted no process batches")
+        return 1
+    if any(not batch or len(batch) > 2 for batch in batches):
+        print(f"FAIL: process batches must contain 1...2 selectors, got {batches}")
+        return 1
+
+    represented_tests = [
+        sum(test_counts[selector.rsplit("/", 1)[-1]] for selector in batch)
+        for batch in batches
+    ]
+    if any(count > 6 for count in represented_tests):
+        print(
+            "FAIL: process batches exceeded the represented-test limit: "
+            f"counts={represented_tests} batches={batches}"
+        )
+        return 1
+
+    flattened = [selector for batch in batches for selector in batch]
+    expected = {f"-only-testing:cmuxTests/{name}" for name in suite_names}
+    if len(flattened) != len(set(flattened)) or set(flattened) != expected:
+        print(f"FAIL: process batches lost or duplicated selectors: {batches}")
+        return 1
+
+    heavy_selector = "-only-testing:cmuxTests/HeavyTests"
+    heavy_batch = next(batch for batch in batches if heavy_selector in batch)
+    if heavy_batch != [heavy_selector]:
+        print(
+            f"FAIL: timing-balanced batches should isolate the dominant suite: {heavy_batch}"
+        )
+        return 1
+
+    isolated_suites = (
+        "TerminalWindowPortalLifecycleTests",
+        "TerminalOffscreenStartupTests",
+        "BrowserWindowPortalLifecycleTests",
+    )
+    for suite in isolated_suites:
+        selector = f"-only-testing:cmuxTests/{suite}"
+        batch = next(batch for batch in batches if selector in batch)
+        if batch != [selector]:
+            print(
+                f"FAIL: resource-lifecycle suite must run in a fresh process: {batch}"
+            )
+            return 1
+
+    print("PASS: process batches bound app-host work without losing selectors")
+    return 0
 
 
 def run_shard(tmp_root: Path, shard: int, output: Path, timings: Path) -> list[str]:
@@ -218,6 +864,23 @@ final class {name}: XCTestCase {{
 
 
 def main() -> int:
+    if (rc := check_bounded_process_batches()) != 0:
+        return rc
+
+    if (rc := check_parameterized_swift_testing_counts()) != 0:
+        return rc
+
+    nested_suite_rc = check_nested_swift_testing_suites_keep_umbrella_selectors()
+    runtime_parameter_rc = check_runtime_parameterized_tests_fail_closed()
+    if nested_suite_rc != 0 or runtime_parameter_rc != 0:
+        return 1
+
+    if (rc := check_parameterized_method_fallback_weight()) != 0:
+        return rc
+
+    if (rc := check_batched_swift_timing_aggregation()) != 0:
+        return rc
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
@@ -253,10 +916,17 @@ def main() -> int:
                 return 1
             selectors.extend(output.read_text(encoding="utf-8").splitlines())
 
-    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression"
-    if selectors.count(extension_selector) != 1:
-        print(f"FAIL: expected extension selector exactly once, got {selectors.count(extension_selector)}")
-        return 1
+    extension_selectors = {
+        "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression",
+        "-only-testing:cmuxTests/LargeSuiteTests/extensionOnFollowingLine",
+    }
+    for extension_selector in extension_selectors:
+        if selectors.count(extension_selector) != 1:
+            print(
+                "FAIL: expected Swift Testing extension selector exactly once, got "
+                f"{extension_selector}={selectors.count(extension_selector)}"
+            )
+            return 1
 
     suite_selector = "-only-testing:cmuxTests/LargeSuiteTests"
     if suite_selector in selectors:

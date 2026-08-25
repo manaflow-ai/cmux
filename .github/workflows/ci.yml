@@ -1112,15 +1112,18 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          SHARD_ARGS="$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}.args"
+          SHARD_BATCH_DIRECTORY="$(mktemp -d "$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}-batches.XXXXXX")"
+          # A full shard currently represents about 2,100 tests and has crossed
+          # AppKit's 100-live-window warning before cascading across unrelated
+          # suites. Bound both selector arguments and represented tests so suite
+          # selectors cannot silently defeat the fresh-process lifetime limit.
           python3 scripts/ci/cmux_unit_test_shard.py \
             --shard-index "${{ matrix.shard }}" \
             --shard-total 4 \
-            --output "$SHARD_ARGS"
+            --batch-selector-limit "${CMUX_UNIT_TEST_PROCESS_SELECTOR_LIMIT:-24}" \
+            --batch-test-limit "${CMUX_UNIT_TEST_PROCESS_TEST_LIMIT:-80}" \
+            --batch-output-directory "$SHARD_BATCH_DIRECTORY"
           ONLY_TESTING_ARGS=()
-          while IFS= read -r arg; do
-            [ -n "$arg" ] && ONLY_TESTING_ARGS+=("$arg")
-          done < "$SHARD_ARGS"
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -1160,37 +1163,49 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          set +e
-          run_unit_tests | tee "$TEST_OUTPUT"
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
-          set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$CMUX_DERIVED_DATA_PATH"
-            mkdir -p "$CMUX_DERIVED_DATA_PATH"
+          for SHARD_ARGS in "$SHARD_BATCH_DIRECTORY"/batch-*.args; do
+            [ -f "$SHARD_ARGS" ] || {
+              echo "No app-host process batches were generated" >&2
+              exit 1
+            }
+            ONLY_TESTING_ARGS=()
+            while IFS= read -r arg; do
+              [ -n "$arg" ] && ONLY_TESTING_ARGS+=("$arg")
+            done < "$SHARD_ARGS"
+            echo "::group::Run app-host process batch $(basename "$SHARD_ARGS") (${#ONLY_TESTING_ARGS[@]} selectors)"
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
-          fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
+            # SwiftPM binary artifact resolution can occasionally fail on ephemeral
+            # runners with "Could not resolve package dependencies". Retry the
+            # current process batch once after clearing transient build caches.
+            if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+              echo "SwiftPM package resolution failed, clearing caches and retrying once"
+              rm -rf ~/Library/Caches/org.swift.swiftpm
+              mkdir -p ~/Library/Caches/org.swift.swiftpm
+              rm -rf "$CMUX_DERIVED_DATA_PATH"
+              mkdir -p "$CMUX_DERIVED_DATA_PATH"
+              set +e
+              run_unit_tests | tee "$TEST_OUTPUT"
+              EXIT_CODE=${PIPESTATUS[0]}
+              OUTPUT=$(cat "$TEST_OUTPUT")
+              set -e
             fi
-          fi
+
+            if [ "$EXIT_CODE" -ne 0 ]; then
+              SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+              if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+                echo "All failures are expected, treating as pass"
+              else
+                echo "Unexpected test failures detected"
+                exit 1
+              fi
+            fi
+            echo "::endgroup::"
+          done
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
