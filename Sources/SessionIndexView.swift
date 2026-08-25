@@ -31,13 +31,15 @@ enum SessionEntryResumeCoordinator {
         if pwdMatches,
            let workspace = selected,
            let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
+            _ = workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+                workspace.newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: true,
+                    workingDirectory: targetCwd,
+                    initialInput: launch.initialInput,
+                    startupRestoreAgent: launch.startupRestoreAgent
+                )
+            }
             return
         }
 

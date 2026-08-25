@@ -252,22 +252,26 @@ extension TerminalController {
         }
 
         if isBrowser {
-            guard let id = tab.newBrowserSurface(
-                inPane: targetPaneId,
-                url: url,
-                focus: focus,
-                creationPolicy: .automationPreload
-            )?.id else {
+            guard let id = tab.withNewTabZoomPolicy(inPane: targetPaneId, {
+                tab.newBrowserSurface(
+                    inPane: targetPaneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )
+            })?.id else {
                 return .failed
             }
             return .created(id)
         }
-        switch tab.newTerminalSurfaceOutcome(
-            inPane: targetPaneId,
-            focus: focus,
-            inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
-        ) {
+        switch tab.withNewTerminalTabZoomPolicy(inPane: targetPaneId, {
+            tab.newTerminalSurfaceOutcome(
+                inPane: targetPaneId,
+                focus: focus,
+                inheritWorkingDirectoryFallback: true,
+                allowTextBoxFocusDefault: false
+            )
+        }) {
         case .created(let panel):
             return .created(panel.id)
         case .routedToRemote:
