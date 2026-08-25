@@ -5,7 +5,7 @@ import Foundation
 /// Feed keeps its actionable desktop banner in the Workstream store, so this
 /// request deliberately carries only the content and target needed by the
 /// phone push queue. It must not become a second terminal notification entry.
-struct FeedPhonePushRequest: Equatable, Sendable {
+nonisolated struct FeedPhonePushRequest: Equatable, Sendable {
     let title: String
     let subtitle: String
     let body: String
