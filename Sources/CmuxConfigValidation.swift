@@ -370,13 +370,51 @@ struct CmuxConfigValidator: Sendable {
         into issues: inout [CmuxConfigValidationIssue]
     ) {
         guard let rawShortcut else { return }
-        if rawShortcut is String { return }
-        guard let strokes = rawShortcut as? [Any],
-              (1...2).contains(strokes.count),
-              strokes.allSatisfy({ $0 is String }) else {
+        let strokes: [String]
+        if let value = rawShortcut as? String {
+            strokes = [value]
+        } else if let values = rawShortcut as? [Any],
+                  (1...2).contains(values.count),
+                  values.allSatisfy({ $0 is String }) {
+            strokes = values.compactMap { $0 as? String }
+        } else {
             issues.append(issue(path, "must be a string or an array of one or two strings"))
             return
         }
+        for (index, stroke) in strokes.enumerated() where !validShortcutStroke(stroke, allowUnbound: strokes.count == 1) {
+            issues.append(issue(path + (strokes.count == 1 ? "" : "[\(index)]"), "shortcut stroke is not valid"))
+        }
+    }
+
+    private func validShortcutStroke(_ rawValue: String, allowUnbound: Bool) -> Bool {
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if allowUnbound, rawValue.isEmpty || ["none", "clear", "unbound", "disabled"].contains(normalized) {
+            return true
+        }
+        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
+        guard let rawKey = rawParts.last, !rawKey.isEmpty else { return false }
+        let modifiers = Set(["cmd", "command", "⌘", "shift", "⇧", "opt", "option", "alt", "⌥", "ctrl", "control", "ctl", "⌃"])
+        guard rawParts.dropLast().allSatisfy({ modifiers.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }) else {
+            return false
+        }
+        let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty || rawKey == " " else { return false }
+        let hasModifier = rawParts.count > 1
+        let namedKeys = [
+            "left", "arrowleft", "leftarrow", "←", "right", "arrowright", "rightarrow", "→",
+            "up", "arrowup", "uparrow", "↑", "down", "arrowdown", "downarrow", "↓", "tab",
+            "return", "enter", "↩", "space", "spacebar", "<space>", "comma", "period", "dot",
+            "slash", "backslash", "semicolon", "quote", "apostrophe", "backtick", "grave",
+            "minus", "hyphen", "plus", "equals", "leftbracket", "openbracket", "rightbracket", "closebracket",
+            "volumeup", "mediavolumeup", "media.volumeup", "volumedown", "mediavolumedown", "media.volumedown",
+            "brightnessup", "mediabrightnessup", "media.brightnessup", "brightnessdown", "mediabrightnessdown",
+            "media.brightnessdown", "mute", "mediamute", "media.mute", "playpause", "mediaplaypause",
+            "media.playpause", "nexttrack", "medianext", "media.next", "media.nexttrack", "previoustrack",
+            "mediaprevious", "media.previous", "media.previoustrack",
+        ]
+        let isFunctionKey = key.first == "f" && (1...20).contains(Int(key.dropFirst()) ?? 0)
+        return hasModifier && (key.count == 1 || namedKeys.contains(key) || isFunctionKey) ||
+            (!hasModifier && (key == "space" || rawKey == " "))
     }
 
     private func requireNonBlankString(
