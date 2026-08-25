@@ -461,6 +461,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
+        // A pump can paint a newer model without changing the authoritative
+        // row configuration. Reconcile those cells even when the snapshot is
+        // content-equivalent, then release their matching geometry in the
+        // same table transaction.
+        let releasedPumpRows = releasePumpHeightOverrides(for: nextRows)
+        contentChanges.formUnion(releasedPumpRows)
         let width = currentColumnWidth()
         var heightChanges = IndexSet()
         if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
@@ -484,10 +490,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         // Releasing a pump override changes what heightOfRow answers, so the
         // released rows must be re-noted like any other height change.
-        // Clearing silently left the table on the override height while the
-        // cache served the measured one — the row clipping/overlap reports
-        // (probe: served=48 actual=50 on every streaming row).
-        releasePumpHeightOverrides(for: nextRows, addingTo: &heightChanges)
+        heightChanges.formUnion(releasedPumpRows)
 
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
@@ -1773,19 +1776,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
     }
 
-    /// Drops pump heights only when an authoritative row snapshot supersedes
-    /// the cell model, and re-notes every affected row even when the released
-    /// override was measured at a different width from the settled lookup.
+    /// Drops pump heights when an authoritative row snapshot supersedes the
+    /// cell model and returns every affected row for atomic model/height
+    /// reconciliation.
     private func releasePumpHeightOverrides(
-        for rows: [SidebarWorkspaceTableRowConfiguration],
-        addingTo heightRows: inout IndexSet
-    ) {
-        guard !pumpHeightOverrides.isEmpty else { return }
+        for rows: [SidebarWorkspaceTableRowConfiguration]
+    ) -> IndexSet {
+        guard !pumpHeightOverrides.isEmpty else { return [] }
         let releasedIds = Set(pumpHeightOverrides.keys)
+        var releasedRows = IndexSet()
         for (index, row) in rows.enumerated() where releasedIds.contains(row.id) {
-            heightRows.insert(index)
+            releasedRows.insert(index)
         }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
+        return releasedRows
     }
 
     /// Removes offscreen overrides that were measured at an older width after
