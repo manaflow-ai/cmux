@@ -51,6 +51,27 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("vm-baked Cloud VMs never run the ssh port scan, so connected is not held behind its timeout")
+    func vmBakedConfigurationSkipsSSHPortScan() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            terminalStartupCommand: "true",
+            skipDaemonBootstrap: true
+        )
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortPollingStateLocked()
+        }
+
+        // No ssh-exec channel exists on these machines: a scan could only time out,
+        // and the first poll runs synchronously ahead of publishState(.connected).
+        #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == false)
+        #expect(runner.runCount == 0)
+        coordinator.stop()
+    }
+
     @Test("Enabled keeps the host-wide poll timer running and scans (sanity)")
     func enabledStartsPollTimer() {
         let runner = SpyProcessRunner()

@@ -125,4 +125,150 @@ struct WorkspaceRemoteDaemonRecoveryTests {
             "A recovered bootstrap log must not remain the sidebar's latest error"
         )
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/10640: a non-proxy SSH
+    /// failure ("ssh: connect to host …") is logged with source "remote".
+    /// Once the transport publishes an authoritative `.connected`, that
+    /// recovered failure must not stay pinned as the sidebar row's latest
+    /// (red) log entry.
+    @Test
+    func connectedRetractsRecoveredSSHConnectionError() {
+        let workspace = Workspace()
+        let target = "dev@example.com"
+        let config = WorkspaceRemoteConfiguration(
+            destination: target,
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_023,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test-ssh-error.sock",
+            terminalStartupCommand: "ssh dev@example.com",
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: true
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "User-visible note",
+                level: .info,
+                source: "user",
+                timestamp: Date()
+            )
+        )
+
+        let failureDetail =
+            "ssh: connect to host example.com port 22: Operation timed out (retry 3 in 8s)"
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: failureDetail,
+            target: target
+        )
+
+        #expect(workspace.logEntries.last?.source == "remote")
+        #expect(workspace.logEntries.last?.level == .error)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to \(target)",
+            target: target
+        )
+
+        #expect(
+            workspace.logEntries.last(where: { $0.source == "remote" }) == nil,
+            "A recovered SSH connection error must be retracted on .connected"
+        )
+        #expect(
+            workspace.logEntries.contains { $0.message == "User-visible note" },
+            "Recovery must preserve unrelated sidebar log entries"
+        )
+        #expect(
+            workspace.logEntries.last?.level != .error,
+            "The workspace row must not keep rendering a recovered SSH error while Connected"
+        )
+        #expect(workspace.statusEntries["remote.error"] == nil)
+
+        let logCountAfterRecovery = workspace.logEntries.count
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: failureDetail,
+            target: target
+        )
+        #expect(
+            workspace.logEntries.count == logCountAfterRecovery + 1,
+            "Recovery must reset the connection error fingerprint"
+        )
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/10640: the suspended-state
+    /// warning ("SSH reconnect paused …", source "remote") must likewise be
+    /// retracted once the connection recovers to `.connected`.
+    @Test
+    func connectedRetractsRecoveredSuspendedWarning() {
+        let workspace = Workspace()
+        let target = "dev@example.com"
+        let config = WorkspaceRemoteConfiguration(
+            destination: target,
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_024,
+            relayID: String(repeating: "1", count: 16),
+            relayToken: String(repeating: "2", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test-suspended.sock",
+            terminalStartupCommand: "ssh dev@example.com",
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: true
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "User-visible note",
+                level: .info,
+                source: "user",
+                timestamp: Date()
+            )
+        )
+
+        let suspendedDetail = "Reconnect budget exhausted"
+        workspace.applyRemoteConnectionStateUpdate(
+            .suspended,
+            detail: suspendedDetail,
+            target: target
+        )
+
+        #expect(workspace.logEntries.last?.source == "remote")
+        #expect(workspace.logEntries.last?.level == .warning)
+        #expect(workspace.statusEntries["remote.error"] != nil)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to \(target)",
+            target: target
+        )
+
+        #expect(
+            workspace.logEntries.last(where: { $0.source == "remote" }) == nil,
+            "A recovered reconnect-paused warning must be retracted on .connected"
+        )
+        #expect(
+            workspace.logEntries.contains { $0.message == "User-visible note" },
+            "Recovery must preserve unrelated sidebar log entries"
+        )
+        #expect(workspace.statusEntries["remote.error"] == nil)
+
+        let logCountAfterRecovery = workspace.logEntries.count
+        workspace.applyRemoteConnectionStateUpdate(
+            .suspended,
+            detail: suspendedDetail,
+            target: target
+        )
+        #expect(
+            workspace.logEntries.count == logCountAfterRecovery + 1,
+            "Recovery must reset the suspended connection fingerprint"
+        )
+    }
 }

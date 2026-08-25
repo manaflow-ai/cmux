@@ -922,7 +922,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
         )
     }
 
@@ -954,7 +955,7 @@ struct WorkspaceListView: View {
         } label: {
             Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+        .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif

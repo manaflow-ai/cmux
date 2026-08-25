@@ -462,6 +462,26 @@ class TerminalController {
         )
         self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
+        // Managed Cloud VM daemon endpoints go stale when the machine's preview rotates
+        // (sandbox recreation, preview re-creation). Before each proxy retry, re-mint the
+        // endpoint through the backend so the broker never redials a dead URL forever.
+        (remoteProxyBroker as? RemoteProxyBroker)?.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID else { return nil }
+            guard let attach = try? await VMClient.shared.openAttach(id: vmID, requireDaemon: true),
+                  case .websocket(let endpoint) = attach,
+                  let daemon = endpoint.daemon else {
+                return nil
+            }
+            return configuration.withDaemonWebSocketEndpoint(
+                WorkspaceRemoteWebSocketDaemonEndpoint(
+                    url: daemon.url,
+                    headers: daemon.headers,
+                    token: daemon.token,
+                    sessionId: daemon.sessionId,
+                    expiresAtUnix: daemon.expiresAtUnix
+                )
+            )
+        }
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
@@ -3811,10 +3831,25 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let vmError = error as? VMClientError,
+               Self.isCloudVMAuthenticationError(vmError) {
+                // Keep the auth boundary explicit for every VM verb. The CLI
+                // can then return a stable non-zero auth-required failure
+                // instead of presenting a generic backend error.
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: String(
+                        localized: "socket.cloudVM.authRequired",
+                        defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+                    )
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: error),
+                data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
             return v2Error(
@@ -3822,6 +3857,31 @@ class TerminalController {
                 code: "vm_error",
                 message: "unknown vm error"
             )
+        }
+    }
+
+    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
+    /// can make idempotency decisions structurally instead of parsing the
+    /// formatted display text.
+    private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        guard case let VMClientError.httpStatus(status, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String,
+              !code.isEmpty else {
+            return nil
+        }
+        return ["backend_code": code, "http_status": status]
+    }
+
+    private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
+        switch error {
+        case .notSignedIn:
+            return true
+        case .httpStatus(let status, _):
+            return status == 401
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+            return false
         }
     }
 
@@ -10378,17 +10438,121 @@ class TerminalController {
             let store = v2MainSync {
                 ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
+            let clearRequiresScopeMessage = String(
+                localized: "cli.browser.cookies.clearRequiresScope",
+                defaultValue: "browser cookies clear requires exactly one of --all or a cookie scope"
+            )
+            let invalidFilterMessage = String(
+                localized: "cli.browser.cookies.invalidFilter",
+                defaultValue: "browser cookies clear received an invalid cookie filter"
+            )
+            let invalidURLMessage = String(
+                localized: "cli.browser.cookies.invalidURL",
+                defaultValue: "browser cookies clear --url requires a valid URL with a host"
+            )
+            let invalidExpiresMessage = String(
+                localized: "cli.browser.cookies.invalidExpires",
+                defaultValue: "browser cookies clear --expires must be an integer Unix timestamp"
+            )
+            let name = v2String(params, "name")
+            let value = v2String(params, "value")
+            let urlString = v2String(params, "url")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+
+            for key in ["name", "value", "domain", "path"] where
+                v2HasNonNullParam(params, key) && v2String(params, key) == nil {
+                return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": key])
+            }
+
+            if v2HasNonNullParam(params, "url"), urlString == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: invalidURLMessage,
+                    data: ["param": "url"]
+                )
+            }
+            let url: URL?
+            if let urlString {
+                guard let parsedURL = URL(string: urlString), parsedURL.host != nil else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidURLMessage,
+                        data: ["param": "url"]
+                    )
+                }
+                url = parsedURL
+            } else {
+                url = nil
+            }
+
+            let expires: Int?
+            if v2HasNonNullParam(params, "expires") {
+                guard let parsedExpires = v2Int(params, "expires") else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidExpiresMessage,
+                        data: ["param": "expires"]
+                    )
+                }
+                expires = parsedExpires
+            } else {
+                expires = nil
+            }
+
+            let secure: Bool?
+            if v2HasNonNullParam(params, "secure") {
+                guard let parsedSecure = v2Bool(params, "secure") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "secure"])
+                }
+                secure = parsedSecure
+            } else {
+                secure = nil
+            }
+
+            let all: Bool
+            if v2HasNonNullParam(params, "all") {
+                guard let parsedAll = v2Bool(params, "all") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "all"])
+                }
+                all = parsedAll
+            } else {
+                all = false
+            }
+
+            let hasFilter = name != nil || value != nil || url != nil || domain != nil || path != nil ||
+                expires != nil || secure != nil
+            guard all || hasFilter else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+            guard !(all && hasFilter) else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+
             guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            let name = v2String(params, "name")
-            let domain = v2String(params, "domain")
-            let clearAll = params["all"] == nil && name == nil && domain == nil
             let targets = cookies.filter { cookie in
-                if clearAll { return true }
+                if all { return true }
                 if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
+                if let value, cookie.value != value { return false }
+                if let url, !CmuxWebView.cookieMatchesURL(cookie, url: url) { return false }
+                if let domain, !CmuxWebView.cookieDomainMatchesFilter(cookie.domain, filter: domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let expires,
+                   cookie.expiresDate.map({ Int($0.timeIntervalSince1970) }) != expires {
+                    return false
+                }
+                if let secure, cookie.isSecure != secure { return false }
                 return true
             }
 
@@ -12620,15 +12784,18 @@ class TerminalController {
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(
+            guard let workspace = tabManager.addWorkspaceIfActive(
                 title: title,
                 select: focus,
                 eagerLoadTerminal: !focus,
                 allowTextBoxFocusDefault: false
-            )
+            ) else { return }
             newTabId = workspace.id
         }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
+        guard let newTabId else {
+            return "ERROR: Failed to create workspace"
+        }
+        return "OK \(newTabId.uuidString)"
     }
 
     /// v1 socket error for a left/up split directed at a mirror workspace
@@ -15749,10 +15916,19 @@ class TerminalController {
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
-            guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
+            if let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) {
+                surfaceId = target.surfaceID
+            } else if !requireTerminal,
+                      workspace.controlSurfaceTarget(for: requestedSurfaceId) != nil {
+                // Non-terminal panel surfaces (markdown, file preview) have no
+                // terminal input target; callers that don't require a terminal
+                // (mobile.panel.artifact.*) resolve the workspace-owned surface
+                // itself. Hidden remote-tmux mirror wrappers still fail closed
+                // inside controlSurfaceTarget.
+                surfaceId = requestedSurfaceId
+            } else {
                 return nil
             }
-            surfaceId = target.surfaceID
         } else if requireTerminal {
             surfaceId = workspace.focusedTerminalInputTarget()?.surfaceID
                 ?? mobileTerminalPanels(in: workspace).first?.id

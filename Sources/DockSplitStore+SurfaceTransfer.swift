@@ -413,6 +413,7 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         prepareDetachedPanelForDockAttachment(panel)
@@ -503,6 +504,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
