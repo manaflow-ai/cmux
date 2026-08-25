@@ -843,6 +843,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
         guard let cell = rowView.view(atColumn: 0) as? NSView else { return }
+        if let workspaceCell = cell as? SidebarWorkspaceRowTableCellView {
+            releasePumpHeightOverride(ownedBy: workspaceCell)
+        }
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
@@ -1719,9 +1722,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Pump-driven height corrections between applies: heightOfRow consults
     /// these before the equivalence-keyed cache (which only refreshes on the
     /// next container apply).
-    private var pumpHeightOverrides: [
-        SidebarWorkspaceRenderItemID: (height: CGFloat, columnWidth: CGFloat)
-    ] = [:]
+    private struct PumpHeightOverride {
+        let height: CGFloat
+        let columnWidth: CGFloat
+        let cellIdentity: ObjectIdentifier
+    }
+
+    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: PumpHeightOverride] = [:]
+
+    /// A pump height is installed-cell state. Retiring that exact cell returns
+    /// the row to its authoritative cached geometry; an older retirement must
+    /// not clear an override already transferred to a replacement cell.
+    private func releasePumpHeightOverride(ownedBy cell: SidebarWorkspaceRowTableCellView) {
+        guard let workspaceId = cell.currentModelForMeasurement?.workspaceId else { return }
+        let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
+        guard pumpHeightOverrides[rowId]?.cellIdentity == ObjectIdentifier(cell) else { return }
+        pumpHeightOverrides.removeValue(forKey: rowId)
+        deferredPumpHeightRowIds.remove(rowId)
+    }
 
     private func pumpHeightOverride(
         for rowId: SidebarWorkspaceRenderItemID,
@@ -1769,7 +1787,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
             let previousHeight = pumpHeightOverrides[row.id]?.height ?? height
-            pumpHeightOverrides[row.id] = (height: height, columnWidth: columnWidth)
+            pumpHeightOverrides[row.id] = PumpHeightOverride(
+                height: height,
+                columnWidth: columnWidth,
+                cellIdentity: ObjectIdentifier(cell)
+            )
             if abs(previousHeight - height) >= 0.5 {
                 heightRows.insert(index)
             }
@@ -1831,6 +1853,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             ?? rowHeightCache.height(for: row, columnWidth: width)
             ?? row.estimatedHeight
         guard abs(height - current) >= 0.5 else {
+            if let override = pumpHeightOverrides[rowId], override.columnWidth == width {
+                pumpHeightOverrides[rowId] = PumpHeightOverride(
+                    height: override.height,
+                    columnWidth: override.columnWidth,
+                    cellIdentity: ObjectIdentifier(cell)
+                )
+            }
             guard hadMismatchedOverride else { return }
             if isApplyingTableGeometryUpdate {
                 deferredPumpHeightRowIds.insert(rowId)
@@ -1839,7 +1868,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             return
         }
-        pumpHeightOverrides[rowId] = (height: height, columnWidth: width)
+        pumpHeightOverrides[rowId] = PumpHeightOverride(
+            height: height,
+            columnWidth: width,
+            cellIdentity: ObjectIdentifier(cell)
+        )
         if isApplyingTableGeometryUpdate {
             deferredPumpHeightRowIds.insert(rowId)
         } else {
