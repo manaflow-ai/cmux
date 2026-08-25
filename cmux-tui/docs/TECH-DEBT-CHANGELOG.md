@@ -1,8 +1,12 @@
 # cmux-tui aggregate change log
 
+Correction: exact aggregate HEAD is `48ddd759dcfc2601ce761b076b42c9baf1f48725`, 694 commits ahead of `origin/main`; the hosted run and exact-head review are pending.
+
 Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`f0d52e38edd6525ef4a02f2e43651009c5d97aef`](https://github.com/manaflow-ai/cmux/commit/f0d52e38edd6525ef4a02f2e43651009c5d97aef). The prior documented code tip was [`c599fa778e506574bddf12393d4a9bb91c4772e5`](https://github.com/manaflow-ai/cmux/commit/c599fa778e506574bddf12393d4a9bb91c4772e5). The code branch is 647 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, task reaping, and the normal merge of concurrent review history.
 
 ## New tail since `c599fa778e506574bddf12393d4a9bb91c4772e5`
+
+Exact-head additions: `e83f02532a0d7f41ba5c4befc294b948c35ab190` refuses Windows workspace reads; `164ebca49c32bd61e876ade399a0cc36c28ce281` and `0ab5cc7212bd3b92fa03b7c8f260496c0e642192` add the Rust 1.91 MSRV gate; `096ef9a1b8b30fe6f38de9bf656c1f33c577c9c5` tests the refusal; and `48ddd759dcfc2601ce761b076b42c9baf1f48725` preserves the custom stream factory with legacy fallback. Hosted verification and exact-head review remain pending. Revert each with `git revert <full-sha>`, keeping the Windows fix and test coupled.
 
 The current tail adds bounded CLI text validation, symlink-safe relay configuration, invalid-writer-count tests, bounded relay file/list actions, PTY close-race and upgrade-task cleanup, sanitized lifecycle diagnostics, concurrent stderr caps, Windows-safe config replacement, localized recovery diagnostics, cursor-control parsing, lifecycle-name validation, launcher signal propagation, and invalid socket-path compatibility coverage. Revert individual commits with `git revert <sha>`; revert coupled behavior and tests together for `dcd68c3801`, `04b5819876`, and `a9eaf022aa`.
 
