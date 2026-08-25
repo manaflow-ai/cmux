@@ -7816,12 +7816,19 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
+            SurfaceSelectionWebBridgeRegistry.shared.detach(webView: previousWebView)
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
         }
         coordinator.panel = panel
         coordinator.webView = webView
+        SurfaceSelectionWebBridgeRegistry.shared.attach(
+            webView: webView,
+            surfaceId: panel.id,
+            workspaceIdProvider: { [weak panel] in panel?.workspaceId },
+            kind: panel.panelType.rawValue
+        )
 
         Self.clearPortalCallbacks(for: nsView)
         let hostOwnsPortal = useLocalInlineHosting

@@ -243,6 +243,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func close() {
+        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: id)
         isClosed = true
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
@@ -275,6 +276,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        SurfaceSelectionChangeEventPublisher.shared.registerNativeTextSurface(
+            surfaceId: id,
+            workspaceId: { [weak self] in self?.workspaceId },
+            kind: panelType.rawValue,
+            filePath: filePath,
+            textView: textView
+        )
     }
 
     func retryPendingFocus() {

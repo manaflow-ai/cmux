@@ -152,6 +152,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         self.title = surface.agentPanelTitle ?? "Terminal"
+        SurfaceSelectionChangeEventPublisher.shared.registerTerminalSurface(self)
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -643,6 +644,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
+        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: id)
         isClosingPanel = true
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,

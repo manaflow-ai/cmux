@@ -27,13 +27,23 @@ final class CmuxEventSubscription: @unchecked Sendable {
     }
 
     func accepts(_ event: [String: Any]) -> Bool {
+        guard let name = event["name"] as? String else { return false }
+        // Selection text is local-sensitive data. A broad/default stream must
+        // never receive it; a client has to name the topic explicitly.
+        if CmuxEventBus.requiresExplicitOptIn(for: name), !names.contains(name) {
+            return false
+        }
         if !names.isEmpty {
-            guard let name = event["name"] as? String, names.contains(name) else { return false }
+            guard names.contains(name) else { return false }
         }
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
         }
         return true
+    }
+
+    func explicitlyRequests(_ name: String) -> Bool {
+        names.contains(name)
     }
 
     var isClosed: Bool {
@@ -122,6 +132,8 @@ final class CmuxEventBus: @unchecked Sendable {
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
     static let maxSanitizedDepth = 12
+    static let surfaceSelectionChangedEventName = "surface.selection_changed"
+    private static let explicitlyOptedInEventNames: Set<String> = [surfaceSelectionChangedEventName]
     private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
@@ -161,6 +173,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return nextSequence - 1
     }
 
+    @discardableResult
     func publish(
         name: String,
         category: String,
@@ -170,7 +183,13 @@ final class CmuxEventBus: @unchecked Sendable {
         paneId: String? = nil,
         windowId: String? = nil,
         payload: [String: Any] = [:]
-    ) {
+    ) -> Bool {
+        if Self.requiresExplicitOptIn(for: name) {
+            // Do not even sanitize, retain, or append sensitive selection text
+            // when no client has opted into this exact topic.
+            guard hasExplicitSubscriber(for: name) else { return false }
+        }
+
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
 
@@ -212,6 +231,20 @@ final class CmuxEventBus: @unchecked Sendable {
                 removeSubscriptionIfStillActive(subscription)
             }
         }
+        return true
+    }
+
+    func hasExplicitSubscriber(for name: String) -> Bool {
+        guard Self.requiresExplicitOptIn(for: name) else { return true }
+        lock.lock()
+        defer { lock.unlock() }
+        return subscriptions.values.contains {
+            !$0.isClosed && $0.explicitlyRequests(name)
+        }
+    }
+
+    static func requiresExplicitOptIn(for name: String) -> Bool {
+        explicitlyOptedInEventNames.contains(name)
     }
 
     func subscribe(

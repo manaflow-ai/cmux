@@ -4460,6 +4460,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
     /// from the fresh web view.
     private func detachWebViewObservers() {
+        SurfaceSelectionWebBridgeRegistry.shared.detach(webView: webView)
         webViewObservers.removeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSameDocumentNavigationMessageHandler.name,
@@ -4967,6 +4968,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        SurfaceSelectionWebBridgeRegistry.shared.detach(surfaceId: id)
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()

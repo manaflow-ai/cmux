@@ -1064,6 +1064,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: id)
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()

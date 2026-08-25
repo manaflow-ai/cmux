@@ -48,6 +48,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            SurfaceSelectionWebBridgeRegistry.shared.attach(
+                webView: webView,
+                surfaceId: panelId,
+                workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
+                kind: PanelType.markdown.rawValue,
+                filePath: filePath
+            )
             return webView
         }
 
@@ -90,6 +97,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
+        SurfaceSelectionWebBridgeRegistry.shared.attach(
+            webView: webView,
+            surfaceId: panelId,
+            workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
+            kind: PanelType.markdown.rawValue,
+            filePath: filePath
+        )
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
@@ -101,6 +115,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        SurfaceSelectionWebBridgeRegistry.shared.attach(
+            webView: nsView,
+            surfaceId: panelId,
+            workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
+            kind: PanelType.markdown.rawValue,
+            filePath: filePath
+        )
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
@@ -115,6 +136,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if let retainedWebView = coordinator.webView, retainedWebView === nsView {
             return
         }
+        SurfaceSelectionWebBridgeRegistry.shared.detach(webView: nsView)
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil

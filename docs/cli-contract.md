@@ -487,7 +487,10 @@ should persist `seq` after processing each event and reconnect with that value.
 See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and
-surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
+surface selection, focus, creation, or closure. The content-selection topic
+`surface.selection_changed` is an explicit opt-in: it is omitted from
+unfiltered/category-only streams and the durable log unless that exact event
+name is requested. The stream is bounded: cmux keeps
 4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.

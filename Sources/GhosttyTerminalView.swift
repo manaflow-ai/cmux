@@ -3124,6 +3124,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
+            surfaceView.selectionChangeSignal.request()
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
@@ -3626,6 +3627,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// the shared rendered-frame notification.
     private let keyboardCopyModeRenderedFrameDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
+    nonisolated let selectionChangeSignal = TerminalSelectionChangeSignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
@@ -7803,6 +7805,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
+        selectionChangeSignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()
         }

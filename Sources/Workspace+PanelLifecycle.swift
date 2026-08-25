@@ -437,6 +437,8 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: panelId)
+        SurfaceSelectionWebBridgeRegistry.shared.detach(surfaceId: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }
