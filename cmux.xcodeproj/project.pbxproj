@@ -909,6 +909,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */; };
 		918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */; };
 		918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */; };
+		918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */; };
 		C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */; };
@@ -3561,6 +3562,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTerminalErrorNotificationTests.swift; sourceTree = "<group>"; };
 		918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptFailureReadResult.swift; sourceTree = "<group>"; };
 		918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorStopReplay.swift; sourceTree = "<group>"; };
+		918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptSubagentSignals.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteEmojiTitleSearchTests.swift; sourceTree = "<group>"; };
 		C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteFocusRestoreCoordinator.swift; sourceTree = "<group>"; };
@@ -7339,6 +7341,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				918100000000000000000040 /* CodexHookFailureSummary.swift */,
 				918100000000000000000050 /* CodexHookFailureCandidate.swift */,
 				918100000000000000000060 /* CodexHookUserInputCandidate.swift */,
+				918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */,
 				918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */,
 				918100000000000000000090 /* CodexMonitorOwnerState.swift */,
 				918100000000000000000100 /* AgentHookFailureStage.swift */,
@@ -10391,6 +10394,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 				918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */,
 				918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */,
+				918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */,
 				A9523F000000000000000024 /* CursorNativeApprovalFileObserver.swift in Sources */,
 				A9523F000000000000000025 /* CursorNativeApprovalFileReadResult.swift in Sources */,
 				A9523F000000000000000026 /* CursorNativeApprovalObservationOutcome.swift in Sources */,
