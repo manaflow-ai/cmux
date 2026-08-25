@@ -93,6 +93,13 @@ public struct NestedParentAssociation: Codable, Equatable, Sendable {
             && (authority == .provider || authority == .heuristic || heuristicAlreadySatisfied)
     }
 
+    /// Whether a session-key replacement is rejected by the bounded replay guard.
+    func rejectsSupersededSession(_ candidate: NestedParentAssociation) -> Bool {
+        candidate.key != key
+            && (supersededKeys.contains(candidate.key)
+                || supersededKeys.count >= Self.maximumSupersededKeys)
+    }
+
     private init(
         key: NestedAssociationKey,
         tabID: NestedNodeID,

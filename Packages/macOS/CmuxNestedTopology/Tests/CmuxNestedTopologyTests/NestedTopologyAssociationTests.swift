@@ -183,6 +183,8 @@ struct NestedTopologyAssociationTests {
         let replayedSessionA = fixture.pane(
             tabRawID: "tab-3",
             sessionID: "session-a",
+            order: 7,
+            title: NestedNodeTitle(value: "Stale replay", authority: .provider),
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )
@@ -194,6 +196,8 @@ struct NestedTopologyAssociationTests {
 
         #expect(result.panes[0].association.key.sessionID == "session-b")
         #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
+        #expect(result.panes[0].order == sessionB.order)
+        #expect(result.panes[0].title == sessionB.title)
     }
 
     @Test("a new session cannot downgrade provider-owned parentage to a heuristic")
