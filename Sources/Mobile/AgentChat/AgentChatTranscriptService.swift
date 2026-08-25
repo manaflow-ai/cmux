@@ -721,7 +721,7 @@ final class AgentChatTranscriptService {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
         }
-        if stateChanged, record.state == .ended {
+        if stateChanged, record.state == .ended, previous != nil {
             scheduleArtifactCapture(for: record)
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so

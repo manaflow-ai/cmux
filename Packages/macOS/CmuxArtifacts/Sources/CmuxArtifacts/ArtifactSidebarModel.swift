@@ -325,6 +325,7 @@ public final class ArtifactSidebarModel {
             name: node.name,
             relativePath: node.relativePath,
             fileURL: URL(fileURLWithPath: node.absolutePath, isDirectory: node.isDirectory),
+            projectRoot: projectRoot,
             depth: depth,
             isDirectory: node.isDirectory,
             isExpanded: node.isDirectory && expandedPaths.contains(node.relativePath),

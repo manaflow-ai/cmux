@@ -10,6 +10,8 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     public let relativePath: String
     /// Absolute local file URL used by preview and drag actions.
     public let fileURL: URL
+    /// Resolved project root that owns the row's CMUX filesystem.
+    public let projectRoot: URL?
     /// Tree indentation depth.
     public let depth: Int
     /// Whether the row represents a directory.
@@ -32,6 +34,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     ///   - name: Basename shown in the row.
     ///   - relativePath: Path relative to the project `.cmux` filesystem.
     ///   - fileURL: Absolute local file URL.
+    ///   - projectRoot: Resolved project root owning the row, when available.
     ///   - depth: Tree indentation depth.
     ///   - isDirectory: Whether the row is a directory.
     ///   - isExpanded: Whether the directory is expanded.
@@ -44,6 +47,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
         name: String,
         relativePath: String,
         fileURL: URL,
+        projectRoot: URL? = nil,
         depth: Int,
         isDirectory: Bool,
         isExpanded: Bool,
@@ -56,6 +60,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
         self.name = name
         self.relativePath = relativePath
         self.fileURL = fileURL
+        self.projectRoot = projectRoot?.standardizedFileURL
         self.depth = depth
         self.isDirectory = isDirectory
         self.isExpanded = isExpanded

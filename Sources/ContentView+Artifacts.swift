@@ -28,12 +28,13 @@ extension ContentView {
         case .html:
             let sourceURL = artifact.fileURL
             let workspaceID = workspace.id
+            guard let projectRoot = artifact.projectRoot else {
+                NSSound.beep()
+                return
+            }
             Task { @MainActor in
                 do {
-                    let artifactRoot = URL(
-                        fileURLWithPath: workspace.currentDirectory,
-                        isDirectory: true
-                    ).appendingPathComponent(".cmux", isDirectory: true)
+                    let artifactRoot = projectRoot.appendingPathComponent(".cmux", isDirectory: true)
                     let document = try await ArtifactHTMLPreviewDocument.load(
                         sourceURL: sourceURL,
                         allowedRoot: artifactRoot
