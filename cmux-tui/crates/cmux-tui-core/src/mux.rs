@@ -9062,11 +9062,18 @@ impl Mux {
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    drop(budget);
-                    self.cancel_kitty_image_surface_reservation(surface);
-                    anyhow::bail!(
-                        "timed out waiting for existing terminals to release Kitty image quota"
-                    );
+                    // Kitty graphics are optional. Keep the terminal admission
+                    // alive when an existing host does not acknowledge its
+                    // quota update in time. The worker can promote this
+                    // surface after the outstanding update recovers.
+                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
+                        anyhow::anyhow!("Kitty image budget reservation disappeared")
+                    })?;
+                    entry.owns_quota = false;
+                    entry.applied = KittyGraphicsLimits::disabled();
+                    Self::rebalance_kitty_image_budget_owners(&mut budget);
+                    self.kitty_image_budget_changed.notify_all();
+                    break KittyGraphicsLimits::disabled();
                 }
                 let (next, _) =
                     self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
@@ -19486,9 +19493,14 @@ mod tests {
         }
         creator.join().unwrap();
         *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            created.with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap()).unwrap()
+                > 0,
+            "a degraded terminal was not promoted after the quota worker recovered"
+        );
         close_terminal_runtime_for_test(&mux, &created);
         close_terminal_runtime_for_test(&mux, &first);
-        wait_for_kitty_image_budget(&mux);
     }
 
     #[test]
