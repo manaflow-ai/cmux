@@ -1655,7 +1655,6 @@ async fn run_git_diff(
     // Stream stdout: the stat counts the FULL diff, but the patch buffer
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
-    use tokio::io::AsyncBufReadExt as _;
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };

@@ -1076,19 +1076,26 @@ impl Inner {
             return;
         }
         drop(opening);
-        let gate = self
-            .attachments
-            .lock()
-            .expect("attach lock")
-            .get(pty_id)
-            .map(|attachment| Arc::clone(&attachment.gate));
-        let attachment = gate.and_then(|gate| {
+        // Capture the identity together with the gate. A replacement can be
+        // installed while we wait for the old gate, so removal must prove
+        // that the observed generation and control are still current.
+        let observed =
+            self.attachments.lock().expect("attach lock").get(pty_id).map(|attachment| {
+                (
+                    Arc::clone(&attachment.gate),
+                    attachment.generation,
+                    Arc::clone(&attachment.closing),
+                    Arc::clone(&attachment.control),
+                )
+            });
+        let removed = observed.and_then(|(gate, generation, closing, control)| {
             let _guard = gate.lock().expect("attachment gate");
-            self.attachments.lock().expect("attach lock").remove(pty_id)
+            self.remove_attachment_if_current(pty_id, generation, &control)
+                .then_some((closing, control))
         });
-        if let Some(attachment) = attachment {
-            attachment.closing.store(true, Ordering::SeqCst);
-            attachment.control.kill();
+        if let Some((closing, control)) = removed {
+            closing.store(true, Ordering::SeqCst);
+            control.kill();
         }
     }
 
@@ -1505,7 +1512,7 @@ impl Inner {
             released: Arc::clone(&released),
             delivery: OnceLock::new(),
         });
-        let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
+        let proxy_control: Arc<dyn PtyControl> = proxy.clone();
         let control_identity = Arc::downgrade(&proxy_control);
         let (generation, gate, on_data, on_exit) = self.sinks(pty_id, context, control_identity);
         let overflow_inner = Arc::clone(&self);
@@ -2088,7 +2095,7 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
-        let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
+        let proxy_control: Arc<dyn PtyControl> = proxy.clone();
         let control_identity = Arc::downgrade(&proxy_control);
         let (generation, gate, on_data, _) = self.sinks(pty_id, context, control_identity.clone());
         let relay = Arc::clone(&self);

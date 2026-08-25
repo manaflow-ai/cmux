@@ -1,6 +1,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
@@ -11,6 +12,9 @@ use tokio::process::{Child, Command};
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 // Cleanup must not turn a bounded bootstrap timeout into an unbounded wait.
 const SSH_BOOTSTRAP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
+// A process-wide counter prevents concurrent unpublished uploads from
+// selecting the same predictable staging directory.
+static NEXT_UPLOAD_NONCE: AtomicU64 = AtomicU64::new(1);
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -217,6 +221,11 @@ impl SshBootstrapper {
             .remote_binary
             .rsplit_once('/')
             .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
+        // Create the directory in a separate, exclusive command. Cleanup is
+        // allowed only after this command reports success, which proves that
+        // this upload owns the staging directory. A failed or timed-out mkdir
+        // is intentionally left untouched because ownership is unknown.
+        self.create_remote_staging(parent, &temporary_dir).await?;
         let command = upload_command(&parent, &temporary_dir, &temporary);
         let output = match self.run_remote_with_input(&command, source).await {
             Ok(output) => output,
@@ -298,11 +307,40 @@ impl SshBootstrapper {
     fn temporary_upload_path(&self) -> String {
         let now =
             SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos());
-        format!("{}.cmux-upload-{}-{now}", self.config.remote_binary, std::process::id())
+        let nonce = NEXT_UPLOAD_NONCE.fetch_add(1, Ordering::Relaxed);
+        format!("{}.cmux-upload-{}-{now}-{nonce}", self.config.remote_binary, std::process::id())
+    }
+
+    async fn create_remote_staging(
+        &self,
+        parent: &str,
+        temporary_dir: &str,
+    ) -> Result<(), BootstrapError> {
+        let parent_output = self.run_remote(["mkdir", "-p", parent]).await?;
+        if parent_output.status != 0 {
+            return Err(BootstrapError::Install {
+                status: parent_output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&parent_output.stderr)),
+            });
+        }
+        let output = self.run_remote(["mkdir", "-m", "700", temporary_dir]).await?;
+        if output.status != 0 {
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        Ok(())
     }
 
     async fn cleanup_remote_staging(&self, path: &str) {
-        let _ = self.run_remote(["rm", "-rf", "--", path]).await;
+        // Remove only the payload written by this protocol, then remove the
+        // directory only when it is empty. Never recurse through a staging
+        // path: a collision or an interrupted prior upload must retain its
+        // unrelated contents.
+        let payload = format!("{path}/payload");
+        let _ = self.run_remote(["rm", "-f", "--", payload.as_str()]).await;
+        let _ = self.run_remote(["rmdir", "--", path]).await;
     }
 
     async fn remote_platform(&self) -> Result<Platform, BootstrapError> {
@@ -481,13 +519,11 @@ impl SshBootstrapper {
     }
 }
 
-/// Build the remote upload command. The temporary directory is created
-/// exclusively with mode 0700, so another same-host user cannot replace or
-/// observe the staged file before chmod, probe, or rename.
-fn upload_command(parent: &str, temporary_dir: &str, temporary: &str) -> String {
-    format!(
-        "umask 077; mkdir -p {parent} && mkdir -m 700 {temporary_dir} && cat > {temporary} && chmod 755 {temporary}"
-    )
+/// Build the remote upload command after the caller has created the staging
+/// directory exclusively with mode 0700. The directory creation is separate
+/// so a failed collision cannot trigger cleanup of an unrelated path.
+fn upload_command(_parent: &str, _temporary_dir: &str, temporary: &str) -> String {
+    format!("cat > {temporary} && chmod 755 {temporary}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -675,14 +711,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn upload_command_uses_exclusive_descriptor_and_no_truncating_redirection() {
+    fn upload_command_writes_only_after_exclusive_directory_creation() {
         let command = upload_command(
             "~/.local/bin",
             "~/.local/bin/.cmux-upload-test",
             "~/.local/bin/.cmux-upload-test/payload",
         );
-        assert!(command.contains("mkdir -m 700 ~/.local/bin/.cmux-upload-test"));
         assert!(command.contains("cat > ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(!command.contains("mkdir"));
+    }
+
+    #[test]
+    fn temporary_upload_paths_are_unique_within_one_process() {
+        let bootstrapper = SshBootstrapper::new(SshBootstrapConfig::defaults("host")).unwrap();
+        let first = bootstrapper.temporary_upload_path();
+        let second = bootstrapper.temporary_upload_path();
+
+        assert_ne!(first, second);
+        assert!(first.contains(".cmux-upload-"));
+        assert!(second.contains(".cmux-upload-"));
     }
 
     fn probe(distribution_version: Option<&str>) -> RemoteProbe {
@@ -842,7 +890,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 installed = installed.display(),
                 staged = staged.display(),
             ),
@@ -901,7 +949,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 installed = installed.display(),
                 staged = staged.display(),
                 moved = moved.display(),
@@ -940,7 +988,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 staged = staged.display(),
             ),
         )
@@ -985,7 +1033,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 staged = staged.display(),
             ),
         )
