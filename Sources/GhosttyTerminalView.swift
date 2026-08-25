@@ -3677,6 +3677,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
 
     func applyTerminalPointerStyle(_ event: TerminalPointerStyleEvent) {
+        if case .focusChanged = event {
+            pointerStyleIngress?.focusChanged()
+        }
         guard terminalPointerStyle.apply(event) else { return }
         window?.invalidateCursorRects(for: self)
     }
