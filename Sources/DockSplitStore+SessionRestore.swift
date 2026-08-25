@@ -19,6 +19,7 @@ extension DockSplitStore {
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let scaffold = withProgrammaticDockSplit { layoutCodec.restoreScaffold(snapshot.layout) }
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var restoredPanelIds: Set<UUID> = []
 
@@ -37,7 +38,8 @@ extension DockSplitStore {
                           sourceWorkspaceId: snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceSnapshotWorkspaceId:
                             snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
-                          sourceWorkspaceResolver: sourceWorkspaceResolver
+                          sourceWorkspaceResolver: sourceWorkspaceResolver,
+                          restorableAgentIndex: restorableAgentIndex
                       ) else {
                     continue
                 }
@@ -94,13 +96,15 @@ extension DockSplitStore {
         sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?
     ) -> UUID? {
+        let restorableAgentIndex = restoreAgentIndex(for: [snapshot])
         let restoredPanelId = createSessionRestoredPanel(
             from: snapshot,
             inPane: paneId,
             excludingStableIdentities: [],
             sourceWorkspaceId: sourceWorkspaceId,
             sourceSnapshotWorkspaceId: sourceSnapshotWorkspaceId,
-            sourceWorkspaceResolver: sourceWorkspaceResolver
+            sourceWorkspaceResolver: sourceWorkspaceResolver,
+            restorableAgentIndex: restorableAgentIndex
         )
         if let restoredPanelId {
             terminalStartupRestoreCoordinator.commitPendingRestores(
@@ -116,7 +120,8 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID>,
         sourceWorkspaceId: UUID?,
         sourceSnapshotWorkspaceId: UUID?,
-        sourceWorkspaceResolver: (UUID) -> Workspace?
+        sourceWorkspaceResolver: (UUID) -> Workspace?,
+        restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> UUID? {
         if let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
@@ -150,7 +155,8 @@ extension DockSplitStore {
             return restoreSessionTerminal(
                 from: snapshot,
                 inPane: paneId,
-                excludingStableIdentities: excludingStableIdentities
+                excludingStableIdentities: excludingStableIdentities,
+                restorableAgentIndex: restorableAgentIndex
             )
         case .browser:
             return restoreSessionBrowser(
@@ -172,7 +178,8 @@ extension DockSplitStore {
     private func restoreSessionTerminal(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
-        excludingStableIdentities: Set<UUID>
+        excludingStableIdentities: Set<UUID>,
+        restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> UUID? {
         let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
             snapshot,
@@ -215,11 +222,7 @@ extension DockSplitStore {
         ) && agentWasRunning
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
             (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
-        let restoreAgentIndex: RestorableAgentSessionIndex? = if shouldCheckAgentOwnership {
-            SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-        } else {
-            nil
-        }
+        let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             restoreAgentIndex == nil ||
             (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
@@ -506,6 +509,21 @@ extension DockSplitStore {
             kind: restorableAgent.kind.rawValue,
             sessionId: restorableAgent.sessionId
         )
+    }
+
+    private func restoreAgentIndex(
+        for panels: [SessionPanelSnapshot]
+    ) -> RestorableAgentSessionIndex? {
+        // Load at most once for this restore pass; every panel reuses the same snapshot.
+        guard AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        ), panels.contains(where: { panel in
+            panel.terminal?.agent != nil || panel.terminal?.resumeBinding?.isAgentHookBinding == true
+        }) else {
+            return nil
+        }
+        return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
     }
 
 }

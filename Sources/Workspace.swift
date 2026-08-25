@@ -252,6 +252,7 @@ extension Workspace {
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -270,6 +271,7 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                restorableAgentIndex: restorableAgentIndex,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -921,7 +923,8 @@ extension Workspace {
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
         ) else { return nil }
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -960,7 +963,8 @@ extension Workspace {
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
@@ -1252,12 +1256,28 @@ extension Workspace {
         }
     }
 
+    private func restoreAgentIndex(
+        for panels: [SessionPanelSnapshot]
+    ) -> RestorableAgentSessionIndex? {
+        // Load at most once for this restore pass; every panel reuses the same snapshot.
+        guard AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        ), panels.contains(where: { panel in
+            panel.terminal?.agent != nil || panel.terminal?.resumeBinding?.isAgentHookBinding == true
+        }) else {
+            return nil
+        }
+        return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
+    }
+
     private func restorePane(
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex?,
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1273,7 +1293,8 @@ extension Workspace {
                 from: panelSnapshot,
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
-                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                restorableAgentIndex: restorableAgentIndex
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1423,7 +1444,8 @@ extension Workspace {
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
-        shouldRestoreSingleDefaultCloudTerminal: Bool
+        shouldRestoreSingleDefaultCloudTerminal: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> UUID? {
         let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(
             snapshot,
@@ -1482,11 +1504,7 @@ extension Workspace {
             )
             let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
                 (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
-            let restoreAgentIndex: RestorableAgentSessionIndex? = if shouldCheckAgentOwnership {
-                SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            } else {
-                nil
-            }
+            let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
                 restoreAgentIndex == nil ||
                 (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
