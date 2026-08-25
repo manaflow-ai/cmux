@@ -488,6 +488,14 @@ final class SharedLiveAgentIndex {
                 previous: previousFingerprint,
                 current: nextFingerprint
             ).panelIdsByWorkspaceId
+            let refreshedProcessPanelIdsByWorkspaceId = refreshed.forkValidationEntries()
+                .reduce(into: [UUID: Set<UUID>]()) { result, pair in
+                    let (panelKey, entry) = pair
+                    guard !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty else {
+                        return
+                    }
+                    result[panelKey.workspaceId, default: []].insert(panelKey.panelId)
+                }
             // This is process-only validation. Preserve the full hook-index
             // loadedAt so the normal TTL reload still discovers new records,
             // lifecycle changes, and SessionStart anchors.
@@ -495,9 +503,12 @@ final class SharedLiveAgentIndex {
             self.liveAgentProcessFingerprint = nextFingerprint
             self.refreshTask = nil
             self.restartForkAvailabilityRefreshIfPending()
-            if !changedPanelIdsByWorkspaceId.isEmpty {
+            let notificationPanelIdsByWorkspaceId = changedPanelIdsByWorkspaceId.isEmpty
+                ? refreshedProcessPanelIdsByWorkspaceId
+                : changedPanelIdsByWorkspaceId
+            if !notificationPanelIdsByWorkspaceId.isEmpty {
                 self.postSharedLiveAgentIndexDidChange(
-                    panelIdsByWorkspaceId: changedPanelIdsByWorkspaceId
+                    panelIdsByWorkspaceId: notificationPanelIdsByWorkspaceId
                 )
             }
             if self.changePending {

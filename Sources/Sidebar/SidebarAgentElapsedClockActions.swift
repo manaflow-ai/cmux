@@ -1,3 +1,5 @@
+import Foundation
+
 /// Closure capability passed below the sidebar's lazy-list boundary.
 ///
 /// The value is deliberately not observable: registering a realized label

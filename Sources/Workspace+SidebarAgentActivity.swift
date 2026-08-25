@@ -110,18 +110,14 @@ extension Workspace {
                 }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
                 let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
-                let hasDifferentRuntimeGeneration = matchingPIDKeys.contains { key in
-                    guard let runtimeIndexEntry,
-                          let runtimeIdentity = agentPIDProcessIdentitiesByKey[key] else {
-                        return false
-                    }
-                    return !Self.indexEntry(
-                        runtimeIndexEntry,
-                        containsProcessIdentity: runtimeIdentity
-                    )
+                let runtimeSessionID = selectedPIDKey.flatMap {
+                    Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
-                let suppressStaleLifecycle = runtimeIndexEntry?.processLiveness == .exited
-                    && !hasDifferentRuntimeGeneration
+                let hasUnverifiedRuntimeGeneration = !matchingPIDKeys.isEmpty
+                    && !exactProcessIsLive
+                let suppressStaleLifecycle = hasUnverifiedRuntimeGeneration
+                    && (runtimeIndexEntry?.processLiveness == .exited
+                        || runtimeSessionID == nil)
                 // A definitively exited indexed generation suppresses a stale
                 // lifecycle map until a different cmux-bound generation is
                 // recorded. Unknown index state remains eligible for a live
@@ -132,9 +128,6 @@ extension Workspace {
                     .exited
                 } else {
                     .unknown
-                }
-                let runtimeSessionID = selectedPIDKey.flatMap {
-                    Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
                 let generation: SidebarAgentActivityEvidence.Generation
                 if let runtimeSessionID {
@@ -178,6 +171,9 @@ extension Workspace {
                     hasExactProcessIdentity: exactProcessIsLive,
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
                     hasLiveLifecycleSignal: lifecycle != nil
+                        && (matchingPIDKeys.isEmpty
+                            || exactProcessIsLive
+                            || runtimeSessionID != nil)
                         && (matchingPIDKeys.isEmpty || indexLivenessIsFresh)
                         && !suppressStaleLifecycle,
                     isHookBacked: false,
