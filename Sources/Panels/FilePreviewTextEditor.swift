@@ -86,20 +86,31 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
-        textView.configurePreviewTypography(
-            fontFamily: fontFamily,
-            defaultFontSize: CGFloat(fontSize),
-            lineHeight: CGFloat(lineHeight)
-        )
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
-        let selectedRanges = textView.selectedRanges
+
+        let contentNeedsUpdate = textView.string != panel.textContent
+        let selectedRanges = contentNeedsUpdate ? textView.selectedRanges : []
         let visibleOrigin = scrollView.contentView.bounds.origin
-        context.coordinator.isApplyingPanelUpdate = true
-        textView.string = panel.textContent
-        textView.applyCurrentPreviewFont()
-        textView.applyCurrentPreviewLineHeight()
-        context.coordinator.isApplyingPanelUpdate = false
+        context.coordinator.withPanelUpdate {
+            // Reconcile external content before formatting the text storage. Both
+            // operations can emit NSText.didChangeNotification, so they must share
+            // the same delegate guard or a reload can publish stale editor text.
+            if contentNeedsUpdate {
+                textView.string = panel.textContent
+            }
+            textView.configurePreviewTypography(
+                fontFamily: fontFamily,
+                defaultFontSize: CGFloat(fontSize),
+                lineHeight: CGFloat(lineHeight)
+            )
+            if contentNeedsUpdate {
+                // Reapply attributes after replacing the string; NSTextView can
+                // reset typing/storage attributes when its content is replaced.
+                textView.applyCurrentPreviewFont()
+                textView.applyCurrentPreviewLineHeight()
+            }
+        }
+        guard contentNeedsUpdate else { return }
         let contentLength = (textView.string as NSString).length
         let clampedRanges = selectedRanges.map { value -> NSValue in
             let range = value.rangeValue
@@ -142,6 +153,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         init(panel: PanelModel) {
             self.panel = panel
+        }
+
+        /// Runs a representable-driven text update while suppressing delegate
+        /// callbacks caused by content or attribute synchronization.
+        @discardableResult
+        func withPanelUpdate<Result>(_ body: () -> Result) -> Result {
+            let previousValue = isApplyingPanelUpdate
+            isApplyingPanelUpdate = true
+            defer { isApplyingPanelUpdate = previousValue }
+            return body()
         }
 
         deinit {}

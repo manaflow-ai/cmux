@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import CmuxFoundation
 import Testing
 
@@ -148,6 +149,45 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(abs(naturalStyle.firstLineHeadIndent - 4) < 0.01)
         #expect(naturalStyle.tabStops.count == 1)
         #expect(abs(naturalStyle.lineHeightMultiple) < 0.01)
+    }
+
+    @Test("typography synchronization does not publish stale editor text")
+    func editorTypographySynchronizationSuppressesTextChanges() {
+        let panel = ObservableTextEditingPanelSpy(textContent: "fresh")
+        let editor = FilePreviewTextEditor<ObservableTextEditingPanelSpy>(
+            panel: panel,
+            isVisibleInUI: true,
+            themeBackgroundColor: .white,
+            themeForegroundColor: .black,
+            drawsBackground: true,
+            wordWrap: false,
+            fontSize: 17,
+            fontFamily: "Helvetica",
+            lineHeight: 1.5
+        )
+        let coordinator = editor.makeCoordinator()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = "stale"
+        textView.panel = panel
+        textView.delegate = coordinator
+
+        coordinator.withPanelUpdate {
+            textView.string = panel.textContent
+            textView.configurePreviewTypography(
+                fontFamily: editor.fontFamily,
+                defaultFontSize: CGFloat(editor.fontSize),
+                lineHeight: CGFloat(editor.lineHeight)
+            )
+            textView.applyCurrentPreviewFont()
+            textView.applyCurrentPreviewLineHeight()
+            coordinator.textDidChange(
+                Notification(name: NSText.didChangeNotification, object: textView)
+            )
+        }
+
+        #expect(textView.string == "fresh")
+        #expect(panel.textContent == "fresh")
+        #expect(panel.updateCount == 0)
     }
 
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
@@ -514,6 +554,28 @@ struct FilePreviewTextEditorTextKitTests {
         func saveTextContent() -> Task<Void, Never>? {
             saveCount += 1
             return nil
+        }
+    }
+
+    @MainActor
+    private final class ObservableTextEditingPanelSpy: ObservableObject, FilePreviewTextEditingPanel {
+        var textContent: String
+        var updateCount = 0
+
+        init(textContent: String) {
+            self.textContent = textContent
+        }
+
+        func attachTextView(_: NSTextView) {}
+        func retryPendingFocus() {}
+
+        func updateTextContent(_ nextContent: String) {
+            updateCount += 1
+            textContent = nextContent
+        }
+
+        func saveTextContent() -> Task<Void, Never>? {
+            nil
         }
     }
 }
