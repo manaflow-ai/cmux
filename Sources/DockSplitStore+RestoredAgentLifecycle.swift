@@ -570,6 +570,7 @@ extension DockSplitStore {
                     )
                 }
                 deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
+                deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
                 if restore.restorableAgent != nil {
                     restoredAgentLifecycle.setResumeState(
                         .manualResumeAvailable,
@@ -610,16 +611,24 @@ extension DockSplitStore {
 
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
-        restore: DeferredAgentResumeRestore
+        restore: DeferredAgentResumeRestore,
+        startRuntime: Bool = true
     ) {
-        (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+        if startRuntime {
+            (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+        } else {
+            terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(panelID: panelId)
+            restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        }
         removeDeferredAgentResumeRestore(panelId: panelId)
-        if restore.restorableAgent == nil {
+        if startRuntime, restore.restorableAgent == nil {
             if let binding = restore.resumeBinding {
                 retireAgentHookResumeBinding(panelId: panelId, matching: binding)
             }
         }
-        restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
+        if startRuntime {
+            restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
+        }
     }
 
     private func deferredAgentResumeRestoreMatchesCurrentSession(
@@ -686,7 +695,7 @@ extension DockSplitStore {
         retireAgentHookResumeBinding(panelId: panelId)
     }
 
-    func clearDeferredAgentResumeRestores() {
+    func clearDeferredAgentResumeRestores(startRuntime: Bool = true) {
         deferredAgentResumeIndexTask?.cancel()
         deferredAgentResumeIndexTask = nil
         let panelIds = Set(
@@ -695,9 +704,18 @@ extension DockSplitStore {
         )
         for panelId in panelIds {
             if let restore = deferredAgentResumeRestoresByPanelId[panelId] {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    startRuntime: startRuntime
+                )
             } else {
-                (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+                if startRuntime {
+                    (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+                } else {
+                    terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(panelID: panelId)
+                    restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+                }
                 removeDeferredAgentResumeRestore(panelId: panelId)
             }
         }
