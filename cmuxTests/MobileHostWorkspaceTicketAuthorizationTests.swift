@@ -161,6 +161,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func physicalDeviceRejectsRawLANWithoutAnEncryptedBootstrap() throws {
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: [try lanRoute()])
+        }
+    }
+
     @Test func simulatorInjectionPayloadIsLosslessV1WithoutBearerToken() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
@@ -285,7 +291,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
     @Test func ticketOnlyPayloadPreservesMixedRoutesWithoutAttachURL() throws {
         let store = MobileAttachTicketStore()
-        let routes = [try loopbackRoute(), try tailscaleRoute()]
+        let routes = [try loopbackRoute(), try tailscaleRoute(), try lanRoute()]
         let ticket = try store.createTicket(
             workspaceID: "",
             terminalID: nil,
@@ -295,7 +301,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .ticketOnly)
         #expect(payload["attach_url"] == nil)
-        #expect((payload["routes"] as? [[String: Any]])?.count == routes.count)
+        #expect((payload["routes"] as? [[String: Any]])?.count == 2)
+        #expect(
+            (payload["routes"] as? [[String: Any]])?.contains {
+                $0["kind"] as? String == CmxAttachTransportKind.lan.rawValue
+            } == false
+        )
     }
 
     @Test func omittedTargetPreservesLegacyAttachURL() throws {
