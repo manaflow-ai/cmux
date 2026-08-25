@@ -26336,6 +26336,17 @@ struct CMUXCLI {
                 store: sessionStore,
                 telemetry: telemetry
             )
+            // Prompt-submit is also the recovery path when SessionStart was
+            // missed. Register the exact emitting process before the built-in
+            // status write so the app's generation gate can authenticate it.
+            setAgentLifecycle(
+                client: client,
+                key: Self.claudeCodeStatusKey,
+                lifecycle: .running,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                processPID: claudePid
+            )
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,

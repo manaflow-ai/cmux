@@ -443,10 +443,16 @@ final class AgentJournalLifecycleCenter: Sendable {
         // assignment cannot prove that it belongs to that generation and may
         // otherwise overwrite newer running evidence. Hooks with exact
         // generation identity remain the authoritative mutation path.
+        let hasRemoteLifecycleEvidence =
+            owner.usesRemoteAgentProcessNamespace(panelId: panelId)
+            && owner.agentLifecycleState(
+                key: assignment.agentKey,
+                panelId: panelId
+            ) != nil
         guard !owner.hasLiveAgentProcess(
             statusKey: assignment.agentKey,
             panelId: panelId
-        ) else {
+        ), !hasRemoteLifecycleEvidence else {
             CmuxEventBus.shared.publish(
                 name: "agent.journal.apply_skipped",
                 category: "agent",
@@ -454,13 +460,18 @@ final class AgentJournalLifecycleCenter: Sendable {
                 surfaceId: assignment.surfaceId,
                 payload: [
                     "agent_key": assignment.agentKey,
-                    "reason": "liveProcessGeneration",
+                    "reason": hasRemoteLifecycleEvidence
+                        ? "remoteLifecycleEvidence"
+                        : "liveProcessGeneration",
                 ]
             )
 #if DEBUG
             cmuxDebugLog(
                 "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
-                    "key=\(assignment.agentKey) reason=liveProcessGeneration"
+                    "key=\(assignment.agentKey) reason="
+                    + (hasRemoteLifecycleEvidence
+                        ? "remoteLifecycleEvidence"
+                        : "liveProcessGeneration")
             )
 #endif
             return
