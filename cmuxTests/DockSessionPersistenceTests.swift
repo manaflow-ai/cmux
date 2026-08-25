@@ -654,6 +654,86 @@ struct DockSessionPersistenceTests {
         #expect(newestBindingIndex.binding(panelId: panelID)?.checkpointId == newestSessionID)
     }
 
+    @Test("Stable-panel lookup revalidates a cached owner PID before preferring it")
+    func stablePanelLookupRevalidatesCachedOwnerPID() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-dock-stale-owner-pid-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let staleOwnerID = UUID()
+        let restoredOwnerID = UUID()
+        let panelID = UUID()
+        let staleSessionID = UUID().uuidString
+        let currentSessionID = UUID().uuidString
+        let stalePID = 43_001
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(stalePID),
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        var staleRecord = codexHookRecord(
+            sessionID: staleSessionID,
+            workspaceID: staleOwnerID,
+            panelID: panelID,
+            workingDirectory: workingDirectory.path,
+            updatedAt: 300
+        )
+        staleRecord["pid"] = stalePID
+        staleRecord["pidStartSeconds"] = recordedIdentity.startSeconds
+        staleRecord["pidStartMicroseconds"] = recordedIdentity.startMicroseconds
+        try writeCodexHookStore(
+            directory: hookStateDirectory,
+            sessions: [
+                staleSessionID: staleRecord,
+                currentSessionID: codexHookRecord(
+                    sessionID: currentSessionID,
+                    workspaceID: restoredOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path],
+            processArgumentsProvider: { pid in
+                pid == stalePID
+                    ? CmuxTopProcessArguments(
+                        arguments: ["/usr/local/bin/codex"],
+                        environment: [
+                            "CMUX_WORKSPACE_ID": staleOwnerID.uuidString,
+                            "CMUX_SURFACE_ID": panelID.uuidString,
+                        ]
+                    )
+                    : nil
+            },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { pid in
+                pid == stalePID ? recordedIdentity : nil
+            }
+        )
+
+        let resolved = index.entryForStablePanel(
+            workspaceId: staleOwnerID,
+            panelId: panelID
+        )
+        #expect(resolved?.snapshot.sessionId == currentSessionID)
+    }
+
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")
     @MainActor
     func filePreviewSessionRoundTripPreservesPathKindAndBinding() throws {
