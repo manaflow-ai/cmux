@@ -375,15 +375,24 @@ impl ViewerDelivery {
     /// Queue an initial banner or replay while callbacks remain paused.
     fn seed(&self, banner: Option<Bytes>, replay: Option<Bytes>) -> bool {
         let mut state = self.state.lock().expect("viewer delivery lock");
-        if state.finished || state.released {
+        if state.released {
             return false;
         }
+        // A shell can exit before the deferred viewer start finishes building
+        // its initial replay. Keep the terminal event last so the viewer still
+        // receives banner, replay, then exit.
+        let exit = state.finished.then(|| state.queue.pop_back()).flatten();
         let mut overflowed = false;
         if let Some(banner) = banner {
             overflowed |= !Self::enqueue_data(&mut state, banner);
         }
         if !overflowed && let Some(replay) = replay {
             overflowed |= !Self::enqueue_data(&mut state, replay);
+        }
+        if let Some(exit) = exit
+            && !overflowed
+        {
+            state.queue.push_back(exit);
         }
         overflowed
     }
@@ -2567,6 +2576,25 @@ mod tests {
         assert!(state.queue.is_empty());
         drop(state);
         assert_eq!(notifications.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn viewer_delivery_finish_before_start_preserves_replay_before_exit() {
+        let seen = TestArc::new(StdMutex::new(Vec::<String>::new()));
+        let data_seen = TestArc::clone(&seen);
+        let on_data: DataSink = TestArc::new(move |chunk| {
+            data_seen.lock().unwrap().push(String::from_utf8_lossy(&chunk).into_owned());
+        });
+        let exit_seen = TestArc::clone(&seen);
+        let on_exit: ExitSink = TestArc::new(move |code| {
+            exit_seen.lock().unwrap().push(format!("exit:{code}"));
+        });
+        let delivery = ViewerDelivery::with_overflow(on_data, on_exit, TestArc::new(|| {}));
+        assert!(!delivery.finish(9));
+        delivery.seed(Some(Bytes::from_static(b"banner")), Some(Bytes::from_static(b"replay")));
+        assert!(delivery.activate());
+        delivery.drain();
+        assert_eq!(*seen.lock().unwrap(), vec!["banner", "replay", "exit:9"]);
     }
 
     #[derive(Default)]
