@@ -227,7 +227,6 @@ final class ArtifactStoreMutationLease {
         }
         if renameResult != 0 {
             if !replacingExisting, errno == EEXIST {
-                keepsTemporary = false
                 return false
             }
             throw ArtifactStoreError.pathOutsideStore(relativePath)

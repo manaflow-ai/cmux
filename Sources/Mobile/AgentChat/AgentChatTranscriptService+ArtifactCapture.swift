@@ -58,9 +58,13 @@ extension AgentChatTranscriptService {
         case .mobileSubscriber:
             tailerOwnership[sessionID] = .mobileSubscriber
             artifactTailerLastUse.removeValue(forKey: sessionID)
+            artifactTailerUseCounter &+= 1
+            mobileTailerLastUse[sessionID] = artifactTailerUseCounter
+            enforceMobileTailerLimit(protectedSessionID: sessionID)
         case .automaticArtifactCapture:
             guard tailerOwnership[sessionID] != .mobileSubscriber else { return }
             tailerOwnership[sessionID] = .automaticArtifactCapture
+            mobileTailerLastUse.removeValue(forKey: sessionID)
             artifactTailerUseCounter &+= 1
             artifactTailerLastUse[sessionID] = artifactTailerUseCounter
         }
@@ -70,6 +74,7 @@ extension AgentChatTranscriptService {
     func removeTailer(sessionID: String) {
         tailerOwnership.removeValue(forKey: sessionID)
         artifactTailerLastUse.removeValue(forKey: sessionID)
+        mobileTailerLastUse.removeValue(forKey: sessionID)
         guard let tailer = tailers.removeValue(forKey: sessionID) else { return }
         Task { await tailer.stop() }
     }
@@ -80,6 +85,22 @@ extension AgentChatTranscriptService {
     func enforceArtifactTailerLimit(protectedSessionID: String? = nil) {
         while artifactTailerLastUse.count > Self.maxArtifactOnlyTailers {
             guard let victim = artifactTailerLastUse
+                .filter({ $0.key != protectedSessionID })
+                .min(by: { lhs, rhs in
+                    if lhs.value == rhs.value { return lhs.key < rhs.key }
+                    return lhs.value < rhs.value
+                })?.key else {
+                return
+            }
+            removeTailer(sessionID: victim)
+        }
+    }
+
+    /// Evicts least-recently-used explicitly opened mobile histories so one
+    /// long-lived phone cannot retain an unbounded watcher/message cache set.
+    func enforceMobileTailerLimit(protectedSessionID: String? = nil) {
+        while mobileTailerLastUse.count > Self.maxMobileSubscriberTailers {
+            guard let victim = mobileTailerLastUse
                 .filter({ $0.key != protectedSessionID })
                 .min(by: { lhs, rhs in
                     if lhs.value == rhs.value { return lhs.key < rhs.key }
@@ -102,6 +123,7 @@ extension AgentChatTranscriptService {
             // Do not promote the entire tailer inventory just because one
             // phone is connected; explicit history requests own their session.
             enforceArtifactTailerLimit()
+            enforceMobileTailerLimit()
             return
         }
 
@@ -109,6 +131,7 @@ extension AgentChatTranscriptService {
             for sessionID in tailers.keys {
                 if tailerOwnership[sessionID] == .mobileSubscriber {
                     tailerOwnership[sessionID] = nil
+                    mobileTailerLastUse.removeValue(forKey: sessionID)
                 }
                 noteTailerUse(sessionID: sessionID, ownership: .automaticArtifactCapture)
             }
@@ -118,6 +141,7 @@ extension AgentChatTranscriptService {
                 guard tailerOwnership[sessionID] != .mobileSubscriber else { continue }
                 removeTailer(sessionID: sessionID)
             }
+            enforceMobileTailerLimit()
         }
     }
 

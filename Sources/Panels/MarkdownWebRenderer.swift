@@ -547,12 +547,29 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 let fileURL = localImageFileURL(from: requestURL)
                 let mimeType = fileURL
                     .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
+                let temporaryURL: URL?
+                if let fileURL,
+                   let allowedLocalResourceRoot,
+                   let opened = ArtifactSidebarFileAccess().openedFile(
+                       for: fileURL,
+                       artifactRoot: allowedLocalResourceRoot
+                   ) {
+                    temporaryURL = opened.makeTemporaryPreviewURL(maximumBytes: 8 * 1024 * 1024)
+                } else {
+                    temporaryURL = nil
+                }
+                let loadURL = temporaryURL ?? (allowedLocalResourceRoot == nil ? fileURL : nil)
                 return Task.detached(priority: .userInitiated) {
-                    guard let fileURL,
-                          FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                    defer {
+                        if let temporaryURL {
+                            try? FileManager.default.removeItem(at: temporaryURL)
+                        }
+                    }
+                    guard let loadURL,
+                          FileManager.default.isReadableFile(atPath: loadURL.path) else {
                         return ImageLoadResult(data: Data(), mimeType: mimeType)
                     }
-                    let data = (try? Data(contentsOf: fileURL)) ?? Data()
+                    let data = (try? Data(contentsOf: loadURL)) ?? Data()
                     return ImageLoadResult(data: data, mimeType: mimeType)
                 }
             }

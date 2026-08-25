@@ -36,12 +36,16 @@ extension ContentView {
         switch artifact.fileKind {
         case .html:
             let workspaceID = workspace.id
+            guard let previewURL = openedFile.makeTemporaryPreviewURL(maximumBytes: 8 * 1024 * 1024) else {
+                NSSound.beep()
+                return
+            }
             Task { @MainActor in
+                defer { try? FileManager.default.removeItem(at: previewURL) }
                 do {
-                    let artifactRoot = projectRoot.appendingPathComponent(".cmux", isDirectory: true)
                     let document = try await ArtifactHTMLPreviewDocument.load(
-                        sourceURL: safeURL,
-                        allowedRoot: artifactRoot
+                        sourceURL: previewURL,
+                        allowedRoot: previewURL.deletingLastPathComponent()
                     )
                     guard tabManager.selectedWorkspace?.id == workspaceID else { return }
                     _ = workspace.newBrowserSurface(

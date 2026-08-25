@@ -117,6 +117,9 @@ final class AgentChatTranscriptService {
     /// artifact capture. Mobile-owned tailers are demand-driven and are not
     /// counted against this cap.
     static let maxArtifactOnlyTailers = 32
+    /// Explicitly opened mobile histories retain a larger but still bounded
+    /// watcher/cache pool until demand can be represented per session.
+    static let maxMobileSubscriberTailers = 64
     /// Quiet period used to coalesce transcript prose batches before parsing
     /// the full bounded transcript for automatic capture.
     static let artifactCaptureDebounceDelay: Duration = .milliseconds(350)
@@ -138,6 +141,7 @@ final class AgentChatTranscriptService {
     var tailers: [String: AgentChatTranscriptTailer] = [:]
     var tailerOwnership: [String: AgentChatTranscriptTailerOwnership] = [:]
     var artifactTailerLastUse: [String: UInt64] = [:]
+    var mobileTailerLastUse: [String: UInt64] = [:]
     var artifactCaptureDebounceTasks: [String: (
         token: UUID,
         task: Task<Void, Never>
@@ -633,6 +637,7 @@ final class AgentChatTranscriptService {
         tailers[sessionID] = tailer
         noteTailerUse(sessionID: sessionID, ownership: ownership)
         enforceArtifactTailerLimit(protectedSessionID: sessionID)
+        enforceMobileTailerLimit(protectedSessionID: sessionID)
         if record.transcriptPath != path {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = path }
         }

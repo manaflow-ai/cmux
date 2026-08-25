@@ -76,7 +76,10 @@ extension CMUXCLI {
             return nativeIdentity
         }
         return (
-            normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_SESSION_ID"]),
+            // The generic id is inherited by nested agents and is not bound
+            // to the current provider process. Keep this fallback
+            // workspace-scoped instead of assigning files to a parent agent.
+            nil,
             explicitName
         )
     }
@@ -131,6 +134,16 @@ extension CMUXCLI {
         allowedRoot: URL,
         failureMessage: String
     ) throws {
+        let rootDescriptor = Darwin.open(
+            allowedRoot.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard rootDescriptor >= 0,
+              let openedRootPath = openedPath(for: rootDescriptor) else {
+            if rootDescriptor >= 0 { _ = Darwin.close(rootDescriptor) }
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        defer { _ = Darwin.close(rootDescriptor) }
         let descriptor = Darwin.open(
             path,
             O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
@@ -143,7 +156,7 @@ extension CMUXCLI {
         guard fstat(descriptor, &status) == 0,
               (status.st_mode & S_IFMT) == S_IFREG,
               let openedPath = openedPath(for: descriptor),
-              isPath(openedPath, inside: allowedRoot) else {
+              isPath(openedPath, insideCanonicalRoot: openedRootPath.path) else {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
         guard status.st_size >= 0, status.st_size <= 64 * 1024 * 1024 else {
@@ -219,8 +232,7 @@ extension CMUXCLI {
         )).resolvingSymlinksInPath().standardizedFileURL
     }
 
-    private func isPath(_ path: URL, inside root: URL) -> Bool {
-        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+    private func isPath(_ path: URL, insideCanonicalRoot rootPath: String) -> Bool {
         let path = path.path
         return path == rootPath || path.hasPrefix(rootPath + "/")
     }
