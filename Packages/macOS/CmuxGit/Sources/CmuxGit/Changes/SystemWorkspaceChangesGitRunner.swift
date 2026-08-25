@@ -167,6 +167,9 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
                     return result
                 }
             } catch {
+                if error is POSIXError {
+                    continue
+                }
                 throw error
             }
         }

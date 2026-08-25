@@ -209,7 +209,14 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
         guard roots.contains(where: { root in
             path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-        }) else { return false }
+        }) else {
+            switch configReader.read(at: url, maximumByteCount: 1) {
+            case .contents, .oversized:
+                return true
+            case .missing, .unavailable:
+                return false
+            }
+        }
         switch configReader.read(at: url, maximumByteCount: 1) {
         case .contents, .oversized:
             return true
