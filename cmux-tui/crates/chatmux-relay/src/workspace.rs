@@ -65,6 +65,7 @@ const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
 const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
 const GIT_STDOUT_DRAIN_TIMEOUT_MS: u64 = 5_000;
+const GIT_CHILD_REAP_TIMEOUT_MS: u64 = 1_000;
 const GIT_PROCESS_WAIT_TIMEOUT_MS: u64 = 5_000;
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
@@ -1553,6 +1554,33 @@ impl Drop for GitProcessGuard {
             // The direct child is also killed by Tokio's kill_on_drop guard.
             // killpg covers helpers which inherited stdout/stderr.
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            // A cancelled future cannot await Child::wait from Drop. Reap
+            // the leader in a finite supervisor instead. WNOHANG plus the
+            // deadline prevents an unbounded detached reaper if another
+            // owner has already collected the child or the runtime is gone.
+            let _ = std::thread::Builder::new().name("chatmux-relay-git-reaper".to_owned()).spawn(
+                move || {
+                    let deadline = std::time::Instant::now()
+                        + std::time::Duration::from_millis(GIT_CHILD_REAP_TIMEOUT_MS);
+                    let mut status = 0;
+                    loop {
+                        let result = libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG);
+                        if result == pid as libc::pid_t {
+                            break;
+                        }
+                        if result < 0 {
+                            let error = std::io::Error::last_os_error();
+                            if error.raw_os_error() != Some(libc::EINTR) {
+                                break;
+                            }
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                },
+            );
         }
         #[cfg(windows)]
         {
