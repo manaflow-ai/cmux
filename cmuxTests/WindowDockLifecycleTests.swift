@@ -164,6 +164,8 @@ struct WindowDockLifecycleTests {
         }
 
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let dock = try #require(workspace.dockSplit)
+        let dockPaneId = try #require(dock.bonsplitController.allPaneIds.first)
         workspace.retireFromOwningTabManager()
 
         #expect(
@@ -175,6 +177,14 @@ struct WindowDockLifecycleTests {
         )
         #expect(workspace.newNotificationsSurface(inPane: paneId) == nil)
         #expect(workspace.openOrFocusNotificationsSurface(inPane: paneId) == nil)
+        #expect(
+            !dock.handleExternalFileDrop(
+                BonsplitController.ExternalFileDropRequest(
+                    urls: [URL(fileURLWithPath: "/tmp/stale-preview.txt")],
+                    destination: .insert(targetPane: dockPaneId, targetIndex: nil)
+                )
+            )
+        )
     }
 
     @Test("Window Dock tears down on authoritative route removal")

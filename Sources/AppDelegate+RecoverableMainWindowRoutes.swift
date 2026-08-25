@@ -4,6 +4,10 @@ import CmuxTerminalCore
 @MainActor
 final class RecoverableMainWindowRoute {
     let windowId: UUID
+    /// Workspace identities captured while the weak manager is still alive.
+    /// They let owner-deinit cleanup detach remote-tmux mirrors after the
+    /// manager reference has disappeared.
+    let workspaceIds: [UUID]
     weak var tabManager: TabManager?
     weak var window: NSWindow?
     /// Final live-context snapshot. While no replacement context exists, this
@@ -22,6 +26,7 @@ final class RecoverableMainWindowRoute {
         order: UInt64
     ) {
         self.windowId = windowId
+        self.workspaceIds = tabManager.tabs.map(\.id)
         self.tabManager = tabManager
         self.window = window
         self.sidebarSnapshot = sidebarSnapshot
@@ -216,6 +221,13 @@ extension AppDelegate {
             return
         }
         mainWindowRouteLedger.routesByWindowId.removeValue(forKey: route.windowId)
+        // The route keeps only a weak manager reference. Detach remote-tmux
+        // mirrors from the captured workspace identities before that manager
+        // can disappear, otherwise the controller-owned SSH connections and
+        // mirror observers can outlive the abandoned window owner.
+        remoteTmuxController.handleWindowWorkspacesClosed(
+            workspaceIds: route.workspaceIds
+        )
         route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
             for: route
         )

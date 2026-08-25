@@ -123,6 +123,7 @@ extension DockSplitStore {
     func handleExternalFileDrop(
         _ request: BonsplitController.ExternalFileDropRequest
     ) -> Bool {
+        guard !isRetired else { return false }
         let filePaths = request.urls
             .filter(\.isFileURL)
             .map(\.path)
@@ -170,7 +171,7 @@ extension DockSplitStore {
         focus: Bool,
         targetIndex: Int? = nil
     ) -> [FilePreviewPanel] {
-        guard containsPane(paneId.id) else { return [] }
+        guard !isRetired, containsPane(paneId.id) else { return [] }
         let previousFocus = focusedDockPaneSelection()
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
@@ -203,7 +204,7 @@ extension DockSplitStore {
         focus: Bool,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
-        guard containsPane(paneId.id) else { return nil }
+        guard !isRetired, containsPane(paneId.id) else { return nil }
         let previousFocus = focusedDockPaneSelection()
         guard let panel = newFilePreviewSurfaceInValidatedPane(
             inPane: paneId,
@@ -227,6 +228,7 @@ extension DockSplitStore {
         filePath: String,
         targetIndex: Int?
     ) -> FilePreviewPanel? {
+        guard !isRetired else { return nil }
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
@@ -257,7 +259,7 @@ extension DockSplitStore {
         filePath: String,
         focus: Bool
     ) -> (panel: FilePreviewPanel, pane: PaneID)? {
-        guard containsPane(paneId.id) else { return nil }
+        guard !isRetired, containsPane(paneId.id) else { return nil }
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         let tab = Bonsplit.Tab(
             title: panel.displayTitle,
