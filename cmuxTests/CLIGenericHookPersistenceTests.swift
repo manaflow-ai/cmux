@@ -286,6 +286,153 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testCopilotNewReplacesCurrentConversationAndRejectsLateHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("copilot-new")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-new-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let originalSessionId = "copilot-session-original"
+        let replacementSessionId = "copilot-session-new"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": false])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_LAUNCH_KIND": "copilot",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/copilot",
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/copilot"]),
+            "CMUX_AGENT_LAUNCH_CWD": root.path,
+            "CMUX_COPILOT_PID": String(getpid()),
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runCopilotHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "copilot", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+        }
+
+        let originalStart = runCopilotHook(
+            "session-start",
+            input: #"{"session_id":"\#(originalSessionId)","source":"startup","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(originalStart.timedOut, originalStart.stderr)
+        XCTAssertEqual(originalStart.status, 0, originalStart.stderr)
+
+        let replacementStart = runCopilotHook(
+            "session-start",
+            input: #"{"session_id":"\#(replacementSessionId)","source":"new","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(replacementStart.timedOut, replacementStart.stderr)
+        XCTAssertEqual(replacementStart.status, 0, replacementStart.stderr)
+
+        let lateHookCommandStart = state.snapshot().count
+        let lateStop = runCopilotHook(
+            "stop",
+            input: #"{"session_id":"\#(originalSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"stale completion"}"#
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+
+        let commands = state.snapshot()
+        let requests = commands.compactMap(jsonObject)
+        let clearCheckpoints = requests.compactMap { request -> String? in
+            guard request["method"] as? String == "surface.resume.clear",
+                  let params = request["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["checkpoint_id"] as? String
+        }
+        XCTAssertEqual(clearCheckpoints, [originalSessionId], commands.joined(separator: "\n"))
+
+        let replacementBindings = requests.filter { request in
+            guard request["method"] as? String == "surface.resume.set",
+                  let params = request["params"] as? [String: Any] else {
+                return false
+            }
+            return params["checkpoint_id"] as? String == replacementSessionId
+        }
+        XCTAssertEqual(replacementBindings.count, 1, commands.joined(separator: "\n"))
+        XCTAssertFalse(
+            commands.contains { $0.hasPrefix("clear_agent_pid copilot.\(originalSessionId) ") },
+            "Same-surface replacement must not clear the new conversation's lifecycle: \(commands)"
+        )
+
+        let lateHookCommands = Array(commands.dropFirst(lateHookCommandStart))
+        XCTAssertFalse(
+            lateHookCommands.contains { command in
+                guard let request = self.jsonObject(command),
+                      request["method"] as? String == "surface.resume.set",
+                      let params = request["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == originalSessionId
+            },
+            "A delayed hook from the abandoned conversation must not restore its checkpoint: \(lateHookCommands)"
+        )
+        XCTAssertFalse(
+            lateHookCommands.contains {
+                $0.contains("set_status copilot Idle") || $0.hasPrefix("notify_target_async ")
+            },
+            "A delayed hook from the abandoned conversation must not change visible state: \(lateHookCommands)"
+        )
+
+        let storeURL = root.appendingPathComponent("copilot-hook-sessions.json", isDirectory: false)
+        let store = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(store["sessions"] as? [String: Any])
+        XCTAssertEqual(Set(sessions.keys), [replacementSessionId])
+        XCTAssertNil(store["pendingSupersededSessionCleanup"])
+        let activeBySurface = try XCTUnwrap(store["activeSessionsBySurface"] as? [String: Any])
+        let active = try XCTUnwrap(activeBySurface[surfaceId] as? [String: Any])
+        XCTAssertEqual(active["sessionId"] as? String, replacementSessionId)
+    }
+
     func testAntigravityStopAndNotificationsUseGenericNotificationPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-notification")
