@@ -6,8 +6,10 @@ import Foundation
 ///
 /// Ghostty can report hyperlink state on every cursor-position refresh. The
 /// ingress actor keeps the first and latest shape per runtime, the latest link
-/// state, and lifecycle transitions independently. At most one main-actor
-/// drain is pending for a view; stale runtime IDs are rejected before enqueue.
+/// state, and lifecycle transitions independently. Lifecycle transitions use
+/// their own bounded channel so pointer traffic cannot evict a reset/end. At
+/// most one main-actor drain is pending for a view; stale runtime IDs are
+/// rejected before enqueue.
 actor GhosttyPointerStyleIngress {
     private weak var surfaceView: GhosttyNSView?
     nonisolated private let focusGeneration = AtomicUInt64Generation()
@@ -17,16 +19,29 @@ actor GhosttyPointerStyleIngress {
         activeRuntimeLifetimeId: nil
     )
     private let continuation: AsyncStream<GhosttyPointerStyleIngressRequest>.Continuation
+    private let lifecycleContinuation: AsyncStream<GhosttyPointerStyleIngressRequest>.Continuation
     private var consumerTask: Task<Void, Never>?
+    private var lifecycleConsumerTask: Task<Void, Never>?
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         let (stream, continuation) = AsyncStream<GhosttyPointerStyleIngressRequest>.makeStream(
             bufferingPolicy: .bufferingNewest(256)
         )
+        let (lifecycleStream, lifecycleContinuation) =
+            AsyncStream<GhosttyPointerStyleIngressRequest>.makeStream(
+                bufferingPolicy: .bufferingNewest(2)
+            )
         self.continuation = continuation
+        self.lifecycleContinuation = lifecycleContinuation
         consumerTask = Task { [weak self] in
             for await request in stream {
+                guard let self else { return }
+                await self.receive(request)
+            }
+        }
+        lifecycleConsumerTask = Task { [weak self] in
+            for await request in lifecycleStream {
                 guard let self else { return }
                 await self.receive(request)
             }
@@ -35,7 +50,9 @@ actor GhosttyPointerStyleIngress {
 
     deinit {
         continuation.finish()
+        lifecycleContinuation.finish()
         consumerTask?.cancel()
+        lifecycleConsumerTask?.cancel()
     }
 
     /// Registers a native runtime before Ghostty can emit its first action.
@@ -76,7 +93,14 @@ actor GhosttyPointerStyleIngress {
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
-        continuation.yield(request)
+        switch request.event {
+        case .runtimeReset, .runtimeEnded:
+            // Lifecycle transitions use a separate bounded channel so a
+            // burst of shape/link callbacks cannot evict a required reset.
+            lifecycleContinuation.yield(request)
+        case .activate, .retire(_), .shape, .linkHover:
+            continuation.yield(request)
+        }
     }
 
     private func activateIsolated(
