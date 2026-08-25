@@ -22,14 +22,14 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
     }
 
     func isDirty(workTreeRoot: String) -> Bool? {
-        do {
-            let candidates = runnerSelector.candidateRunners
-            let deadline = DispatchTime.now() + runnerSelector.candidateWallTimeLimit
-            for runner in candidates.prefix(4) {
-                let now = DispatchTime.now()
-                guard deadline > now else { break }
-                let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
-                    / 1_000_000_000
+        let candidates = runnerSelector.candidateRunners
+        let deadline = DispatchTime.now() + runnerSelector.candidateWallTimeLimit
+        for runner in candidates.prefix(4) {
+            let now = DispatchTime.now()
+            guard deadline > now else { break }
+            let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                / 1_000_000_000
+            do {
                 let result = try runner.run(
                     arguments: [
                         "status",
@@ -52,10 +52,10 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
                 if result.exitCode == 0, !result.standardOutputWasTruncated {
                     return false
                 }
+            } catch {
+                continue
             }
-            return nil
-        } catch {
-            return nil
         }
+        return nil
     }
 }

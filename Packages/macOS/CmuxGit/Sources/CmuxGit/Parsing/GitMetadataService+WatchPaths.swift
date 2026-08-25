@@ -21,7 +21,7 @@ extension GitMetadataService {
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        configPaths: [String]? = nil
+        configPathsByRepository: [String: [String]]? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
@@ -29,11 +29,12 @@ extension GitMetadataService {
 
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
-            configPaths: configPaths
+            configPathsByRepository: configPathsByRepository
         )
             + gitlinkMetadataWatchPaths(
                 repository: repository,
-                safetyConfiguration: safetyConfiguration
+                safetyConfiguration: safetyConfiguration,
+                configPathsByRepository: configPathsByRepository
             )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexExists = FileManager.default.fileExists(atPath: indexPath)
@@ -115,8 +116,13 @@ extension GitMetadataService {
     /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        configPaths: [String]? = nil
+        configPathsByRepository: [String: [String]]? = nil
     ) -> [String] {
+        let configPaths = if let configPathsByRepository {
+            configPathsByRepository[repository.workTreeRoot] ?? []
+        } else {
+            gitConfigURLs(repository: repository).map(\.path)
+        }
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
@@ -125,7 +131,7 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
-        ] + (configPaths ?? gitConfigURLs(repository: repository).map(\.path))
+        ] + configPaths
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
@@ -166,14 +172,16 @@ extension GitMetadataService {
     /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
     nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        safetyConfiguration: GitMetadataSafetyConfiguration
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        configPathsByRepository: [String: [String]]? = nil
     ) -> [String] {
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
             repository: repository,
             depth: 0,
             visitedWorkTreeRoots: &visitedWorkTreeRoots,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            configPathsByRepository: configPathsByRepository
         )
     }
 
@@ -181,7 +189,8 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         depth: Int,
         visitedWorkTreeRoots: inout Set<String>,
-        safetyConfiguration: GitMetadataSafetyConfiguration
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        configPathsByRepository: [String: [String]]?
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -204,13 +213,17 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
+                repository: submoduleRepository,
+                configPathsByRepository: configPathsByRepository
+            ))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,
                     depth: depth + 1,
                     visitedWorkTreeRoots: &visitedWorkTreeRoots,
-                    safetyConfiguration: safetyConfiguration
+                    safetyConfiguration: safetyConfiguration,
+                    configPathsByRepository: configPathsByRepository
                 )
             )
         }

@@ -26,7 +26,21 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     /// Returns every reachable config file in Git's include order.
     func configURLs() -> [URL] {
+        traverse().configURLs
+    }
+
+    /// Returns bounded config and configured reference-storage paths to watch.
+    func watchPaths() -> [String] {
+        let result = traverse()
+        var paths = result.configURLs.map { $0.standardizedFileURL.path }
+        paths.append(contentsOf: result.referenceStoragePaths)
+        var seen: Set<String> = []
+        return paths.filter { seen.insert($0).inserted }
+    }
+
+    private func traverse() -> (configURLs: [URL], referenceStoragePaths: [String]) {
         var urls: [URL] = []
+        var storagePaths: [String] = []
         var pendingURLs = GitMetadataService.gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
         var budget = GitConfigTraversalBudget(
@@ -49,8 +63,52 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 configURL: configURL,
                 maximumCount: budget.remainingPathCount
             ))
+            storagePaths.append(contentsOf: referenceStoragePaths(
+                fromConfig: config,
+                configURL: configURL
+            ))
         }
-        return urls
+        return (urls, storagePaths)
+    }
+
+    private func referenceStoragePaths(fromConfig config: String, configURL: URL) -> [String] {
+        var paths: [String] = []
+        var inExtensionsSection = false
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                inExtensionsSection = line.lowercased() == "[extensions]"
+                continue
+            }
+            guard inExtensionsSection else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
+            let value = GitMetadataService.gitConfigUnquotedValue(parts[1])
+            let prefix = "reftable:"
+            guard value.lowercased().hasPrefix(prefix) else { continue }
+            var payload = String(value.dropFirst(prefix.count))
+            while payload.hasPrefix("/") && !payload.hasPrefix("//") {
+                payload.removeFirst()
+            }
+            if payload.hasPrefix("//") {
+                payload = String(payload.drop(while: { $0 == "/" }))
+                payload = "/" + payload
+            }
+            guard !payload.isEmpty else { continue }
+            let path: String
+            if payload.hasPrefix("/") {
+                path = URL(fileURLWithPath: payload).standardizedFileURL.path
+            } else {
+                path = configURL.deletingLastPathComponent()
+                    .appendingPathComponent(payload)
+                    .standardizedFileURL.path
+            }
+            paths.append(path)
+        }
+        return paths
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.
