@@ -37,6 +37,7 @@ final class CmuxPluginProcessSupervisor {
         let socketPath: String
         let processID: pid_t
         let snapshot: CmuxPluginExecutionSnapshot
+        let integrityMonitor: CmuxPluginSnapshotIntegrityMonitor
     }
 
     private var processes: [String: RunningProcess] = [:]
@@ -175,6 +176,19 @@ final class CmuxPluginProcessSupervisor {
 
         let process = Process()
         let launchGate = Pipe()
+        let integrityMonitor = CmuxPluginSnapshotIntegrityMonitor(
+            rootURL: executionSnapshot.directoryURL.deletingLastPathComponent(),
+            onViolation: { [weak self, weak runtime] in
+                Task { @MainActor [weak self, weak runtime] in
+                    guard let self, let runtime else { return }
+                    self.snapshotIntegrityDidChange(
+                        pluginID: pluginID,
+                        runtime: runtime,
+                        reportError: reportError
+                    )
+                }
+            }
+        )
         let pinnedEntrypoint = FileHandle(
             fileDescriptor: executionSnapshot.entrypointFileDescriptor,
             closeOnDealloc: false
@@ -229,6 +243,7 @@ final class CmuxPluginProcessSupervisor {
         } catch {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
+            integrityMonitor.cancel()
             Task { await snapshotter.remove(executionSnapshot) }
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch failed: \(String(describing: error), privacy: .private)"
@@ -251,6 +266,7 @@ final class CmuxPluginProcessSupervisor {
               runtime.processReconciliationIsAllowed(generation: generation) else {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
+            integrityMonitor.cancel()
             if process.isRunning {
                 process.terminate()
             }
@@ -272,7 +288,8 @@ final class CmuxPluginProcessSupervisor {
             sessionToken: sessionToken,
             socketPath: socketPath,
             processID: processID,
-            snapshot: executionSnapshot
+            snapshot: executionSnapshot,
+            integrityMonitor: integrityMonitor
         )
         runtime.registerProcess(processID, for: pluginID)
         let snapshotVerifiedBeforeGate = await snapshotter.verify(executionSnapshot)
@@ -282,6 +299,7 @@ final class CmuxPluginProcessSupervisor {
             runtime.revokeProcess(processID)
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
+            integrityMonitor.cancel()
             if process.isRunning {
                 process.terminate()
             }
@@ -303,6 +321,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             processes.removeValue(forKey: pluginID)
             runtime.revokeProcess(processID)
+            integrityMonitor.cancel()
             Task { await snapshotter.remove(executionSnapshot) }
             if process.isRunning {
                 process.terminate()
@@ -338,6 +357,30 @@ final class CmuxPluginProcessSupervisor {
         )
     }
 
+    private func snapshotIntegrityDidChange(
+        pluginID: String,
+        runtime: CmuxPluginRuntime,
+        reportError: @escaping @Sendable (String, String?) -> Void
+    ) {
+        guard let running = processes.removeValue(forKey: pluginID) else { return }
+        running.integrityMonitor.cancel()
+        runtime.revokeProcess(running.processID)
+        if running.process.isRunning {
+            running.process.terminate()
+        }
+        Task { await snapshotter.remove(running.snapshot) }
+        reportError(
+            pluginID,
+            String(
+                localized: "settings.plugins.error.launch",
+                defaultValue: "The plugin could not be launched."
+            )
+        )
+        pluginProcessLogger.error(
+            "Plugin \(pluginID, privacy: .public) snapshot changed while running"
+        )
+    }
+
     private func processDidTerminate(
         pluginID: String,
         processID: pid_t,
@@ -351,6 +394,7 @@ final class CmuxPluginProcessSupervisor {
         }
         processes.removeValue(forKey: pluginID)
         runtime.processDidExit(processID)
+        running.integrityMonitor.cancel()
         Task { await snapshotter.remove(running.snapshot) }
         if status == 0 {
             reportError(
@@ -382,6 +426,7 @@ final class CmuxPluginProcessSupervisor {
         // delayed termination callback must never tear down the replacement's
         // streams merely because both generations share a plugin id.
         runtime.revokeProcess(running.processID)
+        running.integrityMonitor.cancel()
         Task { await snapshotter.remove(running.snapshot) }
         if running.process.isRunning {
             running.process.terminate()
