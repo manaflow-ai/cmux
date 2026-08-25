@@ -46,7 +46,7 @@ actor GhosttyPointerStyleIngress {
     /// Retires a runtime; `nil` unconditionally retires the currently active one.
     nonisolated func retire(runtimeLifetimeId: UUID?, surfaceId: UUID) {
         submit(.init(
-            event: .retire,
+            event: .retire(runtimeLifetimeId),
             surfaceId: surfaceId,
             runtimeLifetimeId: runtimeLifetimeId ?? UUID()
         ))
@@ -69,8 +69,19 @@ actor GhosttyPointerStyleIngress {
             state.byRuntime.removeAll(keepingCapacity: true)
             return
 
-        case .retire:
-            let retiredID = state.activeRuntimeLifetimeId ?? request.runtimeLifetimeId
+        case .retire(let requestedID):
+            let retiredID: UUID
+            if let requestedID {
+                guard state.activeRuntimeLifetimeId == requestedID else {
+                    return
+                }
+                retiredID = requestedID
+            } else {
+                guard let activeRuntimeLifetimeId = state.activeRuntimeLifetimeId else {
+                    return
+                }
+                retiredID = activeRuntimeLifetimeId
+            }
             state.activeRuntimeLifetimeId = nil
             state.retiredRuntimeLifetimeIds.insert(retiredID)
             if state.retiredRuntimeLifetimeIds.count > 8,
@@ -109,7 +120,7 @@ actor GhosttyPointerStyleIngress {
             runtime.latestShape = request
         case .linkHover:
             runtime.latestLinkHover = request
-        case .activate, .retire:
+        case .activate, .retire(_):
             break
         }
         state.byRuntime[request.runtimeLifetimeId] = runtime
