@@ -3702,14 +3702,17 @@ class TabManager: ObservableObject {
         workspace.surfaceOwnershipTarget(for: surfaceOrPanelId)?.containerPanelID
     }
 
+    /// Selects the next workspace in the requested sidebar cycle scope.
     func selectNextTab(scope: WorkspaceCycleScope = .visibleWorkspaceRows) {
         cycleWorkspace(direction: .next, scope: scope)
     }
 
+    /// Selects the previous workspace in the requested sidebar cycle scope.
     func selectPreviousTab(scope: WorkspaceCycleScope = .visibleWorkspaceRows) {
         cycleWorkspace(direction: .previous, scope: scope)
     }
 
+    /// Resolves and selects a workspace in one directional cycle step.
     private func cycleWorkspace(
         direction: WorkspaceCycleDirection,
         scope: WorkspaceCycleScope

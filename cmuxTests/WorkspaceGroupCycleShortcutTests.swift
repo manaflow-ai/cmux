@@ -13,6 +13,7 @@ import Testing
 @MainActor
 @Suite("Workspace group cycle shortcuts", .serialized)
 struct WorkspaceGroupCycleShortcutTests {
+    /// Verifies that focused-group cycle actions are configurable but unbound by default.
     @Test func actionsAreVisibleAndUnboundByDefault() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
             .nextSidebarTabInGroup,
@@ -29,6 +30,7 @@ struct WorkspaceGroupCycleShortcutTests {
         }
     }
 
+    /// Verifies that focused-group shortcuts wrap through members without selecting the anchor.
     @Test func configuredActionsCycleMembersWithoutSelectingAnchor() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
@@ -105,6 +107,7 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }
 
+    /// Verifies that window shortcuts traverse visible rows across workspace groups.
     @Test func windowActionsCycleAcrossGroupsWithoutSelectingAnchors() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
@@ -184,6 +187,7 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == firstMember.id)
     }
 
+    /// Creates the synthetic keyboard event used by shortcut-routing tests.
     private func keyEvent(
         key: String,
         keyCode: UInt16,

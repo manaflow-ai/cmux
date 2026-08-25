@@ -66,6 +66,7 @@ extension WorkspacesModel {
         return cycleDestination(from: currentWorkspaceId, direction: direction, candidates: candidates)
     }
 
+    /// Advances through an already-filtered candidate order, wrapping at either end.
     private func cycleDestination(
         from currentWorkspaceId: UUID,
         direction: WorkspaceCycleDirection,
@@ -86,6 +87,7 @@ extension WorkspacesModel {
         return candidates[destinationIndex].id
     }
 
+    /// Finds the nearest eligible tab when the current workspace row is hidden.
     private func nearestCycleDestination(
         from currentWorkspaceId: UUID,
         direction: WorkspaceCycleDirection,
