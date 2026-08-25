@@ -107,9 +107,10 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
+            onFocusAnchor: { [weak tabManager, groupId = group.id, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
+                guard let anchorTab = tabManager.workspaceGroupAnchor(for: groupId) else { return }
+                let anchorId = anchorTab.id
                 if modifiers.contains(.command) || modifiers.contains(.shift) {
                     let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                     let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
@@ -408,9 +409,10 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
+            onFocusAnchor: { [weak tabManager, groupId = snapshot.groupId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
+                guard let anchorTab = tabManager.workspaceGroupAnchor(for: groupId) else { return }
+                let anchorId = anchorTab.id
                 if modifiers.contains(.command) || modifiers.contains(.shift) {
                     let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                     let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(

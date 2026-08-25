@@ -862,9 +862,7 @@ struct WorkspaceGroupTests {
     }
 
     /// A retained sidebar header action must still select the live anchor after
-    /// another entry point closes the old anchor and promotes a member. This
-    /// intentionally mirrors the current snapshot-capturing closure and fails
-    /// until selection resolves the anchor from the stable group identity.
+    /// another entry point closes the old anchor and promotes a member.
     @Test func groupHeaderSelectionSurvivesAnchorPromotion() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -876,19 +874,19 @@ struct WorkspaceGroupTests {
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let staleAnchorId = group.anchorWorkspaceId
 
-        // The rendered header captures this id before a separate close path
-        // promotes the first remaining member.
-        let staleHeaderSelection = {
-            guard let staleAnchor = manager.tabs.first(where: { $0.id == staleAnchorId }) else {
+        // The rendered header retains the stable group id while a separate
+        // close path promotes the first remaining member.
+        let liveHeaderSelection = {
+            guard let liveAnchor = manager.workspaceGroupAnchor(for: groupId) else {
                 return
             }
-            manager.selectWorkspace(staleAnchor)
+            manager.selectWorkspace(liveAnchor)
         }
         manager.selectWorkspace(try #require(manager.tabs.first { $0.id == outsiderId }))
         manager.closeWorkspace(try #require(manager.tabs.first { $0.id == staleAnchorId }))
 
         let promotedAnchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
-        staleHeaderSelection()
+        liveHeaderSelection()
 
         #expect(manager.selectedTabId == promotedAnchorId)
     }

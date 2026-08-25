@@ -1975,6 +1975,18 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Resolves the group's current anchor workspace at action time.
+    ///
+    /// The anchor can be promoted when another entry point closes the old
+    /// anchor, so sidebar actions must retain the stable group id rather than
+    /// a snapshot workspace id.
+    func workspaceGroupAnchor(for groupId: UUID) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }) else {
+            return nil
+        }
+        return tabs.first(where: { $0.id == group.anchorWorkspaceId })
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
