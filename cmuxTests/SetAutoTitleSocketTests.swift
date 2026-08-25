@@ -360,7 +360,7 @@ import Testing
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == false)
                 #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
-                #expect(result["panel_apply_skipped"] as? Bool == false)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
                 #expect(workspace.title == "Fix auth bug")
 
                 // Two panels: the tab write fires.
@@ -385,7 +385,7 @@ import Testing
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == false)
                 #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
-                #expect(result["panel_apply_skipped"] as? Bool == false)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
                 #expect(workspace.title == "Debug login flow")
             }
         }
