@@ -369,6 +369,7 @@ final class ClaudeHookSessionStore {
     private static let maxRecoveredHookSessions = 512
     private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
     private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
+    private static let maxPendingCursorApprovalIndexEntriesPerSurface = 256
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -764,6 +765,9 @@ final class ClaudeHookSessionStore {
         var sessions = state.pendingCursorApprovalSessionsBySurface[key] ?? []
         if !sessions.contains(sessionId) {
             sessions.append(sessionId)
+            if sessions.count > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
+                sessions.removeFirst(sessions.count - Self.maxPendingCursorApprovalIndexEntriesPerSurface)
+            }
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
         }
         state.pendingCursorApprovalIndexInitialized = true
@@ -2229,6 +2233,7 @@ final class ClaudeHookSessionStore {
             reconcileCursorPendingIndex(&state)
             state.pendingCursorApprovalIndexInitialized = true
         }
+        pruneCursorPendingIndex(&state)
         let result = try body(&state)
         if persist {
             if let deadline, Date.now >= deadline {
@@ -2338,6 +2343,19 @@ final class ClaudeHookSessionStore {
             index[key, default: []].append(sessionId)
         }
         state.pendingCursorApprovalSessionsBySurface = index
+    }
+
+    private func pruneCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
+        var next: [String: [String]] = [:]
+        for (key, sessions) in state.pendingCursorApprovalSessionsBySurface {
+            let valid = sessions.filter { sessionId in
+                state.sessions[sessionId]?.pendingCursorShellApprovals?.isEmpty == false
+            }
+            if !valid.isEmpty {
+                next[key] = Array(valid.suffix(Self.maxPendingCursorApprovalIndexEntriesPerSurface))
+            }
+        }
+        state.pendingCursorApprovalSessionsBySurface = next
     }
 
     private func compactRecoveredState(_ state: inout ClaudeHookSessionStoreFile) {
@@ -35326,6 +35344,7 @@ export default CMUXSessionRestore;
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
+        var failureDetailsForFeed: [String: Any]?
         if hookEventName == "PostToolUseFailure" {
             event["is_error"] = true
             var failureDetails: [String: Any] = [:]
@@ -35349,6 +35368,7 @@ export default CMUXSessionRestore;
             }
             if !failureDetails.isEmpty {
                 event["failure"] = failureDetails
+                failureDetailsForFeed = failureDetails
             }
         }
         if let toolInput = parsedInput.object?["tool_input"] {
@@ -35359,6 +35379,11 @@ export default CMUXSessionRestore;
             event["tool_input"] = [
                 "command": "<redacted>"
             ]
+        }
+        if let failureDetailsForFeed {
+            var toolInput = event["tool_input"] as? [String: Any] ?? [:]
+            toolInput["failure"] = failureDetailsForFeed
+            event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
             source: source,
