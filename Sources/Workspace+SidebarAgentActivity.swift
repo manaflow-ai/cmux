@@ -129,19 +129,6 @@ extension Workspace {
                 let generation: SidebarAgentActivityEvidence.Generation
                 if let runtimeSessionID {
                     generation = .session(runtimeSessionID)
-                } else if matchingPIDKeys.isEmpty,
-                          let indexEntry,
-                          SidebarWorkspaceAgentActivity.canonicalStatusKey(
-                              indexEntry.snapshot.kind.rawValue
-                          ) == canonicalStatusKey,
-                          indexEntry.processLiveness != .exited,
-                          !indexEntry.snapshot.sessionId.isEmpty {
-                    // A token-routed lifecycle event is bound to this panel but
-                    // may not carry a session suffix (for example during the
-                    // first hook transition). Correlate it with the panel's
-                    // single cached session so it merges the durable anchor
-                    // instead of creating a second lifecycle-only agent.
-                    generation = .session(indexEntry.snapshot.sessionId)
                 } else if let indexEntry,
                           SidebarWorkspaceAgentActivity.canonicalStatusKey(
                               indexEntry.snapshot.kind.rawValue

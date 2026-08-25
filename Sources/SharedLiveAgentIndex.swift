@@ -83,6 +83,7 @@ final class SharedLiveAgentIndex {
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var lastSidebarLivenessRefreshAt: Date?
+    private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -463,7 +464,7 @@ final class SharedLiveAgentIndex {
             scheduleRefreshIfStale()
             return
         }
-        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
+        guard sidebarLivenessRefreshTask == nil else { return }
         let now = dateProvider()
         if let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
@@ -473,14 +474,14 @@ final class SharedLiveAgentIndex {
         lastSidebarLivenessRefreshAt = now
 
         let previousFingerprint = liveAgentProcessFingerprint
-        refreshTask = Task { @MainActor [weak self] in
+        sidebarLivenessRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let refreshed = await Task.detached(priority: .utility) {
-                let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+                let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
                 return cachedIndex.revalidatingCachedProcesses(against: processSnapshot)
             }.value
             guard !Task.isCancelled else {
-                self.refreshTask = nil
+                self.sidebarLivenessRefreshTask = nil
                 return
             }
             let nextFingerprint = refreshed.liveAgentProcessFingerprint()
@@ -501,7 +502,7 @@ final class SharedLiveAgentIndex {
             // lifecycle changes, and SessionStart anchors.
             self.index = refreshed
             self.liveAgentProcessFingerprint = nextFingerprint
-            self.refreshTask = nil
+            self.sidebarLivenessRefreshTask = nil
             self.restartForkAvailabilityRefreshIfPending()
             let notificationPanelIdsByWorkspaceId = changedPanelIdsByWorkspaceId.isEmpty
                 ? refreshedProcessPanelIdsByWorkspaceId
