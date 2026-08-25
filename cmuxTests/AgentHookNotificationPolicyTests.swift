@@ -184,8 +184,31 @@ struct AgentHookNotificationPolicyTests {
         #expect(
             AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: payload,
+                approvalMode: "auto-review"
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
                 approvalMode: "allowlist",
                 allowedShellCommands: ["Shell(git *)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: [
+                    "command": "curl https://example.com",
+                    "sandbox": false,
+                ],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(curl:*)"]
             ) == false
         )
         #expect(

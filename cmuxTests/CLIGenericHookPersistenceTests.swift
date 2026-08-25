@@ -1238,6 +1238,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Run Everything must not be converted into a forced cmux approval, saw \(unrestrictedCommands)"
         )
 
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let projectConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli.json",
+            isDirectory: false
+        )
+        let projectAllowlistConfig: [String: Any] = [
+            "approvalMode": "allowlist",
+            "permissions": ["allow": ["Shell(git)"]],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: projectAllowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: projectConfigURL, options: .atomic)
+        let projectAllowlistStart = state.snapshot().count
+        let projectAllowlisted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"git status --short","sandbox":false}"#
+        )
+        XCTAssertFalse(projectAllowlisted.timedOut, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.status, 0, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.stdout, "{}\n")
+        let projectAllowlistCommands = Array(state.snapshot().dropFirst(projectAllowlistStart))
+        XCTAssertFalse(
+            projectAllowlistCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "A project Shell(git) allowlist must suppress the forced approval fallback, saw \(projectAllowlistCommands)"
+        )
+
         let sandboxedCommandStart = state.snapshot().count
         let sandboxed = runCursorHook(
             "shell-exec",

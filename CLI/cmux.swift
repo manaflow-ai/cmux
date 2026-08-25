@@ -31583,25 +31583,74 @@ export default CMUXSessionRestore;
         let mappedSessionForPolicy = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
         let cursorApprovalSettings: (mode: String?, allowedShellCommands: [String]) = {
             guard def.name == "cursor" else { return (nil, []) }
-            let home = normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
-            let configDirectory = normalizedHookValue(env["CURSOR_CONFIG_DIR"])
-                ?? URL(fileURLWithPath: home, isDirectory: true)
-                    .appendingPathComponent(".cursor", isDirectory: true)
-                    .path
-            let configURL = URL(fileURLWithPath: configDirectory, isDirectory: true)
-                .appendingPathComponent("cli-config.json", isDirectory: false)
-            guard let data = try? Data(contentsOf: configURL),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return (nil, [])
+            var mode: String?
+            var allowedShellCommands: [String] = []
+            func applyConfig(at url: URL) {
+                guard let data = try? Data(contentsOf: url),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return
+                }
+                if let configuredMode = json["approvalMode"] as? String {
+                    mode = configuredMode
+                }
+                if let permissions = json["permissions"] as? [String: Any],
+                   let allowed = permissions["allow"] as? [String] {
+                    allowedShellCommands = allowed
+                }
             }
-            let permissions = json["permissions"] as? [String: Any]
-            return (
-                json["approvalMode"] as? String,
-                permissions?["allow"] as? [String] ?? []
+
+            let home = normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
+            let configDirectory = NSString(
+                string: normalizedHookValue(env["CURSOR_CONFIG_DIR"])
+                    ?? URL(fileURLWithPath: home, isDirectory: true)
+                        .appendingPathComponent(".cursor", isDirectory: true)
+                        .path
+            ).expandingTildeInPath
+            applyConfig(
+                at: URL(fileURLWithPath: configDirectory, isDirectory: true)
+                    .appendingPathComponent("cli-config.json", isDirectory: false)
             )
+
+            guard let rawCwd = hookCwd ?? normalizedHookValue(env["PWD"]) else {
+                return (mode, allowedShellCommands)
+            }
+            let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
+            let fileManager = FileManager.default
+            var ancestors: [URL] = []
+            var cursor = cwdURL
+            while true {
+                ancestors.append(cursor)
+                let parent = cursor.deletingLastPathComponent()
+                if parent.path == cursor.path { break }
+                cursor = parent
+            }
+            let projectRoot = ancestors.reversed().first(where: {
+                fileManager.fileExists(
+                    atPath: $0.appendingPathComponent(".git", isDirectory: false).path
+                )
+            }) ?? cwdURL
+            applyConfig(
+                at: projectRoot
+                    .appendingPathComponent(".cursor", isDirectory: true)
+                    .appendingPathComponent("cli.json", isDirectory: false)
+            )
+            if cwdURL.path != projectRoot.path,
+               cwdURL.path.hasPrefix(projectRoot.path + "/") {
+                let relativePath = String(cwdURL.path.dropFirst(projectRoot.path.count))
+                var directory = projectRoot
+                for component in relativePath.split(separator: "/") {
+                    directory.appendPathComponent(String(component), isDirectory: true)
+                    applyConfig(
+                        at: directory
+                            .appendingPathComponent(".cursor", isDirectory: true)
+                            .appendingPathComponent("cli.json", isDirectory: false)
+                    )
+                }
+            }
+            return (mode, allowedShellCommands)
         }()
         let cursorLaunchRequestsEverything = mappedSessionForPolicy?.launchCommand?.arguments.contains {
-            $0 == "--force" || $0 == "--yolo"
+            $0 == "-f" || $0 == "--force" || $0 == "--yolo"
         } == true
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
         let cursorShellNeedsApproval = cursorShellEvent
@@ -32032,7 +32081,6 @@ export default CMUXSessionRestore;
         func resolveCursorShellHook(failed: Bool) {
             guard def.name == "cursor" else {
                 sendAgentFeedTelemetry()
-                print("{}")
                 return
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -32046,7 +32094,6 @@ export default CMUXSessionRestore;
                     detail: failed ? "cursor-shell-failed" : "cursor-shell-completed"
                 )
                 didSendFeedTelemetry = true
-                print("{}")
                 return
             }
             let workspaceId = target.workspaceId
@@ -32063,7 +32110,6 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     detail: failed ? "cursor-shell-failed-missing-command" : "cursor-shell-completed-missing-command"
                 )
-                print("{}")
                 return
             }
 
@@ -32091,7 +32137,6 @@ export default CMUXSessionRestore;
             )
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").nested-suppressed")
-                print("{}")
                 return
             }
 
@@ -32118,7 +32163,6 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     detail: failed ? "cursor-shell-failed-unmatched" : "cursor-shell-completed-unmatched"
                 )
-                print("{}")
                 return
             }
             if resolution.hasRemaining {
@@ -32129,7 +32173,6 @@ export default CMUXSessionRestore;
                     declaredPhase: .needsInput,
                     detail: failed ? "cursor-shell-failed-remaining" : "cursor-shell-completed-remaining"
                 )
-                print("{}")
                 return
             }
 
@@ -32171,7 +32214,6 @@ export default CMUXSessionRestore;
                 "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
-            print("{}")
         }
 
         switch action {

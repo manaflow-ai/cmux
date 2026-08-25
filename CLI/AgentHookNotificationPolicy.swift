@@ -257,7 +257,9 @@ enum AgentHookNotificationPolicy {
         allowedShellCommands: [String] = []
     ) -> Bool {
         guard payload?["sandbox"] as? Bool == false else { return false }
-        guard approvalMode != "unrestricted" else { return false }
+        guard approvalMode != "unrestricted", approvalMode != "auto-review" else {
+            return false
+        }
         guard let command = payload?["command"] as? String else { return true }
         return !allowedShellCommands.contains {
             cursorShellAllowlistEntryMatches($0, command: command)
@@ -284,6 +286,39 @@ enum AgentHookNotificationPolicy {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !pattern.isEmpty, !normalizedCommand.isEmpty else { return false }
+
+        let commandParts = normalizedCommand.split(
+            maxSplits: 1,
+            whereSeparator: { $0.isWhitespace }
+        )
+        let commandBase = commandParts.first.map(String.init) ?? ""
+        let commandArguments = commandParts.count > 1 ? String(commandParts[1]) : ""
+        let normalizedBase = URL(fileURLWithPath: commandBase).lastPathComponent
+
+        if pattern.contains(":") {
+            let components = pattern.split(
+                separator: ":",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            guard let basePattern = components.first.map(String.init),
+                  let argumentPattern = components.dropFirst().first.map(String.init),
+                  basePattern == commandBase || basePattern == normalizedBase else {
+                return false
+            }
+            return globMatches(argumentPattern, value: commandArguments)
+        }
+        if !pattern.contains("*"), !pattern.contains("?") {
+            // Cursor's Shell(commandBase) form allows any arguments for that
+            // command; matching the whole string would reject valid entries
+            // such as Shell(git) for a git status command.
+            return pattern == commandBase || pattern == normalizedBase
+        }
+
+        return globMatches(pattern, value: normalizedCommand)
+    }
+
+    private static func globMatches(_ pattern: String, value: String) -> Bool {
         var regex = "^"
         for scalar in pattern.unicodeScalars {
             switch scalar {
@@ -296,7 +331,7 @@ enum AgentHookNotificationPolicy {
             }
         }
         regex += "$"
-        return normalizedCommand.range(of: regex, options: .regularExpression) != nil
+        return value.range(of: regex, options: .regularExpression) != nil
     }
 
     static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#
