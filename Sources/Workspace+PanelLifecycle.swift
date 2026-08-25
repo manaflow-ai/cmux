@@ -225,14 +225,16 @@ extension Workspace {
         panelId: UUID?,
         processIdentity providedProcessIdentity:
             AgentPIDProcessIdentity? = nil,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        observeProcessExit: Bool = true
     ) -> Bool {
         recordAgentPIDResult(
             key: key,
             pid: pid,
             panelId: panelId,
             processIdentity: providedProcessIdentity,
-            refreshPorts: refreshPorts
+            refreshPorts: refreshPorts,
+            observeProcessExit: observeProcessExit
         ).replacedOtherRuntime
     }
 
@@ -243,7 +245,8 @@ extension Workspace {
         panelId: UUID?,
         processIdentity providedProcessIdentity:
             AgentPIDProcessIdentity? = nil,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        observeProcessExit: Bool = true
     ) -> (accepted: Bool, replacedOtherRuntime: Bool) {
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
@@ -327,7 +330,7 @@ extension Workspace {
         }
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
         sidebarAgentRuntimeObservation.cancelAgentProcessExitObservation(key: key)
-        if panelId != nil, let processIdentity {
+        if observeProcessExit, panelId != nil, let processIdentity {
             sidebarAgentRuntimeObservation.observeAgentProcessExit(
                 key: key,
                 generation: processIdentity

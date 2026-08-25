@@ -16,8 +16,9 @@ enum ControlSidebarPanelOwner {
     }
 
     /// Relay-backed hooks report process identifiers from the remote host.
-    /// Those numeric PIDs must never be resolved, stored, or monitored against
-    /// the Mac's local process table.
+    /// Their opaque generation tuples may be stored for ordering, but numeric
+    /// PIDs must never be resolved or monitored against the Mac's process
+    /// table.
     func usesRemoteAgentProcessNamespace(panelId: UUID?) -> Bool {
         switch self {
         case .workspace(let workspace):
@@ -88,13 +89,15 @@ enum ControlSidebarPanelOwner {
     func recordAgentPID(
         key: String,
         pid: pid_t,
-        panelId: UUID?
+        panelId: UUID?,
+        observeProcessExit: Bool = true
     ) -> ControlSidebarAgentPIDRecordResult {
         recordAgentPID(
             key: key,
             pid: pid,
             panelId: panelId,
-            acceptedProcessIdentity: AgentPIDProcessIdentity(pid: pid)
+            acceptedProcessIdentity: AgentPIDProcessIdentity(pid: pid),
+            observeProcessExit: observeProcessExit
         )
     }
 
@@ -105,14 +108,11 @@ enum ControlSidebarPanelOwner {
         key: String,
         pid: pid_t,
         panelId: UUID?,
-        acceptedProcessIdentity: AgentPIDProcessIdentity?
+        acceptedProcessIdentity: AgentPIDProcessIdentity?,
+        observeProcessExit: Bool = true
     ) -> ControlSidebarAgentPIDRecordResult {
-        if usesRemoteAgentProcessNamespace(panelId: panelId) {
-            // Surface/workspace identity remains authoritative across a relay,
-            // but the PID belongs to another kernel namespace. Accept the
-            // command without binding it to an unrelated local generation.
-            return .accepted(replacedOtherRuntime: false)
-        }
+        let usesRemoteProcessNamespace =
+            usesRemoteAgentProcessNamespace(panelId: panelId)
         let statusKey = agentStatusKey(
             forAgentPIDKey: key,
             panelId: panelId
@@ -121,8 +121,9 @@ enum ControlSidebarPanelOwner {
             rawValue: statusKey
         ).isAllowed
         guard let acceptedProcessIdentity,
-              AgentPIDProcessIdentity(pid: pid)
-                == acceptedProcessIdentity else {
+              usesRemoteProcessNamespace
+                || AgentPIDProcessIdentity(pid: pid)
+                    == acceptedProcessIdentity else {
             switch self {
             case .workspace(let workspace):
                 if isBuiltIn {
@@ -148,7 +149,9 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 pid: pid,
                 panelId: panelId,
-                processIdentity: acceptedProcessIdentity
+                processIdentity: acceptedProcessIdentity,
+                observeProcessExit:
+                    observeProcessExit && !usesRemoteProcessNamespace
             )
             return result.accepted
                 ? .accepted(
@@ -161,7 +164,9 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 pid: pid,
                 panelId: panelId,
-                processIdentity: acceptedProcessIdentity
+                processIdentity: acceptedProcessIdentity,
+                observeProcessExit:
+                    observeProcessExit && !usesRemoteProcessNamespace
             )
             return result.accepted
                 ? .accepted(

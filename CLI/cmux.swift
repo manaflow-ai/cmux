@@ -530,6 +530,48 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns conservative structured work owned by turns other than the
+    /// supplied turn. A generic Stop can arrive for a newer sibling while an
+    /// older turn's subagent is still active; treating that sibling count as
+    /// process-running evidence prevents the newer Stop from publishing Idle.
+    func activeStructuredBackgroundWorkCount(
+        sessionId: String,
+        excludingTurnId turnId: String?
+    ) throws -> Int {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return 0 }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalizedSessionId] else {
+                return 0
+            }
+            let excludedTurnKey = structuredBackgroundWorkTurnKey(turnId)
+            var count = 0
+            for (turnKey, workIds) in record.activeBackgroundWorkIdsByTurn ?? [:]
+                where turnKey != excludedTurnKey {
+                count += Set(
+                    workIds.compactMap { normalizeOptional($0) }
+                ).count
+            }
+            for turnKey in record.backgroundWorkOverflowTurnKeys ?? []
+                where turnKey != excludedTurnKey {
+                count += 1
+            }
+            if let deferredTurnSettlements =
+                record.deferredTurnSettlementsByTurn,
+               deferredTurnSettlements.keys.contains(where: {
+                   $0 != excludedTurnKey
+               }) {
+                count = max(count, 1)
+            }
+            // This latch intentionally has session-wide scope: an uncorrelated
+            // work item cannot be assigned safely to any particular turn.
+            if record.hasBackgroundWorkTurnOverflow == true {
+                count = max(count, 1)
+            }
+            return count
+        }
+    }
+
     func clearStructuredBackgroundWork(
         sessionId: String,
         processGeneration: AgentPIDProcessIdentity
@@ -33355,6 +33397,7 @@ export default CMUXSessionRestore;
                         mapped?.terminalPromptTurnIds ?? []
                 )
             let structuredBackgroundWorkCount: Int
+            let structuredSiblingBackgroundWorkCount: Int
             if !sessionId.isEmpty,
                turnFreshness != .superseded,
                processLiveness != .exited {
@@ -33409,23 +33452,37 @@ export default CMUXSessionRestore;
                     structuredBackgroundWorkCount =
                         turnBoundary == .turnEnd ? 1 : 0
                 }
+                structuredSiblingBackgroundWorkCount =
+                    (try? store.activeStructuredBackgroundWorkCount(
+                        sessionId: sessionId,
+                        excludingTurnId: input.turnId
+                    )) ?? 0
             } else {
                 structuredBackgroundWorkCount =
                     (try? store.activeStructuredBackgroundWorkCount(
                         sessionId: sessionId,
                         turnId: input.turnId
                     )) ?? 0
+                structuredSiblingBackgroundWorkCount =
+                    (try? store.activeStructuredBackgroundWorkCount(
+                        sessionId: sessionId,
+                        excludingTurnId: input.turnId
+                    )) ?? 0
             }
             let activeBackgroundWorkCount = max(
                 payloadBackgroundWorkCount,
                 structuredBackgroundWorkCount
+            )
+            let activeSiblingTurnCount = max(
+                payloadSiblingTurnCount,
+                structuredSiblingBackgroundWorkCount > 0 ? 1 : 0
             )
             let turnSettlementDecision = AgentTurnSettlementReconciler().resolve(
                 integration: def.integration,
                 evidence: AgentTurnSettlementEvidence(
                     boundary: turnBoundary,
                     activeBackgroundWorkCount: activeBackgroundWorkCount,
-                    activeSiblingTurnCount: payloadSiblingTurnCount,
+                    activeSiblingTurnCount: activeSiblingTurnCount,
                     processLiveness: processLiveness,
                     turnFreshness: turnFreshness
                 )

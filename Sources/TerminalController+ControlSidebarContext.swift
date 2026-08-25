@@ -48,10 +48,9 @@ extension TerminalController: ControlSidebarContext {
                 let acceptedProcessIdentity: AgentPIDProcessIdentity?
                 if keyIsBuiltIn {
                     if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
-                        // Relay PIDs belong to the remote host. Preserve the
-                        // status update without binding that numeric PID to
-                        // this Mac's process table.
-                        acceptedProcessIdentity = nil
+                        // Status-only relay metadata may omit the generation;
+                        // when present, retain it as opaque ordering evidence.
+                        acceptedProcessIdentity = exactProcessIdentity
                     } else {
                         guard let exactProcessIdentity,
                               exactProcessIdentity.pid == pid else {
@@ -63,12 +62,22 @@ extension TerminalController: ControlSidebarContext {
                     acceptedProcessIdentity =
                         exactProcessIdentity ?? reconstructedProcessIdentity
                 }
-                guard owner.recordAgentPID(
-                    key: key,
-                    pid: pid,
-                    panelId: panelID,
-                    acceptedProcessIdentity: acceptedProcessIdentity
-                ).accepted else {
+                if let acceptedProcessIdentity {
+                    guard owner.recordAgentPID(
+                        key: key,
+                        pid: pid,
+                        panelId: panelID,
+                        acceptedProcessIdentity: acceptedProcessIdentity,
+                        observeProcessExit:
+                            !owner.usesRemoteAgentProcessNamespace(
+                                panelId: panelID
+                            )
+                    ).accepted else {
+                        return
+                    }
+                } else if !owner.usesRemoteAgentProcessNamespace(
+                    panelId: panelID
+                ) {
                     return
                 }
             } else if AgentHibernationLifecycleStatusKeys(
@@ -150,11 +159,7 @@ extension TerminalController: ControlSidebarContext {
             } else if AgentHibernationLifecycleStatusKeys(
                 rawValue: key
             ).isBuiltInNamespace {
-                if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
-                    acceptedProcessIdentity = nil
-                } else {
-                    return
-                }
+                return
             } else {
                 acceptedProcessIdentity = reconstructedProcessIdentity
             }
@@ -162,7 +167,10 @@ extension TerminalController: ControlSidebarContext {
                 key: key,
                 pid: pid,
                 panelId: panelID,
-                acceptedProcessIdentity: acceptedProcessIdentity
+                acceptedProcessIdentity: acceptedProcessIdentity,
+                observeProcessExit: !owner.usesRemoteAgentProcessNamespace(
+                    panelId: panelID
+                )
             )
             if result.replacedOtherRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -271,9 +279,10 @@ extension TerminalController: ControlSidebarContext {
         ).isBuiltInNamespace else {
             return false
         }
-        // A relay's PID is meaningful only on the remote host; the owner
-        // accepts it without local generation binding once the target is
-        // resolved on the main actor. Unresolved owners stay fail-closed.
+        // A relay's PID is meaningful only on the remote host, but its
+        // start-time tuple is still required to fence delayed/reused remote
+        // processes. The tuple is stored as opaque generation evidence; only
+        // local owners use it for process-table probing.
         return v2MainSync {
             guard let owner = self.controlSidebarResolvePanelOwner(
                 target: target,
@@ -281,7 +290,7 @@ extension TerminalController: ControlSidebarContext {
             ) else {
                 return true
             }
-            return !owner.usesRemoteAgentProcessNamespace(panelId: panelID)
+            return true
         }
     }
 
@@ -307,13 +316,10 @@ extension TerminalController: ControlSidebarContext {
             if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed {
                 // The parser rejects missing generations for built-ins; keep
                 // this mutation-boundary guard for queued replacement races.
-                if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
-                    // Remote PIDs are authoritative only in the relay's
-                    // namespace; do not require a local start-time tuple.
-                } else {
-                    guard let exactProcessGeneration else {
-                        return
-                    }
+                guard let exactProcessGeneration else {
+                    return
+                }
+                if !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
                     guard
                       owner.hasLiveAgentProcess(
                           statusKey: key,

@@ -27,6 +27,12 @@ public nonisolated struct AgentTurnSettlementReconciler: Sendable {
         if evidence.processLiveness == .unknown {
             return .keepRunning
         }
+        // A boundary without a trustworthy turn identity can belong to an
+        // older or newer turn. It must not settle the current session merely
+        // because its other evidence looks terminal.
+        if evidence.turnFreshness == .unknown {
+            return .keepRunning
+        }
         if evidence.activeBackgroundWorkCount > 0 {
             return .keepRunning
         }

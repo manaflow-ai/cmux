@@ -353,13 +353,15 @@ extension DockSplitStore {
         pid: pid_t,
         panelId: UUID,
         processIdentity providedProcessIdentity:
-            AgentPIDProcessIdentity? = nil
+            AgentPIDProcessIdentity? = nil,
+        observeProcessExit: Bool = true
     ) -> Bool {
         recordAgentPIDResult(
             key: key,
             pid: pid,
             panelId: panelId,
-            processIdentity: providedProcessIdentity
+            processIdentity: providedProcessIdentity,
+            observeProcessExit: observeProcessExit
         ).replacedOtherRuntime
     }
 
@@ -369,7 +371,8 @@ extension DockSplitStore {
         pid: pid_t,
         panelId: UUID,
         processIdentity providedProcessIdentity:
-            AgentPIDProcessIdentity? = nil
+            AgentPIDProcessIdentity? = nil,
+        observeProcessExit: Bool = true
     ) -> (accepted: Bool, replacedOtherRuntime: Bool) {
         var didReplaceRuntime = false
         var didReplaceProcessGeneration = false
@@ -472,19 +475,32 @@ extension DockSplitStore {
         guard accepted else {
             return (accepted: false, replacedOtherRuntime: false)
         }
-        agentProcessExitMonitor.cancel(
-            key: Self.agentProcessObservationKey(
-                key: key,
-                panelId: panelId
+        // A remote replacement must still retire any local observer that was
+        // attached to the previous owner; it simply must not start a new
+        // observer against the Mac process table.
+        if !observeProcessExit {
+            agentProcessExitMonitor.cancel(
+                key: Self.agentProcessObservationKey(
+                    key: key,
+                    panelId: panelId
+                )
             )
-        )
-        if let generation = agentRuntimeByPanelId[panelId]?
-            .agentPIDProcessIdentities[key] {
-            observeAgentProcessExit(
-                key: key,
-                panelId: panelId,
-                generation: generation
+        }
+        if observeProcessExit {
+            agentProcessExitMonitor.cancel(
+                key: Self.agentProcessObservationKey(
+                    key: key,
+                    panelId: panelId
+                )
             )
+            if let generation = agentRuntimeByPanelId[panelId]?
+                .agentPIDProcessIdentities[key] {
+                observeAgentProcessExit(
+                    key: key,
+                    panelId: panelId,
+                    generation: generation
+                )
+            }
         }
         if didReplaceProcessGeneration {
             TerminalNotificationStore.shared.clearNotifications(
