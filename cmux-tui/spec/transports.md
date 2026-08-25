@@ -173,6 +173,50 @@ SSH supplies authentication, encryption, host verification, and process transpor
 
 Complete-message framing is the session-client boundary. Unix sockets and relay stdio use JSON lines. WebSocket adapters use one text frame per message without adding a newline. A future transport can supply different framing without changing terminal mirroring or the machine rail.
 
+### PTY lifecycle errors and `terminal_gone`
+
+The PTY relay dialect uses a typed error frame rather than parsing human-readable
+text. A `pty_error` frame has this shape:
+
+```text
+object{version:uint,type:"pty_error",ptyId:string,requestId:string|null,
+       code:"terminal_gone"|"control_unavailable"|"invalid_request"|"failed",
+       message:string,retryable:boolean}
+```
+
+`terminal_gone` is definitive. It means the server has no live PTY for the
+`ptyId`, and the identifier cannot become valid again. The client must close its
+local PTY view, discard queued input for that id, and must not retry the same
+open or input request. A stale id after daemon restart is also `terminal_gone`,
+not a transport failure. `control_unavailable` means the PTY may still exist but
+the control path could not service this request (for example, a saturated or
+temporarily disconnected relay); it is retryable after reconnect. `invalid_request`
+and `failed` are non-retryable unless the command-specific contract says
+otherwise. `retryable` is redundant for the defined codes and exists so future
+codes can be added without changing the envelope; clients must honor `code`
+when the two disagree and treat an unknown code as non-retryable.
+
+For a request-bearing error, `requestId` echoes the request id. An unsolicited
+error uses `null` and applies to the PTY stream. The server emits at most one
+terminal outcome for a PTY generation: `pty_exit`, `terminal_gone`, or a clean
+`pty_close`; duplicate terminal outcomes are ignored by clients. `pty_error`
+does not imply that already accepted output was rolled back.
+
+Frames for one PTY are ordered on the logical stream. The server sends accepted
+output before the terminal outcome, then stops accepting input for that
+generation. A reconnect creates a new transport generation, and no old frame,
+request id, or stream handle crosses that boundary. Clients re-authenticate,
+rediscover the terminal, and issue a new open with a fresh request id. Repeating
+an open after an unknown disconnect is safe only when the client uses the same
+stable PTY intent key; the server treats that key as an idempotency key and
+returns the existing generation or its definitive `terminal_gone` result.
+
+This ordering follows RFC 6455's requirement that WebSocket message fragments
+are delivered in order and that an endpoint uses close status 1009 for an
+oversized message. Implementations using Tokio/Tungstenite must therefore
+serialize writes per logical PTY and treat a closed WebSocket as an ambiguous
+delivery boundary, never as proof that a PTY is missing.
+
 Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
 
 The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response`. Deployments that need less authority must use a future distinct relay profile.
