@@ -145,13 +145,6 @@ export type IrohTrustBrokerShape = {
     clientNamespace?: string,
     bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<unknown, IrohExpectedError>;
-  readonly issueRelayToken: (
-    userId: string,
-    raw: unknown,
-    now?: Date,
-    clientNamespace?: string,
-    bindingProof?: IrohBindingRequestProof,
-  ) => Effect.Effect<unknown, IrohExpectedError>;
 };
 
 export class IrohTrustBroker extends Context.Tag("cmux/IrohTrustBroker")<
@@ -256,25 +249,6 @@ export function makeIrohTrustBroker(
       refresh_after: new Date(now.getTime() + IROH_RELAY_TOKEN_REFRESH_SECONDS * 1_000).toISOString(),
       relay_fleet: MANAGED_RELAY_URLS,
     };
-  });
-
-  const issueRelayToken = (
-    userId: string,
-    raw: unknown,
-    now = new Date(),
-    clientNamespace = "legacy",
-    bindingProof?: IrohBindingRequestProof,
-  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
-    const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-    const caller = yield* authorizeBinding(userId, bindingProof, clientNamespace, now);
-    if (caller && caller.id !== bindingId) {
-      return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    const binding = caller ?? (yield* repository.findActiveBindings(userId, [bindingId]))[0];
-    if (!binding || (!caller && binding.clientNamespace !== "legacy")) {
-      return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    return yield* issueRelayTokenForBinding(userId, binding, now);
   });
 
   const discover = (
@@ -722,8 +696,6 @@ export function makeIrohTrustBroker(
         grant_verification_keys: verificationKeys.keySet,
       };
     }),
-
-    issueRelayToken,
   };
 }
 

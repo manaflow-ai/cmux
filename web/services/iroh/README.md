@@ -55,9 +55,10 @@ an exact authenticated user-id and deployment-environment allowlist match.
 
 Registration bootstraps a relay credential only when it creates a binding.
 Signed refreshes of the same binding return `relay.status = "not_requested"`;
-clients retain their existing credential or use the dedicated relay-token route
-when its refresh window arrives. Platform is part of the immutable binding
-identity and requires explicit revocation before it can change.
+clients retain their existing credential or refresh it through
+`/api/relay/token` when its refresh window arrives. Platform is part of the
+immutable binding identity and requires explicit revocation before it can
+change.
 
 The n0-hosted relay minter is an optional compatibility path. When
 `CMUX_IROH_MINT_URL` and `CMUX_IROH_MINT_HMAC_SECRET_B64` are absent, initial

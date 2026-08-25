@@ -1704,18 +1704,6 @@ describe("Iroh discovery and grants", () => {
         bindingBody,
       ),
     ), "IrohNotFoundError");
-    await expectEffectFailure(fixture.broker.issueRelayToken(
-      USER_A,
-      bindingBody,
-      NOW,
-      "dev.cmux.app.beta",
-      fixture.bindingProof(
-        beta.id,
-        "POST",
-        "api/relay/token",
-        bindingBody,
-      ),
-    ), "IrohNotFoundError");
     const pairBody = {
       initiatorBindingId: internal.id,
       acceptorBindingId: mac.id,
@@ -1848,57 +1836,6 @@ describe("Iroh discovery and grants", () => {
     await expectEffectFailure(noAccountSubject.issueEndpointAttestation(USER_A, {
       bindingId: active.id,
     }, NOW), "IrohConfigurationError");
-  });
-});
-
-describe("Iroh relay quotas", () => {
-  test("never calls the minter for an unregistered or revoked binding", async () => {
-    const fixture = makeFixture();
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: randomUUID() }, NOW),
-      "IrohNotFoundError",
-    );
-    const revoked = binding({ userId: USER_A, revokedAt: NOW });
-    fixture.repository.bindings.push(revoked);
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: revoked.id }, NOW),
-      "IrohNotFoundError",
-    );
-    expect(fixture.minter.calls).toBe(0);
-  });
-
-  test("treats authenticated relay renewal as binding activity", async () => {
-    const fixture = makeFixture();
-    const active = binding({
-      userId: USER_A,
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-      updatedAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    fixture.repository.bindings.push(active);
-
-    await Effect.runPromise(fixture.broker.issueRelayToken(
-      USER_A,
-      { bindingId: active.id },
-      NOW,
-    ));
-
-    expect(active.lastSeenAt).toEqual(NOW);
-    expect(active.updatedAt).toEqual(NOW);
-  });
-
-  test("does not return a relay credential when the binding is revoked during mint", async () => {
-    const fixture = makeFixture();
-    const active = binding({ userId: USER_A });
-    fixture.repository.bindings.push(active);
-    fixture.minter.afterMint = () => {
-      active.revokedAt = NOW;
-    };
-
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: active.id }, NOW),
-      "IrohNotFoundError",
-    );
-    expect(fixture.repository.relayIssuances[0]?.status).toBe("failed");
   });
 });
 
