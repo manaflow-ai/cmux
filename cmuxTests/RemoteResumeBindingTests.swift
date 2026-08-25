@@ -817,6 +817,13 @@ struct RemoteResumeBindingTests {
         #expect(retained.restoreWorkingDirectorySelection == .exact(trustedDirectory))
         #expect(retained.cwd == trustedDirectory)
         #expect(retained.command.contains(sessionID))
+
+        let retainedAgent = try #require(
+            workspace.restoredAgentSnapshotsByPanelId[surfaceID]
+        )
+        #expect(retainedAgent.restoreWorkingDirectorySelection == .exact(trustedDirectory))
+        #expect(retainedAgent.workingDirectory == trustedDirectory)
+        #expect(retainedAgent.resumeCommand?.contains(trustedDirectory) == true)
     }
 
     @Test

@@ -1814,6 +1814,45 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         )
     }
 
+    @Test func bindingExactSelectionRemainsAuthoritativeOverStaleAgentSelection() throws {
+        let capturedDirectory = "/Users/alice/captured-binding-cwd"
+        let sessionID = "binding-authority-session"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex", "-C", capturedDirectory, "resume", sessionID],
+            workingDirectory: capturedDirectory
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume " + sessionID,
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(nil),
+            autoResume: true
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(capturedDirectory)
+        )
+
+        let constrained = binding.applyingRestoreWorkingDirectorySelection(
+            .exact(capturedDirectory),
+            from: agent
+        )
+
+        #expect(constrained.restoreWorkingDirectorySelection == .exact(nil))
+        #expect(constrained.cwd == nil)
+        #expect(!constrained.command.contains(capturedDirectory))
+        #expect(constrained.launchCommand?.workingDirectory == nil)
+        #expect(constrained.launchCommand?.arguments.contains(capturedDirectory) == false)
+    }
+
     @Test func legacySnapshotWithoutSelectionKeepsRecordedFallbackBehavior() throws {
         let recordedDirectory = "/tmp/legacy-recorded-cwd"
         let snapshot = SessionRestorableAgentSnapshot(
