@@ -411,21 +411,30 @@ function workspaceMenu(w) {
 }
 
 function workspaceRow(w, entry) {
-  return HStack({ spacing: 8 }, [
+  // spacing 0 + per-accessory conditional padding/width: invisible
+  // accessories (unpinned pin, empty badge) must take ZERO layout so the
+  // title runs the full row. Only the close button keeps a small fixed slot
+  // (via the ZStack) so hovering never re-truncates the title.
+  return HStack({ spacing: 0 }, [
     Text(() => displayTitle(w()))
       .font(13)
       .lineLimit(1)
       .truncation("tail")
+      .paddingTrailing(6)
       .color(() => (isSelected(w()) ? "primary" : "secondary")),
-    Spacer(),
+    Spacer({ minLength: 0 }),
     Image("pin.fill")
       .font(8).color("tertiary")
-      .opacity(() => (w()?.pinned ? 1 : 0)),
+      .opacity(() => (w()?.pinned ? 1 : 0))
+      .width(() => (w()?.pinned ? null : 0))
+      .paddingTrailing(() => (w()?.pinned ? 6 : 0)),
     ZStack({}, [
-      // Unread badge at rest; on hover it yields to the close button.
+      // Unread badge at rest; on hover it yields to the close button. Empty
+      // badge collapses to zero width so it never widens the slot.
       Text(() => (w()?.unread > 0 ? String(w().unread) : ""))
         .font("caption2").bold().color("white")
-        .paddingHorizontal(5).paddingVertical(1)
+        .paddingHorizontal(() => (w()?.unread > 0 ? 5 : 0))
+        .paddingVertical(() => (w()?.unread > 0 ? 1 : 0))
         .background(() => (w()?.unread > 0 ? "#E4573D" : null))
         .cornerRadius(7)
         .hideOnHover(),
