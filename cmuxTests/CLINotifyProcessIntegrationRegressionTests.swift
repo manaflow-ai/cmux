@@ -81,6 +81,46 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionStartFallbackDoesNotPersistOrRegisterGuessedSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-start-fallback")
+        defer { context.cleanup() }
+
+        let startupSessionId = "startup-fallback-session"
+        let startup = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(startupSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": "12345"]
+        )
+        XCTAssertFalse(startup.timedOut, startup.stderr)
+        XCTAssertEqual(startup.status, 0, startup.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            "A startup fallback must not register a PID on the focused pane, saw \(context.state.commands)"
+        )
+
+        let compactSessionId = "compact-fallback-without-record"
+        let compact = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(compactSessionId)","source":"compact","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        XCTAssertNil(sessions[startupSessionId])
+        XCTAssertNil(
+            sessions[compactSessionId],
+            "A compact event without a persisted identity must not save a guessed fallback pane"
+        )
+    }
+
     func testClaudeCompactSessionStartReconcilesWithoutTranscriptShrinkAndRetriesAtNextStop() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-signal")
         defer { context.cleanup() }
@@ -327,7 +367,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
 
-        for _ in 0..<2 {
+        for _ in 0..<3 {
             let retryServerHandled = startMockServer(
                 listenerFD: context.listenerFD,
                 state: context.state,
@@ -350,7 +390,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(retry.timedOut, retry.stderr)
             XCTAssertEqual(retry.status, 0, retry.stderr)
         }
-        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 4)
 
         let exhaustedServerHandled = startMockServer(
             listenerFD: context.listenerFD,
@@ -375,7 +415,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(exhausted.status, 0, exhausted.stderr)
         XCTAssertEqual(
             autoNamingApplyRequests(in: context).count,
-            3,
+            4,
             "An exhausted reconciliation must not issue another socket apply"
         )
         let record = try readClaudeHookSession(sessionId, context: context)
@@ -1183,6 +1223,64 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+    }
+
+    func testClaudeAutoNameTranscriptShrinkBoundsFailedReconciliationRetries() throws {
+        let context = try makeClaudeHookContext(name: "claude-shrink-retry-bound")
+        defer { context.cleanup() }
+
+        let sessionId = "shrink-retry-bound-session"
+        let transcriptURL = context.root.appendingPathComponent("shrink-retry-bound.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: false
+            )
+        }
+
+        for expectedApplyCount in 1...4 {
+            let result = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "auto-name"],
+                standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertEqual(autoNamingApplyRequests(in: context).count, expectedApplyCount)
+        }
+
+        let exhausted = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(exhausted.timedOut, exhausted.stderr)
+        XCTAssertEqual(exhausted.status, 0, exhausted.stderr)
+        XCTAssertEqual(
+            autoNamingApplyRequests(in: context).count,
+            4,
+            "A failed ordinary transcript-shrink reconciliation must stop issuing socket applies"
+        )
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameTitleReconciliationAttemptCount"] as? Int, 4)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+        XCTAssertEqual(record["autoNameLastObservedLineCount"] as? Int, 500)
     }
 
     func testClaudeAutoNameTranscriptShrinkReconcilesPanelUnderManualWorkspaceWithoutSummarizing() throws {
