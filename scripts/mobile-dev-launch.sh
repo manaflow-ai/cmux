@@ -88,7 +88,6 @@ EXPECTED_ACCOUNT=""
 CHECK_AUTH_CONTRACT=0
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-15}"
 
 usage() { sed -n '2,58p' "$0"; }
 
@@ -175,10 +174,6 @@ if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_ATTACH_MINT_MAX_ATTEMPTS must be a positive integer" >&2
   exit 2
 fi
-if [[ ! "$ATTACH_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_ATTACH_READY_TIMEOUT_SECONDS must be a positive integer" >&2
-  exit 2
-fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
   echo "error: --detach is supported only with simulator launches" >&2
   usage >&2
@@ -215,6 +210,11 @@ REPO_ROOT="${CMUX_MOBILE_SOURCE_CHECKOUT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+ATTACH_READY_TIMEOUT_SECONDS="$(cmux_attach_resolve_readiness_timeout)"
+if [[ ! "$ATTACH_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_ATTACH_READY_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
 credential_args=(--profile "$AUTH_PROFILE")
 [[ -n "$AUTH_CREDENTIALS_FILE" ]] && credential_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
 [[ -n "$EXPECTED_ACCOUNT" ]] && credential_args+=(--expected-account "$EXPECTED_ACCOUNT")

@@ -426,6 +426,14 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 '
 }
 
+# A clean-slate staging sign-in can take longer than the transport setup that
+# follows it. Keep the normal auth gate aligned with the credential-free iPhone
+# verifier's 45-second cold-start budget, while retaining an explicit override
+# for environments that need a different bound.
+cmux_attach_resolve_readiness_timeout() {
+  printf '%s' "${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-45}"
+}
+
 # Terminate one exact tagged Mac bundle through LaunchServices. The helper uses
 # NSRunningApplication plus NSWorkspace termination notifications, so callers
 # never infer process identity from a command-line regex or a sleep loop.
