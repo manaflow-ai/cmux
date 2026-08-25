@@ -10172,6 +10172,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
+            // Detach teardown unregisters lifecycle-bound selection sources while
+            // preserving the live panel instance. Reattach the terminal source
+            // after its workspace identity is authoritative again.
+            SurfaceSelectionChangeEventPublisher.shared.registerTerminalSurface(terminalPanel)
             configureTerminalPanel(terminalPanel)
             terminalPanel.fontSizePanelTransfer?.attach(
                 to: self

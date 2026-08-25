@@ -150,6 +150,43 @@ final class SurfaceSelectionEventContractTests: XCTestCase {
     }
 
     @MainActor
+    func testPublisherCanReattachSourceAfterTransferTeardown() async throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let subscription = bus.subscribe(afterSequence: nil, names: [topic], categories: [])
+        defer { bus.unsubscribe(subscription.subscription) }
+        let publisher = SurfaceSelectionChangeEventPublisher(
+            bus: bus,
+            debounceNanoseconds: 5_000_000
+        )
+        let surfaceId = UUID()
+        let source = Source()
+        publisher.registerSnapshotSource(
+            surfaceId: surfaceId,
+            sourceIdentity: ObjectIdentifier(source),
+            owner: source,
+            identity: { self.identity(surfaceId: surfaceId) }
+        )
+        publisher.unregister(surfaceId: surfaceId)
+        publisher.registerSnapshotSource(
+            surfaceId: surfaceId,
+            sourceIdentity: ObjectIdentifier(source),
+            owner: source,
+            identity: { self.identity(surfaceId: surfaceId) }
+        )
+        publisher.signal(
+            surfaceId: surfaceId,
+            snapshot: .selected(kind: "terminal", text: "after-transfer")
+        )
+
+        let next = await nextEvent(from: subscription.subscription, timeout: 1.0)
+        let event = try XCTUnwrap(next)
+        XCTAssertEqual(
+            (event["payload"] as? [String: Any])?["text"] as? String,
+            "after-transfer"
+        )
+    }
+
+    @MainActor
     func testWebBridgeSuppressesPasswordSelectionAndPreservesShape() throws {
         let password = try XCTUnwrap(
             SurfaceSelectionWebBridge.snapshot(

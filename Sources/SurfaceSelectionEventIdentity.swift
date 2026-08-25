@@ -2,7 +2,7 @@ import Foundation
 import CmuxControlSocket
 
 /// IDs and stable v2 refs attached to a selection event.
-struct SurfaceSelectionEventIdentity: Equatable, Sendable {
+nonisolated struct SurfaceSelectionEventIdentity: Equatable, Sendable {
     let workspaceId: UUID
     let workspaceRef: String
     let surfaceId: UUID

@@ -3,7 +3,7 @@ import Foundation
 /// Immutable, event-safe representation of the selection owned by a surface.
 /// The fields intentionally mirror the `surface.read_selection` contract while
 /// keeping event production independent from any particular panel reader.
-struct SurfaceSelectionEventSnapshot: Equatable, Sendable {
+nonisolated struct SurfaceSelectionEventSnapshot: Equatable, Sendable {
     let hasSelection: Bool
     let kind: String
     let text: String
