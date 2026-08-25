@@ -328,6 +328,7 @@ final class ClaudeHookSessionStore {
         expired: Bool,
         remainingDisplayCommand: String?
     )
+    typealias CursorShellApprovalRememberResult = (accepted: Bool, inserted: Bool)
 
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
@@ -412,14 +413,16 @@ final class ClaudeHookSessionStore {
         command: String,
         toolUseId: String? = nil,
         deadline: Date? = nil
-    ) throws -> Bool {
+    ) throws -> CursorShellApprovalRememberResult {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return false
+            return (accepted: false, inserted: false)
         }
         return try withLockedState(deadline: deadline) { state in
-            guard var record = state.sessions[normalizedSession] else { return false }
+            guard var record = state.sessions[normalizedSession] else {
+                return (accepted: false, inserted: false)
+            }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
             let pendingCountBeforePrune = pending.count
@@ -477,7 +480,7 @@ final class ClaudeHookSessionStore {
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
                 }
-                return true
+                return (accepted: true, inserted: false)
             }
             guard pending.count < Self.maxPendingCursorShellApprovals else {
                 if hadExpiredApprovals {
@@ -486,7 +489,7 @@ final class ClaudeHookSessionStore {
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
                 }
-                return false
+                return (accepted: false, inserted: false)
             }
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
@@ -498,7 +501,7 @@ final class ClaudeHookSessionStore {
             record.pendingCursorShellApprovals = pending
             record.updatedAt = now
             state.sessions[normalizedSession] = record
-            return true
+            return (accepted: true, inserted: true)
         }
     }
 
@@ -33376,12 +33379,12 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
-                guard (try? store.hasPendingCursorShellApproval(
+                guard let hasOtherPending = try? store.hasPendingCursorShellApproval(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     excludingSessionId: sessionId,
                     deadline: cursorShellDeadline
-                )) != true else { return }
+                ), !hasOtherPending else { return }
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
@@ -34616,12 +34619,13 @@ export default CMUXSessionRestore;
                 }
                 guard !sessionId.isEmpty,
                       let command = cursorShellCommand(from: input),
-                      (try? store.rememberCursorShellApproval(
+                      let rememberResult = try? store.rememberCursorShellApproval(
                           sessionId: sessionId,
                           command: command,
                           toolUseId: cursorShellToolUseId(from: input),
                           deadline: cursorShellDeadline
-                      )) == true else {
+                      ),
+                      rememberResult.accepted else {
                     emitJournal(
                         .stateChanged,
                         workspaceId: workspaceId,
@@ -34637,6 +34641,16 @@ export default CMUXSessionRestore;
                     )
                     hookResponse = "{}"
                     print("{}")
+                    return
+                }
+                if !rememberResult.inserted {
+                    cursorLifecycleLease?.release()
+                    cursorLifecycleLease = nil
+                    sendAgentFeedTelemetryUnlessSuppressed(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                    print(hookResponse)
                     return
                 }
             }
