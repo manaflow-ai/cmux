@@ -16,7 +16,7 @@ public nonisolated struct HiveComputerRowBuilder: Sendable {
 
     /// Creates a row builder for one local device.
     public init(ownDeviceID: String) {
-        self.ownDeviceID = ownDeviceID
+        self.ownDeviceID = ownDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     /// Builds all rows from the current source snapshots.
@@ -105,7 +105,7 @@ public nonisolated struct HiveComputerRowBuilder: Sendable {
                 ?? paired?.displayName?.nonEmpty
                 ?? String(deviceID.prefix(8)),
             platform: registry?.platform,
-            isThisComputer: deviceID == ownDeviceID,
+            isThisComputer: deviceID.caseInsensitiveCompare(ownDeviceID) == .orderedSame,
             isPaired: paired != nil,
             isOwnedByCurrentUser: registry?.isOwnedByCurrentUser ?? true,
             presence: presenceState(

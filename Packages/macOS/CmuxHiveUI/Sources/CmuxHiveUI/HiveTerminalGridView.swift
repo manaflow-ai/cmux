@@ -13,6 +13,7 @@ public import SwiftUI
 public struct HiveTerminalGridView: View {
     private let grid: HiveTerminalGridModel
     @State private var cachedMetrics: HiveTerminalGridMetricsCache?
+    @State private var availableSize: CGSize = .zero
 
     /// Creates a grid view over one immutable grid snapshot.
     public init(grid: HiveTerminalGridModel) {
@@ -36,19 +37,25 @@ public struct HiveTerminalGridView: View {
         }
         .background(HiveTerminalColor.parse(grid.terminalBackground) ?? HiveTerminalColor.fallbackBackground)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-            cachedMetrics = HiveTerminalGridMetricsCache(
+            availableSize = size
+            rebuildMetricsCache(available: size)
+        }
+        .onChange(of: grid.columns) { _, _ in rebuildMetricsCache(available: availableSize) }
+        .onChange(of: grid.rows) { _, _ in rebuildMetricsCache(available: availableSize) }
+    }
+
+    private func rebuildMetricsCache(available: CGSize) {
+        guard available.width > 0, available.height > 0 else { return }
+        cachedMetrics = HiveTerminalGridMetricsCache(
+            columns: grid.columns,
+            rows: grid.rows,
+            available: available,
+            metrics: HiveTerminalGridMetrics(
                 columns: grid.columns,
                 rows: grid.rows,
-                available: size,
-                metrics: HiveTerminalGridMetrics(
-                    columns: grid.columns,
-                    rows: grid.rows,
-                    available: size
-                )
+                available: available
             )
-        }
-        .onChange(of: grid.columns) { _, _ in cachedMetrics = nil }
-        .onChange(of: grid.rows) { _, _ in cachedMetrics = nil }
+        )
     }
 
     private func draw(in context: inout GraphicsContext, metrics: HiveTerminalGridMetrics) {

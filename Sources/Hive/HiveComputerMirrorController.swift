@@ -417,7 +417,9 @@ final class HiveComputerMirrorController {
                 }
                 for terminal in remote.terminals {
                     if let panelID = mirror.panelIdByRemoteTerminalID[terminal.id] {
-                        workspace.updateRemoteTmuxTabTitle(panelId: panelID, title: terminal.title)
+                        if workspace.panelTitle(panelId: panelID) != terminal.title {
+                            workspace.updateRemoteTmuxTabTitle(panelId: panelID, title: terminal.title)
+                        }
                     }
                 }
                 addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, session: session)

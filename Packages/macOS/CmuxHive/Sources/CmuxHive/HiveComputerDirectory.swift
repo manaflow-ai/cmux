@@ -78,7 +78,7 @@ public final class HiveComputerDirectory {
         self.registry = registry
         self.pairedStore = pairedStore
         self.presence = presence
-        self.ownDeviceID = ownDeviceID
+        self.ownDeviceID = ownDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         self.scopeProvider = scopeProvider
         self.linkDecoder = linkDecoder
         self.now = now
@@ -264,7 +264,9 @@ public final class HiveComputerDirectory {
         }
         // Pairing with the computer you are sitting at is always a mistake
         // (dev builds advertise loopback routes, so it would even "work").
-        guard deviceID != ownDeviceID else { return .loopbackRejected }
+        guard deviceID.caseInsensitiveCompare(ownDeviceID) != .orderedSame else {
+            return .loopbackRejected
+        }
         guard let computer = computers.first(where: { $0.deviceID == deviceID }),
               computer.isPairableHost,
               computer.isOwnedByCurrentUser,
@@ -320,7 +322,9 @@ public final class HiveComputerDirectory {
             return .noRoutes
         }
         guard match.device.isControllableHost else { return .noRoutes }
-        guard match.device.deviceId != ownDeviceID else { return .loopbackRejected }
+        guard match.device.deviceId.caseInsensitiveCompare(ownDeviceID) != .orderedSame else {
+            return .loopbackRejected
+        }
         return await persistPairing(
             macDeviceID: match.device.deviceId,
             displayName: match.device.displayName,

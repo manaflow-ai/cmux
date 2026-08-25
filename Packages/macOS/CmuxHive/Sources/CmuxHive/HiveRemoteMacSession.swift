@@ -98,7 +98,7 @@ public final class HiveRemoteMacSession {
         requiresHostIdentity: Bool = true
     ) {
         self.runtime = runtime
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         self.displayName = displayName
         self.routes = routes
         self.sourceRoutes = sourceRoutes ?? routes
@@ -267,6 +267,11 @@ public final class HiveRemoteMacSession {
                     try await verifyHostIdentity(client: candidate)
                 }
                 let workspaces = try await fetchWorkspaces(client: candidate)
+                // Complete the host-side event subscription before publishing
+                // `.connected` or handing the shared render router to a
+                // terminal session. Otherwise a replay can race the first
+                // `mobile.events.subscribe` request and lose early deltas.
+                try await subscribeToHostEvents(client: candidate)
                 // disconnect() can cancel this task while the RPC is
                 // suspended. Do not resurrect a session after teardown.
                 guard !Task.isCancelled else {
@@ -328,13 +333,23 @@ public final class HiveRemoteMacSession {
         let status = try await Task.detached(priority: .userInitiated) {
             try MobileHostStatusResponse.decode(data)
         }.value
-        guard status.macDeviceID == macDeviceID,
+        guard status.macDeviceID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == macDeviceID,
               expectedInstanceTag == nil || status.macInstanceTag == expectedInstanceTag else {
             throw HiveRemoteTerminalSessionError.hostIdentityMismatch
         }
     }
 
     // MARK: - Events
+
+    private func subscribeToHostEvents(client: MobileCoreRPCClient) async throws {
+        let subscribe = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: ["topics": ["workspace.updated", "terminal.render_grid"]]
+        )
+        _ = try await client.sendRequest(subscribe)
+    }
 
     private func startEventLoop(client: MobileCoreRPCClient) {
         eventTask?.cancel()
@@ -349,11 +364,7 @@ public final class HiveRemoteMacSession {
             do {
                 // Register the subscription host-side; this also reconnects a
                 // torn-down transport, which is the recovery path after a blip.
-                let subscribe = try MobileCoreRPCClient.requestData(
-                    method: "mobile.events.subscribe",
-                    params: ["topics": ["workspace.updated", "terminal.render_grid"]]
-                )
-                _ = try await client.sendRequest(subscribe)
+                try await subscribeToHostEvents(client: client)
                 consecutiveFailures = 0
                 guard !Task.isCancelled else { return }
                 phase = .connected
