@@ -23,14 +23,19 @@ import {
 } from "../../../../services/relay/allow";
 
 const MAX_BODY_BYTES = 4 * 1_024;
+// The byte limit alone does not stop a slowloris client that trickles (or
+// never finishes) an unauthenticated body to occupy the handler. The read
+// deadline cancels the request stream itself on expiry.
+const BODY_READ_TIMEOUT_MS = 5_000;
 // Response-latency bound for the admission lookup, so a stalled database
 // query cannot hold the relay's per-connection access check (and with it
 // every new endpoint admission) until some external timeout. Expiry fails
-// closed to 503. The real resource bound is server-side: the admission
-// transaction sets a shorter statement_timeout
-// (RELAY_ALLOW_STATEMENT_TIMEOUT_MS), so Postgres cancels a stalled query
-// and frees the pooled connection instead of leaving abandoned work in
-// flight behind this deadline.
+// closed to 503. The resource bounds live in services/relay/allow.ts: the
+// admission transaction sets a shorter statement_timeout
+// (RELAY_ALLOW_STATEMENT_TIMEOUT_MS) so Postgres cancels an executing query
+// and frees the pooled connection, and a hard concurrency cap
+// (RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS) bounds retained work even when a
+// stall happens before execution, where no cancellation handle exists.
 const ADMISSION_TIMEOUT_MS = 3_000;
 // iroh-relay 1.0.3 sends the hex EndpointId in this header (constant
 // X_IROH_ENDPOINT_ID = "X-Iroh-NodeId" in its src/main.rs).
@@ -41,6 +46,7 @@ export interface RelayAllowDeps {
   readonly secretBase64: () => string | undefined;
   readonly admission: (endpointId: string) => Promise<RelayAllowAdmission>;
   readonly admissionTimeoutMs?: number;
+  readonly bodyReadTimeoutMs?: number;
 }
 
 const productionDeps: RelayAllowDeps = {
@@ -55,7 +61,10 @@ export async function handleRelayAllowRequest(
   const secret = parseRelayAllowSecret(deps.secretBase64());
   if (!secret) return jsonResponse({ error: "relay_allow_not_configured" }, 503);
 
-  const body = await readBoundedBody(request);
+  const body = await readBoundedBody(
+    request,
+    deps.bodyReadTimeoutMs ?? BODY_READ_TIMEOUT_MS,
+  );
   if (!body.ok) return body.response;
 
   const provided = providedSignature(request);
@@ -159,7 +168,10 @@ function admissionResponse(admission: RelayAllowAdmission): Response {
   });
 }
 
-async function readBoundedBody(request: Request): Promise<
+async function readBoundedBody(
+  request: Request,
+  timeoutMs: number,
+): Promise<
   | { readonly ok: true; readonly bytes: Uint8Array }
   | { readonly ok: false; readonly response: Response }
 > {
@@ -175,6 +187,13 @@ async function readBoundedBody(request: Request): Promise<
   if (!reader) return { ok: true, bytes: new Uint8Array() };
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let timedOut = false;
+  // Cancelling the reader on expiry resolves the pending read() and releases
+  // the underlying stream: real cancellation, not an abandoned promise.
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => undefined);
+  }, timeoutMs);
   try {
     while (true) {
       const next = await reader.read();
@@ -187,7 +206,14 @@ async function readBoundedBody(request: Request): Promise<
       chunks.push(next.value);
     }
   } catch {
-    return { ok: false, response: jsonResponse({ error: "invalid_body" }, 400) };
+    if (!timedOut) {
+      return { ok: false, response: jsonResponse({ error: "invalid_body" }, 400) };
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  if (timedOut) {
+    return { ok: false, response: jsonResponse({ error: "request_read_timeout" }, 408) };
   }
   return {
     ok: true,

@@ -65,12 +65,54 @@ export function verifyRelayAllowSignature(
 export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
 
 /**
+ * Hard cap on concurrently running admission lookups per runtime instance.
+ * statement_timeout bounds an executing query, but a stall BEFORE execution
+ * (pool checkout, connection establishment, a network black hole) can leave
+ * an admission promise pending after its request already answered 503, and
+ * the driver exposes no abort signal to cancel it. The cap makes retained
+ * work bounded by construction: at most this many admission operations exist
+ * at once, and a saturated instance rejects immediately (the route's 503,
+ * which the relay treats as deny and retries later) instead of queueing.
+ */
+export const RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS = 16;
+
+export class RelayAllowAdmissionSaturatedError extends Error {
+  constructor() {
+    super("relay allow admission concurrency saturated");
+    this.name = "RelayAllowAdmissionSaturatedError";
+  }
+}
+
+let inFlightAdmissions = 0;
+
+/** Runs one admission under the concurrency cap; rejects when saturated. */
+export async function withRelayAllowAdmissionSlot<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (inFlightAdmissions >= RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS) {
+    throw new RelayAllowAdmissionSaturatedError();
+  }
+  inFlightAdmissions += 1;
+  try {
+    return await operation();
+  } finally {
+    inFlightAdmissions -= 1;
+  }
+}
+
+/**
  * Admitted iff the endpoint has an active (non-revoked) binding whose account
  * has no blocking deletion tombstone. The partial unique index
  * `iroh_endpoint_bindings_active_endpoint_unique` guarantees at most one
  * active binding per EndpointId across all accounts.
  */
 export async function relayAllowAdmission(
+  endpointId: string,
+): Promise<RelayAllowAdmission> {
+  return await withRelayAllowAdmissionSlot(() => admissionLookup(endpointId));
+}
+
+async function admissionLookup(
   endpointId: string,
 ): Promise<RelayAllowAdmission> {
   const db = cloudDb();

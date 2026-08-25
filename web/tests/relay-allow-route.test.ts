@@ -6,10 +6,13 @@ import {
   type RelayAllowDeps,
 } from "../app/api/relay/allow/route";
 import {
+  RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
   RELAY_ALLOW_SIGNATURE_HEADER,
+  RelayAllowAdmissionSaturatedError,
   parseRelayAllowSecret,
   relayAllowSignature,
   verifyRelayAllowSignature,
+  withRelayAllowAdmissionSlot,
 } from "../services/relay/allow";
 
 // Pure route tests: deps injection only, nothing leaks into the shared
@@ -203,6 +206,29 @@ describe("POST /api/relay/allow", () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
+  test("408 within the bound when an unauthenticated body stalls (slowloris)", async () => {
+    const startedAt = Date.now();
+    const response = await handleRelayAllowRequest(
+      new Request("https://cmux.dev/api/relay/allow", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // A stream that trickles one byte and never finishes.
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([0x7b]));
+          },
+        }),
+        // @ts-expect-error duplex is required for stream bodies but absent
+        // from the lib.dom Request typings.
+        duplex: "half",
+      }),
+      deps({ bodyReadTimeoutMs: 25 }),
+    );
+    expect(response.status).toBe(408);
+    expect(await response.text()).not.toBe("true");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   test("503 (deny at the relay) when the admission lookup throws", async () => {
     const response = await handleRelayAllowRequest(
       relayShapedRequest(ACTIVE_ID),
@@ -213,6 +239,31 @@ describe("POST /api/relay/allow", () => {
       }),
     );
     expect(response.status).toBe(503);
+  });
+});
+
+describe("relay allow admission concurrency cap", () => {
+  test("bounds retained work and rejects immediately when saturated", async () => {
+    const releases: (() => void)[] = [];
+    const held = Array.from(
+      { length: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS },
+      () =>
+        withRelayAllowAdmissionSlot(
+          () =>
+            new Promise<"allow">((resolve) => {
+              releases.push(() => resolve("allow"));
+            }),
+        ),
+    );
+    // Every slot is held by a pending lookup: the next admission must fail
+    // fast (the route's fail-closed 503) instead of queueing more work.
+    await expect(withRelayAllowAdmissionSlot(async () => "allow")).rejects.toThrow(
+      RelayAllowAdmissionSaturatedError,
+    );
+    for (const release of releases) release();
+    await Promise.all(held);
+    // Slots free once lookups settle.
+    expect(await withRelayAllowAdmissionSlot(async () => "allow")).toBe("allow");
   });
 });
 
