@@ -30,8 +30,45 @@ struct CLISendQueuedOutputTests {
         #expect(result.stdout == "OK \(Self.surfaceRef) \(Self.workspaceRef)\n", Comment(rawValue: result.stdout))
     }
 
+    @Test func sendJSONEchoesAimedWorkspaceRefAndUUID() throws {
+        let result = try runSendAgainstMockServer(
+            queuedReply: false,
+            arguments: ["send", "--surface", Self.surfaceRef, "--json", "echo issue10013"]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let payload = try #require(Self.jsonObject(result.stdout))
+        #expect(payload["aimed_workspace_ref"] as? String == Self.workspaceRef)
+        #expect(payload["aimed_workspace_id"] as? String == Self.workspaceID)
+        // The default JSON presentation remains ref-oriented; the explicit
+        // aimed fields are the stable assertion surface for both forms.
+        #expect(payload["workspace_ref"] as? String == Self.workspaceRef)
+        #expect(payload["workspace_id"] == nil)
+    }
+
+    @Test func sendJSONKeepsAimedAliasesWithUUIDPresentation() throws {
+        let result = try runSendAgainstMockServer(
+            queuedReply: false,
+            arguments: [
+                "send", "--surface", Self.surfaceRef,
+                "--json", "--id-format", "uuids", "echo issue10013"
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let payload = try #require(Self.jsonObject(result.stdout))
+        #expect(payload["aimed_workspace_ref"] as? String == Self.workspaceRef)
+        #expect(payload["aimed_workspace_id"] as? String == Self.workspaceID)
+        #expect(payload["workspace_id"] as? String == Self.workspaceID)
+        #expect(payload["workspace_ref"] == nil)
+    }
+
     private static let surfaceRef = "surface:11"
     private static let workspaceRef = "workspace:7"
+    private static let workspaceID = "11111111-1111-4111-8111-111111111111"
+    private static let surfaceID = "22222222-2222-4222-8222-222222222222"
 
     private struct ProcessRunResult {
         let status: Int32
@@ -42,7 +79,10 @@ struct CLISendQueuedOutputTests {
 
     private final class CLISendQueuedOutputBundleToken {}
 
-    private func runSendAgainstMockServer(queuedReply: Bool) throws -> ProcessRunResult {
+    private func runSendAgainstMockServer(
+        queuedReply: Bool,
+        arguments: [String] = ["send", "--surface", Self.surfaceRef, "echo issue9769"]
+    ) throws -> ProcessRunResult {
         let socketPath = Self.makeSocketPath("send-q")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -71,7 +111,9 @@ struct CLISendQueuedOutputTests {
                 }
                 var result: [String: Any] = [
                     "surface_ref": Self.surfaceRef,
+                    "surface_id": Self.surfaceID,
                     "workspace_ref": Self.workspaceRef,
+                    "workspace_id": Self.workspaceID,
                 ]
                 if queuedReply { result["queued"] = true }
                 return Self.v2Response(id: id, ok: true, result: result)
@@ -93,7 +135,7 @@ struct CLISendQueuedOutputTests {
         // startup alone can exceed a few seconds.
         let result = Self.runProcess(
             executablePath: try BundledCLITestSupport.bundledCLIPath(for: CLISendQueuedOutputBundleToken.self),
-            arguments: ["send", "--surface", Self.surfaceRef, "echo issue9769"],
+            arguments: arguments,
             environment: environment,
             timeout: 30
         )
