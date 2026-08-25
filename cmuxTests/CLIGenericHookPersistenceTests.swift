@@ -1240,6 +1240,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "A non-Shell failure must not resolve a pending Cursor shell approval, saw \(nonShellFailureCommands)"
         )
 
+        let ordinaryShellFailureStart = state.snapshot().count
+        let ordinaryShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"Command exited 1","failure_type":"error"}"#
+        )
+        XCTAssertFalse(ordinaryShellFailure.timedOut, ordinaryShellFailure.stderr)
+        XCTAssertEqual(ordinaryShellFailure.status, 0, ordinaryShellFailure.stderr)
+        let ordinaryShellFailureCommands = Array(state.snapshot().dropFirst(ordinaryShellFailureStart))
+        XCTAssertFalse(
+            ordinaryShellFailureCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "An ordinary Shell failure must not consume a pending approval, saw \(ordinaryShellFailureCommands)"
+        )
+
         let failureStart = state.snapshot().count
         let failure = runCursorHook(
             "shell-failed",
@@ -1293,6 +1308,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "A retried Cursor shell hook must resolve as one approval, saw \(duplicateCompletionCommands)"
         )
+
+        let quotedSpacingCommands = ["printf 'a  b'", "printf 'a b'"]
+        for quotedCommand in quotedSpacingCommands {
+            let quotedApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(quotedCommand)","sandbox":false}"#
+            )
+            XCTAssertFalse(quotedApproval.timedOut, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.status, 0, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let firstQuotedCompletionStart = state.snapshot().count
+        let firstQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a  b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(firstQuotedCompletion.timedOut, firstQuotedCompletion.stderr)
+        XCTAssertEqual(firstQuotedCompletion.status, 0, firstQuotedCompletion.stderr)
+        let firstQuotedCompletionCommands = Array(state.snapshot().dropFirst(firstQuotedCompletionStart))
+        XCTAssertTrue(
+            firstQuotedCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|printf 'a b'")
+            },
+            "Quoted whitespace must remain part of Cursor command identity, saw \(firstQuotedCompletionCommands)"
+        )
+        let secondQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(secondQuotedCompletion.timedOut, secondQuotedCompletion.stderr)
+        XCTAssertEqual(secondQuotedCompletion.status, 0, secondQuotedCompletion.stderr)
 
         let cancelledCommand = "rm -rf cancelled-output"
         let cancelledApproval = runCursorHook(

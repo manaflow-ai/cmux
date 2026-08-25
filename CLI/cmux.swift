@@ -177,7 +177,9 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func normalizedCommand(_ value: String) -> String {
-            value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            value
+                .replacingOccurrences(of: "\\r\\n", with: "\\n")
+                .replacingOccurrences(of: "\\r", with: "\\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
@@ -192,7 +194,9 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func redactedPreview(for value: String) -> String {
-            let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(value)
+            let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(
+                value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            )
             return String(redacted.prefix(180))
         }
 
@@ -566,12 +570,14 @@ final class ClaudeHookSessionStore {
     }
 
     private func normalizedCursorShellCommand(_ command: String) -> String? {
-        let collapsed = command.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let normalized = command
+            .replacingOccurrences(of: "\\r\\n", with: "\\n")
+            .replacingOccurrences(of: "\\r", with: "\\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !collapsed.isEmpty, collapsed.count <= Self.maxPendingCursorShellCommandLength else {
+        guard !normalized.isEmpty, normalized.count <= Self.maxPendingCursorShellCommandLength else {
             return nil
         }
-        return collapsed
+        return normalized
     }
 
     private func normalizedCursorShellToolUseId(_ value: String?) -> String? {
@@ -32816,12 +32822,12 @@ export default CMUXSessionRestore;
         func cursorShellCommand(from input: ClaudeHookParsedInput) -> String? {
             guard let rawObject = input.rawObject else { return nil }
             if let command = firstString(in: rawObject, keys: ["command"]) {
-                return normalizedSingleLine(command)
+                return command.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             for key in ["tool_input", "toolInput"] {
                 if let toolInput = rawObject[key] as? [String: Any],
                    let command = firstString(in: toolInput, keys: ["command"]) {
-                    return normalizedSingleLine(command)
+                    return command.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
             return nil
@@ -32830,6 +32836,31 @@ export default CMUXSessionRestore;
         func cursorShellToolUseId(from input: ClaudeHookParsedInput) -> String? {
             guard let rawObject = input.rawObject else { return nil }
             return firstString(in: rawObject, keys: ["tool_use_id", "toolUseId", "tool_call_id", "toolCallId"])
+        }
+
+        func cursorShellFailureIsApprovalDenial(from input: ClaudeHookParsedInput) -> Bool {
+            if cursorShellToolUseId(from: input) != nil {
+                // A stable tool id is an exact completion identity, so the
+                // terminal outcome can be reconciled regardless of failure
+                // wording.
+                return true
+            }
+            guard let rawObject = input.rawObject else { return false }
+            let values = [
+                firstString(in: rawObject, keys: ["failure_type", "failureType"]),
+                firstString(in: rawObject, keys: ["reason", "type", "kind"]),
+            ].compactMap { $0?.lowercased() }
+            return values.contains { value in
+                [
+                    "permission_denied",
+                    "permission-denied",
+                    "approval_denied",
+                    "approval-denied",
+                    "user_rejected",
+                    "user-rejected",
+                    "rejected",
+                ].contains(value)
+            }
         }
 
         func resolveCursorShellHook(failed: Bool) {
@@ -32848,6 +32879,11 @@ export default CMUXSessionRestore;
                 }), toolName.caseInsensitiveCompare("Shell") == .orderedSame else {
                     sendAgentFeedTelemetry()
                     telemetry.breadcrumb("\(def.name)-hook.shell-failed.non-shell")
+                    return
+                }
+                guard cursorShellFailureIsApprovalDenial(from: input) else {
+                    sendAgentFeedTelemetry()
+                    telemetry.breadcrumb("\(def.name)-hook.shell-failed.non-denial")
                     return
                 }
             }
@@ -34146,15 +34182,18 @@ export default CMUXSessionRestore;
                           command: command,
                           toolUseId: cursorShellToolUseId(from: input)
                       )) == true else {
-                    sendAgentFeedTelemetryUnlessSuppressed(
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     emitJournal(
                         .stateChanged,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        detail: "cursor-shell-approval-persistence-failed"
+                        detail: "cursor-shell-approval-persistence-failed",
+                        responseTimeout: cursorCriticalResponseTimeout
+                    )
+                    cursorLifecycleLease?.release()
+                    cursorLifecycleLease = nil
+                    sendAgentFeedTelemetryUnlessSuppressed(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
                     )
                     hookResponse = "{}"
                     print("{}")
