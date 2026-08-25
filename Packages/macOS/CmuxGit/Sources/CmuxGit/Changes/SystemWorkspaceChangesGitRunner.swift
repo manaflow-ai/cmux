@@ -153,6 +153,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             guard deadline > now else { break }
             let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
                 / 1_000_000_000
+            var attemptProducedOutput = false
             do {
                 let result = try executeOnce(
                     executableURL: candidate,
@@ -161,16 +162,25 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
                     maximumOutputByteCount: maximumOutputByteCount,
                     wallTimeLimit: remaining,
                     prepareAttempt: prepareAttempt,
-                    consume: consume
+                    consume: { chunk in
+                        if !chunk.isEmpty { attemptProducedOutput = true }
+                        try consume(chunk)
+                    }
                 )
                 lastResult = result
                 // Retry only the unmistakable unsupported/fatal Git exit with
-                // no output; ordinary successful/expected nonzero results stop.
-                if result.exitCode != 128 || result.wasTruncated {
+                // no output; partial output is authoritative for status callers
+                // and must not be erased by a fallback candidate.
+                if result.exitCode != 128 || result.wasTruncated || attemptProducedOutput {
                     return result
                 }
             } catch {
                 lastError = error
+                // A consumer may already have persisted a partial result; do not
+                // clear it and retry another Git executable.
+                if attemptProducedOutput {
+                    throw error
+                }
                 if error is POSIXError {
                     continue
                 }
