@@ -181,7 +181,7 @@ final class CmuxPluginProcessSupervisor {
             onViolation: { [weak self, weak runtime] in
                 Task { @MainActor [weak self, weak runtime] in
                     guard let self, let runtime else { return }
-                    self.snapshotIntegrityDidChange(
+                    await self.snapshotIntegrityDidChange(
                         pluginID: pluginID,
                         expectedSnapshot: executionSnapshot,
                         runtime: runtime,
@@ -363,7 +363,17 @@ final class CmuxPluginProcessSupervisor {
         expectedSnapshot: CmuxPluginExecutionSnapshot,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
-    ) {
+    ) async {
+        guard let observed = processes[pluginID],
+              observed.snapshot.directoryURL == expectedSnapshot.directoryURL,
+              observed.snapshot.fingerprint == expectedSnapshot.fingerprint else {
+            return
+        }
+        guard !(await snapshotter.verify(expectedSnapshot)) else {
+            // Metadata-only notifications (for example, an access-time update)
+            // are harmless when the approved bytes and inode identities remain.
+            return
+        }
         guard let running = processes[pluginID],
               running.snapshot.directoryURL == expectedSnapshot.directoryURL,
               running.snapshot.fingerprint == expectedSnapshot.fingerprint else {
