@@ -560,7 +560,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         let deselectedAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
             .alphaComponent
 
-        cell.clearOptimisticAnchorActive()
+        cell.restoreStoredModelPaint()
         let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
             .alphaComponent
 

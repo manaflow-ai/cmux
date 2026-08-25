@@ -150,6 +150,7 @@ extension TaskComposerSheet {
             explicitlySelectedModel = model
             selectedEffortID = (model ?? modelAvailability.defaultModel)?.defaultEffortID
         }
+        hasUserPickedModelOrEffort = true
         store.recordAppEvent(
             .taskModelSelected,
             correlationID: selectedID
@@ -164,6 +165,7 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedEffortID = selectedID
         }
+        hasUserPickedModelOrEffort = true
     }
 
     func reconcileSelectedEffort() {

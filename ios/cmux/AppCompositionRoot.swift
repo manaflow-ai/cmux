@@ -32,6 +32,12 @@ final class AppCompositionRoot {
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -164,12 +170,32 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        #if DEBUG
+        // DEV: a devicectl launch with DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL
+        // persists the isolated-worker override so later env-less cold
+        // launches (push wakes) keep resolving it.
+        PresenceClient.persistEnvironmentOverrideIfPresent()
+        #endif
+        // Inline replies relay through the presence worker when the phone
+        // cannot deliver directly (a backgrounded app never dials). Same
+        // worker origin as the connectivity subscriber, so the account that
+        // subscribes is the account whose inbox the Mac sweeps.
+        let replyRelayBaseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ).flatMap { URL(string: $0) }
+        let replyRelayAccessToken = CMUXMobileRuntime.stackAccessTokenProvider(
+            from: auth.coordinator
+        )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
-            notificationSettings: pushNotificationSettings
+            notificationSettings: pushNotificationSettings,
+            replyRelay: SystemReplyRelayClient(
+                serviceBaseURL: replyRelayBaseURL,
+                accessToken: { try? await replyRelayAccessToken() }
+            )
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {

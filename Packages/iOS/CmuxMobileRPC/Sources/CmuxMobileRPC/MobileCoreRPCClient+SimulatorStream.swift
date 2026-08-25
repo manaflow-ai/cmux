@@ -61,6 +61,16 @@ extension MobileCoreRPCClient {
         return try MobileSimulatorDevicesResponse.decode(data).devices
     }
 
+    public func recoverMobileSimulator(
+        panelID: String,
+        workspaceID: String
+    ) async throws -> MobileSimulatorCommandResponse {
+        try await sendSimulatorCommand(
+            method: "mobile.simulator.recover",
+            parameters: MobileSimulatorPanelParameters(panelID: panelID, workspaceID: workspaceID)
+        )
+    }
+
     public func selectMobileSimulatorDevice(
         panelID: String,
         workspaceID: String,
