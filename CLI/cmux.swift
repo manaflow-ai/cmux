@@ -32994,9 +32994,16 @@ export default CMUXSessionRestore;
                         return nil
                     }
                     let preferredSurfaceId = mapped?.surfaceId ?? resolvedDirectSurfaceArg
+                    if let preferredSurfaceId {
+                        guard let surfaceId = resolveAccessibleSurfaceId(
+                            preferredSurfaceId,
+                            workspaceId: mappedWorkspaceId
+                        ) else { return nil }
+                        return (mappedWorkspaceId, surfaceId)
+                    }
                     return resolveTarget(
                         workspaceId: mappedWorkspaceId,
-                        preferredSurfaceId: preferredSurfaceId,
+                        preferredSurfaceId: nil,
                         mapped: mapped
                     )
                 }
@@ -33006,7 +33013,11 @@ export default CMUXSessionRestore;
                 if let preferredSurfaceId,
                    resolvedDirectWorkspaceArg == workspaceId,
                    resolvedDirectSurfaceArg == preferredSurfaceId {
-                    return (workspaceId, preferredSurfaceId)
+                    guard let surfaceId = resolveAccessibleSurfaceId(
+                        preferredSurfaceId,
+                        workspaceId: workspaceId
+                    ) else { return nil }
+                    return (workspaceId, surfaceId)
                 }
                 return resolveTarget(
                     workspaceId: workspaceId,
@@ -34406,6 +34417,18 @@ export default CMUXSessionRestore;
             // intentionally telemetry-only. The defer above sends the
             // PostToolUse-equivalent feed event without changing lifecycle
             // state or notification UI.
+            let mapped = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
+            if let target = resolveAgentHookTarget(mapped: mapped) {
+                sendAgentFeedTelemetryUnlessSuppressed(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId
+                )
+            } else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("cursor-hook.shell-observed.target-unresolved")
+            }
             break
 
         case .shellDone:
