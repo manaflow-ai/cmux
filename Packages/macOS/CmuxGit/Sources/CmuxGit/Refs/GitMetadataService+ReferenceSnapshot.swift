@@ -1,6 +1,48 @@
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
+    /// Runs bounded remote fallback plumbing on the blocking-I/O lane.
+    nonisolated func gitRemoteVFallback(repository: ResolvedGitRepository) async -> String? {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let wallTimeLimit = safetyConfiguration.gitStatusWallTime
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let output = cancellationSignal.withCurrentBinding {
+                        let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
+                        let deadline = DispatchTime.now() + wallTimeLimit
+                        for runner in selector.candidateRunners.prefix(4) {
+                            let now = DispatchTime.now()
+                            guard deadline > now else { break }
+                            let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                                / 1_000_000_000
+                            do {
+                                let result = try runner.run(
+                                    arguments: ["remote", "-v"],
+                                    in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
+                                    maximumOutputByteCount: 1 * 1_024 * 1_024,
+                                    wallTimeLimit: remaining
+                                )
+                                if result.exitCode == 0,
+                                   !result.standardOutputWasTruncated,
+                                   let output = String(data: result.output, encoding: .utf8) {
+                                    return output
+                                }
+                            } catch {
+                                continue
+                            }
+                        }
+                        return nil
+                    }
+                    continuation.resume(returning: output)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
     /// Resolves the full reference snapshot for watcher/config consumers.
     nonisolated func gitReferenceSnapshotForConfig(
         repository: ResolvedGitRepository

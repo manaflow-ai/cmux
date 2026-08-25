@@ -58,14 +58,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         if hasReftableDirectory(repository: repository) {
             return plumbingSnapshot(repository: repository)
         }
-        let directSnapshot = fileSnapshot(repository: repository)
-        guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
-            return directSnapshot
-        }
         let configuredStorage = referenceStorageName(repository: repository)
         if let configuredStorage, configuredStorage != "files" {
             return plumbingSnapshot(repository: repository)
         }
+        let directSnapshot = fileSnapshot(repository: repository)
         if directSnapshot.branchName == ".invalid" {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
@@ -227,9 +224,29 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 : URL(fileURLWithPath: repository.workTreeRoot)
                     .appendingPathComponent(value)
                     .standardizedFileURL.path
-            paths.append(name == "reftable"
-                ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
-                : path)
+            let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
+                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            let isInRepository = roots.contains { root in
+                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+            }
+            if isInRepository {
+                paths.append(name == "reftable"
+                    ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
+                    : path)
+            } else if name == "reftable" {
+                let marker = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
+                switch configReader.read(at: marker, maximumByteCount: 1 * 1_024) {
+                case .contents, .oversized:
+                    paths.append(marker.path)
+                case .missing, .unavailable:
+                    break
+                }
+            } else if name == "refs", storageProbe.isDirectory(atPath: path) {
+                paths.append(path)
+            } else if name == "packed-refs",
+                      configReader.read(at: URL(fileURLWithPath: path), maximumByteCount: 1).isAvailable {
+                paths.append(path)
+            }
         }
         return paths
     }
