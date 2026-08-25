@@ -48,6 +48,21 @@ struct AgentTurnSettlementReconcilerTests {
         #expect(decision == .keepRunning)
     }
 
+    @Test("Unknown turn freshness keeps a live settled boundary running")
+    func unknownTurnFreshnessDoesNotPublishSuccess() {
+        let decision = AgentTurnSettlementReconciler().resolve(
+            integration: .codex,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live,
+                turnFreshness: .unknown
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
+
     @Test("Active structured work withholds completion")
     func activeBackgroundWorkKeepsRunning() {
         let decision = AgentTurnSettlementReconciler().resolve(

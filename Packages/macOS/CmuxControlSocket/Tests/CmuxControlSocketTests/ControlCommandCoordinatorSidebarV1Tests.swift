@@ -165,6 +165,26 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentLifecycleCall == nil)
     }
 
+    @Test func relayBuiltInLifecycleRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        // A relay supplies a remote PID namespace, but the lifecycle command
+        // still needs its start-time tuple to fence delayed/reused PIDs.
+        context.requiresAgentProcessGeneration = true
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for this agent."
+        )
+        #expect(context.agentLifecycleCall == nil)
+    }
+
     @Test func unsupportedAgentLifecycleKeyIsRejected() {
         let context = FakeSidebarV1ControlCommandContext()
         context.allowsAgentLifecycleKey = false

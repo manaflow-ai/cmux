@@ -378,7 +378,8 @@ struct AgentTurnSettlementTests {
             evidence: AgentTurnSettlementEvidence(
                 boundary: .settled,
                 activeBackgroundWorkCount: 0,
-                processLiveness: .live
+                processLiveness: .live,
+                turnFreshness: .current
             )
         )
 

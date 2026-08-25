@@ -2207,6 +2207,24 @@ def test_non_codex_structured_work_replays_deferred_stop(
                 "agent_id": work_id,
             },
         )
+        sibling_turn_id = f"{turn_id}-sibling"
+        sibling_payload = {
+            **base_payload,
+            "turn_id": sibling_turn_id,
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            sibling_payload,
+        )
         stop_start = len(fake.frames)
         run_hook(
             [
@@ -2219,7 +2237,7 @@ def test_non_codex_structured_work_replays_deferred_stop(
                 FAKE_SURFACE_ID,
             ],
             {
-                **base_payload,
+                **sibling_payload,
                 "hook_event_name": "Stop",
                 "cmux_turn_boundary": "turn_end",
             },
