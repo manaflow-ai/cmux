@@ -114,14 +114,16 @@ struct RestorableAgentProcessGenerationTests {
     func cachedStablePanelSnapshotLookupAvoidsProcessProbes() throws {
         let fixture = try makeFixture(prefix: "cmux-cached-stable-panel-lookup")
         defer { cleanup(fixture) }
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(processIdentity, to: fixture)
         let index = loadRunningFixture(
             fixture,
             processArguments: codexProcessArguments(for: fixture),
-            processIdentity: AgentPIDProcessIdentity(
-                pid: pid_t(fixture.processID),
-                startSeconds: Int64(fixture.updatedAt),
-                startMicroseconds: 0
-            )
+            processIdentity: processIdentity
         )
         var identityProbeCount = 0
         var presenceProbeCount = 0

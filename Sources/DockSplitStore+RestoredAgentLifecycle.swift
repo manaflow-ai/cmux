@@ -429,9 +429,9 @@ extension DockSplitStore {
         deferredAgentResumeRestoresByPanelId[panelId] = restore
         guard deferredAgentResumeIndexTask == nil else { return }
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            guard let self else { return }
             let index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             self.deferredAgentResumeIndexTask = nil
             guard let index else {
                 self.clearDeferredAgentResumeRestores()

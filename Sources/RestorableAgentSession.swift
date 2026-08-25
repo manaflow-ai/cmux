@@ -1280,8 +1280,9 @@ struct RestorableAgentSessionIndex: Sendable {
         // process inspection.
         let hasUncertainCandidate = candidatesWithEvidence.contains {
             $0.evidence == .unknown &&
-                (revalidateProcessEvidence || !Self.recordedProcessIDs(for: $0.entry).isEmpty)
+                (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
         }
+        guard !hasUncertainCandidate else { return nil }
         if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
             return exact.entry
         }
@@ -1291,7 +1292,6 @@ struct RestorableAgentSessionIndex: Sendable {
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
         guard liveCandidates.isEmpty,
-              !hasUncertainCandidate,
               !ambiguousPanelIds.contains(panelId),
               !equalRankAmbiguousPanelIds.contains(panelId) else {
             return nil
