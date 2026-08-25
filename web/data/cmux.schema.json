@@ -2032,6 +2032,8 @@
     },
     "cmuxWorkspaceColor": {
       "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
       "description": "A six-digit hex color (with or without #) or a name from the user's current workspace color palette. Palette names are runtime state and cannot be enumerated by a static schema."
     },
     "cmuxLayoutNode": {
