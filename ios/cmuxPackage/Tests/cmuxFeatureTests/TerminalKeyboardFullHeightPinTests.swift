@@ -129,7 +129,7 @@ struct TerminalKeyboardFullHeightPinTests {
         #expect(await pump { gap() <= 1 }, "render bottom never attached to the dock top; gap=\(gap())")
 
         // Hand the seat to the plain bottom constraint and ride a keyboard.
-        view.setChromeHiddenForTesting(true)
+        view.setChromeHidden(true)
         host.setNeedsLayout()
         host.layoutIfNeeded()
         await settle()

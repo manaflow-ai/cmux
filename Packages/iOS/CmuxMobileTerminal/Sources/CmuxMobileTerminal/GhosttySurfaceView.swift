@@ -756,14 +756,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
-    /// Test seam for the chrome-hidden dock-seat handoff: hiding the chrome
-    /// makes the host seat the dock with the plain bottom constraint (the
-    /// system keyboard guide cannot seat a hidden dock flush with the screen
-    /// bottom), which is the path a hosted keyboard ride is testable through
-    /// on a simulator that refuses to present a real keyboard.
-    func setChromeHiddenForTesting(_ hidden: Bool) {
-        setChromeHidden(hidden)
-    }
 
     #endif
 
@@ -1643,7 +1635,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// composer (and its draft) reappear intact on the next terminal tap
     /// (``handleTap``). UIKit animates keyboard movement through its layout guide;
     /// ``animateBottomDock`` handles only the chrome-height change.
-    private func setChromeHidden(_ hidden: Bool) {
+    /// Internal (not private) so behavior tests can drive the chrome-hidden
+    /// dock seat via @testable import instead of a shipped test seam.
+    func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
         if hidden, keyboardVisible {
