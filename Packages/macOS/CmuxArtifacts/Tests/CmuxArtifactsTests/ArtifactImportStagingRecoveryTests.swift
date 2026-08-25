@@ -46,4 +46,26 @@ struct ArtifactImportStagingRecoveryTests {
         #expect(!FileManager.default.fileExists(atPath: orphan.path))
         #expect(FileManager.default.fileExists(atPath: active.path))
     }
+
+    @Test("Staging recovery never follows a stale batch symlink")
+    func rejectsSymlinkedStaleBatch() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let stagingRoot = ArtifactStorePaths(projectRoot: root).importStagingRoot
+        try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+        let sentinel = try ArtifactTestSupport.write("keep", named: "sentinel.txt", under: outside)
+        let stale = stagingRoot.appendingPathComponent("stale.artifact-import", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: stale, withDestinationURL: outside)
+
+        ArtifactImportStagingCleaner(
+            fileManager: .default,
+            now: { Date(timeIntervalSince1970: 10_000) },
+            malformedEntryGracePeriod: 0
+        ).reclaimAbandonedBatches(root: stagingRoot)
+
+        #expect(try String(contentsOf: sentinel, encoding: .utf8) == "keep")
+        #expect(FileManager.default.fileExists(atPath: stale.path))
+    }
 }
