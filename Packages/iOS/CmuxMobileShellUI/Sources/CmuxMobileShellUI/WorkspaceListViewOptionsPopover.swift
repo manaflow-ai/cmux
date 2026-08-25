@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The workspace list's view-options card: Mail-style illustrated sort tiles
 /// on top (each schematic renders what the mode actually does to the list, so
-/// "Computer Order" needs no explanation), then the read-state and machine
+/// "Custom Order" needs no explanation), then the read-state and machine
 /// filter rows.
 ///
 /// A native `Menu` bridges to UIMenu, whose rows only render text plus an
@@ -25,7 +25,7 @@ struct WorkspaceListViewOptionsPopover: View {
 
     /// The order editor presents from the popover itself: a parent-level sheet
     /// cannot present while this popover owns the presentation slot. It opens
-    /// only from the explicit row below the tiles — selecting the Computer
+    /// only from the explicit row below the tiles — selecting the Custom
     /// Order tile just selects; no surprise navigation.
     @State private var showingOrderEditor = false
 
@@ -97,7 +97,7 @@ struct WorkspaceListViewOptionsPopover: View {
     /// header so it titles the tile row, but secondary-colored so the tiles
     /// stay the loudest thing on the card.
     private var sortSectionTitle: some View {
-        Text(L10n.string("mobile.workspaces.sort", defaultValue: "Sort By"))
+        Text(L10n.string("mobile.workspaces.sort", defaultValue: "Sort Computers By"))
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
