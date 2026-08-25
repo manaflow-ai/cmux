@@ -5,6 +5,8 @@ import Foundation
 extension CMUXCLI {
     /// Monotonic budget reserved for the complete asynchronous task hook.
     static let claudeTaskSyncResponseBudgetSeconds: TimeInterval = 8
+    /// Short lease budget for SessionEnd to join an in-flight task hook.
+    static let claudeSessionEndTaskSyncLockBudgetSeconds: TimeInterval = 1
 
     /// Whether one parsed CLI invocation is the Claude task-sync hook.
     static func isClaudeTaskSyncHookCommand(
@@ -112,6 +114,15 @@ extension CMUXCLI {
                             taskListID: deletionTaskDirectoryName,
                             taskStoreIdentity: taskStoreIdentity
                         )
+                        if let matchingRecord,
+                           try ClaudeTeamTaskListResolver(
+                               teamsRootURL: teamsRootURL,
+                               taskStoreIdentity: taskStoreIdentity,
+                               deadlineUptime: hookDeadlineUptime
+                           ).taskListBindingWasReused(matchingRecord.binding) {
+                            telemetry.breadcrumb("claude-hook.task-sync.team-delete-reused")
+                            return
+                        }
                         let destinationRecord = try sessionStore.claudeTaskListDestinationRecord(
                             taskListID: deletionTaskDirectoryName,
                             taskStoreIdentity: taskStoreIdentity

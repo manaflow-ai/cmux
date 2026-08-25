@@ -215,11 +215,19 @@ public struct ClaudeTaskSnapshotLoader {
             }
         }
 
-        if let directSnapshot = try loadDirectSessionTaskList(
-            sessionID: sessionID,
-            taskIdentity: taskIdentity
-        ) {
-            return directSnapshot
+        // A deterministic session directory is authoritative even when its
+        // current task file is mid-write or no longer matches the hook
+        // identity. Never fall through to a neighboring list in that case:
+        // task IDs are only unique within one directory.
+        if let sessionDirectory = try sessionDirectoryURL(sessionID: sessionID) {
+            if let taskIdentity {
+                guard try taskFile(
+                    in: sessionDirectory,
+                    matches: taskIdentity,
+                    decoder: decoder
+                ) else { return nil }
+            }
+            return try snapshot(in: sessionDirectory)
         }
 
         if let taskIdentity,

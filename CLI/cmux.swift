@@ -292,6 +292,28 @@ final class ClaudeHookSessionStore {
         )
     }
 
+    /// Consumes a session only after any in-flight task-sync transaction ends.
+    ///
+    /// SessionEnd and task-sync run as independent Claude hook processes. They
+    /// must share the task-sync lease so teardown cannot win the store race
+    /// after a task hook has already started publishing its snapshot.
+    func consumeAfterClaudeTaskSync(
+        sessionId: String?,
+        workspaceId: String?,
+        surfaceId: String?,
+        turnId: String?,
+        deadlineUptime: TimeInterval
+    ) throws -> ClaudeHookSessionRecord? {
+        try withClaudeTaskSyncLock(deadlineUptime: deadlineUptime) {
+            try consume(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                turnId: turnId
+            )
+        }
+    }
+
     /// Holds one cross-process file lock, bounded when a deadline is present.
     private func withExclusiveFileLock<T>(
         atPath lockPath: String,
@@ -27019,11 +27041,13 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let consumedSession = try? sessionStore.consume(
+            let consumedSession = try? sessionStore.consumeAfterClaudeTaskSync(
                 sessionId: parsedInput.sessionId,
                 workspaceId: liveEndTarget.workspaceId,
                 surfaceId: liveEndTarget.surfaceId,
-                turnId: parsedInput.turnId
+                turnId: parsedInput.turnId,
+                deadlineUptime: ProcessInfo.processInfo.systemUptime
+                    + Self.claudeSessionEndTaskSyncLockBudgetSeconds
             )
             // consume() calls clearActiveSessionIfMatching before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId

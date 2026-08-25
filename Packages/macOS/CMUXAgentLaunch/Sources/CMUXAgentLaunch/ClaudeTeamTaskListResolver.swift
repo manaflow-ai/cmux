@@ -244,6 +244,120 @@ public struct ClaudeTeamTaskListResolver {
         throw ClaudeTaskSnapshotLoaderError.teamConfigurationChangedDuringScan
     }
 
+    /// Returns the current binding for a task-list name, regardless of hook identity.
+    ///
+    /// TeamDelete carries only the user-visible team name. This identity-only
+    /// lookup lets the app distinguish a missing/deleted config from a newer
+    /// team that reused the same task-list directory before clearing an old
+    /// owner proof.
+    ///
+    /// - Parameter taskListID: The canonical task-list directory name.
+    /// - Returns: The current binding, or `nil` when the team config is absent.
+    /// - Throws: A filesystem or resource-bound error while scanning configs.
+    public func currentTaskListBinding(
+        forTaskListID taskListID: String
+    ) throws -> ClaudeTeamTaskListBinding? {
+        try operationDeadline.check()
+        guard ClaudeTaskListDirectoryName(taskListID: taskListID)?.rawValue == taskListID,
+              let rootGenerationBeforeScan = try teamsRootGeneration() else {
+            return nil
+        }
+        var enumerationError: Error?
+        let candidateEnumerator = fileManager.enumerator(
+            at: teamsRootURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
+            errorHandler: { _, error in
+                if error.isClaudeTaskFilesystemItemMissing { return true }
+                enumerationError = error
+                return false
+            }
+        )
+        try operationDeadline.check()
+        guard let enumerator = candidateEnumerator else {
+            throw ClaudeTaskSnapshotLoaderError.cannotEnumerateTeamsRoot
+        }
+        let decoder = JSONDecoder()
+        var entryCount = 0
+        var matches: [ClaudeTeamTaskListBinding] = []
+        while let teamDirectory = enumerator.nextObject() as? URL {
+            try operationDeadline.check()
+            entryCount += 1
+            guard entryCount <= Self.maximumTeamRootEntryCount else {
+                throw ClaudeTaskSnapshotLoaderError.tooManyTeamRootEntries(
+                    limit: Self.maximumTeamRootEntryCount
+                )
+            }
+            let directoryValues: URLResourceValues
+            do {
+                directoryValues = try teamDirectory.resourceValues(
+                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                )
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            guard directoryValues.isDirectory == true,
+                  directoryValues.isSymbolicLink != true else { continue }
+            let configURL = teamDirectory.appendingPathComponent("config.json", isDirectory: false)
+            let configValues: URLResourceValues
+            do {
+                configValues = try configURL.resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+                )
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            guard configValues.isRegularFile == true,
+                  configValues.isSymbolicLink != true else { continue }
+            let data: Data
+            do {
+                data = try boundedConfigData(at: configURL)
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            guard let config = try? decoder.decode(ClaudeTeamConfiguration.self, from: data),
+                  let binding = taskListBinding(
+                      from: config,
+                      teamDirectoryName: teamDirectory.lastPathComponent
+                  ),
+                  binding.taskListID == taskListID else { continue }
+            matches.append(binding)
+        }
+        try operationDeadline.check()
+        if let enumerationError { throw enumerationError }
+        guard rootGenerationBeforeScan == (try teamsRootGeneration()),
+              let stableConfigurationGeneration = try teamConfigurationGeneration() else {
+            return nil
+        }
+        guard matches.count <= 1 else {
+            throw ClaudeTaskSnapshotLoaderError.ambiguousTeamMembership
+        }
+        return matches.first?.withTeamConfigurationGeneration(stableConfigurationGeneration)
+    }
+
+    /// Reports whether a task-list binding now represents a newer team.
+    ///
+    /// A missing config is treated as deletion, not reuse. Legacy bindings
+    /// without a stored generation compare their stable leader/member identity.
+    public func taskListBindingWasReused(
+        _ binding: ClaudeTeamTaskListBinding
+    ) throws -> Bool {
+        guard let current = try currentTaskListBinding(forTaskListID: binding.taskListID) else {
+            return false
+        }
+        guard current.leaderSessionID == binding.leaderSessionID,
+              current.agentIDs == binding.agentIDs else {
+            return true
+        }
+        guard let previousGeneration = binding.teamConfigurationGeneration else {
+            return false
+        }
+        return current.teamConfigurationGeneration != previousGeneration
+    }
+
     /// Validates a proven binding by reading only its canonical team config.
     private func validateBoundTaskList(
         _ binding: ClaudeTeamTaskListBinding,
