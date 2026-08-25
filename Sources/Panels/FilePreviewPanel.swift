@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxArtifacts
 import AppKit
 import Bonsplit
 import Combine
@@ -1054,7 +1055,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.filePath = filePath
         self.artifactFile = artifactFile
         self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
-            maximumBytes: 16 * 1024 * 1024
+            maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
         )
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader

@@ -139,6 +139,10 @@ final class AgentChatTranscriptService {
         pending: (@Sendable () async -> Void)?
     )] = [:]
     var tailers: [String: AgentChatTranscriptTailer] = [:]
+    /// Token for the tailer currently authoritative for each session. A
+    /// retired actor may finish an in-flight callback after stop(); its token
+    /// keeps that batch from reaching the replacement/session state.
+    var tailerGenerationBySessionID: [String: UUID] = [:]
     var tailerOwnership: [String: AgentChatTranscriptTailerOwnership] = [:]
     var artifactTailerLastUse: [String: UInt64] = [:]
     var mobileTailerLastUse: [String: UInt64] = [:]
@@ -627,14 +631,20 @@ final class AgentChatTranscriptService {
         #endif
         let sessionID = record.sessionID
         let agentKind = record.agentKind
+        let tailerGeneration = UUID()
         let tailer = AgentChatTranscriptTailer(
             sessionID: sessionID,
             agentKind: agentKind,
             path: path
         ) { [weak self] batch in
-            await self?.publishBatch(batch, sessionID: sessionID)
+            await self?.publishBatch(
+                batch,
+                sessionID: sessionID,
+                tailerGeneration: tailerGeneration
+            )
         }
         tailers[sessionID] = tailer
+        tailerGenerationBySessionID[sessionID] = tailerGeneration
         noteTailerUse(sessionID: sessionID, ownership: ownership)
         enforceArtifactTailerLimit(protectedSessionID: sessionID)
         enforceMobileTailerLimit(protectedSessionID: sessionID)
@@ -645,7 +655,15 @@ final class AgentChatTranscriptService {
         return tailer
     }
 
-    func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+    func publishBatch(
+        _ batch: AgentChatTranscriptTailer.Batch,
+        sessionID: String,
+        tailerGeneration: UUID? = nil
+    ) {
+        if let tailerGeneration,
+           tailerGenerationBySessionID[sessionID] != tailerGeneration {
+            return
+        }
         if tailerOwnership[sessionID] == .automaticArtifactCapture {
             noteTailerUse(sessionID: sessionID, ownership: .automaticArtifactCapture)
         }

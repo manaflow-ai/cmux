@@ -49,6 +49,7 @@ struct TranscriptToolCompletion: Sendable {
     var succeeded: Bool {
         guard isError != true else { return false }
         if let exitCode { return exitCode == 0 }
+        if reportsFailureWithoutExitStatus { return false }
         if isError == false { return true }
         return hasPositiveSuccessEvidence
     }

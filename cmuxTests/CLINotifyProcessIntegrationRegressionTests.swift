@@ -3545,6 +3545,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(remainingNotes.isEmpty)
     }
 
+    func testProjectFileWriteRejectsUnboundProviderFallback() async throws {
+        let root = try makeTemporaryDirectory(prefix: "cmux-project-file-identity")
+        let cli = CMUXCLI(args: [])
+
+        do {
+            try await cli.runNoteCommand(
+                commandArgs: ["write", "draft", "--text", "hello", "--project", root.path],
+                jsonOutput: false,
+                processEnvironment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
+            )
+            XCTFail("A provider name without a workspace or native session must not select a store")
+        } catch let error as CLIError {
+            XCTAssertTrue(error.message.contains("workspace identity"), error.message)
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(".cmux").path
+            )
+        )
+    }
+
     func testProjectFileCleanupBoundsRetainedEditorCopies() throws {
         let directory = try makeTemporaryDirectory(prefix: "cmux-project-file-cleanup")
         for index in 0..<300 {

@@ -75,6 +75,7 @@ extension AgentChatTranscriptService {
         tailerOwnership.removeValue(forKey: sessionID)
         artifactTailerLastUse.removeValue(forKey: sessionID)
         mobileTailerLastUse.removeValue(forKey: sessionID)
+        tailerGenerationBySessionID.removeValue(forKey: sessionID)
         guard let tailer = tailers.removeValue(forKey: sessionID) else { return }
         Task { await tailer.stop() }
     }

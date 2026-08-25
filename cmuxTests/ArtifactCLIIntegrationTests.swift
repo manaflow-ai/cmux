@@ -8,10 +8,15 @@ struct ArtifactCLIIntegrationTests {
         let fileManager = FileManager.default
         let projectRoot = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-artifact-cli-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(
-            at: projectRoot.appendingPathComponent(".git", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let git = Process()
+        git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        git.arguments = ["init", "--quiet", projectRoot.path]
+        git.standardOutput = FileHandle.nullDevice
+        git.standardError = FileHandle.nullDevice
+        try git.run()
+        git.waitUntilExit()
+        #expect(git.terminationStatus == 0)
         defer { try? fileManager.removeItem(at: projectRoot) }
         let source = projectRoot.appendingPathComponent("source/launch-plan.md", isDirectory: false)
         try fileManager.createDirectory(
@@ -80,6 +85,7 @@ struct ArtifactCLIIntegrationTests {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "artifact-cli-test-workspace"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdout

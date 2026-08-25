@@ -75,10 +75,13 @@ extension CMUXCLI {
             }
             return nativeIdentity
         }
+        guard normalizedProjectFilesEnvironmentValue(environment["CMUX_WORKSPACE_ID"]) != nil else {
+            throw missingProjectFilesAgentIdentityError()
+        }
         return (
             // The generic id is inherited by nested agents and is not bound
-            // to the current provider process. Keep this fallback
-            // workspace-scoped instead of assigning files to a parent agent.
+            // to the current provider process. A stable workspace identity is
+            // required before using this intentional workspace-scoped fallback.
             nil,
             explicitName
         )
@@ -103,6 +106,16 @@ extension CMUXCLI {
             message: String(
                 localized: "cli.projectFiles.error.ambiguousAgentIdentity",
                 defaultValue: "Multiple agent session identities are present; refusing to assign project files to an inherited parent session."
+            ),
+            exitCode: 2
+        )
+    }
+
+    private func missingProjectFilesAgentIdentityError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.projectFiles.error.missingAgentIdentity",
+                defaultValue: "A stable agent session or cmux workspace identity is required before writing project files."
             ),
             exitCode: 2
         )

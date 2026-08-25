@@ -21,26 +21,28 @@ struct ArtifactSidebarFileAccess {
         /// as Quick Look that run outside this process and cannot access our
         /// descriptor namespace. The caller owns cleanup of the returned URL.
         func makeTemporaryPreviewURL(maximumBytes: Int64 = 8 * 1024 * 1024) -> URL? {
-            let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
-            guard duplicate >= 0, Darwin.lseek(duplicate, 0, SEEK_SET) >= 0 else {
-                if duplicate >= 0 { _ = Darwin.close(duplicate) }
-                return nil
-            }
-            defer { _ = Darwin.close(duplicate) }
-            let handle = FileHandle(fileDescriptor: duplicate, closeOnDealloc: false)
-            guard let data = try? handle.read(upToCount: Int(maximumBytes) + 1),
-                  Int64(data.count) <= maximumBytes else {
-                return nil
-            }
-            let temporaryURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
-                .appendingPathExtension(sourceURL.pathExtension)
-            do {
-                try data.write(to: temporaryURL, options: .atomic)
-                return temporaryURL
-            } catch {
-                return nil
-            }
+            guard let duplicate = duplicateReadableDescriptor() else { return nil }
+            return Self.materializeTemporaryPreview(
+                descriptor: duplicate,
+                pathExtension: sourceURL.pathExtension,
+                maximumBytes: maximumBytes
+            )
+        }
+
+        /// Materializes a preview copy without reading the source on the caller's actor.
+        ///
+        /// The descriptor is duplicated synchronously, then all bounded file
+        /// I/O and allocation run in the concurrent executor. This is used by
+        /// SwiftUI rows whose task bodies are main-actor isolated.
+        func makeTemporaryPreviewURLAsync(
+            maximumBytes: Int64 = 8 * 1024 * 1024
+        ) async -> URL? {
+            guard let duplicate = duplicateReadableDescriptor() else { return nil }
+            return await Self.materializeTemporaryPreviewOffMain(
+                descriptor: duplicate,
+                pathExtension: sourceURL.pathExtension,
+                maximumBytes: maximumBytes
+            )
         }
 
         init(sourceURL: URL, artifactRoot: URL, descriptor: Int32) {
@@ -60,6 +62,54 @@ struct ArtifactSidebarFileAccess {
                 return nil
             }
             return duplicate
+        }
+
+        private func duplicateReadableDescriptor() -> Int32? {
+            let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
+            guard duplicate >= 0, Darwin.lseek(duplicate, 0, SEEK_SET) >= 0 else {
+                if duplicate >= 0 { _ = Darwin.close(duplicate) }
+                return nil
+            }
+            return duplicate
+        }
+
+        private static func materializeTemporaryPreview(
+            descriptor: Int32,
+            pathExtension: String,
+            maximumBytes: Int64
+        ) -> URL? {
+            defer { _ = Darwin.close(descriptor) }
+            guard maximumBytes >= 0,
+                  maximumBytes < Int64(Int.max) else {
+                return nil
+            }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+            guard let data = try? handle.read(upToCount: Int(maximumBytes) + 1),
+                  Int64(data.count) <= maximumBytes else {
+                return nil
+            }
+            let temporaryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
+                .appendingPathExtension(pathExtension)
+            do {
+                try data.write(to: temporaryURL, options: .atomic)
+                return temporaryURL
+            } catch {
+                return nil
+            }
+        }
+
+        @concurrent
+        private static func materializeTemporaryPreviewOffMain(
+            descriptor: Int32,
+            pathExtension: String,
+            maximumBytes: Int64
+        ) async -> URL? {
+            materializeTemporaryPreview(
+                descriptor: descriptor,
+                pathExtension: pathExtension,
+                maximumBytes: maximumBytes
+            )
         }
 
         deinit {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxArtifacts
 import Combine
 import Foundation
 
@@ -125,7 +126,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.filePath = filePath
         self.artifactFile = artifactFile
         self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
-            maximumBytes: 16 * 1024 * 1024
+            maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
         )
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily

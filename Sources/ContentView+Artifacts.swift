@@ -36,11 +36,13 @@ extension ContentView {
         switch artifact.fileKind {
         case .html:
             let workspaceID = workspace.id
-            guard let previewURL = openedFile.makeTemporaryPreviewURL(maximumBytes: 8 * 1024 * 1024) else {
-                NSSound.beep()
-                return
-            }
             Task { @MainActor in
+                guard let previewURL = await openedFile.makeTemporaryPreviewURLAsync(
+                    maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+                ) else {
+                    NSSound.beep()
+                    return
+                }
                 defer { try? FileManager.default.removeItem(at: previewURL) }
                 do {
                     let document = try await ArtifactHTMLPreviewDocument.load(

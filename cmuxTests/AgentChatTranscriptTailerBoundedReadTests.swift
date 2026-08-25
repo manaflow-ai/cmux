@@ -248,6 +248,39 @@ struct AgentChatTranscriptTailerOwnershipTests {
         await stopRemainingTailers(in: service)
     }
 
+    @Test("Batches from a retired tailer cannot reach replacement session state")
+    func retiredTailerBatchIsIgnored() {
+        var emittedFrames = 0
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true },
+            emitEventPayload: { _ in emittedFrames += 1 }
+        )
+        let sessionID = "retired-tailer-session"
+        let currentGeneration = UUID()
+        service.tailerGenerationBySessionID[sessionID] = currentGeneration
+        let batch = AgentChatTranscriptTailer.Batch(
+            appended: [],
+            updated: [],
+            discoveredTitle: nil,
+            didReset: true
+        )
+
+        service.publishBatch(
+            batch,
+            sessionID: sessionID,
+            tailerGeneration: UUID()
+        )
+        #expect(emittedFrames == 0)
+
+        service.publishBatch(
+            batch,
+            sessionID: sessionID,
+            tailerGeneration: currentGeneration
+        )
+        #expect(emittedFrames == 1)
+    }
+
     private func makeArtifactCaptureService() -> AgentChatTranscriptService {
         AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),

@@ -272449,6 +272449,23 @@
         }
       }
     },
+    "cli.projectFiles.error.missingAgentIdentity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A stable agent session or cmux workspace identity is required before writing project files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトファイルを書き込む前に、安定したエージェントセッションまたは cmux ワークスペース ID が必要です。"
+          }
+        }
+      }
+    },
     "mobile.chat.artifact.error.saveFailed": {
       "extractionState": "manual",
       "localizations": {

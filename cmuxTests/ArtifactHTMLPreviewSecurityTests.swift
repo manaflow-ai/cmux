@@ -1,4 +1,5 @@
 import Foundation
+import CmuxArtifacts
 import CmuxSettings
 import Testing
 import WebKit
@@ -53,7 +54,12 @@ struct ArtifactHTMLPreviewSecurityTests {
         let symbolicLink = root.appendingPathComponent("linked.html", isDirectory: false)
         try FileManager.default.createSymbolicLink(at: symbolicLink, withDestinationURL: target)
         let oversized = root.appendingPathComponent("oversized.html", isDirectory: false)
-        try Data(repeating: 0x20, count: 8 * 1024 * 1024 + 1).write(to: oversized)
+        try Data().write(to: oversized)
+        let oversizedHandle = try FileHandle(forWritingTo: oversized)
+        try oversizedHandle.truncate(
+            atOffset: UInt64(ArtifactCaptureConfiguration.defaultValue.maximumFileBytes) + 1
+        )
+        try oversizedHandle.close()
 
         await #expect(throws: CocoaError.self) {
             _ = try await ArtifactHTMLPreviewDocument.load(
@@ -106,7 +112,7 @@ struct ArtifactHTMLPreviewSecurityTests {
     }
 
     @Test("Descriptor-backed artifact reads stay on the opened inode")
-    func descriptorReadSurvivesPathReplacement() throws {
+    func descriptorReadSurvivesPathReplacement() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-artifact-open-\(UUID().uuidString)", isDirectory: true)
         let outside = FileManager.default.temporaryDirectory
@@ -138,6 +144,11 @@ struct ArtifactHTMLPreviewSecurityTests {
         defer { try? FileManager.default.removeItem(at: temporary) }
         #expect(temporary.pathExtension == "txt")
         #expect(try String(contentsOf: temporary, encoding: .utf8) == "authorized")
+        let asyncTemporary = try #require(
+            await opened.makeTemporaryPreviewURLAsync()
+        )
+        defer { try? FileManager.default.removeItem(at: asyncTemporary) }
+        #expect(try String(contentsOf: asyncTemporary, encoding: .utf8) == "authorized")
     }
 
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
