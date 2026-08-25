@@ -106,8 +106,8 @@ final class WindowRootBackdropView: NSView {
     func updateExclusionRectsInWindow(_ rects: [NSRect]) {
         let normalized = rects
             .map(\.standardized)
-            .filter(Self.isFiniteVisibleRect)
-            .sorted(by: Self.rectSortsBefore)
+            .filter(isFiniteVisibleRect)
+            .sorted(by: rectSortsBefore)
         guard normalized != exclusionRectsInWindow else { return }
         exclusionRectsInWindow = normalized
         rebuildExclusionMask()
@@ -122,11 +122,11 @@ final class WindowRootBackdropView: NSView {
             localRects = exclusionRectsInWindow.compactMap { rectInWindow in
                 let localRect = convert(rectInWindow, from: nil).standardized
                 let clipped = localRect.intersection(bounds)
-                return Self.isFiniteVisibleRect(clipped) ? clipped : nil
+                return isFiniteVisibleRect(clipped) ? clipped : nil
             }
         }
         let path = CGMutablePath()
-        if Self.isFiniteVisibleRect(bounds) {
+        if isFiniteVisibleRect(bounds) {
             path.addRect(bounds)
         }
         if !localRects.isEmpty {
@@ -146,7 +146,7 @@ final class WindowRootBackdropView: NSView {
         CATransaction.commit()
     }
 
-    private static func isFiniteVisibleRect(_ rect: NSRect) -> Bool {
+    private func isFiniteVisibleRect(_ rect: NSRect) -> Bool {
         rect.origin.x.isFinite &&
             rect.origin.y.isFinite &&
             rect.size.width.isFinite &&
@@ -156,7 +156,7 @@ final class WindowRootBackdropView: NSView {
             rect.height > 0
     }
 
-    private static func rectSortsBefore(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+    private func rectSortsBefore(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
         if lhs.minY != rhs.minY { return lhs.minY < rhs.minY }
         if lhs.minX != rhs.minX { return lhs.minX < rhs.minX }
         if lhs.maxY != rhs.maxY { return lhs.maxY < rhs.maxY }
