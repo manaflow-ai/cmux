@@ -97,6 +97,15 @@ extension Workspace {
                 }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
                 let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
+                let processLiveness: RestorableAgentProcessLiveness = if identity == nil {
+                    .unknown
+                } else if exactProcessIsLive {
+                    .running
+                } else if runtimeIndexEntry != nil {
+                    .exited
+                } else {
+                    .unknown
+                }
                 let runtimeSessionID = selectedPIDKey.flatMap {
                     Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
@@ -137,9 +146,7 @@ extension Workspace {
                     lifecycle: lifecycle,
                     startedAt: nil,
                     updatedAt: nil,
-                    processLiveness: identity == nil
-                        ? .unknown
-                        : (exactProcessIsLive ? .running : .exited),
+                    processLiveness: processLiveness,
                     hasExactProcessIdentity: exactProcessIsLive,
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
                     hasLiveLifecycleSignal: lifecycle != nil,
