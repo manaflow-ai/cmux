@@ -1044,8 +1044,8 @@ pub(crate) struct LocalServerMessages {
 }
 
 impl LocalServerMessages {
-    pub(crate) fn owner_spawn_failed(&self, error: &impl std::fmt::Display) -> String {
-        self.owner_spawn_failed.replace("{error}", &error.to_string())
+    pub(crate) fn owner_spawn_failed(&self) -> String {
+        self.owner_spawn_failed.to_string()
     }
 
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
@@ -1136,7 +1136,7 @@ static ENGLISH: Catalog = Catalog {
         started: "local server started",
         stopped: "local server stopped; durable session topology was preserved",
         not_running: "local server is not running; nothing needed to be stopped",
-        owner_spawn_failed: "cannot start the detached session owner: {error}; check the session state and retry",
+        owner_spawn_failed: "cannot start the detached session owner; check the session state and retry",
         owner_not_ready: "the detached session owner did not become ready; inspect the client log under the session state directory and retry",
         reloaded: "local server configuration reloaded",
         connect_failed: "cannot connect to the local server; check that the named session is running and retry",
@@ -1779,7 +1779,7 @@ static JAPANESE: Catalog = Catalog {
         started: "ローカルサーバーを起動しました",
         stopped: "ローカルサーバーを停止しました。永続セッションの構成は保持されています",
         not_running: "ローカルサーバーは実行されていません。停止は不要でした",
-        owner_spawn_failed: "デタッチされたセッション所有者を起動できません: {error}。セッション状態を確認して再試行してください",
+        owner_spawn_failed: "デタッチされたセッション所有者を起動できません。セッション状態を確認して再試行してください",
         owner_not_ready: "デタッチされたセッション所有者が準備完了になりませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
         reloaded: "ローカルサーバーの設定を再読み込みしました",
         connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",

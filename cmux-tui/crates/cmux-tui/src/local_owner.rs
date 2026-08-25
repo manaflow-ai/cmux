@@ -276,12 +276,23 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
-    if let Err(error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
-            let _ = child.wait();
+    let reaper_child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
+    let reaper_handle = std::sync::Arc::clone(&reaper_child);
+    if let Err(_error) = std::thread::Builder::new()
+        .name("local-owner-reaper".to_string())
+        .spawn(move || {
+            if let Some(mut child) = reaper_handle.lock().expect("reaper mutex poisoned").take() {
+                let _ = child.wait();
+            }
         })
     {
-        eprintln!("local owner reaper unavailable: {error}");
+        // If the helper thread cannot be created, reap synchronously before
+        // returning. This preserves the no-zombie guarantee even under
+        // thread exhaustion; the owner has already been detached from the
+        // caller's terminal and cannot report through its stdio.
+        if let Some(mut child) = reaper_child.lock().expect("reaper mutex poisoned").take() {
+            let _ = child.wait();
+        }
     }
     Ok(())
 }

@@ -2265,9 +2265,8 @@ fn start_detached_owner_session(
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
         match error {
-            local_owner::EnsureError::Spawn(error) => {
-                eprintln!("detached session owner startup failed: {error}");
-                anyhow::bail!("{}", messages.owner_spawn_failed(&error))
+            local_owner::EnsureError::Spawn(_error) => {
+                anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
