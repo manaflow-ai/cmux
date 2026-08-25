@@ -129,6 +129,26 @@ canonicalize_existing_app_host_config_path() {
   printf '%s/%s\n' "${resolved_parent%/}" "$name"
 }
 
+extract_app_host_config_path() {
+  local line="$1"
+  local path="${line#*path=}"
+
+  # Ghostty appends structured diagnostics (for example, `err=...`) to
+  # configuration access lines. Keep only the known path token so a valid
+  # in-home diagnostic is not mistaken for an out-of-scope filesystem path.
+  if [[ "$path" =~ ^(.*Library/Application[[:space:]]Support/com\.mitchellh\.ghostty/config\.ghostty)([[:space:]].*)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$path" =~ ^(.*/\.config/ghostty/[^[:space:]]+)([[:space:]].*)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  # Preserve fail-closed behavior for an unrecognized record.
+  printf '%s\n' "$path"
+}
+
 validate_app_host_config_paths() {
   local log_path="$1"
   local require_evidence="$2"
@@ -166,7 +186,7 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       line="${line%$'\r'}"
-      reported_path="${line#*path=}"
+      reported_path="$(extract_app_host_config_path "$line")"
       canonical_reported_path="$(
         canonicalize_existing_app_host_config_path "$reported_path"
       )" || {
