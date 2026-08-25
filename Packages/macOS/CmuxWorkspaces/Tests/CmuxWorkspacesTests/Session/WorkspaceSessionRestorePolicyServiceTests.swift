@@ -376,7 +376,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     @Test("local tmux restore rejects shell substitutions in persisted commands")
     func localTmuxRestoreRejectsShellSubstitution() {
         let service = makeService()
-        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/.cmux/local-tmux/$(touch /tmp/pwn)/server.sock' attach-session -t 'work'"
+        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S /tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock attach-session -t 'work'"
 
         #expect(service.localTmuxStartCommand(command) == nil)
     }
