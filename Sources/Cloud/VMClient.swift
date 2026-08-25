@@ -257,6 +257,44 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
+    /// User-chosen label; the id stays the machine's address.
+    var displayName: String?
+
+    /// The name to show people: the label when set, otherwise the machine id.
+    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+}
+
+/// Plan context served alongside the machine list: how many active VMs the
+/// caller's plan allows, and which plan sets that ceiling.
+struct VMPlanLimits {
+    let maxActiveVms: Int
+    let planId: String
+}
+
+struct VMListPage {
+    let vms: [VMSummary]
+    let limits: VMPlanLimits?
+}
+
+/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
+/// Sleeping machines are never woken for a reading: they come back `asleep` with
+/// only their provisioned memory.
+struct VMStats: Equatable {
+    enum State: String, Equatable {
+        case awake
+        case asleep
+        case unknown
+    }
+
+    let state: State
+    let sampledAt: Date
+    let cpus: Int?
+    let cpuPercent: Double?
+    let loadAverage1m: Double?
+    let memoryTotalMb: Int?
+    let memoryUsedMb: Int?
+    let diskTotalMb: Int?
+    let diskUsedMb: Int?
 }
 
 struct VMBaseSummary {
@@ -270,6 +308,13 @@ struct VMExecResult {
     let exitCode: Int
     let stdout: String
     let stderr: String
+}
+
+struct VMOpenPortEndpoint {
+    let url: String
+    let token: String
+    /// URL with the preview token embedded as a query parameter, ready for a browser.
+    let openUrl: String
 }
 
 struct VMSnapshotResult {
@@ -358,6 +403,22 @@ actor VMClient {
         shared = VMClient(session: session, auth: auth)
     }
 
+    /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
+    ///
+    /// The caller supplies the captured pair because local sign-out clears the
+    /// coordinator's token store before this best-effort network tail runs.
+    @MainActor
+    static func revokeEndpointLeases(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let shared else { return }
+        await shared.revokeEndpointLeases(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
     private static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
@@ -370,13 +431,23 @@ actor VMClient {
     }
 
     func list() async throws -> [VMSummary] {
+        try await listPage().vms
+    }
+
+    func listPage() async throws -> VMListPage {
         let (data, http) = try await request("GET", path: "/api/vm")
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
         guard let items = obj["vms"] as? [[String: Any]] else {
             throw VMClientError.malformedResponse("missing `vms` array")
         }
-        return try items.enumerated().map { index, dict -> VMSummary in
+        var limits: VMPlanLimits?
+        if let rawLimits = obj["limits"] as? [String: Any],
+           let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue,
+           let planId = rawLimits["planId"] as? String {
+            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId)
+        }
+        let vms = try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
                 throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
@@ -390,14 +461,22 @@ actor VMClient {
             let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            if let label = dict["displayName"] as? String, !label.isEmpty {
+                summary.displayName = label
+            }
+            return summary
         }
+        return VMListPage(vms: vms, limits: limits)
     }
 
-    func create(image: String? = nil, provider: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
         if let provider { body["provider"] = provider }
+        if persistentHome { body["persistentHome"] = true }
+        if perMachineHome { body["perMachineHome"] = true }
+        if let memoryMb { body["memoryMb"] = memoryMb }
         // The CLI owns key stability across command retries. VMClient only forwards the
         // key so the backend can short-circuit duplicate paid provider creates.
         let headers = ["Idempotency-Key": idempotencyKey]
@@ -483,6 +562,22 @@ actor VMClient {
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+    }
+
+    /// Sets or clears the machine's user-facing label via PATCH /api/vm/{id}.
+    /// Returns the stored label (nil when cleared).
+    func rename(id: String, displayName: String?) async throws -> String? {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let body: [String: Any] = ["displayName": displayName ?? NSNull()]
+        let (data, http) = try await request(
+            "PATCH",
+            path: "/api/vm/\(encodedID)",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let stored = obj["displayName"] as? String
+        return stored?.isEmpty == false ? stored : nil
     }
 
     func destroy(id: String) async throws {
@@ -721,6 +816,87 @@ actor VMClient {
         return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
     }
 
+    func stats(id: String) async throws -> VMStats {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+        func int(_ key: String) -> Int? {
+            if let v = obj[key] as? Int { return v }
+            if let v = obj[key] as? Double { return Int(v) }
+            return nil
+        }
+        func double(_ key: String) -> Double? {
+            if let v = obj[key] as? Double { return v }
+            if let v = obj[key] as? Int { return Double(v) }
+            return nil
+        }
+        let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
+        return VMStats(
+            state: state,
+            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+            cpus: int("cpus"),
+            cpuPercent: double("cpuPercent"),
+            loadAverage1m: double("loadAverage1m"),
+            memoryTotalMb: int("memoryTotalMb"),
+            memoryUsedMb: int("memoryUsedMb"),
+            diskTotalMb: int("diskTotalMb"),
+            diskUsedMb: int("diskUsedMb")
+        )
+    }
+
+    func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/open-port",
+            jsonBody: ["port": port],
+            timeoutSeconds: 60
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let url = obj["url"] as? String,
+              let token = obj["token"] as? String,
+              let openUrl = obj["openUrl"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
+        }
+        return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
+    }
+
+    /// Best-effort native sign-out tail. This deliberately does not read the
+    /// live auth coordinator: the coordinator has already destroyed its local
+    /// session by the time the hook executes.
+    private func revokeEndpointLeases(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let accessToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !accessToken.isEmpty,
+              let refreshToken = refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !refreshToken.isEmpty,
+              var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+            return
+        }
+        url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + "/api/vm/leases/revoke"
+        guard let resolved = url.url else { return }
+        var request = URLRequest(url: resolved)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 4
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = Data("{}".utf8)
+        do {
+            _ = try await session.data(for: request)
+        } catch {
+            // Sign-out must never be held hostage by an unreachable Cloud VM
+            // service. Local workspace teardown and token deletion already
+            // make this device signed out; the server lease cron is the retry
+            // safety net when this tail cannot reach the API.
+        }
+    }
+
     // MARK: - HTTP
 
     private func request(
@@ -730,6 +906,15 @@ actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil
     ) async throws -> (Data, HTTPURLResponse) {
+        // Bind every control-plane request to the currently published auth
+        // session. A request that was already queued when sign-out began must
+        // not publish/use a stale result after the session epoch flips.
+        let sessionIdentity = await auth.authenticatedSessionIdentity
+        let isAuthenticated = await auth.isAuthenticated
+        let isRestoringSession = await auth.isRestoringSession
+        guard isAuthenticated || isRestoringSession else {
+            throw VMClientError.notSignedIn
+        }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
@@ -766,25 +951,51 @@ actor VMClient {
             req.setValue(value, forHTTPHeaderField: key)
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            // Surface unreachable-backend errors as a human-readable message with recovery steps
-            // instead of the verbose NSURLErrorDomain payload.
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw VMClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
+        // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
+        // retry. Waiting out Retry-After here turns a transient throttle into a short pause
+        // instead of a dead-end error dialog.
+        var retriesLeft = 2
+        while true {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                // Surface unreachable-backend errors as a human-readable message with recovery steps
+                // instead of the verbose NSURLErrorDomain payload.
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw VMClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
+            guard let http = response as? HTTPURLResponse else {
+                throw VMClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, retriesLeft > 0 {
+                retriesLeft -= 1
+                let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
+                let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
+                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                continue
+            }
+            if let sessionIdentity {
+                guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
+                    throw VMClientError.notSignedIn
+                }
+            } else {
+                // A request started during launch restore has no published
+                // identity yet; it may complete only if restore actually
+                // publishes an authenticated session rather than signing out.
+                guard await auth.isAuthenticated else {
+                    throw VMClientError.notSignedIn
+                }
+            }
+            return (data, http)
         }
-        guard let http = response as? HTTPURLResponse else {
-            throw VMClientError.malformedResponse("non-HTTP response")
-        }
-        return (data, http)
     }
 
     private func decodeWebSocketDaemonEndpoint(_ value: Any?) throws -> VMWebSocketDaemonEndpoint? {
