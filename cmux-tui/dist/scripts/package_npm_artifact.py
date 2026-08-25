@@ -51,7 +51,12 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
     # gzip header contains the current time and directory traversal follows
     # filesystem order, so normalize both.
     with archive.open("wb") as raw:
-        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
+        # Do not let the destination path become a gzip header field.  The
+        # transfer artifact must have the same bytes when callers choose
+        # different temporary output names.
+        with gzip.GzipFile(
+            filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0
+        ) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as output:
                 members = [packages_dir, *sorted(packages_dir.rglob("*"))]
                 for path in members:
@@ -66,6 +71,14 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
 
 
 def _normalize_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
+    # Package generation normally creates these modes, but the source tree
+    # can cross an artifact boundary with a different umask.  Preserve only
+    # the executable intent that npm needs and use stable modes for all other
+    # bits.
+    if member.isdir():
+        member.mode = 0o755
+    elif member.isfile():
+        member.mode = 0o755 if member.mode & 0o111 else 0o644
     member.mtime = 0
     member.uid = 0
     member.gid = 0
