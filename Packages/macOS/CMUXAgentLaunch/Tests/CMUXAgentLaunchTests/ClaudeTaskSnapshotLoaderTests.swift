@@ -107,6 +107,34 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.directoryName == "plain-session")
     }
 
+    @Test("A mismatched deterministic session directory does not fall through")
+    func rejectsNeighborAfterDeterministicIdentityMismatch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-direct-mismatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("plain-session", isDirectory: true)
+        let neighboringDirectory = root.appendingPathComponent("session-team", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Partially written","status":"pending"}"#,
+            named: "1.json",
+            in: sessionDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Expected task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+
+        let snapshot = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "plain-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Expected task")
+        )
+
+        #expect(snapshot == nil)
+    }
+
     @Test("Direct session loading never scans neighboring task directories")
     func directSessionLoadingDoesNotScanNeighbors() throws {
         let root = FileManager.default.temporaryDirectory

@@ -800,6 +800,99 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         })
     }
 
+    @Test("A delayed TeamDelete cannot clear a reused team task list")
+    func preservesReusedTeamAfterDelayedDelete() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-reused-team-delete"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "97979797-9797-9797-9797-979797979797"
+        let surfaceId = "98989898-9898-9898-9898-989898989898"
+        let teamName = "Reused-Team"
+        let oldLeaderSessionID = "reused-old-leader"
+        let oldAgentID = "reused-old-agent"
+        let newLeaderSessionID = "reused-new-leader"
+        let newAgentID = "reused-new-agent"
+        let teamDirectory = context.root
+            .appendingPathComponent(".claude/teams/reused-team", isDirectory: true)
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(teamName)", isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTeamConfig(
+            name: teamName,
+            leaderSessionID: oldLeaderSessionID,
+            agentID: oldAgentID,
+            to: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Old team task","status":"pending"}"#,
+            to: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let oldResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: oldLeaderSessionID,
+            agentID: oldAgentID
+        )
+        #expect(!oldResult.timedOut, Comment(rawValue: oldResult.stderr))
+        #expect(oldResult.status == 0, Comment(rawValue: oldResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        // The task-list directory is reused by a new team before an old
+        // TeamDelete hook arrives.
+        try writeTeamConfig(
+            name: teamName,
+            leaderSessionID: newLeaderSessionID,
+            agentID: newAgentID,
+            to: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"New team task","status":"in_progress"}"#,
+            to: taskDirectory
+        )
+        let newResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: newLeaderSessionID,
+            agentID: newAgentID
+        )
+        #expect(!newResult.timedOut, Comment(rawValue: newResult.stderr))
+        #expect(newResult.status == 0, Comment(rawValue: newResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let reconciliationCountBeforeDelete = reconcileRequests(in: context).count
+
+        let deleteResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: oldLeaderSessionID,
+            agentID: oldAgentID,
+            toolName: "TeamDelete",
+            standardInput: #"{"session_id":"reused-old-leader","agent_id":"reused-old-agent","hook_event_name":"PostToolUse","tool_name":"TeamDelete","tool_input":{"team_name":"Reused-Team"},"tool_response":{"success":true}}"#
+        )
+        #expect(!deleteResult.timedOut, Comment(rawValue: deleteResult.stderr))
+        #expect(deleteResult.status == 0, Comment(rawValue: deleteResult.stderr))
+        #expect(reconcileRequests(in: context).count == reconciliationCountBeforeDelete)
+
+        let persistedBinding = try #require(
+            try teamBindingRecords(in: context.storeURL).values.first
+        )
+        let binding = try #require(persistedBinding["binding"] as? [String: Any])
+        #expect(binding["leaderSessionID"] as? String == newLeaderSessionID)
+        #expect(binding["agentIDs"] as? [String] == [newAgentID])
+    }
+
     private func runHook(
         context: ClaudeHookLiveDeliveryHarness.Context,
         environment: [String: String],
