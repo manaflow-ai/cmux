@@ -184,30 +184,6 @@ import Testing
         }
     }
 
-    @Test func verifiesOnlyRemoteAddressesPresentInTheCurrentPeerMap() throws {
-        let status = try statusJSON(
-            local: peer(
-                id: "self-node",
-                dnsName: "this-mac.tailnet.ts.net.",
-                addresses: ["100.70.1.5"]
-            ),
-            peers: [
-                peer(
-                    id: "node-1",
-                    dnsName: "work-mac.tailnet.ts.net.",
-                    addresses: ["100.71.210.41"]
-                ),
-            ]
-        )
-
-        let remoteAdmitted = try resolver.containsRemotePeerAddress("100.71.210.41", statusJSON: status)
-        let unknownRejected = try resolver.containsRemotePeerAddress("100.72.1.9", statusJSON: status)
-        let localRejected = try resolver.containsRemotePeerAddress("100.70.1.5", statusJSON: status)
-        #expect(remoteAdmitted)
-        #expect(!unknownRejected)
-        #expect(!localRejected)
-    }
-
     private func statusJSON(
         backendState: String = "Running",
         local: [String: Any]? = nil,

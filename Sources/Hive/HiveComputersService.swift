@@ -60,7 +60,7 @@ final class HiveComputersService {
         // row can otherwise survive a team switch and authorize the old
         // team's routes until the next settings refresh.
         await directory.refresh()
-        return await makeViewerSessionFromCurrentDirectory(
+        return makeViewerSessionFromCurrentDirectory(
             deviceID: deviceID,
             auth: auth,
             directory: directory
@@ -70,45 +70,33 @@ final class HiveComputersService {
     private func makeViewerSessionFromCurrentDirectory(
         deviceID: String,
         auth: AuthCoordinator,
-        directory: HiveComputerDirectory,
-        admission: HiveTailscaleRouteAdmission.Result? = nil
-    ) async -> HiveRemoteMacSession? {
+        directory: HiveComputerDirectory
+    ) -> HiveRemoteMacSession? {
         let computer = directory.computers.first(where: { $0.deviceID == deviceID })
         guard let computer else { return nil }
         guard computer.isPaired else { return nil }
         // Prefer the freshest routes: a live online instance's advertised set,
         // falling back to whatever the pairing/registry row carries.
         guard let best = computer.bestPairingRoutes else { return nil }
-        let routeAdmission: HiveTailscaleRouteAdmission.Result
-        if let admission {
-            routeAdmission = admission
-        } else {
-            routeAdmission = await HiveTailscaleRouteAdmission().admit(routes: best.routes)
-        }
-        guard !routeAdmission.routes.isEmpty else { return nil }
         let runtime = HiveSyncRuntime.network(
             allowsLoopbackRoutes: Self.allowsLoopbackPairing,
             stackAccessTokenProvider: { try await auth.accessToken() },
             stackAccessTokenForceRefresher: { try await auth.forceRefreshAccessToken() },
-            stackAccessTokenForStatusProvider: { try? await auth.accessToken() },
-            verifiedTailscaleHosts: routeAdmission.verifiedTailscaleHosts
+            stackAccessTokenForStatusProvider: { try? await auth.accessToken() }
         )
         return HiveRemoteMacSession(
             runtime: runtime,
             macDeviceID: deviceID,
             displayName: computer.displayName,
-            routes: routeAdmission.routes,
+            routes: best.routes,
             sourceRoutes: best.routes,
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
             },
-            // Registry-backed routes are admitted by the verified Tailscale
-            // transport factory and then bound to the expected host identity
-            // via `mobile.host.status`. Pasted/manual links remain
-            // loopback-only until they gain that registry provenance.
-            stackAuthChannelTrust: computer.isRegistryBacked
-                ? .loopbackAndTailscaleTunnel
-                : .loopbackOnly,
+            // Legacy Tailscale TCP has no cryptographic pre-bearer identity
+            // admission. Keep Stack auth loopback-only until the transport
+            // handshake grows that proof; DEBUG loopback remains usable.
+            stackAuthChannelTrust: .loopbackOnly,
             expectedInstanceTag: best.instanceTag,
             requiresHostIdentity: computer.isRegistryBacked
         )
@@ -142,18 +130,10 @@ final class HiveComputersService {
             }
         }
         guard let auth else { return nil }
-        let currentComputer = directory.computers.first(where: { $0.deviceID == deviceID })
-        let currentAdmission: HiveTailscaleRouteAdmission.Result?
-        if let best = currentComputer?.bestPairingRoutes {
-            currentAdmission = await HiveTailscaleRouteAdmission().admit(routes: best.routes)
-        } else {
-            currentAdmission = nil
-        }
-        guard let session = await makeViewerSessionFromCurrentDirectory(
+        guard let session = makeViewerSessionFromCurrentDirectory(
             deviceID: deviceID,
             auth: auth,
-            directory: directory,
-            admission: currentAdmission
+            directory: directory
         ) else { return nil }
         // Re-check after the await: a concurrent first call may have won.
         if let existing = embeddedSessions[deviceID] {

@@ -59,29 +59,25 @@ public struct HiveSyncRuntime: MobileSyncRuntime, Sendable {
     ///     authenticated host-identity status probes.
     ///   - stackAccessTokenForceRefresher: Force-mints a fresh token after an
     ///     auth rejection.
-    ///   - verifiedTailscaleHosts: Canonical numeric Tailscale hosts admitted
-    ///     by a local control-plane status snapshot. Bearer routes are rejected
-    ///     when this set is empty or does not contain their host.
     public static func network(
         allowsLoopbackRoutes: Bool,
         stackAccessTokenProvider: @escaping @Sendable () async throws -> String,
         stackAccessTokenForceRefresher: @escaping @Sendable () async throws -> String,
-        stackAccessTokenForStatusProvider: @escaping @Sendable () async -> String? = { nil },
-        verifiedTailscaleHosts: Set<String> = []
+        stackAccessTokenForStatusProvider: @escaping @Sendable () async -> String? = { nil }
     ) -> HiveSyncRuntime {
         let supportedKinds: [CmxAttachTransportKind] = allowsLoopbackRoutes
             ? [.debugLoopback, .tailscale]
             : [.tailscale]
-        // Tailscale goes through the viewer's own tailnet-verified factory:
-        // the shared network factory fails closed for tailscale (correct for
-        // phone pairings from untrusted payloads), while the viewer's routes
-        // come from the account's own device registry.
+        // Tailscale is registered with the viewer-specific factory, which
+        // remains fail-closed until a cryptographic transport-admission
+        // handshake is available. DEBUG loopback still uses the shared local
+        // factory for isolated development sessions.
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let registrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(
                 kind: kind,
                 factory: kind == .tailscale
-                    ? HiveTailscaleByteTransportFactory(admittedHosts: verifiedTailscaleHosts)
+                    ? HiveTailscaleByteTransportFactory()
                     : networkFactory
             )
         }
