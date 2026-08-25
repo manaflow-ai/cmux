@@ -17,11 +17,23 @@ struct SSHRemoteCommandCLIIntegrationTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: RemoteCommandBundleToken.self
         )
+        let socketPath = Harness.makeSocketPath("mixed-tty-cluster")
+        let listenerFD = try Harness.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in Darwin.close(clientFD) },
+            onListenerClosed: {}
+        )
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-mixed-tty-option-cluster.sock"
+        environment["CMUX_SOCKET_PATH"] = socketPath
 
         let result = Harness.runProcess(
             executablePath: cliPath,
