@@ -24,6 +24,9 @@ public struct TerminalPointerStyleState {
     /// A pointer shape that arrived without a positive link-preview action is
     /// provisional until Ghostty's empty link action confirms the exit.
     private var hasPendingGhosttyLinkPointer = false
+    /// A duplicate pointer callback confirms that the terminal's persistent
+    /// base shape is pointer rather than a provisional hyperlink override.
+    private var persistentPointerBaseConfirmed = false
 
     /// Creates pointer state with the normal terminal I-beam.
     public init() {}
@@ -65,6 +68,7 @@ public struct TerminalPointerStyleState {
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
             hasPendingGhosttyLinkPointer = false
+            persistentPointerBaseConfirmed = false
             return shouldInvalidate
 
         case .runtimeReset(let runtimeLifetimeId):
@@ -82,6 +86,7 @@ public struct TerminalPointerStyleState {
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
             hasPendingGhosttyLinkPointer = false
+            persistentPointerBaseConfirmed = false
             return shouldInvalidate
 
         case .runtimeEnded(let runtimeLifetimeId):
@@ -103,6 +108,7 @@ public struct TerminalPointerStyleState {
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
             hasPendingGhosttyLinkPointer = false
+            persistentPointerBaseConfirmed = false
             return shouldInvalidate
 
         case .ghosttyShape(let shape, let runtimeLifetimeId):
@@ -115,14 +121,23 @@ public struct TerminalPointerStyleState {
                 // leaving the temporary pointing hand installed.
                 return false
             }
+            if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
+               !isGhosttyLinkHoverActive,
+               ghosttyShape == shape {
+                persistentPointerBaseConfirmed = true
+                hasPendingGhosttyLinkPointer = false
+                return false
+            }
             guard ghosttyShape != shape || isGhosttyLinkHoverActive else {
                 return false
             }
             if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
                !isGhosttyLinkHoverActive {
                 hasPendingGhosttyLinkPointer = true
+                persistentPointerBaseConfirmed = false
             } else if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
                 hasPendingGhosttyLinkPointer = false
+                persistentPointerBaseConfirmed = false
             }
             if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
                 lastNonPointerCursor = cursor
@@ -137,13 +152,21 @@ public struct TerminalPointerStyleState {
         case .ghosttyLinkHoverChanged(let active, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
             let nextActive = isFocused && active
+            if nextActive,
+               hasPendingGhosttyLinkPointer,
+               !persistentPointerBaseConfirmed {
+                ghosttyCursor = lastNonPointerCursor
+                ghosttyShape = lastNonPointerShape
+            }
             if !active,
                hasPendingGhosttyLinkPointer {
-                if lastObservedGhosttyShape != GHOSTTY_MOUSE_SHAPE_POINTER {
+                if !persistentPointerBaseConfirmed ||
+                   lastObservedGhosttyShape != GHOSTTY_MOUSE_SHAPE_POINTER {
                     ghosttyCursor = lastNonPointerCursor
                     ghosttyShape = lastNonPointerShape
                 }
                 hasPendingGhosttyLinkPointer = false
+                persistentPointerBaseConfirmed = false
                 if !isGhosttyLinkHoverActive {
                     return isFocused && !isCmuxLinkHoverActive
                 }
@@ -156,6 +179,12 @@ public struct TerminalPointerStyleState {
             guard isFocused != focused else { return false }
             isFocused = focused
             if !focused {
+                if isGhosttyLinkHoverActive,
+                   hasPendingGhosttyLinkPointer,
+                   !persistentPointerBaseConfirmed {
+                    ghosttyCursor = lastNonPointerCursor
+                    ghosttyShape = lastNonPointerShape
+                }
                 isCmuxLinkHoverActive = false
                 isGhosttyLinkHoverActive = false
             }
