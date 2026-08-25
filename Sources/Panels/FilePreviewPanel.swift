@@ -981,7 +981,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
-    private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private var artifactReadCopyURL: URL?
     private var artifactPreviewTask: Task<Void, Never>?
     private var artifactPreviewToken = UUID()
@@ -1085,6 +1085,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private func startArtifactPreviewLoad(force: Bool = false) {
         if force {
+            let artifactRoot = artifactFile?.artifactRoot
             artifactPreviewToken = UUID()
             artifactPreviewTask?.cancel()
             artifactPreviewTask = nil
@@ -1092,6 +1093,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
             }
+            guard let artifactRoot,
+                  let refreshed = ArtifactSidebarFileAccess().openedFile(
+                      for: URL(fileURLWithPath: filePath),
+                      artifactRoot: artifactRoot
+                  ) else {
+                isFileUnavailable = true
+                return
+            }
+            artifactFile = refreshed
         }
         guard let artifactFile, artifactPreviewTask == nil else { return }
         let token = artifactPreviewToken

@@ -230,6 +230,42 @@ struct ArtifactSidebarFileAccess {
         openedFile(for: sourceURL, artifactRoot: artifactRoot)?.sourceURL
     }
 
+    /// Returns a descriptor-validated regular-file or directory URL for Finder.
+    func validatedRevealURL(for sourceURL: URL, artifactRoot: URL) -> URL? {
+        guard sourceURL.isFileURL else { return nil }
+        let descriptor = Darwin.open(
+            sourceURL.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { _ = Darwin.close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              ((status.st_mode & S_IFMT) == S_IFREG
+                || (status.st_mode & S_IFMT) == S_IFDIR),
+              let openedPath = openedPath(for: descriptor) else {
+            return nil
+        }
+        let rootDescriptor = Darwin.open(
+            artifactRoot.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard rootDescriptor >= 0 else { return nil }
+        defer { _ = Darwin.close(rootDescriptor) }
+        var rootStatus = stat()
+        guard fstat(rootDescriptor, &rootStatus) == 0,
+              (rootStatus.st_mode & S_IFMT) == S_IFDIR,
+              let openedRootPath = openedPath(for: rootDescriptor) else {
+            return nil
+        }
+        let rootPath = openedRootPath.path
+        let path = openedPath.path
+        guard path == rootPath || path.hasPrefix(rootPath + "/") else {
+            return nil
+        }
+        return openedPath
+    }
+
     /// Validates and materializes one thumbnail source away from the main actor.
     ///
     /// The entire descriptor validation and bounded copy stay inside one

@@ -54,7 +54,11 @@ extension CodexTranscriptParser {
         into assembler: inout TranscriptBatchAssembler
     ) {
         guard let callID = payload["call_id"]?.string else { return }
-        let completion = completion(from: payload["output"])
+        let isCustomToolOutput = payload["type"]?.string == "custom_tool_call_output"
+        let completion = completion(
+            from: payload["output"],
+            allowsTextualMutationEvidence: !isCustomToolOutput
+        )
         if let output = completion.output {
             assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
         }
@@ -66,15 +70,20 @@ extension CodexTranscriptParser {
     /// string, or that object inline; exit code and wall time also appear
     /// as text headers (`Process exited with code N`, `Exit code: N`,
     /// `Wall time: S seconds`).
-    private func completion(from value: TranscriptJSONValue?) -> TranscriptToolCompletion {
+    private func completion(
+        from value: TranscriptJSONValue?,
+        allowsTextualMutationEvidence: Bool
+    ) -> TranscriptToolCompletion {
         var text = outputText(from: value)
-        var exitCode = value?["metadata"]?["exit_code"]?.int
+        var structuredExitCode = value?["metadata"]?["exit_code"]?.int
+        var exitCode = structuredExitCode
         var duration = value?["metadata"]?["duration_seconds"]?.double
         if let raw = text,
             let nested = TranscriptJSONValue(jsonLine: raw),
             let inner = outputText(from: nested["output"]) {
             text = inner
-            exitCode = nested["metadata"]?["exit_code"]?.int ?? exitCode
+            structuredExitCode = nested["metadata"]?["exit_code"]?.int ?? structuredExitCode
+            exitCode = structuredExitCode
             duration = nested["metadata"]?["duration_seconds"]?.double ?? duration
         }
         if exitCode == nil, let text {
@@ -95,7 +104,7 @@ extension CodexTranscriptParser {
             exitCode: exitCode,
             durationSeconds: duration,
             authorizesArtifactMutation: authorizesArtifactMutation(
-                exitCode: exitCode
+                exitCode: allowsTextualMutationEvidence ? exitCode : structuredExitCode
             ),
             hasPositiveSuccessEvidence: exitCode != nil
                 || text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

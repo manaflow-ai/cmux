@@ -134,7 +134,7 @@ struct ArtifactSidebarPanelView: View {
         let actions = ArtifactSidebarRowActions(
             activate: activate,
             toggleExpansion: { model.toggleExpansion(relativePath: $0.relativePath) },
-            revealInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0.fileURL]) },
+            revealInFinder: revealInFinder,
             copyPath: { copyToPasteboard($0.fileURL.path) },
             copyReference: { copyToPasteboard(".cmux/\($0.relativePath)") }
         )
@@ -146,6 +146,17 @@ struct ArtifactSidebarPanelView: View {
             }
             .padding(.vertical, 4)
         }
+    }
+
+    private func revealInFinder(_ row: ArtifactSidebarRowSnapshot) {
+        guard let projectRoot = row.projectRoot,
+              let validatedURL = ArtifactSidebarFileAccess().validatedRevealURL(
+                  for: row.fileURL,
+                  artifactRoot: projectRoot.appendingPathComponent(".cmux", isDirectory: true)
+              ) else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([validatedURL])
     }
 
     private func emptyState(

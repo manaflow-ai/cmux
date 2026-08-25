@@ -153,6 +153,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(toolUse.status == .failed)
     }
 
+    @Test("Codex custom-tool textual exit headers do not authorize mutations")
+    func codexCustomToolTextualExitHeaderIsReference() throws {
+        let patch = "*** Begin Patch\n*** Add File: /tmp/textual-exit.md\n+draft\n*** End Patch"
+        let call = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call",
+            "name": "apply_patch",
+            "input": patch,
+            "call_id": "custom-textual-exit",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call_output",
+            "call_id": "custom-textual-exit",
+            "output": "Exit code: 0\nOutput: success",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(indexedArtifacts(result).first)
+
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     @Test("Unknown Codex custom-tool output does not authorize a mutation")
     func unknownCodexCustomToolOutputIsReference() throws {
         let patch = "*** Begin Patch\n*** Add File: /tmp/generated.md\n+draft\n*** End Patch"

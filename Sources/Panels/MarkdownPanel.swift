@@ -21,7 +21,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
-    private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private var artifactReadCopyURL: URL?
     private var artifactPreviewTask: Task<Void, Never>?
     private var artifactPreviewToken = UUID()
@@ -148,6 +148,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     private func startArtifactPreviewLoad(force: Bool = false) {
         if force {
+            let artifactRoot = artifactFile?.artifactRoot
             artifactPreviewToken = UUID()
             artifactPreviewTask?.cancel()
             artifactPreviewTask = nil
@@ -155,6 +156,15 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
             }
+            guard let artifactRoot,
+                  let refreshed = ArtifactSidebarFileAccess().openedFile(
+                      for: URL(fileURLWithPath: filePath),
+                      artifactRoot: artifactRoot
+                  ) else {
+                isFileUnavailable = true
+                return
+            }
+            artifactFile = refreshed
         }
         guard let artifactFile, artifactPreviewTask == nil else { return }
         let token = artifactPreviewToken
