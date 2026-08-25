@@ -1722,13 +1722,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Pump-driven height corrections between applies: heightOfRow consults
     /// these before the equivalence-keyed cache (which only refreshes on the
     /// next container apply).
-    private struct PumpHeightOverride {
-        let height: CGFloat
-        let columnWidth: CGFloat
-        let cellIdentity: ObjectIdentifier
-    }
-
-    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: PumpHeightOverride] = [:]
+    private var pumpHeightOverrides: [
+        SidebarWorkspaceRenderItemID: (
+            height: CGFloat,
+            columnWidth: CGFloat,
+            cellIdentity: ObjectIdentifier
+        )
+    ] = [:]
 
     /// A pump height is installed-cell state. Retiring that exact cell returns
     /// the row to its authoritative cached geometry; an older retirement must
@@ -1787,7 +1787,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
             let previousHeight = pumpHeightOverrides[row.id]?.height ?? height
-            pumpHeightOverrides[row.id] = PumpHeightOverride(
+            pumpHeightOverrides[row.id] = (
                 height: height,
                 columnWidth: columnWidth,
                 cellIdentity: ObjectIdentifier(cell)
@@ -1854,7 +1854,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             ?? row.estimatedHeight
         guard abs(height - current) >= 0.5 else {
             if let override = pumpHeightOverrides[rowId], override.columnWidth == width {
-                pumpHeightOverrides[rowId] = PumpHeightOverride(
+                pumpHeightOverrides[rowId] = (
                     height: override.height,
                     columnWidth: override.columnWidth,
                     cellIdentity: ObjectIdentifier(cell)
@@ -1868,7 +1868,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             return
         }
-        pumpHeightOverrides[rowId] = PumpHeightOverride(
+        pumpHeightOverrides[rowId] = (
             height: height,
             columnWidth: width,
             cellIdentity: ObjectIdentifier(cell)
