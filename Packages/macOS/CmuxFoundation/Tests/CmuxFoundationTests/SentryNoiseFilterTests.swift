@@ -65,6 +65,14 @@ import Testing
             stage: "socket_command",
             message: "unavailable: TabManager not available (Code: 1)"
         ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "ERROR: TabManager not available"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Remote proxy unavailable: connection refused"
+        ))
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_startup_wait",
             message: "cmux app did not start in time (socket not found at /tmp/cmux.sock)"

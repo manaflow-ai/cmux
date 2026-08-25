@@ -121,12 +121,14 @@ public struct SentryNoiseFilter: Sendable {
     }
 
     private func isExpectedCLIProtocolLifecycleMessage(_ text: String) -> Bool {
-        let normalized = text.lowercased()
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         // V2 formats protocol failures as `unavailable: <message>`. Keep this
         // legacy fallback behind ``isExpectedCLISocketTransportFailure`` so a
         // free-form Sentry message cannot be mistaken for a socket response.
-        return normalized.contains("unavailable:") ||
-            normalized.contains("tabmanager not available")
+        return normalized.hasPrefix("unavailable:") ||
+            normalized.hasPrefix("error: tabmanager not available") ||
+            normalized.hasPrefix("clierror: unavailable:") ||
+            normalized.hasPrefix("clierror: tabmanager not available")
     }
 
     private func containsErrno(_ code: Int, in text: String) -> Bool {
