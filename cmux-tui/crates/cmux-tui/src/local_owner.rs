@@ -24,6 +24,10 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
+fn socket_parent(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
+}
+
 /// Total time an ensure may spend probing, spawning, and waiting for the
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
 pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
@@ -235,9 +239,7 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 
 /// Spawn the headless owner detached from this process's terminal.
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
-    if let Some(parent) = spec.socket.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    std::fs::create_dir_all(socket_parent(&spec.socket))?;
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
     command.arg("--headless");
@@ -309,9 +311,7 @@ struct SpawnLock {
 
 impl SpawnLock {
     fn acquire(socket: &Path, deadline: Instant) -> io::Result<Self> {
-        if let Some(parent) = socket.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(socket_parent(socket))?;
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
@@ -345,5 +345,17 @@ impl SpawnLock {
             let _ = deadline;
             Ok(Self { _file: file })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::socket_parent;
+    use std::path::Path;
+
+    #[test]
+    fn bare_relative_socket_uses_current_directory_parent() {
+        assert_eq!(socket_parent(Path::new("cmux.sock")), Path::new("."));
+        assert_eq!(socket_parent(Path::new("nested/cmux.sock")), Path::new("nested"));
     }
 }
