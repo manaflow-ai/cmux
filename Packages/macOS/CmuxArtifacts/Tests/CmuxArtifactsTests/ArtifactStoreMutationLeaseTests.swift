@@ -157,4 +157,28 @@ struct ArtifactStoreMutationLeaseTests {
             atPath: outside.appendingPathComponent("provenance/digest.json").path
         ))
     }
+
+    @Test("An explicitly authorized store path rejects an ancestor swap")
+    func rejectsAncestorSwapAgainstExpectedPath() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let store = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        let expected = store.resolvingSymlinksInPath().standardizedFileURL.path
+        try FileManager.default.createDirectory(
+            at: outside.appendingPathComponent(".cmux", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.removeItem(at: root)
+        try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
+
+        #expect(throws: ArtifactStoreError.self) {
+            _ = try ArtifactStoreMutationLease(
+                directory: root.appendingPathComponent(".cmux", isDirectory: true),
+                expectedCanonicalPath: expected
+            )
+        }
+    }
 }

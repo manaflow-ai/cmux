@@ -104,6 +104,25 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importedPaths == [oldPath, rewrittenPath])
     }
 
+    @Test func skippedSourceIsRetriedWithoutAdvancingCaptureCursor() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let source = projectRoot.appendingPathComponent("appears-later.md")
+        let store = LocalArtifactRepository()
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let indexed = snapshot(revision: 1, path: source.path)
+
+        await coordinator.capture(record: record, snapshot: indexed)
+        try "now present".write(to: source, atomically: true, encoding: .utf8)
+        await coordinator.capture(record: record, snapshot: indexed)
+
+        let snapshot = try await store.snapshot(projectRoot: projectRoot)
+        #expect(snapshot.nodes.flattenedArtifactNodes().contains { $0.name == source.lastPathComponent })
+    }
+
     @Test func busyStoreDoesNotCheckpointAnAutomaticArtifact() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
