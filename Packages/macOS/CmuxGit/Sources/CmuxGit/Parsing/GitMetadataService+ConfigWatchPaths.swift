@@ -75,7 +75,7 @@ extension GitMetadataService {
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
-        if repositoryUsesSHA256ObjectIDs(repository: repository) {
+        if repositoryUsesSHA256ObjectIDs(repository: repository, deadline: deadline) {
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }

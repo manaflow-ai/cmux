@@ -47,7 +47,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            paths = GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path)
+            paths = GitMetadataService.gitRootConfigURLs(
+                repository: repository,
+                deadline: deadline
+            ).map(\.path)
                 + [repository.gitDirectory, repository.commonDirectory]
                 + paths
         }
@@ -83,7 +86,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             maximumFileByteCount: maximumFileByteCount,
             deadline: deadline
         ))
-        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
+        for configURL in GitMetadataService.gitRootConfigURLs(
+            repository: repository,
+            deadline: deadline
+        ) {
             processConfig(at: configURL, state: &state)
         }
         return (
@@ -261,7 +267,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             maximumFileByteCount: maximumFileByteCount,
             deadline: deadline
         )
-        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
+        for configURL in GitMetadataService.gitRootConfigURLs(
+            repository: repository,
+            deadline: deadline
+        ) {
             appendRemoteVLines(
                 fromConfigURL: configURL,
                 seenConfigPaths: &seenConfigPaths,

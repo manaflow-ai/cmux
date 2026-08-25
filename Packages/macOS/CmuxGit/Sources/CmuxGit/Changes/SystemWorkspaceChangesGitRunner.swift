@@ -49,8 +49,10 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         for key in commandScopedKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
-        // Preserve the caller's explicit system-config opt-out; it does not
-        // redirect repository selection and is part of Git's normal semantics.
+        // Plumbing fallbacks must observe only the requested repository's local
+        // config. Global/system includes can inject unrelated remotes or FIFOs.
+        scopedEnvironment["GIT_CONFIG_NOSYSTEM"] = "1"
+        scopedEnvironment["GIT_CONFIG_GLOBAL"] = "/dev/null"
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
         self.environment = scopedEnvironment
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
