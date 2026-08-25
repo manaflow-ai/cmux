@@ -4102,6 +4102,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/xhr_open_arbitrary_handle.ts",
+            (
+                "const request = new XMLHttpRequest();\n"
+                'request.open(method, "https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -4205,6 +4213,15 @@ def _self_test() -> int:
                 "def helper():\n"
                 "    client = FakeClient()\n"
                 'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_module_client_used_in_function.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "def test_items():\n"
+                '    client.get("/v1/items")\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
