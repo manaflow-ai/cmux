@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxAuthRuntime
 import CmuxNextTransport
 import Foundation
 import IrohLib
@@ -39,11 +40,59 @@ public final class NextTransportDialClient {
     private var hostRelayURL: String?
     private var grant: PairingGrant?
     private var broker: BrokerCredentialClient?
+    /// Holds only a weak reference to the client, so the loop ends on its
+    /// own at the tick after the client is released (no deinit needed; a
+    /// MainActor deinit cannot touch isolated state under Swift 6).
+    private var renewTask: Task<Void, Never>?
+
+    /// The app-session credential source, installed once at composition boot
+    /// (`MobileIrohRuntimeComposition.configure`). A home-screen launch has
+    /// no dev env, so this is how a real phone mints relay credentials for
+    /// its next-transport identity: the same signed-in Stack session and the
+    /// same broker origin the legacy transport uses. Env credentials keep
+    /// precedence for dev launches.
+    private static var sessionBrokerFactory:
+        (@MainActor (PeerIdentity) -> BrokerCredentialClient)?
 
     public init() {
         identity = Self.loadOrCreateIdentity()
         broker = Self.brokerClient(identity: identity)
-        log("identity \(identity.deviceID.prefix(8))…, broker \(broker == nil ? "absent" : "ready")")
+        log("identity \(identity.deviceID.prefix(8))…, env broker \(broker == nil ? "absent" : "ready")")
+    }
+
+    /// Registers the signed-in session as a relay-credential source for
+    /// every dial client. Mirrors the legacy transport's broker auth: the
+    /// CURRENT session token pair per request, never a captured password.
+    public static func installSessionBroker(
+        brokerBaseURL: URL?, auth: AuthCoordinator
+    ) {
+        guard let brokerBaseURL else { return }
+        let tokens: @Sendable () async throws
+            -> BrokerCredentialClient.SessionTokens? = { [weak auth] in
+                guard let auth else { return nil }
+                do {
+                    let session = try await auth.authenticatedSessionSnapshot()
+                    return BrokerCredentialClient.SessionTokens(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken)
+                } catch AuthError.unauthorized {
+                    // Definitively signed out: fail closed (LAN-only).
+                    return nil
+                }
+                // Every other failure (token store owned by a session
+                // transition, refresh in flight) rethrows: transient, the
+                // next mint retries with a live pair.
+            }
+        sessionBrokerFactory = { identity in
+            BrokerCredentialClient(
+                sessionConfig: BrokerCredentialClient.SessionConfig(
+                    baseUrl: brokerBaseURL.absoluteString,
+                    deviceId: identity.deviceID,
+                    appInstanceId: identity.deviceID,
+                    tag: "next-transport-ios", platform: "ios"),
+                tokens: tokens,
+                identity: identity)
+        }
     }
 
     public var devicePublicKeyB64: String { identity.publicKeyData.base64EncodedString() }
@@ -121,24 +170,40 @@ public final class NextTransportDialClient {
     }
 
     private func bootOwner() async {
-        do {
-            if endpoint == nil {
-                var relays: [IrohSubstrate.RelayAccess] = []
-                if let broker {
+        if endpoint == nil {
+            // Env broker (dev launches) keeps precedence; a home-screen
+            // launch falls back to the app's signed-in session.
+            if broker == nil, let factory = Self.sessionBrokerFactory {
+                broker = factory(identity)
+                log("session-backed broker ready")
+            }
+            // Credentials BEFORE the endpoint exists, so the relay is in the
+            // initial relay map. Relay is additive: a mint failure (offline
+            // API, signed out) still boots a direct-only endpoint that can
+            // dial the ticket's LAN addresses, and the renew loop upgrades
+            // it in place once minting succeeds.
+            var relays: [IrohSubstrate.RelayAccess] = []
+            if let broker {
+                do {
                     let credentials = try await broker.mint(preferredUrl: hostRelayURL)
                     relays = credentials.map {
                         IrohSubstrate.RelayAccess(url: $0.relayUrl, authToken: $0.token)
                     }
                     appliedRelayToken = credentials.first?.token
                     log("self-minted \(credentials.count) relay credentials")
+                } catch {
+                    log("relay mint failed; continuing LAN-only: \(error)")
                 }
+            }
+            do {
                 endpoint = try await (relays.isEmpty
                     ? IrohSubstrate.endpoint(identity: identity, minimalLoopback: false)
                     : IrohSubstrate.endpoint(identity: identity, relays: relays))
+            } catch {
+                log("endpoint: \(error)")
+                return
             }
-        } catch {
-            log("endpoint: \(error)")
-            return
+            startCredentialRenewal()
         }
         guard let endpoint else { return }
         let identity = identity
@@ -226,6 +291,38 @@ public final class NextTransportDialClient {
             log("relay credential rotated in, zero-gap")
         } catch {
             log("credential rotation failed: \(error)")
+        }
+    }
+
+    /// Self-minted rotation on the token's own cadence (refreshAfter = 60s
+    /// before the 300s expiry), mirroring the host runtime's renew loop:
+    /// insert-alone handoff (never removeRelay first), so live sessions ride
+    /// the fresh credential zero-gap. Also heals a LAN-only boot: once the
+    /// web API is reachable and the session signed in, the first successful
+    /// mint inserts the relay into the running endpoint.
+    private func startCredentialRenewal() {
+        guard renewTask == nil, broker != nil else { return }
+        renewTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(240))
+                guard let self, !Task.isCancelled else { return }
+                await self.renewSelfMintedCredentials()
+            }
+        }
+    }
+
+    private func renewSelfMintedCredentials() async {
+        guard let broker, let endpoint else { return }
+        do {
+            let fresh = try await broker.mint(preferredUrl: hostRelayURL)
+            for credential in fresh {
+                try await endpoint.insertRelay(
+                    config: RelayConfig(url: credential.relayUrl, authToken: credential.token))
+            }
+            appliedRelayToken = fresh.first?.token ?? appliedRelayToken
+            log("self-minted relay credentials rotated zero-gap")
+        } catch {
+            log("credential renewal failed: \(error)")
         }
     }
 

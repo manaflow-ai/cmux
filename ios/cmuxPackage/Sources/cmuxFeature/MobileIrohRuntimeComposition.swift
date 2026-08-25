@@ -226,6 +226,12 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    #if DEBUG
+    /// The resolved legacy-broker origin, reused by the DEBUG next-transport
+    /// dial path so a home-screen launch (no dev env) mints relay credentials
+    /// for its next-transport identity through the app's signed-in session.
+    private var nextTransportBrokerBaseURL: URL?
+    #endif
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
@@ -447,6 +453,9 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog: diagnosticLog,
             debugDefaults: defaults
         )
+        #if DEBUG
+        nextTransportBrokerBaseURL = baseURL
+        #endif
     }
 
     init(
@@ -562,6 +571,15 @@ public final class MobileIrohRuntimeComposition:
         connectivityInvalidationBaseURL: URL? = nil
     ) {
         self.auth = auth
+        #if DEBUG
+        // Off-WiFi relay credentials for the next-transport dial path: with
+        // no dev launch env, the dial client mints through this signed-in
+        // session against the same broker origin the legacy transport uses.
+        NextTransportDialClient.installSessionBroker(
+            brokerBaseURL: nextTransportBrokerBaseURL,
+            auth: auth
+        )
+        #endif
         if let connectivityInvalidationBaseURL {
             connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: connectivityInvalidationBaseURL,

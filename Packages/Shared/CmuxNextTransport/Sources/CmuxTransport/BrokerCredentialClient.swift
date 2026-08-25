@@ -2,13 +2,20 @@ import CryptoKit
 import Foundation
 
 /// The phone mints its OWN relay credentials over HTTPS, exactly as the
-/// production app will (contract 9.6/9.7): sign in, prove key ownership to
-/// the trust broker, fetch endpoint-bound fleet tokens. This removes every
+/// production app will (contract 9.6/9.7): authenticate, prove key ownership
+/// to the trust broker, fetch endpoint-bound fleet tokens. This removes every
 /// external delivery dependency that failed in the field: ctl pushes need a
 /// live session, devicectl relaunches need a reachable phone — but a device
 /// that can reach the internet can always fetch its own pass.
 ///
-/// Mirrors iroh-testbed/tools/get-relay-token.mjs step for step.
+/// Two authentication modes share one broker flow:
+/// - password: dev harnesses mint a fresh Stack session from an email and
+///   password pair (mirrors iroh-testbed/tools/get-relay-token.mjs).
+/// - session: the app's ALREADY signed-in Stack session supplies the token
+///   pair, exactly as the legacy transport's trust broker client
+///   authenticates (`Authorization: Bearer` + `X-Stack-Refresh-Token`). No
+///   raw credentials ever enter this client; the provider re-reads the
+///   CURRENT pair per mint so token rotation never strands it.
 public struct BrokerCredentialClient: Sendable {
     public struct Config: Sendable, Decodable {
         public var baseUrl: String
@@ -40,6 +47,39 @@ public struct BrokerCredentialClient: Sendable {
         }
     }
 
+    /// Session-mode target: the broker origin plus this endpoint's
+    /// registration coordinates. No Stack fields by design — the session
+    /// token provider owns authentication.
+    public struct SessionConfig: Sendable {
+        public var baseUrl: String
+        public var deviceId: String
+        public var appInstanceId: String
+        public var tag: String
+        public var platform: String
+
+        public init(
+            baseUrl: String, deviceId: String, appInstanceId: String,
+            tag: String, platform: String
+        ) {
+            self.baseUrl = baseUrl
+            self.deviceId = deviceId
+            self.appInstanceId = appInstanceId
+            self.tag = tag
+            self.platform = platform
+        }
+    }
+
+    /// One coherent token pair from an already signed-in Stack session.
+    public struct SessionTokens: Sendable {
+        public let accessToken: String
+        public let refreshToken: String
+
+        public init(accessToken: String, refreshToken: String) {
+            self.accessToken = accessToken
+            self.refreshToken = refreshToken
+        }
+    }
+
     public struct Credential: Sendable {
         public let relayUrl: String
         public let token: String
@@ -49,6 +89,9 @@ public struct BrokerCredentialClient: Sendable {
     public enum BrokerError: Error, CustomStringConvertible {
         case http(String, Int, String)
         case shape(String)
+        /// Session mode only: the token provider reported no signed-in
+        /// session. Fail closed — never mint as a guessed account.
+        case notSignedIn
 
         public var description: String {
             switch self {
@@ -56,16 +99,81 @@ public struct BrokerCredentialClient: Sendable {
                 return "\(step) failed: HTTP \(code) \(body.prefix(200))"
             case .shape(let what):
                 return "unexpected response shape: \(what)"
+            case .notSignedIn:
+                return "no signed-in session; cannot mint relay credentials"
             }
         }
     }
 
-    private let config: Config
-    private let identity: PeerIdentity
+    private enum Authentication: Sendable {
+        case password(
+            stackBase: String, projectId: String, pck: String,
+            email: String, password: String)
+        case session(@Sendable () async throws -> SessionTokens?)
+    }
 
+    /// One HTTP round trip. Injectable so package tests can script the
+    /// broker offline; production uses the shared session.
+    typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    private let baseUrl: String
+    private let deviceId: String
+    private let appInstanceId: String
+    private let tag: String
+    private let platform: String
+    private let authentication: Authentication
+    private let identity: PeerIdentity
+    private let transport: Transport
+
+    /// Password mode (dev harnesses and env-injected dogfood launches).
     public init(config: Config, identity: PeerIdentity) {
-        self.config = config
+        self.init(config: config, identity: identity, transport: Self.liveTransport)
+    }
+
+    init(config: Config, identity: PeerIdentity, transport: @escaping Transport) {
+        baseUrl = config.baseUrl
+        deviceId = config.deviceId
+        appInstanceId = config.appInstanceId
+        tag = config.tag
+        platform = config.platform
+        authentication = .password(
+            stackBase: config.stackBase, projectId: config.stackProjectId,
+            pck: config.stackPck, email: config.email, password: config.password)
         self.identity = identity
+        self.transport = transport
+    }
+
+    /// Session mode: mint through an existing signed-in Stack session.
+    /// `tokens` returns the CURRENT pair (re-read per mint), or nil when
+    /// definitively signed out.
+    public init(
+        sessionConfig: SessionConfig,
+        tokens: @escaping @Sendable () async throws -> SessionTokens?,
+        identity: PeerIdentity
+    ) {
+        self.init(
+            sessionConfig: sessionConfig, tokens: tokens, identity: identity,
+            transport: Self.liveTransport)
+    }
+
+    init(
+        sessionConfig: SessionConfig,
+        tokens: @escaping @Sendable () async throws -> SessionTokens?,
+        identity: PeerIdentity,
+        transport: @escaping Transport
+    ) {
+        baseUrl = sessionConfig.baseUrl
+        deviceId = sessionConfig.deviceId
+        appInstanceId = sessionConfig.appInstanceId
+        tag = sessionConfig.tag
+        platform = sessionConfig.platform
+        authentication = .session(tokens)
+        self.identity = identity
+        self.transport = transport
+    }
+
+    private static let liveTransport: Transport = { request in
+        try await URLSession.shared.data(for: request)
     }
 
     /// Full mint: returns one credential per fleet relay; `preferredUrl`
@@ -73,33 +181,16 @@ public struct BrokerCredentialClient: Sendable {
     public func mint(preferredUrl: String?) async throws -> [Credential] {
         let endpointId = identity.publicKeyData.map { String(format: "%02x", $0) }.joined()
 
-        // 1. Stack password sign-in.
-        let signIn = try await post(
-            "\(config.stackBase)/api/v1/auth/password/sign-in",
-            headers: [
-                "content-type": "application/json",
-                "x-stack-project-id": config.stackProjectId,
-                "x-stack-publishable-client-key": config.stackPck,
-                "x-stack-access-type": "client",
-            ],
-            body: ["email": .string(config.email), "password": .string(config.password)],
-            step: "stack sign-in")
-        guard let access = signIn["access_token"]?.stringValue,
-            let refresh = signIn["refresh_token"]?.stringValue
-        else { throw BrokerError.shape("sign-in tokens") }
-        let authed = [
-            "content-type": "application/json",
-            "authorization": "Bearer \(access)",
-            "x-stack-refresh-token": refresh,
-        ]
+        // 1. Authenticate: password sign-in, or the app's live session pair.
+        let authed = try await authenticatedHeaders()
 
         // 2. Registration payload; hash OUR exact bytes.
         let payload: JSONValue = .object([
             "route_contract_version": .int(1),
-            "deviceId": .string(config.deviceId),
-            "appInstanceId": .string(config.appInstanceId),
-            "tag": .string(config.tag),
-            "platform": .string(config.platform),
+            "deviceId": .string(deviceId),
+            "appInstanceId": .string(appInstanceId),
+            "tag": .string(tag),
+            "platform": .string(platform),
             "endpointId": .string(endpointId),
             "identityGeneration": .int(1),
             "pairingEnabled": .bool(false),
@@ -113,11 +204,11 @@ public struct BrokerCredentialClient: Sendable {
 
         // 3. Challenge.
         let challenge = try await post(
-            "\(config.baseUrl)/api/devices/iroh/challenge", headers: authed,
+            "\(baseUrl)/api/devices/iroh/challenge", headers: authed,
             body: [
-                "deviceId": .string(config.deviceId),
-                "appInstanceId": .string(config.appInstanceId),
-                "tag": .string(config.tag),
+                "deviceId": .string(deviceId),
+                "appInstanceId": .string(appInstanceId),
+                "tag": .string(tag),
                 "endpointId": .string(endpointId),
                 "identityGeneration": .int(1),
                 "payloadSha256": .string(payloadSha),
@@ -137,7 +228,7 @@ public struct BrokerCredentialClient: Sendable {
         var registered: [String: JSONValue] = [:]
         do {
             registered = try await post(
-                "\(config.baseUrl)/api/devices/iroh/register", headers: authed,
+                "\(baseUrl)/api/devices/iroh/register", headers: authed,
                 body: [
                     "challengeId": .string(challengeId),
                     "nonce": .string(nonce),
@@ -162,7 +253,7 @@ public struct BrokerCredentialClient: Sendable {
             }
         } else {
             let minted = try await post(
-                "\(config.baseUrl)/api/relay/token", headers: authed,
+                "\(baseUrl)/api/relay/token", headers: authed,
                 body: ["endpointId": .string(endpointId)], step: "relay token")
             if let list = minted["relayCredentials"]?.arrayValue {
                 credentials = list.compactMap { entry in
@@ -190,6 +281,42 @@ public struct BrokerCredentialClient: Sendable {
         return credentials
     }
 
+    /// The authenticated headers every broker request carries, resolved per
+    /// mint so session-mode token rotation is always current.
+    private func authenticatedHeaders() async throws -> [String: String] {
+        switch authentication {
+        case .password(let stackBase, let projectId, let pck, let email, let password):
+            let signIn = try await post(
+                "\(stackBase)/api/v1/auth/password/sign-in",
+                headers: [
+                    "content-type": "application/json",
+                    "x-stack-project-id": projectId,
+                    "x-stack-publishable-client-key": pck,
+                    "x-stack-access-type": "client",
+                ],
+                body: ["email": .string(email), "password": .string(password)],
+                step: "stack sign-in")
+            guard let access = signIn["access_token"]?.stringValue,
+                let refresh = signIn["refresh_token"]?.stringValue
+            else { throw BrokerError.shape("sign-in tokens") }
+            return Self.authedHeaders(access: access, refresh: refresh)
+        case .session(let tokens):
+            guard let pair = try await tokens() else { throw BrokerError.notSignedIn }
+            return Self.authedHeaders(
+                access: pair.accessToken, refresh: pair.refreshToken)
+        }
+    }
+
+    private static func authedHeaders(
+        access: String, refresh: String
+    ) -> [String: String] {
+        [
+            "content-type": "application/json",
+            "authorization": "Bearer \(access)",
+            "x-stack-refresh-token": refresh,
+        ]
+    }
+
     private func post(
         _ url: String, headers: [String: String], body: [String: JSONValue], step: String
     ) async throws -> [String: JSONValue] {
@@ -199,7 +326,7 @@ public struct BrokerCredentialClient: Sendable {
             request.setValue(value, forHTTPHeaderField: name)
         }
         request.httpBody = try JSONEncoder().encode(JSONValue.object(body))
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await transport(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             throw BrokerError.http(step, status, String(data: data, encoding: .utf8) ?? "")
