@@ -85,7 +85,7 @@ extension CMUXCLI {
         }
         do {
             let response: String
-            if let responseTimeout {
+            if responseTimeout != nil || deadline != nil {
                 response = try client.send(
                     command: "agent_journal_append \(json)",
                     responseTimeout: responseTimeout,

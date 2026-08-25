@@ -32563,7 +32563,7 @@ export default CMUXSessionRestore;
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
         func cursorCriticalTimeout() -> TimeInterval? {
-            cursorShellRemainingTimeout()
+            cursorShellRemainingTimeout() ?? 2.0
         }
         var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
         defer { cursorLifecycleLease?.release() }
