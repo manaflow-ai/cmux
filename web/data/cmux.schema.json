@@ -34,7 +34,37 @@
       "type": "boolean",
       "default": true,
       "descriptionKey": "schemaDescriptions.agentStateBorder",
-      "description": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. The unread notification ring takes precedence when both apply."
+      "description": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. A live agent state takes precedence over the unread notification ring; panes with no agent still show the unread ring. Turn this off to restore the previous pane chrome."
+    },
+    "agentStateColorRunning": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.agentStateColorRunning",
+      "description": "Override the agent-state pane border color for running (the agent is working). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
+    },
+    "agentStateColorIdle": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.agentStateColorIdle",
+      "description": "Override the agent-state pane border color for idle (the agent finished its turn and is ready). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
+    },
+    "agentStateColorNeedsInput": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.agentStateColorNeedsInput",
+      "description": "Override the agent-state pane border color for needsInput (the agent is blocked on you). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
+    },
+    "agentStateColorError": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.agentStateColorError",
+      "description": "Override the agent-state pane border color for error (the agent errored or ran out of quota). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
+    },
+    "agentStateColorNoAgent": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.agentStateColorNoAgent",
+      "description": "Override the agent-state pane border color for noAgent (no agent is running in the pane). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
     },
     "actions": {
       "title": "actions",
@@ -101,7 +131,10 @@
           "properties": {
             "ctrlJ": {
               "type": "string",
-              "enum": ["newline", "menu"],
+              "enum": [
+                "newline",
+                "menu"
+              ],
               "default": "newline",
               "description": "Behavior for Ctrl+J in Agent Chat text fields. Use newline to insert a line break, or menu to move to the next popup item while a menu is open.",
               "descriptionKey": "schemaDescriptions.agentChat.keys.ctrlJ"
@@ -190,7 +223,12 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "required": [
+              "id",
+              "name",
+              "sessionIdSource",
+              "resumeCommand"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -216,10 +254,14 @@
                   },
                   "argvContains": {
                     "oneOf": [
-                      { "type": "string" },
+                      {
+                        "type": "string"
+                      },
                       {
                         "type": "array",
-                        "items": { "type": "string" }
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     ],
                     "description": "Substring or substrings that must appear in the process argv."
@@ -235,11 +277,16 @@
                   {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["type"],
+                    "required": [
+                      "type"
+                    ],
                     "properties": {
                       "type": {
                         "type": "string",
-                        "enum": ["argvOption", "piSessionFile"]
+                        "enum": [
+                          "argvOption",
+                          "piSessionFile"
+                        ]
                       },
                       "argvOption": {
                         "type": "string",
@@ -250,19 +297,31 @@
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "argvOption" }
+                            "type": {
+                              "const": "argvOption"
+                            }
                           }
                         },
-                        "then": { "required": ["argvOption"] }
+                        "then": {
+                          "required": [
+                            "argvOption"
+                          ]
+                        }
                       },
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "piSessionFile" }
+                            "type": {
+                              "const": "piSessionFile"
+                            }
                           }
                         },
                         "then": {
-                          "not": { "required": ["argvOption"] }
+                          "not": {
+                            "required": [
+                              "argvOption"
+                            ]
+                          }
                         }
                       }
                     ]
@@ -273,22 +332,33 @@
               "resumeCommand": {
                 "type": "string",
                 "anyOf": [
-                  { "pattern": "\\{\\{sessionId\\}\\}" },
-                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
               "forkCommand": {
                 "type": "string",
                 "anyOf": [
-                  { "pattern": "\\{\\{sessionId\\}\\}" },
-                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
                 ],
                 "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
               },
               "cwd": {
                 "type": "string",
-                "enum": ["preserve", "ignore"],
+                "enum": [
+                  "preserve",
+                  "ignore"
+                ],
                 "default": "preserve",
                 "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
               },
@@ -314,7 +384,11 @@
       "properties": {
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["afterCurrent", "top", "end"],
+          "enum": [
+            "afterCurrent",
+            "top",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
           "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
@@ -339,14 +413,23 @@
                 "description": "Items appearing in the right-click menu on the group's + button. Same schema as the global ui.newWorkspace.contextMenu entries.",
                 "items": {
                   "oneOf": [
-                    { "type": "string" },
-                    { "type": "object", "additionalProperties": true }
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
                   ]
                 }
               },
               "newWorkspacePlacement": {
                 "type": "string",
-                "enum": ["afterCurrent", "top", "end"],
+                "enum": [
+                  "afterCurrent",
+                  "top",
+                  "end"
+                ],
                 "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
                 "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
               }
@@ -361,7 +444,9 @@
       "type": "array",
       "items": {
         "oneOf": [
-          { "type": "string" },
+          {
+            "type": "string"
+          },
           {
             "type": "object",
             "additionalProperties": true
@@ -403,13 +488,21 @@
         },
         "appearance": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "App appearance mode."
         },
         "appIcon": {
           "type": "string",
-          "enum": ["automatic", "light", "dark"],
+          "enum": [
+            "automatic",
+            "light",
+            "dark"
+          ],
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
@@ -426,13 +519,24 @@
         },
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["top", "afterCurrent", "end"],
+          "enum": [
+            "top",
+            "afterCurrent",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
         "forkConversationDefaultDestination": {
           "type": "string",
-          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "enum": [
+            "right",
+            "left",
+            "top",
+            "bottom",
+            "newTab",
+            "newWorkspace"
+          ],
           "default": "right",
           "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
           "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
@@ -503,7 +607,11 @@
         },
         "confirmQuit": {
           "type": "string",
-          "enum": ["always", "dirty-only", "never"],
+          "enum": [
+            "always",
+            "dirty-only",
+            "never"
+          ],
           "default": "always",
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
@@ -586,7 +694,11 @@
         },
         "sessionContentAlignment": {
           "type": "string",
-          "enum": ["left", "center", "right"],
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
           "default": "center",
           "descriptionKey": "schemaDescriptions.terminal.sessionContentAlignment",
           "description": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled."
@@ -689,7 +801,13 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "title", "kind", "systemImage", "backgroundColorHex"],
+            "required": [
+              "id",
+              "title",
+              "kind",
+              "systemImage",
+              "backgroundColorHex"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -704,7 +822,10 @@
               },
               "kind": {
                 "type": "string",
-                "enum": ["textEntry", "commandTemplate"],
+                "enum": [
+                  "textEntry",
+                  "commandTemplate"
+                ],
                 "description": "Whether this action submits plain Text Entry or expands a shell command template.",
                 "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionKind"
               },
@@ -743,13 +864,19 @@
             "allOf": [
               {
                 "if": {
-                  "required": ["kind"],
+                  "required": [
+                    "kind"
+                  ],
                   "properties": {
-                    "kind": { "const": "commandTemplate" }
+                    "kind": {
+                      "const": "commandTemplate"
+                    }
                   }
                 },
                 "then": {
-                  "required": ["commandTemplate"],
+                  "required": [
+                    "commandTemplate"
+                  ],
                   "anyOf": [
                     {
                       "properties": {
@@ -760,9 +887,13 @@
                       }
                     },
                     {
-                      "required": ["preservePromptAfterLaunch"],
+                      "required": [
+                        "preservePromptAfterLaunch"
+                      ],
                       "properties": {
-                        "preservePromptAfterLaunch": { "const": true }
+                        "preservePromptAfterLaunch": {
+                          "const": true
+                        }
                       }
                     }
                   ]
@@ -778,7 +909,16 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "required": [
+              "version",
+              "id",
+              "commandPrefix",
+              "environmentKeys",
+              "policy",
+              "createdAt",
+              "updatedAt",
+              "signature"
+            ],
             "properties": {
               "version": {
                 "type": "integer",
@@ -821,7 +961,11 @@
               },
               "policy": {
                 "type": "string",
-                "enum": ["manual", "prompt", "auto"]
+                "enum": [
+                  "manual",
+                  "prompt",
+                  "auto"
+                ]
               },
               "createdAt": {
                 "type": "number"
@@ -846,10 +990,15 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["command"],
+            "required": [
+              "command"
+            ],
             "properties": {
               "hostPattern": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "minLength": 1,
                 "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
               },
@@ -915,7 +1064,11 @@
         },
         "agentTurnComplete": {
           "type": "string",
-          "enum": ["whenIdle", "always", "never"],
+          "enum": [
+            "whenIdle",
+            "always",
+            "never"
+          ],
           "default": "whenIdle",
           "descriptionKey": "schemaDescriptions.notifications.agentTurnComplete",
           "description": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it."
@@ -962,7 +1115,10 @@
         },
         "hooksMode": {
           "type": "string",
-          "enum": ["append", "replace"],
+          "enum": [
+            "append",
+            "replace"
+          ],
           "default": "append",
           "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
         },
@@ -973,7 +1129,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "command"],
+            "required": [
+              "id",
+              "command"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -1035,7 +1194,10 @@
               "properties": {
                 "checklistStyle": {
                   "type": "string",
-                  "enum": ["popover", "inline"],
+                  "enum": [
+                    "popover",
+                    "inline"
+                  ],
                   "default": "popover",
                   "description": "How a row's checklist opens from its summary line: an anchored popover or inline expansion."
                 }
@@ -1045,7 +1207,10 @@
         },
         "branchLayout": {
           "type": "string",
-          "enum": ["vertical", "inline"],
+          "enum": [
+            "vertical",
+            "inline"
+          ],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
@@ -1119,13 +1284,19 @@
         },
         "loadingSpinnerPosition": {
           "type": "string",
-          "enum": ["leading", "trailing"],
+          "enum": [
+            "leading",
+            "trailing"
+          ],
           "default": "leading",
           "description": "Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right)."
         },
         "notificationBadgePosition": {
           "type": "string",
-          "enum": ["leading", "trailing"],
+          "enum": [
+            "leading",
+            "trailing"
+          ],
           "default": "leading",
           "description": "Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right)."
         },
@@ -1374,7 +1545,25 @@
       "properties": {
         "defaultSearchEngine": {
           "type": "string",
-          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
+          "enum": [
+            "google",
+            "duckduckgo",
+            "bing",
+            "kagi",
+            "startpage",
+            "brave",
+            "perplexity",
+            "exa",
+            "yahoo",
+            "ecosia",
+            "qwant",
+            "mojeek",
+            "wikipedia",
+            "github",
+            "baidu",
+            "yandex",
+            "custom"
+          ],
           "default": "google",
           "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
           "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
@@ -1398,7 +1587,11 @@
         },
         "theme": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "Embedded browser theme."
         },
@@ -1505,7 +1698,10 @@
       "properties": {
         "artifactFolderAccess": {
           "type": "string",
-          "enum": ["subtree", "oneLevel"],
+          "enum": [
+            "subtree",
+            "oneLevel"
+          ],
           "default": "subtree",
           "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
         }
@@ -1586,7 +1782,11 @@
       "properties": {
         "doubleClickAction": {
           "type": "string",
-          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "enum": [
+            "preview",
+            "defaultEditor",
+            "preferredEditor"
+          ],
           "default": "preview",
           "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
           "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
@@ -1601,7 +1801,10 @@
       "properties": {
         "defaultLayout": {
           "type": "string",
-          "enum": ["unified", "split"],
+          "enum": [
+            "unified",
+            "split"
+          ],
           "default": "unified",
           "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
           "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
@@ -1945,7 +2148,13 @@
     },
     "unboundShortcutBinding": {
       "type": "string",
-      "enum": ["", "none", "clear", "unbound", "disabled"]
+      "enum": [
+        "",
+        "none",
+        "clear",
+        "unbound",
+        "disabled"
+      ]
     },
     "shortcutFirstStroke": {
       "allOf": [

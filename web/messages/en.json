@@ -1931,7 +1931,12 @@
         },
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
-        "agentStateBorder": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. The unread notification ring takes precedence when both apply.",
+        "agentStateBorder": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. A live agent state takes precedence over the unread notification ring; panes with no agent still show the unread ring. Turn this off to restore the previous pane chrome.",
+        "agentStateColorRunning": "Override the agent-state pane border color for running (the agent is working). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored.",
+        "agentStateColorIdle": "Override the agent-state pane border color for idle (the agent finished its turn and is ready). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored.",
+        "agentStateColorNeedsInput": "Override the agent-state pane border color for needsInput (the agent is blocked on you). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored.",
+        "agentStateColorError": "Override the agent-state pane border color for error (the agent errored or ran out of quota). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored.",
+        "agentStateColorNoAgent": "Override the agent-state pane border color for panes where no agent is running. Requires agentStateBorder. Must be #RRGGBB; anything else is ignored.",
         "notifications": {
           "paneFlashColor": "Override the pane flash and unread notification ring color. Leave unset to use the built-in system blue.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",

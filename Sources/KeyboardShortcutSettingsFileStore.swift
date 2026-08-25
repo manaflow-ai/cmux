@@ -419,7 +419,7 @@ final class CmuxSettingsFileStore {
         let keys = [
             PaneChromeSettings.paneBorderColorKey,
             PaneChromeSettings.activePaneBorderColorKey,
-        ]
+        ] + PaneChromeSettings.agentStateColorKeys
         for key in keys where root.keys.contains(key) {
             guard let value = parseNullableHex(root[key], path: key, sourcePath: sourcePath) else {
                 continue

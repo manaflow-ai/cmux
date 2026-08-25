@@ -213,12 +213,13 @@ struct WorkspaceContentView: View {
     static func agentPaneStateColor(
         enabled: Bool,
         revision: UInt64,
-        lifecycles: [String: AgentHibernationLifecycleState]?
+        lifecycles: [String: AgentHibernationLifecycleState]?,
+        defaults: UserDefaults = .standard
     ) -> AgentPaneStateBorder? {
         _ = revision
         guard enabled else { return nil }
         let status = lifecycles.map { AgentStatus.resolve(lifecycles: $0) } ?? .none
-        let hex = status.tintHex ?? PaneChromeSettings.noAgentPaneBorderHex
+        let hex = PaneChromeSettings.agentStateColorHex(for: status, defaults: defaults)
         return AgentPaneStateBorder(
             status: status,
             color: WorkspaceAttentionColor(configuredHex: hex)

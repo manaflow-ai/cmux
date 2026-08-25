@@ -923,6 +923,67 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func agentStateColorsHonorPerStateOverrides() throws {
+        let suiteName = "PaneChromeAgentColors.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Unset: the built-in palette.
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: ["claude_code": .idle],
+                defaults: defaults
+            )?.color == WorkspaceAttentionColor(configuredHex: AgentStatus.idle.tintHex)
+        )
+
+        defaults.set("#123456", forKey: PaneChromeSettings.agentStateColorKey(for: .idle))
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: ["claude_code": .idle],
+                defaults: defaults
+            )?.color == WorkspaceAttentionColor(configuredHex: "#123456")
+        )
+
+        // The no-agent neutral is overridable on the same footing.
+        defaults.set("#654321", forKey: PaneChromeSettings.agentStateColorKey(for: .none))
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: [:],
+                defaults: defaults
+            )?.color == WorkspaceAttentionColor(configuredHex: "#654321")
+        )
+
+        // A malformed override falls back to the built-in rather than reaching
+        // WorkspaceAttentionColor, which would silently paint the unread accent
+        // and read as a wrong state rather than a bad setting.
+        defaults.set("not-a-color", forKey: PaneChromeSettings.agentStateColorKey(for: .error))
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: ["claude_code": .error],
+                defaults: defaults
+            )?.color == WorkspaceAttentionColor(configuredHex: AgentStatus.error.tintHex)
+        )
+
+        // The master switch still wins over any override.
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: false,
+                revision: 0,
+                lifecycles: ["claude_code": .idle],
+                defaults: defaults
+            ) == nil
+        )
+    }
+
+    @Test
     func agentPaneStateColorHexesAreStrictSixDigitHex() {
         // WorkspaceAttentionColor silently falls back to the notification ring
         // accent for anything that is not exactly `#RRGGBB`, so a typo in the
