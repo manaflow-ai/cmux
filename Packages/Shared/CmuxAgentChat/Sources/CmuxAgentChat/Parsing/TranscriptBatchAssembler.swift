@@ -28,6 +28,8 @@ struct TranscriptBatchAssembler {
     /// Limit one registration so a single malformed tool call cannot consume
     /// the entire cross-call mutation budget.
     static let maxArtifactMutationBytesPerCall = 64 * 1_024
+    /// Bound transcript-controlled tool-call identifiers carried between parses.
+    static let maxPendingArtifactMutationKeyBytes = 4_096
     static let maxArtifactMutationPathBytes = 4_096
     static let maxArtifactReferenceCount = 4_096
     static let maxArtifactReferenceBytes = 512 * 1_024
@@ -90,7 +92,11 @@ struct TranscriptBatchAssembler {
 
     /// Registers sidechain mutation targets without exposing sidechain messages.
     mutating func registerArtifactMutation(paths: [String], pendingKey: String, seq: Int) {
-        guard !paths.isEmpty, !pendingKey.isEmpty else { return }
+        guard !paths.isEmpty,
+              !pendingKey.isEmpty,
+              pendingKey.utf8.count <= Self.maxPendingArtifactMutationKeyBytes else {
+            return
+        }
         var references: [ChatArtifactTranscriptReference] = []
         references.reserveCapacity(min(paths.count, Self.maxArtifactMutationReferencesPerCall))
         var bytes = 0
@@ -192,18 +198,23 @@ struct TranscriptBatchAssembler {
     private func bounded(
         _ pending: [String: [ChatArtifactTranscriptReference]]
     ) -> [String: [ChatArtifactTranscriptReference]] {
-        let newestFirst = pending.sorted { lhs, rhs in
+        let newestFirst = pending.filter {
+            $0.key.utf8.count <= Self.maxPendingArtifactMutationKeyBytes
+        }.sorted { lhs, rhs in
             (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
         }
         var bounded: [String: [ChatArtifactTranscriptReference]] = [:]
         var referenceCount = 0
         var byteCount = 0
         for (key, references) in newestFirst {
-            guard referenceCount < Self.maxPendingArtifactMutationReferences,
-                  byteCount < Self.maxPendingArtifactMutationBytes else {
-                break
+            let keyBytes = key.utf8.count
+            guard keyBytes <= Self.maxPendingArtifactMutationBytes,
+                  referenceCount < Self.maxPendingArtifactMutationReferences,
+                  keyBytes <= Self.maxPendingArtifactMutationBytes - byteCount else {
+                continue
             }
             var retained: [ChatArtifactTranscriptReference] = []
+            var retainedByteCount = keyBytes
             for reference in references {
                 guard !reference.path.isEmpty else { continue }
                 let bytes = reference.path.utf8.count
@@ -211,15 +222,16 @@ struct TranscriptBatchAssembler {
                 guard referenceCount < Self.maxPendingArtifactMutationReferences else {
                     break
                 }
-                guard bytes <= Self.maxPendingArtifactMutationBytes - byteCount else {
+                guard bytes <= Self.maxPendingArtifactMutationBytes - byteCount - retainedByteCount else {
                     break
                 }
                 retained.append(reference)
                 referenceCount += 1
-                byteCount += bytes
+                retainedByteCount += bytes
             }
             if !retained.isEmpty {
                 bounded[key] = retained
+                byteCount += retainedByteCount
             }
         }
         return bounded

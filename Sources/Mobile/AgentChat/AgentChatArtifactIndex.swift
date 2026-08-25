@@ -56,7 +56,19 @@ actor AgentChatArtifactIndex {
         var generation: String {
             let modified = Int64(modifiedAt.timeIntervalSince1970 * 1_000_000)
             let changed = Int64(changedAt.timeIntervalSince1970 * 1_000_000)
-            return "\(fileSize)-\(modified)-\(changed)"
+            // Gallery consumers use this as the cache identity for authorized
+            // paths. Include every source-bound input, not just stat metadata,
+            // so a lineage or scan-limit change cannot reuse stale rows.
+            let identity = [
+                transcriptPath,
+                workingDirectory ?? "",
+                transcriptLineage,
+                String(maximumFileBytes),
+            ].joined(separator: "\u{0}")
+            let identityDigest = AgentChatTranscriptReader()
+                .digest(Data(identity.utf8))
+                .base64EncodedString()
+            return "\(fileSize)-\(modified)-\(changed)-\(identityDigest)"
         }
     }
 

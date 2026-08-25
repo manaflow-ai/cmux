@@ -188,10 +188,27 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
         let filesystemRoot = paths.filesystemRoot
         let awaitsFilesystemRoot = (try? filesystemRoot.checkResourceIsReachable()) != true
-        let initialWatchPath = awaitsFilesystemRoot
-            ? paths.projectRoot.path
-            : filesystemRoot.path
-        guard let initialWatcher = RecursivePathWatcher(paths: [initialWatchPath]) else {
+        let initialWatcher: RecursivePathWatcher?
+        if awaitsFilesystemRoot {
+            let filesystemRootPath = filesystemRoot.path
+            // FSEvents is recursive for a directory path. Before `.cmux`
+            // exists, filter the project-root stream at the source boundary so
+            // unrelated project churn cannot wake the repository or retain a
+            // recursive store watcher. Once the store appears, the narrower
+            // recursive `.cmux` watcher below takes over.
+            initialWatcher = RecursivePathWatcher(
+                paths: [paths.projectRoot.path],
+                eventFilter: { change in
+                    change.paths.contains { path in
+                        path == filesystemRootPath
+                            || path.hasPrefix(filesystemRootPath + "/")
+                    }
+                }
+            )
+        } else {
+            initialWatcher = RecursivePathWatcher(paths: [filesystemRoot.path])
+        }
+        guard let initialWatcher else {
             return AsyncStream { $0.finish() }
         }
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
