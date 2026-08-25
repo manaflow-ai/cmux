@@ -314,48 +314,65 @@ struct MachinesPanelView: View {
 
 /// The activity-monitor line under a machine: three gauges (CPU, memory, disk)
 /// with used / total, or "Asleep · free" when the machine is hibernated.
+/// A narrow sidebar drops Disk, then Mem, instead of ever wrapping the
+/// gauges' text mid-character across lines.
 private struct MachineStatsLine: View {
     let stats: VMStats
 
     var body: some View {
-        HStack(spacing: 10) {
-            switch stats.state {
-            case .awake:
-                if let cpu = stats.cpuPercent {
-                    gauge(
-                        label: String(localized: "machines.stats.cpu", defaultValue: "CPU"),
-                        fraction: cpu / 100,
-                        text: "\(Int(cpu.rounded()))%"
-                    )
-                }
-                if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
-                    gauge(
-                        label: String(localized: "machines.stats.memory", defaultValue: "Mem"),
-                        fraction: Double(used) / Double(total),
-                        text: Self.gbPair(usedMb: used, totalMb: total)
-                    )
-                }
-                if let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
-                    gauge(
-                        label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
-                        fraction: Double(used) / Double(total),
-                        text: Self.gbPair(usedMb: used, totalMb: total)
-                    )
-                }
-            case .asleep:
+        switch stats.state {
+        case .awake:
+            ViewThatFits(in: .horizontal) {
+                awakeGauges(showMemory: true, showDisk: true)
+                awakeGauges(showMemory: true, showDisk: false)
+                awakeGauges(showMemory: false, showDisk: false)
+            }
+            .accessibilityElement(children: .combine)
+        case .asleep:
+            HStack(spacing: 10) {
                 Text(String(localized: "machines.stats.asleep", defaultValue: "Asleep \u{00B7} free while it sleeps"))
                     .cmuxFont(size: 10.5)
                     .foregroundColor(.secondary.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if let total = stats.memoryTotalMb {
                     Text(String(format: String(localized: "machines.stats.provisioned", defaultValue: "%@ GB"), Self.gb(total)))
                         .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary.opacity(0.55))
+                        .lineLimit(1)
+                        .fixedSize()
                 }
-            case .unknown:
-                EmptyView()
+            }
+            .accessibilityElement(children: .combine)
+        case .unknown:
+            EmptyView()
+        }
+    }
+
+    private func awakeGauges(showMemory: Bool, showDisk: Bool) -> some View {
+        HStack(spacing: 10) {
+            if let cpu = stats.cpuPercent {
+                gauge(
+                    label: String(localized: "machines.stats.cpu", defaultValue: "CPU"),
+                    fraction: cpu / 100,
+                    text: "\(Int(cpu.rounded()))%"
+                )
+            }
+            if showMemory, let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
+                gauge(
+                    label: String(localized: "machines.stats.memory", defaultValue: "Mem"),
+                    fraction: Double(used) / Double(total),
+                    text: Self.gbPair(usedMb: used, totalMb: total)
+                )
+            }
+            if showDisk, let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
+                gauge(
+                    label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
+                    fraction: Double(used) / Double(total),
+                    text: Self.gbPair(usedMb: used, totalMb: total)
+                )
             }
         }
-        .accessibilityElement(children: .combine)
     }
 
     private func gauge(label: String, fraction: Double, text: String) -> some View {
@@ -364,6 +381,8 @@ private struct MachineStatsLine: View {
             Text(label)
                 .cmuxFont(size: 10)
                 .foregroundColor(.secondary.opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.08))
                 Capsule().fill(gaugeColor(clamped)).frame(width: 34 * clamped)
@@ -373,6 +392,8 @@ private struct MachineStatsLine: View {
                 .cmuxFont(size: 10)
                 .foregroundColor(.secondary.opacity(0.8))
                 .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
         }
         .accessibilityLabel("\(label) \(text)")
     }
