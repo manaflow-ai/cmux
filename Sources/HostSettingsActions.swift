@@ -311,7 +311,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     var isCloudMachinesAvailable: Bool {
-        CmuxFeatureFlags.shared.isCloudVMUIEnabled
+        CloudMachinesFeature.isEnabled
     }
 
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {

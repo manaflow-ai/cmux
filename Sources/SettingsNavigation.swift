@@ -39,7 +39,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines:
-            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud Machines")
+            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking:
             return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
@@ -84,7 +84,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .mobile:
             return "iphone"
         case .cloudMachines:
-            return "server.rack"
+            return "cloud"
         case .networking:
             return "network"
         case .workspaceColors:
@@ -443,6 +443,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
