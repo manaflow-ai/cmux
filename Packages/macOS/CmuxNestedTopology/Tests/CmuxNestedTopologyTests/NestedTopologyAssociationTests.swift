@@ -200,6 +200,45 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].title == sessionB.title)
     }
 
+    @Test("bounded session history does not freeze provider updates")
+    func providerUpdateAfterSessionHistoryCap() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        var snapshot = try fixture.snapshot(
+            tabs: [fixture.tab("tab-1", order: 0), fixture.tab("tab-2", order: 1)],
+            panes: [fixture.pane(
+                sessionID: "session-0",
+                associationAuthority: .heuristic,
+                heuristicAlreadySatisfied: true
+            )]
+        )
+
+        for index in 1...32 {
+            snapshot = try reducer.applying(
+                fixture.event(.paneUpdated(node: fixture.pane(
+                    tabRawID: index.isMultiple(of: 2) ? "tab-2" : "tab-1",
+                    sessionID: "session-\(index)",
+                    associationAuthority: .heuristic,
+                    heuristicAlreadySatisfied: true
+                ))),
+                to: snapshot
+            )
+        }
+
+        let providerUpdate = fixture.pane(
+            tabRawID: "tab-2",
+            sessionID: "session-provider",
+            associationAuthority: .provider
+        )
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(node: providerUpdate)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.key.sessionID == "session-provider")
+        #expect(result.panes[0].association.authority == .provider)
+    }
+
     @Test("a new session cannot downgrade provider-owned parentage to a heuristic")
     func sessionChangePreservesProviderParentage() throws {
         let fixture = NestedTopologyTestFixture()
