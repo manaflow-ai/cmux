@@ -73,8 +73,8 @@ at the app's composition root and inject or retain them for the owning feature
 
 ## Testing
 
-File-backed reads are pure functions of the directory argument, so most tests
-run against real temp directories with hand-written git metadata. The test
+File-backed reads are deterministic for a stable fixture, so most tests run
+against real temp directories with hand-written Git metadata. The test
 target builds fixtures with `GitRepositoryFixture` (writes `HEAD`, `config`,
 refs, and working-tree files) and `GitIndexFixture` (writes a binary `index` for
 versions 2 and 4, including path prefix-compression). Reftable behavior uses an
