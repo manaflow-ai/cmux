@@ -5838,7 +5838,7 @@ class TerminalController {
         guard terminalPanel != nil || terminalTarget != nil else { return nil }
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalTarget?.performBindingAction(bindingAction)
+            let ok = terminalTarget?.performInternalBindingAction(bindingAction)
                 ?? terminalPanel?.performInternalBindingAction(bindingAction)
                 ?? false
             actionSucceeded = ok

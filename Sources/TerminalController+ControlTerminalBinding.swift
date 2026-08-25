@@ -69,6 +69,15 @@ struct ControlTerminalSocketTarget {
         return surface.performExplicitInputBindingAction(action)
     }
 
+    /// Performs a read-only/internal binding without emitting explicit-input
+    /// notifications (used by mobile VT export and snapshot capture).
+    func performInternalBindingAction(_ action: String) -> Bool {
+        guard surface.liveSurfaceForGhosttyAccess(
+            reason: "socket.internalBindingAction"
+        ) != nil else { return false }
+        return surface.performInternalBindingAction(action)
+    }
+
     /// Requests a renderer refresh from the canonical surface.
     func forceRefresh(reason: String) {
         surface.forceRefresh(reason: reason)
