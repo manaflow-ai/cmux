@@ -374,11 +374,13 @@ extension AppDelegate {
     }
 
     /// Returns the focused browser web view that owns an event's responder
-    /// chain, excluding browser chrome such as the address and find bars.
+    /// chain, excluding browser chrome such as the address/find bars and Web
+    /// Inspector responders, which must retain their own keyboard handling.
     func shortcutEventBrowserWebView(_ event: NSEvent) -> CmuxWebView? {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let shortcutWindow,
               let responder = shortcutWindow.firstResponder,
+              !cmuxIsLikelyWebInspectorResponder(responder),
               browserOmnibarPanelId(for: responder) == nil,
               BrowserWindowPortalRegistry.searchOverlayPanelId(
                   for: responder,
