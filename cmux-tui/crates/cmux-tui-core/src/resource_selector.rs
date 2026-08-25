@@ -620,71 +620,6 @@ fn resolve_workspace(state: &State, raw: &str) -> Result<WorkspaceId, ResourceEr
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_selectors_below_target_depth() {
-        let selectors = ResourceSelectors {
-            machine: Some("machine-1".into()),
-            session: Some("session-1".into()),
-            workspace: Some("workspace-1".into()),
-            pane: Some("pane-1".into()),
-            ..Default::default()
-        };
-
-        let error = selectors.unexpected_below(ResourceTarget::Workspace);
-        assert_eq!(error, Some("pane"));
-    }
-
-    #[test]
-    fn requires_target_selector_at_target_depth() {
-        let selectors = ResourceSelectors {
-            machine: Some("machine-1".into()),
-            session: Some("session-1".into()),
-            ..Default::default()
-        };
-
-        let error = require_target_selector(&selectors, ResourceTarget::Workspace)
-            .expect_err("workspace target without workspace selector must fail");
-        assert!(error.to_string().contains("missing required workspace selector"));
-    }
-
-    #[test]
-    fn singleton_name_matches_only_expected_name_and_id_matches_public_id() {
-        let by_name = resolve_singleton(
-            "session",
-            "name:dev",
-            &String::from("session_abc"),
-            Some("dev"),
-            |id| Ok(id),
-        )
-        .expect("matching name resolves");
-        assert_eq!(by_name, "session_abc");
-
-        let by_id = resolve_singleton(
-            "session",
-            "session_abc",
-            &String::from("session_abc"),
-            Some("other"),
-            |id| Ok(id),
-        )
-        .expect("matching public id resolves");
-        assert_eq!(by_id, "session_abc");
-
-        let mismatch = resolve_singleton(
-            "session",
-            "name:session_abc",
-            &String::from("session_abc"),
-            Some("dev"),
-            |id| Ok(id),
-        )
-        .expect_err("public id must not match as a name");
-        assert!(mismatch.to_string().contains("not found"));
-    }
-}
-
 fn resolve_screen(
     state: &State,
     raw: &str,
@@ -1152,4 +1087,64 @@ fn public_tab_id(state: &State, slot: SurfaceId) -> Result<&TabPublicId, Resourc
         .tab_ids
         .get(&slot)
         .ok_or_else(|| ResourceError::not_found("tab", "<resolved>"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_selectors_below_target_depth() {
+        let selectors = ResourceSelectors {
+            machine: Some("machine-1".into()),
+            session: Some("session-1".into()),
+            workspace: Some("workspace-1".into()),
+            pane: Some("pane-1".into()),
+            ..Default::default()
+        };
+
+        let error = selectors.unexpected_below(ResourceTarget::Workspace);
+        assert_eq!(error, Some("pane"));
+    }
+
+    #[test]
+    fn requires_target_selector_at_target_depth() {
+        let selectors = ResourceSelectors {
+            machine: Some("machine-1".into()),
+            session: Some("session-1".into()),
+            ..Default::default()
+        };
+
+        let error = require_target_selector(&selectors, ResourceTarget::Workspace)
+            .expect_err("workspace target without workspace selector must fail");
+        assert!(error.to_string().contains("missing required workspace selector"));
+    }
+
+    #[test]
+    fn singleton_name_matches_only_expected_name_and_id_matches_public_id() {
+        let by_name =
+            resolve_singleton("session", "name:dev", &String::from("session_abc"), Some("dev"), Ok)
+                .expect("matching name resolves");
+        assert_eq!(by_name, "session_abc");
+
+        let by_id = resolve_singleton(
+            "session",
+            "session_abc",
+            &String::from("session_abc"),
+            Some("other"),
+            Ok,
+        )
+        .expect("matching public id resolves");
+        assert_eq!(by_id, "session_abc");
+
+        let mismatch = resolve_singleton(
+            "session",
+            "name:session_abc",
+            &String::from("session_abc"),
+            Some("dev"),
+            Ok,
+        )
+        .expect_err("public id must not match as a name");
+        assert!(mismatch.to_string().contains("not found"));
+    }
 }

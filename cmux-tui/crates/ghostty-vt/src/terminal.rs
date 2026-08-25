@@ -4350,8 +4350,8 @@ mod tests {
     };
 
     use super::{
-        Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector, PaletteOsc,
-        PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
+        C1Normalizer, Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector,
+        PaletteOsc, PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
         kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
         reset_kitty_replay_image_encodings, vt_replay_row_window,
     };
