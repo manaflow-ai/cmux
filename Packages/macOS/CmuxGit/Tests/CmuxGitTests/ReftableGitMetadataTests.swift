@@ -127,7 +127,10 @@ import Testing
         environment["GIT_WORK_TREE"] = unrelated.path
         environment["GIT_COMMON_DIR"] = unrelatedRepository.commonDirectory
         let reader = SystemGitReferenceReader(
-            runner: SystemWorkspaceChangesGitRunner(environment: environment)
+            runner: SystemWorkspaceChangesGitRunner(
+                environment: environment,
+                allowsExecutableFallback: true
+            )
         )
 
         let snapshot = reader.snapshot(repository: intendedRepository)
@@ -162,7 +165,8 @@ import Testing
             executableURLs: [
                 URL(fileURLWithPath: "/usr/bin/false"),
                 fixture.gitExecutableURL,
-            ]
+            ],
+            allowsExecutableFallback: true
         )
         let snapshot = SystemGitReferenceReader(runner: runner).snapshot(repository: repository)
 

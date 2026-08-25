@@ -18,7 +18,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         storageProbe: (any GitReferenceStorageProbing)? = nil
     ) {
         runner = SystemWorkspaceChangesGitRunner(
-            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
+            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit,
+            allowsExecutableFallback: true
         )
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
     }
@@ -49,6 +50,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         }
         if hasReftableDirectory {
             return true
+        }
+        // A valid file-backed HEAD already resolves its object ID without a
+        // config scan. Only ambiguous/unborn/malformed heads need backend
+        // detection, keeping ordinary sidebar refreshes on the direct path.
+        if fileBackedHeadHasResolvedCommit(repository: repository) {
+            return false
         }
         return referenceStorageName(repository: repository).map({ $0 != "files" }) == true
     }
@@ -129,6 +136,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 for: symbolicReference,
                 repository: repository
             )
+            guard let currentCommit else { return nil }
             guard let verifiedSymbolicReference = output(
                 arguments: ["symbolic-ref", "--quiet", "HEAD"],
                 repository: repository,
@@ -140,6 +148,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 for: verifiedSymbolicReference,
                 repository: repository
             )
+            guard let verifiedCommit else { return nil }
             if verifiedSymbolicReference == symbolicReference,
                verifiedCommit == currentCommit {
                 return (symbolicReference, currentCommit)
@@ -150,7 +159,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         return nil
     }
 
-    /// Resolves one branch ref to a complete object ID, or nil for an unborn ref.
+    /// Resolves one branch ref to a complete object ID, or nil when plumbing
+    /// cannot prove a commit (including an unborn or unsupported ref backend).
     private func resolvedCommit(
         for symbolicReference: String,
         repository: ResolvedGitRepository
@@ -227,6 +237,28 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             }
         }
         return storageName
+    }
+
+    /// Whether a file-backed HEAD already resolves to a complete object ID.
+    private func fileBackedHeadHasResolvedCommit(repository: ResolvedGitRepository) -> Bool {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return false
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("ref: ") else {
+            return normalizedObjectID(trimmed) != nil
+        }
+        let refName = String(trimmed.dropFirst("ref: ".count))
+        guard !refName.isEmpty,
+              let value = GitMetadataService.gitRefValue(
+                  repository: repository,
+                  refName: refName
+              ) else {
+            return false
+        }
+        return normalizedObjectID(value) != nil
     }
 
     /// Reads at most the configured backend-detection limit from one config.

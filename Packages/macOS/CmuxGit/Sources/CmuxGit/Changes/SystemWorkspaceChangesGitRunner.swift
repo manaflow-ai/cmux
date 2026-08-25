@@ -19,17 +19,20 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     private let executableURLs: [URL]
     private let environment: [String: String]
     private let boundedCommandWallTimeLimit: TimeInterval
+    private let allowsExecutableFallback: Bool
 
     init(
         executableURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        boundedCommandWallTimeLimit: TimeInterval = 30
+        boundedCommandWallTimeLimit: TimeInterval = 30,
+        allowsExecutableFallback: Bool = false
     ) {
         self.init(
             executableURLs: executableURL.map { [$0] }
                 ?? SystemGitExecutableResolver(environment: environment).executableURLs(),
             environment: environment,
-            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
+            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit,
+            allowsExecutableFallback: allowsExecutableFallback
         )
     }
 
@@ -39,7 +42,8 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     init(
         executableURLs: [URL],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        boundedCommandWallTimeLimit: TimeInterval = 30
+        boundedCommandWallTimeLimit: TimeInterval = 30,
+        allowsExecutableFallback: Bool = false
     ) {
         self.executableURLs = executableURLs.isEmpty
             ? SystemGitExecutableResolver(environment: environment).executableURLs()
@@ -51,6 +55,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
         self.environment = scopedEnvironment
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
+        self.allowsExecutableFallback = allowsExecutableFallback
     }
 
     func run(arguments: [String], in directory: URL) throws -> WorkspaceChangesGitResult {
@@ -126,7 +131,10 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         var lastResult: (exitCode: Int32, wasTruncated: Bool)?
         var lastError: Error?
 
-        for executableURL in executableURLs {
+        let candidates = allowsExecutableFallback
+            ? executableURLs.prefix(2)
+            : executableURLs.prefix(1)
+        for executableURL in candidates {
             guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else { break }
             let now = DispatchTime.now()
             guard now < deadline || lastResult == nil else { break }
