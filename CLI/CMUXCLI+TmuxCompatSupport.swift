@@ -2,6 +2,26 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    /// A cmux pane can intentionally remain empty (for example, the persisted
+    /// global Dock root), but tmux panes must always have a targetable surface.
+    /// Keep the compatibility projection fail-closed when older payloads omit
+    /// one of the additive surface fields.
+    func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
+        if let surfaceCount = intFromAny(pane["surface_count"]) {
+            return surfaceCount > 0
+        }
+        if let surfaceIDs = pane["surface_ids"] as? [String] {
+            return !surfaceIDs.isEmpty
+        }
+        if let surfaces = pane["surfaces"] as? [[String: Any]] {
+            return !surfaces.isEmpty
+        }
+        if let selectedSurfaceID = pane["selected_surface_id"] as? String {
+            return !selectedSurfaceID.isEmpty
+        }
+        return false
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
