@@ -37,6 +37,8 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
             didExhaustBudget = true
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
+        case .missing:
+            return nil
         case .unavailable(let byteCount):
             didExhaustBudget = true
             remainingByteCount = max(0, remainingByteCount - byteCount)

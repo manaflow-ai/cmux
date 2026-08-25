@@ -356,6 +356,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return (contents, false)
         case .oversized(consumedByteCount: _):
             return (nil, true)
+        case .missing:
+            return (nil, false)
         case .unavailable(consumedByteCount: _):
             return (nil, false)
         }

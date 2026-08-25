@@ -31,7 +31,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
         self.executableURL = executableURL
-            ?? SystemGitExecutableResolver(environment: environment).referenceExecutableURLs().first
+            ?? SystemGitExecutableResolver(environment: environment).executableURLs().first
             ?? URL(fileURLWithPath: "/usr/bin/git")
         var scopedEnvironment = environment
         for key in Self.repositorySelectionEnvironmentKeys {

@@ -7,6 +7,7 @@ nonisolated struct GitConfigFileReader: Sendable {
     enum ReadResult: Sendable {
         case contents(String, consumedByteCount: Int)
         case oversized(consumedByteCount: Int)
+        case missing
         case unavailable(consumedByteCount: Int)
     }
 
@@ -22,7 +23,9 @@ nonisolated struct GitConfigFileReader: Sendable {
             url.path,
             O_RDONLY | O_NONBLOCK | O_CLOEXEC
         )
-        guard descriptor >= 0 else { return .unavailable(consumedByteCount: 0) }
+        guard descriptor >= 0 else {
+            return errno == ENOENT ? .missing : .unavailable(consumedByteCount: 0)
+        }
         defer { Darwin.close(descriptor) }
 
         var metadata = stat()
