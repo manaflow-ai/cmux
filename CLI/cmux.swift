@@ -27,17 +27,23 @@ struct CLIError: Error, CustomStringConvertible {
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    /// Cloud VM backend error code (e.g. "vm_create_failed") passed through the
+    /// v2 error's data payload, so callers can make idempotency decisions
+    /// structurally instead of parsing display text.
+    let vmBackendCode: String?
     let socketFailureKind: SocketFailureKind?
 
     init(
         message: String,
         exitCode: Int32 = 1,
         v2Code: String? = nil,
+        vmBackendCode: String? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.vmBackendCode = vmBackendCode
         self.socketFailureKind = socketFailureKind
     }
 
@@ -2937,6 +2943,7 @@ final class SocketClient {
             let message = (error["message"] as? String) ?? "Unknown v2 error"
             let action = error["action"] as? String
             let reason = error["reason"] as? String
+            let data = error["data"] as? [String: Any]
             throw CLIError(
                 message: formatV2Error(
                     code: code,
@@ -2945,7 +2952,8 @@ final class SocketClient {
                     reason: reason,
                     details: safeV2Details(error["details"])
                 ),
-                v2Code: error["code"] as? String
+                v2Code: error["code"] as? String,
+                vmBackendCode: data?["backend_code"] as? String
             )
         }
 
@@ -3177,6 +3185,101 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
+    /// Blaxel image that boots an xfce desktop with a noVNC web front end.
+    private static let cloudVMDesktopImage = "blaxel/xfce-vnc:latest"
+    /// Shell-only image for `vm new --base`; the backend default is the desktop image.
+    private static let cloudVMBaseImage = "blaxel/base-image:latest"
+    /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
+    private static let cloudVMSizeAliases: [String: Int] = [
+        "2g": 2048, "2gb": 2048, "small": 2048,
+        "4g": 4096, "4gb": 4096, "medium": 4096,
+        "8g": 8192, "8gb": 8192, "large": 8192,
+        "16g": 16384, "16gb": 16384, "xl": 16384,
+        "32g": 32768, "32gb": 32768, "xxl": 32768,
+    ]
+    static func parseCloudVMSize(_ raw: String) -> Int? {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let mb = cloudVMSizeAliases[key] { return mb }
+        if let mb = Int(key), mb >= 512 { return mb }
+        return nil
+    }
+    private static let cloudVMDesktopPort = 6901
+    private static func cloudVMImageHasDesktop(_ image: String) -> Bool {
+        image.contains("xfce-vnc")
+    }
+
+    /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:
+    /// a machine without a desktop, or a backend without open-port, just skips the split.
+    @discardableResult
+    private func openVMDesktopSplit(vmId: String, client: SocketClient, workspaceId: String? = nil) throws -> Bool {
+        let payload = try client.sendV2(
+            method: "vm.open_port",
+            params: ["id": vmId, "port": Self.cloudVMDesktopPort],
+            responseTimeout: 90
+        )
+        guard let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return false }
+        // Pin the split to the machine's own workspace when we just created it; a
+        // create can finish before the app has focused the new workspace, and an
+        // untargeted split would land in whatever was focused before. Without a
+        // target (a later "open desktop"), the split goes where the person is.
+        // reconnect: autoconnect only covers the first load — without it a machine
+        // sleeping, waking, or any dropped websocket leaves the pane parked on
+        // noVNC's disconnected screen until someone reopens the desktop.
+        var params: [String: Any] = ["url": openUrl + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"]
+        if let workspaceId {
+            params["workspace_id"] = workspaceId
+        }
+        let opened = try? client.sendV2(method: "browser.open_split", params: params)
+        return opened != nil
+    }
+
+    /// The workspace already attached to a managed Cloud VM, so a later desktop
+    /// open lands beside that machine's shell instead of wherever focus happens
+    /// to be. Nil when the machine has no open workspace.
+    private func vmAttachedWorkspaceId(vmId: String, client: SocketClient) -> String? {
+        guard let response = try? client.sendV2(method: "workspace.list"),
+              let workspaces = response["workspaces"] as? [[String: Any]] else {
+            return nil
+        }
+        for workspace in workspaces {
+            let remote = workspace["remote"] as? [String: Any]
+            guard let attached = remote?["managed_cloud_vm_id"] as? String,
+                  attached == vmId,
+                  let id = workspace["id"] as? String else {
+                continue
+            }
+            return id
+        }
+        return nil
+    }
+    /// One-line activity-monitor reading: `swift-gecko  awake · CPU 12% · Mem 1.1/4.0 GB · Disk 2.3/5.0 GB · load 0.42 (2 cpus)`.
+    static func formatVMStatsLine(id: String, payload: [String: Any]) -> String {
+        func number(_ key: String) -> Double? {
+            if let v = payload[key] as? Double { return v }
+            if let v = payload[key] as? Int { return Double(v) }
+            return nil
+        }
+        func gb(_ mb: Double) -> String { String(format: "%.1f", mb / 1024) }
+        let state = (payload["state"] as? String) ?? "unknown"
+        var parts = ["\(id)  \(state)"]
+        if state == "awake" {
+            if let cpu = number("cpu_percent") { parts.append("CPU \(Int(cpu.rounded()))%") }
+            if let used = number("memory_used_mb"), let total = number("memory_total_mb") {
+                parts.append("Mem \(gb(used))/\(gb(total)) GB")
+            }
+            if let used = number("disk_used_mb"), let total = number("disk_total_mb") {
+                parts.append("Disk \(gb(used))/\(gb(total)) GB")
+            }
+            if let load = number("load_average_1m") {
+                let cpus = number("cpus").map { " (\(Int($0)) cpus)" } ?? ""
+                parts.append(String(format: "load %.2f", load) + cpus)
+            }
+        } else if let total = number("memory_total_mb") {
+            parts.append("Mem \(gb(total)) GB provisioned")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private static let claudeCodeStatusKey = "claude_code"
 
     init(
@@ -3264,7 +3367,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" else {
+        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" || normalized == "blaxel" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
@@ -3350,7 +3453,7 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func usesPersistentDefaultFreestyleCloud(image: String?, providerOption: String?) -> Bool {
+    private static func usesPersistentDefaultCloud(image: String?, providerOption: String?) -> Bool {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedImage?.isEmpty != false else { return false }
         let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4327,12 +4430,67 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                for vm in vms {
-                    let id = (vm["id"] as? String) ?? "?"
-                    let provider = (vm["provider"] as? String) ?? "?"
-                    let status = (vm["status"] as? String) ?? "unknown"
-                    let image = (vm["image"] as? String) ?? "?"
-                    print("\(id)  [\(provider)] \(status)  \(image)")
+                let rows: [(String, String, String, String, String)] = vms.map { vm in
+                    (
+                        (vm["id"] as? String) ?? "?",
+                        (vm["displayName"] as? String) ?? "",
+                        (vm["status"] as? String) ?? "unknown",
+                        (vm["provider"] as? String) ?? "?",
+                        (vm["image"] as? String) ?? "?"
+                    )
+                }
+                let hasLabels = rows.contains { !$0.1.isEmpty }
+                let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
+                let labelWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
+                let stateWidth = max(5, rows.map { $0.2.count }.max() ?? 5)
+                let providerWidth = max(8, rows.map { $0.3.count }.max() ?? 8)
+                func pad(_ text: String, _ width: Int) -> String {
+                    text.padding(toLength: width, withPad: " ", startingAt: 0)
+                }
+                let labelHeader = hasLabels ? "\(pad("LABEL", labelWidth))  " : ""
+                print("\(pad("NAME", nameWidth))  \(labelHeader)\(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
+                for row in rows {
+                    let labelCell = hasLabels ? "\(pad(row.1, labelWidth))  " : ""
+                    print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
+                }
+                if let limits = response["limits"] as? [String: Any],
+                   let maxActiveVms = limits["maxActiveVms"] as? Int,
+                   let planId = limits["planId"] as? String {
+                    let format = String(
+                        localized: "cli.vm.list.planMeter",
+                        defaultValue: "%1$d of %2$d machines on the %3$@ plan"
+                    )
+                    print(String(format: format, vms.count, maxActiveVms, planId))
+                }
+
+            case "open", "port":
+                // `cmux vm open brave-otter 3000` — the exe.dev "https://vm:3456" move: mint a
+                // private tokened URL for any HTTP port on the machine and show it in a browser
+                // split beside the shell. `--print` skips the split and just prints the URL.
+                let printOnly = hasFlag(rest, name: "--print")
+                let openArgs = rest.filter { $0 != "--print" }
+                guard let vmId = openArgs.first, let portArg = openArgs.dropFirst().first, let port = Int(portArg), (1...65535).contains(port) else {
+                    throw CLIError(message: """
+                        Usage: cmux vm open <id> <port> [--print]
+
+                        Examples:
+                          cmux vm open brave-otter 3000
+                          cmux vm open brave-otter 8000 --print
+
+                        Find a machine:
+                          cmux vm ls
+                        """)
+                }
+                let payload = try client.sendV2(method: "vm.open_port", params: ["id": vmId, "port": port], responseTimeout: 90)
+                if jsonOutput {
+                    print(jsonString(payload))
+                    break
+                }
+                let openUrl = (payload["open_url"] as? String) ?? ""
+                print("\(vmId):\(port)")
+                print("  \(openUrl)")
+                if !printOnly {
+                    _ = try? client.sendV2(method: "browser.open_split", params: ["url": openUrl])
                 }
 
             case "status", "info":
@@ -4355,6 +4513,22 @@ struct CMUXCLI {
                 let status = (response["status"] as? String) ?? "unknown"
                 print("\(id)  [\(provider)] \(status)")
                 print("image: \(image)")
+
+            case "stats", "top":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm stats <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let response = try client.sendV2(method: "vm.stats", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print(Self.formatVMStatsLine(id: vmId, payload: response))
 
             case "base":
                 let baseAction = rest.first?.lowercased()
@@ -4395,12 +4569,35 @@ struct CMUXCLI {
                 }
 
             case "new", "create":
-                let (imageOpt, rem0) = parseOption(rest, name: "--image")
+                let (imageOptRaw, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
                 let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
+                // A machine comes with its screen: new machines boot the desktop image
+                // (xfce + noVNC) unless the person asks for a shell-only box with --base.
+                // --desktop stays accepted for scripts written against the old default.
+                let base = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
+                let desktop = !base
+                let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
+                let memoryMb: Int?
+                if let sizeOpt {
+                    guard let parsed = Self.parseCloudVMSize(sizeOpt) else {
+                        throw CLIError(message: """
+                            vm new: unknown size '\(sizeOpt)'.
+
+                            Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).
+                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            """)
+                    }
+                    memoryMb = parsed
+                } else {
+                    memoryMb = nil
+                }
+                let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
+                // The desktop image gives the machine a screen; the attach flow streams it
+                // into a browser split beside the shell. --base keeps the backend default image.
+                let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : Self.cloudVMBaseImage)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
@@ -4409,6 +4606,8 @@ struct CMUXCLI {
                           --image <image-id>
                           --provider <provider>
                           --workspace <workspace-id>
+                          --base            shell-only machine (no desktop)
+                          --size <2g|4g|8g|16g|32g>
                           --detach, -d
 
                         Try:
@@ -4433,28 +4632,63 @@ struct CMUXCLI {
                 }
                 let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
                 var params: [String: Any] = [:]
-                if let imageOpt { params["image"] = imageOpt }
+                // `imageOpt` is always set now: the CLI resolves a default image
+                // (desktop, or base for `--base`) so a bare `vm new` boots a screen.
+                params["image"] = imageOpt
                 if let normalizedProvider { params["provider"] = normalizedProvider }
-                let usesPersistentDefaultCloud = Self.usesPersistentDefaultFreestyleCloud(
-                    image: imageOpt,
+                // Size is independent of the image/provider override. Providers that do
+                // not expose sizing ignore this optional field; Blaxel uses it for runtime
+                // memory and the backend applies the plan ceiling.
+                if let memoryMb { params["memory_mb"] = memoryMb }
+                // The persistent per-machine home is keyed off whether the *person*
+                // overrode the image/provider (`imageOptRaw`), not the CLI-injected
+                // default. Otherwise the desktop default would look like a custom
+                // image and silently drop `persistent_home`, making every new machine
+                // ephemeral. A bare `vm new` — desktop or `--base` — stays persistent.
+                let usesPersistentDefaultCloud = Self.usesPersistentDefaultCloud(
+                    image: imageOptRaw,
                     providerOption: providerOpt
                 )
+                // The persistent-default create sends no provider override: the backend's
+                // CMUX_VM_DEFAULT_PROVIDER decides, with Blaxel as the default. An explicit
+                // provider remains available for deliberate rollback/provider experiments.
                 if usesPersistentDefaultCloud {
-                    params["provider"] = "freestyle"
+                    // Every new machine is its own persistent computer: the backend mounts a
+                    // volume derived from the machine's generated name, so `vm new` mints a
+                    // fresh durable machine each time (up to the plan limit) instead of
+                    // reattaching the single shared slot. `vm base open` still owns the slot.
+                    params["persistent_home"] = true
+                    params["per_machine_home"] = true
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                // Store-based idempotency: retries of a failed create reuse the key; a
+                // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOpt,
                     provider: normalizedProvider,
-                    usesPersistentDefaultCloud: usesPersistentDefaultCloud
+                    usesPersistentDefaultCloud: false
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
-                let response = try client.sendV2(
-                    method: "vm.create",
-                    params: params,
-                    responseTimeout: Self.vmCreateResponseTimeoutSeconds
-                )
+                let response: [String: Any]
+                do {
+                    response = try client.sendV2(
+                        method: "vm.create",
+                        params: params,
+                        responseTimeout: Self.vmCreateResponseTimeoutSeconds
+                    )
+                } catch let error as CLIError {
+                    // The backend records a definitive create failure under the
+                    // sent key and replays it on every retry, so keeping the key
+                    // would wedge every future `vm new` on the old failure. Keep
+                    // it only while the create is still running (resending joins
+                    // the in-flight attempt) or when the outcome is unknown
+                    // (transport error/timeout: no backend code arrived).
+                    if let backendCode = error.vmBackendCode, backendCode != "vm_create_in_progress" {
+                        Self.clearVMCreateIdempotency(idempotency)
+                    }
+                    throw error
+                }
                 logVMTiming(
                     "create",
                     vmID: (response["id"] as? String) ?? "?",
@@ -4471,15 +4705,26 @@ struct CMUXCLI {
                 let image = (response["image"] as? String) ?? "?"
                 if detach {
                     Self.clearVMCreateIdempotency(idempotency)
-                    print("OK \(id)")
-                    print("  provider: \(provider)")
-                    print("  image:    \(image)")
+                    let readyMessage = String(
+                        format: String(
+                            localized: "cli.vm.create.machineReady",
+                            defaultValue: "%@ is ready"
+                        ),
+                        id
+                    )
+                    print(readyMessage)
+                    print("")
+                    print("  shell    cmux vm shell \(id)")
+                    print("  run      cmux vm exec \(id) -- uname -a")
+                    print("  web      cmux vm open \(id) <port>")
+                    print("  remove   cmux vm rm \(id)")
+                    print("")
+                    print("  provider \(provider) · \(image)")
                     break
                 }
                 // Create the VM then drop the user into a cmux-managed workspace. Managed
                 // Cloud VMs use the cmuxd-remote WebSocket PTY so they can reconnect and
                 // attach from mobile clients without minting foreground SSH passwords.
-                let shortId = String(id.prefix(8))
                 let createdMessage = String(
                     format: String(
                         localized: "cli.vm.create.createdCloudVM",
@@ -4488,9 +4733,13 @@ struct CMUXCLI {
                     id
                 )
                 print(createdMessage)
-                try vmOpenShell(
+                // The machine exists now. Clear the retry key here, not after the attach:
+                // a failed attach must not make the next `vm new` replay this create and
+                // "create" the same machine again.
+                Self.clearVMCreateIdempotency(idempotency)
+                let createdWorkspaceId = try vmOpenShell(
                     id: id,
-                    workspaceName: usesPersistentDefaultCloud ? Self.persistentCloudVMWorkspaceName : "vm:\(shortId)",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
@@ -4499,7 +4748,33 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
-                Self.clearVMCreateIdempotency(idempotency)
+                // A machine with a screen shows it: stream the noVNC desktop into a browser
+                // split beside the shell so the workspace opens as terminal + desktop.
+                if Self.cloudVMImageHasDesktop(image) {
+                    _ = try? openVMDesktopSplit(vmId: id, client: client, workspaceId: createdWorkspaceId)
+                }
+
+            case "desktop", "vnc":
+                // The machine's screen, on demand: the noVNC desktop opens as a browser
+                // pane in the machine's own workspace when it has one open (beside its
+                // shell), in the workspace named by --workspace, or where you are when
+                // the machine has no open workspace.
+                let (workspaceOpt, vmArgs) = parseOption(rest, name: "--workspace")
+                guard let vmId = vmArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm desktop <id> [--workspace <id|ref|index>]
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let desktopWorkspace = workspaceOpt ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
+                guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace) else {
+                    throw CLIError(message: String(
+                        localized: "cli.vm.desktop.unavailable",
+                        defaultValue: "\(vmId) has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."
+                    ))
+                }
 
             case "snapshot", "checkpoint":
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
@@ -4560,7 +4835,7 @@ struct CMUXCLI {
                 print("  snapshot: \(snapshotId ?? "native fork")")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4603,7 +4878,7 @@ struct CMUXCLI {
                 print("Restored Cloud VM \(id)")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4622,10 +4897,9 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                let shortId = String(vmId.prefix(8))
-                try vmOpenShell(
+                let shellWorkspaceId = try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(shortId)",
+                    workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4633,6 +4907,43 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
+                   let image = status["image"] as? String,
+                   Self.cloudVMImageHasDesktop(image) {
+                    // The screen belongs beside the shell it was opened with, not in
+                    // whatever workspace holds focus once the attach settles.
+                    let desktopWorkspace = shellWorkspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
+                    _ = try? openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace)
+                }
+
+            case "rename":
+                let clear = hasFlag(rest, name: "--clear")
+                let positional = rest.filter { !Self.isFlagToken($0) }
+                guard let vmId = positional.first, clear || positional.count >= 2 else {
+                    throw CLIError(message: String(localized: "cli.vm.rename.usage", defaultValue: """
+                        Usage: cmux vm rename <id> <new-label>
+                               cmux vm rename <id> --clear
+
+                        The label is display-only; the machine id stays its address.
+                        Find an id:
+                          cmux vm ls
+                        """))
+                }
+                let label = clear ? nil : positional.dropFirst().joined(separator: " ")
+                var renameParams: [String: Any] = ["id": vmId]
+                if let label { renameParams["display_name"] = label }
+                let renameResponse = try client.sendV2(method: "vm.rename", params: renameParams, responseTimeout: 30)
+                if jsonOutput {
+                    print(jsonString(renameResponse))
+                    break
+                }
+                if let stored = renameResponse["displayName"] as? String, !stored.isEmpty {
+                    let format = String(localized: "cli.vm.rename.set", defaultValue: "%1$@ is now labeled \u{201C}%2$@\u{201D}")
+                    print(String(format: format, vmId, stored))
+                } else {
+                    let format = String(localized: "cli.vm.rename.cleared", defaultValue: "%@ label cleared")
+                    print(String(format: format, vmId))
+                }
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
@@ -4660,10 +4971,9 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(shortId)",
+                    workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: true,
                     shouldPinWorkspaceToTop: false,
@@ -11146,6 +11456,9 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
+    /// Returns the id of the workspace hosting the shell when it is a cmux-managed
+    /// WebSocket workspace (nil for SSH sessions, which own their own workspace flow).
+    @discardableResult
     private func vmOpenShell(
         id: String,
         workspaceName: String?,
@@ -11156,7 +11469,7 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
-    ) throws {
+    ) throws -> String? {
         if forceSSH {
             let sshInfoStartedAt = Date()
             let response = try client.sendV2(
@@ -11184,7 +11497,7 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 vmIDForSplitAttach: id
             )
-            return
+            return nil
         }
 
         let attachInfoStartedAt = Date()
@@ -11213,7 +11526,7 @@ struct CMUXCLI {
                         """
                 )
             }
-            try runVMPtyWebSocketWorkspace(
+            return try runVMPtyWebSocketWorkspace(
                 id: id,
                 endpoint: endpoint,
                 workspaceName: workspaceName,
@@ -11224,7 +11537,6 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
             )
-            return
         }
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -11245,6 +11557,7 @@ struct CMUXCLI {
             idFormat: idFormat,
             vmIDForSplitAttach: id
         )
+        return nil
     }
 
     private func runPersistentBaseOpenCommand(
@@ -11287,7 +11600,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.open",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? "blaxel",
             startedAt: vmCreateStartedAt
         )
 
@@ -11297,7 +11610,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? "blaxel"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -11374,7 +11687,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.reset",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? "blaxel",
             startedAt: vmCreateStartedAt
         )
 
@@ -11384,7 +11697,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? "blaxel"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -12184,7 +12497,7 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
-    ) throws {
+    ) throws -> String {
         let startedAt = Date()
         let configURL = try writeVMPtyWebSocketConfig(endpoint)
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -12342,6 +12655,7 @@ struct CMUXCLI {
             let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
             print("OK workspace=\(workspaceHandle) target=\(target) transport=websocket")
         }
+        return workspaceId
     }
 
     private func writeVMPtyWebSocketConfig(_ endpoint: VMPtyWebSocketEndpoint) throws -> URL {
@@ -12358,6 +12672,103 @@ struct CMUXCLI {
         try data.write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         return url
+    }
+
+    /// Runs the WebSocket PTY bridge with automatic reconnection. A clean server close
+    /// (the remote shell exited) ends the loop; any drop — network change, sandbox
+    /// standby/wake, a rotated preview URL, a consumed lease — re-mints a fresh attach
+    /// endpoint through the app socket (which server-side re-ensures the preview, the
+    /// daemon, and even resurrects dead compute) and reattaches to the same session, so
+    /// scrollback replays and the shell keeps its state. Attempts reset after any
+    /// connection that stayed up for a minute, so long sessions never exhaust the budget.
+    private func runVMPtyBridgeWithReconnect(
+        initialConfig: VMPtyWebSocketConfig,
+        vmID: String?,
+        debugEvent: ((String) -> Void)?
+    ) throws {
+        var config = initialConfig
+        var attempt = 0
+        let maxAttempts = 8
+        while true {
+            let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
+            let startedAt = Date()
+            var bridgeError: Error?
+            do {
+                try bridge.run()
+            } catch {
+                bridgeError = error
+            }
+            if bridgeError == nil && bridge.endedCleanly {
+                return
+            }
+            guard let vmID, !vmID.isEmpty else {
+                if let bridgeError { throw bridgeError }
+                return
+            }
+            if Date().timeIntervalSince(startedAt) > 60 {
+                attempt = 0
+            }
+            attempt += 1
+            if attempt > maxAttempts {
+                if let bridgeError { throw bridgeError }
+                throw CLIError(message: "vm-pty-connect: connection lost and reconnect attempts were exhausted")
+            }
+            let reconnectingLine = String(
+                format: String(
+                    localized: "cli.vm.reconnecting",
+                    defaultValue: "[cmux] connection lost — reconnecting (attempt %d)…"
+                ),
+                attempt
+            )
+            FileHandle.standardError.write(Data("\r\n\(reconnectingLine)\r\n".utf8))
+            Thread.sleep(forTimeInterval: min(pow(2.0, Double(attempt - 1)), 15))
+            do {
+                config = try mintVMPtyReconnectConfig(
+                    vmID: vmID,
+                    sessionID: config.sessionId,
+                    attachmentID: config.attachmentId
+                )
+            } catch {
+                // Minting can fail while the backend is briefly unreachable; the next loop
+                // iteration retries the whole cycle within the attempt budget.
+                continue
+            }
+        }
+    }
+
+    /// Mints a fresh WebSocket PTY endpoint for a reconnect by asking the app over the
+    /// control socket, reusing the same daemon session and attachment identity.
+    private func mintVMPtyReconnectConfig(
+        vmID: String,
+        sessionID: String?,
+        attachmentID: String?
+    ) throws -> VMPtyWebSocketConfig {
+        let processEnv = ProcessInfo.processInfo.environment
+        let resolvedSocketPath = (try? CLISocketEnvironment.socketPath(in: processEnv))
+            ?? CLISocketPathResolver.defaultSocketPath(
+                bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+                environment: processEnv
+            )
+        let client = SocketClient(path: resolvedSocketPath)
+        try client.connect()
+        defer { client.close() }
+        let normalizedSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAttachment = attachmentID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: vmID,
+            usesDefaultFreestyleSSHD: false,
+            client: client,
+            sessionID: normalizedSession?.isEmpty == false ? normalizedSession : nil,
+            attachmentID: normalizedAttachment?.isEmpty == false ? normalizedAttachment : nil
+        )
+        let endpoint = try parseVMPtyWebSocketEndpoint(response)
+        return VMPtyWebSocketConfig(
+            url: endpoint.url,
+            headers: endpoint.headers,
+            token: endpoint.token,
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
+        )
     }
 
     private func runVMPtyConnect(commandArgs: [String]) throws {
@@ -12381,7 +12792,7 @@ struct CMUXCLI {
                 logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt)
             }
         }()
-        try VMPtyWebSocketBridge(config: config, debugEvent: debugEvent).run()
+        try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
@@ -12425,9 +12836,9 @@ struct CMUXCLI {
             sessionId: endpoint.sessionId,
             attachmentId: endpoint.attachmentId
         )
-        try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
+        try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: { stage in
             log(stage)
-        }).run()
+        })
     }
 
     private func defaultFreestyleAttachInfoWithRetryIfNeeded(
@@ -12551,8 +12962,19 @@ struct CMUXCLI {
         ) {
             lock.lock()
             closed = true
+            lastCloseCode = closeCode
             lock.unlock()
             openSemaphore.signal()
+        }
+
+        private var lastCloseCode: URLSessionWebSocketTask.CloseCode?
+
+        /// The server's close code, when a close frame arrived. A normal closure means the
+        /// remote shell ended on purpose; anything else is a drop worth reconnecting from.
+        var closeCode: URLSessionWebSocketTask.CloseCode? {
+            lock.lock()
+            defer { lock.unlock() }
+            return lastCloseCode
         }
 
         func waitForOpen(timeout: TimeInterval) -> Bool {
@@ -12575,6 +12997,9 @@ struct CMUXCLI {
         private static let keepaliveInterval: TimeInterval = 5.0
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
+        /// Set after run() returns: true when the server sent a normal/going-away close,
+        /// i.e. the remote shell ended on purpose and reconnecting would respawn it.
+        private(set) var endedCleanly = false
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
@@ -12626,6 +13051,12 @@ struct CMUXCLI {
             defer { stopKeepalive() }
             startInputPump()
             try receiveOutputLoop(delegate: delegate)
+            switch delegate.closeCode {
+            case .normalClosure, .goingAway:
+                endedCleanly = true
+            default:
+                endedCleanly = false
+            }
         }
 
         private func sendAuthFrame() throws {
@@ -16229,7 +16660,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|exec|shell|desktop|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -16243,7 +16674,7 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--base] [--size <2g|4g|8g|16g|32g>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default, with no image or
                                         provider override, this is kept compatible with
                                         Base. Pass --image or --provider to create a
@@ -16256,9 +16687,15 @@ struct CMUXCLI {
                                         --detach is passed.
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
+              stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
               shell <id> [--window <id|ref|index>]
+              desktop <id> [--workspace <id|ref|index>]   Open the machine's noVNC desktop as a pane in your workspace
                                         Drop into an interactive shell on an existing VM.
-                                        Alias: `attach <id>`.
+                                        Alias: `attach <id>`. Machines with a desktop image
+                                        also stream their screen into a browser split.
+              open <id> <port> [--print]
+                                        Mint a private HTTPS URL for an HTTP port on the VM
+                                        and show it in a browser split. --print only prints.
               ssh <id> [--window <id|ref|index>]
                                         Drop into a cmux-managed SSH workspace for an existing
                                         VM, using the same session path as `cmux ssh`.
@@ -17960,10 +18397,10 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
+              set <files|find|vault|sessions|feed|dock|cloud>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
+              files|find|vault|sessions|feed|dock|cloud
                                              Alias for show + set + focus
 
             Flags:
@@ -18697,7 +19134,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or cloud"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
@@ -18709,7 +19146,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
@@ -36930,7 +37367,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
-          vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|exec|shell|desktop|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
@@ -37001,7 +37438,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

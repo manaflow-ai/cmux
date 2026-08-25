@@ -41,7 +41,7 @@ enum SessionEntryResumeCoordinator {
             return
         }
 
-        tabManager.addWorkspace(
+        tabManager.addWorkspaceIfActive(
             workingDirectory: targetCwd,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
