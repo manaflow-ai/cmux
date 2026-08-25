@@ -451,6 +451,42 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["logs", "logs [1]"])
     }
 
+    @Test func deliberatelyNamedTmuxPanesUseTheirTitlesOnMirrorSurfaces() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "run: build"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "run: publish"),
+        ]])
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: build", "run: publish"])
+    }
+
+    @Test func liveTmuxPaneRetitleUpdatesTheMirroredSurfaceTitle() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
+        ]])
+        #expect(try harness.surfaceTitles() == ["logs", "logs [1]", "logs [2]"])
+
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_5",
+            value: harness.paneTitleMetadata(title: "run: db-migration")
+        ))
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+    }
+
     @MainActor private struct MirrorTitleHarness {
         let windowId: UUID
         let controller: RemoteTmuxController
@@ -487,6 +523,14 @@ struct RemoteTmuxMirrorTargetingTests {
 
         func publishListWindows(_ lines: [String]) {
             connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: lines, isError: false))
+        }
+
+        func paneTitleMetadata(title: String) -> String {
+            [title, "cmuxs-Mac-mini.local", "cmuxs-Mac-mini"].joined(separator: "\u{1f}")
+        }
+
+        func paneRectLine(paneID: Int, index: Int, title: String) -> String {
+            "%\(paneID) 0 0 60 40 \(index == 0 ? 1 : 0) off :\(index) \"\(title)\"\u{1f}\(paneTitleMetadata(title: title))"
         }
 
         func drainThroughPaneRects(_ linesByWindow: [Int: [String]]) throws {
