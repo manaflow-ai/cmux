@@ -395,6 +395,31 @@ enum AgentHookNotificationPolicy {
 
     static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#
 
+    /// Returns Cursor's explicit CLI approval-mode override, when present.
+    static func cursorApprovalModeOverride(arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            let rawValue: String?
+            if argument == "--mode", index + 1 < arguments.count {
+                rawValue = arguments[index + 1]
+                index += 2
+            } else if argument.hasPrefix("--mode=") {
+                rawValue = String(argument.dropFirst("--mode=".count))
+                index += 1
+            } else {
+                index += 1
+                continue
+            }
+            guard let rawValue else { continue }
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["allowlist", "auto-review", "unrestricted"].contains(normalized) {
+                return normalized
+            }
+        }
+        return nil
+    }
+
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic
     /// "Tool permission requested" Notification for every tool step, even in
     /// auto-approve mode where nothing awaits the user; those repeats dedupe by

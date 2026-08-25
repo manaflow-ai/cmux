@@ -392,10 +392,10 @@ final class ClaudeHookSessionStore {
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
-    func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
+    func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             state.sessions[normalized]
         }
     }
@@ -32499,7 +32499,7 @@ export default CMUXSessionRestore;
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let cursorShellHasAuthoritativeSession = input.sessionId?.isEmpty == false
         let mappedSessionForPolicy = cursorShellEvent
-            ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)))
+            ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline)))
             : nil
         let cursorLaunchDisablesProjectConfigs = mappedSessionForPolicy?.launchCommand?.arguments.contains {
             $0 == "--disable-project-configs" || $0 == "--disable-project-configs=true"
@@ -32613,13 +32613,17 @@ export default CMUXSessionRestore;
         let cursorLaunchUsesAutoReview = mappedSessionForPolicy?.launchCommand?.arguments.contains {
             $0 == "--auto-review"
         } == true
+        let cursorLaunchModeOverride = AgentHookNotificationPolicy.cursorApprovalModeOverride(
+            arguments: mappedSessionForPolicy?.launchCommand?.arguments ?? []
+        )
         let cursorShellNeedsApproval = cursorShellEvent
             && cursorShellHasAuthoritativeSession
             && AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: input.rawObject,
-                approvalMode: cursorLaunchRequestsEverything
-                    ? "unrestricted"
-                    : (cursorLaunchUsesAutoReview ? "auto-review" : cursorApprovalSettings.mode),
+                approvalMode: cursorLaunchModeOverride
+                    ?? (cursorLaunchRequestsEverything
+                        ? "unrestricted"
+                        : (cursorLaunchUsesAutoReview ? "auto-review" : cursorApprovalSettings.mode)),
                 allowedShellCommands: cursorApprovalSettings.allowedShellCommands,
                 deniedShellCommands: cursorApprovalSettings.deniedShellCommands
             )
@@ -33158,7 +33162,9 @@ export default CMUXSessionRestore;
                     return
                 }
             }
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(
