@@ -487,6 +487,28 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
     }
 
+    @Test func liveTmuxPaneRetitleWinsOverOlderPaneRectSnapshot() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+
+        // The title event can overtake the list-panes reply. The older snapshot
+        // still reports the host default and must not roll the live title back.
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_5",
+            value: harness.paneTitleMetadata(title: "run: db-migration")
+        ))
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
+        ]])
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+    }
+
     @MainActor private struct MirrorTitleHarness {
         let windowId: UUID
         let controller: RemoteTmuxController
