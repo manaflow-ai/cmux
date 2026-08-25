@@ -7,6 +7,48 @@ import Testing
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
     @MainActor
+    @Test("a UI-test launch resolves flags from the local override, not a cached rollout value")
+    func featureFlagsPinnedToLocalValuesIgnoreRemoteValues() async throws {
+        let suiteName = "cmux.feature.flags.pinned.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flagKey = CmuxFeatureFlags.appKitSidebarListFlag.key
+        defaults.set(true, forKey: "cmux.flags.remote.\(flagKey)")
+        defaults.set(false, forKey: "cmux.flags.override.\(flagKey)")
+        let probe = FeatureFlagRemoteLoaderProbe()
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() },
+            pinsFlagsToLocalValues: true
+        )
+        flags.start()
+
+        #expect(flags.isAppKitSidebarListEnabled == false)
+        #expect(await probe.callCount == 0)
+    }
+
+    @MainActor
+    @Test("a normal launch lets a cached rollout value outrank a local override")
+    func featureFlagsNotPinnedPreferRemoteValues() throws {
+        let suiteName = "cmux.feature.flags.unpinned.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flagKey = CmuxFeatureFlags.appKitSidebarListFlag.key
+        defaults.set(true, forKey: "cmux.flags.remote.\(flagKey)")
+        defaults.set(false, forKey: "cmux.flags.override.\(flagKey)")
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            pinsFlagsToLocalValues: false
+        )
+
+        #expect(flags.isAppKitSidebarListEnabled == true)
+    }
+
+    @MainActor
     @Test("feature flag control plane starts its injected remote loader")
     func featureFlagControlPlaneStartsInjectedRemoteLoader() async throws {
         let suiteName = "cmux.feature.flags.loader.\(UUID().uuidString)"

@@ -7698,13 +7698,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performNewWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
         performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
+            placementOverride: placementOverride,
             debugSource: debugSource
+        )
+    }
+
+    /// Empty-area double-click in the sidebar. Routes through the shared
+    /// new-workspace action path so a configured `ui.newWorkspace.action`
+    /// applies here exactly as it does for the `+` button and File → New
+    /// Workspace; without one, the plain workspace still lands after the last
+    /// row, which is what clicking below every row asks for.
+    @discardableResult
+    func performSidebarEmptyAreaNewWorkspaceAction(tabManager: TabManager) -> Bool {
+        // A remote-tmux mirror creates a new tmux session rather than a local
+        // workspace, and that session's placement is the remote server's to
+        // decide, so the end-of-list override does not apply there. Gate on the
+        // SELECTED workspace, not `tabs.contains`: a dedicated remote window can
+        // be polluted with a dragged-in local workspace (move targets don't
+        // exclude dedicated windows), and `contains` would then misroute a local
+        // empty-area double-click into spawning an unwanted tmux session.
+        let isRemoteTmuxMirror = tabManager.selectedTab?.isRemoteTmuxMirror == true
+        return performNewWorkspaceAction(
+            tabManager: tabManager,
+            placementOverride: isRemoteTmuxMirror ? nil : .end,
+            debugSource: isRemoteTmuxMirror ? "sidebar.emptyArea.remoteTmux" : "sidebar.emptyArea"
         )
     }
 
@@ -7876,6 +7900,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
         event: NSEvent?,
+        placementOverride: WorkspacePlacement? = nil,
         debugSource: String,
         title: String? = nil,
         initialBrowserURL: URL? = nil,
@@ -7950,7 +7975,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
-        let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
+        // An explicit placement override is the caller's own decision about
+        // where the workspace lands, so it outranks the selection-derived group
+        // target: `createWorkspaceInGroup` takes a group placement instead and
+        // would drop the override, filing a sidebar empty-area double-click
+        // into the selected workspace's group rather than after the last row.
+        let workspaceGroupTarget = placementOverride == nil
+            ? context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
+            : nil
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
@@ -7993,6 +8025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
             createdWorkspaceHandler?(workspace)
@@ -8008,6 +8041,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            placementOverride: placementOverride,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             event: event,
             debugSource: debugSource
@@ -8792,6 +8826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
@@ -8848,6 +8883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: true,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
@@ -8856,6 +8892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
+                placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
@@ -8863,10 +8900,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspace = context.tabManager.addWorkspace(
                 title: title,
                 select: true,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
-            workspace = context.tabManager.addTab(select: true)
+            workspace = context.tabManager.addWorkspace(
+                select: true,
+                placementOverride: placementOverride
+            )
         }
         #if DEBUG
         logWorkspaceCreationRouting(
