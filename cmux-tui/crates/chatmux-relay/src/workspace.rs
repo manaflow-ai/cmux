@@ -2150,6 +2150,7 @@ mod tests {
         assert!(capped.truncated);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn read_returns_full_hash_and_flags_truncation() {
         let root = scratch("read");
@@ -2191,6 +2192,7 @@ mod tests {
         assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn read_reports_binary_as_base64_and_survives_a_split_utf8_char() {
         let root = scratch("read-binary");
@@ -2228,6 +2230,28 @@ mod tests {
         assert_eq!(split.encoding, wire::FsContentEncoding::Utf8);
         assert_eq!(split.content, "ok");
         assert!(split.truncated);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_is_refused_on_windows_without_touching_the_filesystem() {
+        let root = scratch("read-windows");
+        write(&root, "file.txt", "must remain unchanged\n");
+        let scope = scope_for(&root);
+        let refusal = run_read(
+            &scope,
+            &wire::FsReadOp {
+                op: wire::TagFsRead::FsRead,
+                path: "file.txt".to_owned(),
+                max_bytes: READ_MAX_BYTES,
+            },
+        )
+        .expect_err("Windows relays refuse scoped reads");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).expect("file remains"),
+            "must remain unchanged\n"
+        );
     }
 
     #[test]
