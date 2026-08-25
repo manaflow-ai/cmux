@@ -7,12 +7,15 @@ import Observation
 @MainActor
 @Observable
 final class SidebarAgentElapsedClock {
+    // Registration happens from realized-row AppKit callbacks. Keep this
+    // demand bit ignored so those callbacks never invalidate the lazy parent.
     @ObservationIgnored
     private var targets: [ObjectIdentifier: SidebarAgentElapsedClockWeakTarget] = [:]
     @ObservationIgnored
     private let displayCache = SidebarAgentActivityDisplayCache()
 
     /// Whether at least one realized running label needs clock updates.
+    @ObservationIgnored
     private(set) var hasTargets = false
 
     var actions: SidebarAgentElapsedClockActions {
@@ -34,7 +37,10 @@ final class SidebarAgentElapsedClock {
 
     private func unregister(_ target: any SidebarAgentElapsedClockTarget) {
         targets.removeValue(forKey: ObjectIdentifier(target))
-        hasTargets = !targets.isEmpty
+        let nextHasTargets = !targets.isEmpty
+        if hasTargets != nextHasTargets {
+            hasTargets = nextHasTargets
+        }
     }
 
     func tick(at now: Date) {

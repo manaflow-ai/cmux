@@ -478,13 +478,11 @@ final class SharedLiveAgentIndex {
                 previous: previousFingerprint,
                 current: nextFingerprint
             ).panelIdsByWorkspaceId
-            self.applyReloadedIndex(
-                refreshed,
-                loadedAt: self.dateProvider(),
-                liveAgentProcessFingerprint: nextFingerprint,
-                processScopeFingerprint: self.processScopeFingerprint,
-                forkValidatedPanels: self.validatedForkPanels
-            )
+            // This is process-only validation. Preserve the full hook-index
+            // loadedAt so the normal TTL reload still discovers new records,
+            // lifecycle changes, and SessionStart anchors.
+            self.index = refreshed
+            self.liveAgentProcessFingerprint = nextFingerprint
             self.refreshTask = nil
             if !changedPanelIdsByWorkspaceId.isEmpty {
                 self.postSharedLiveAgentIndexDidChange(
@@ -496,6 +494,14 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
+    }
+
+    /// Whether the cached index has recorded process generations worth
+    /// revalidating from the sidebar freshness lease.
+    func hasCachedProcessLivenessEntries() -> Bool {
+        index?.forkValidationEntries().contains { _, entry in
+            !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty
+        } == true
     }
 
     func scheduleRefreshIfStale(

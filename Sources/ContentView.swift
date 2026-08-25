@@ -11644,9 +11644,12 @@ struct VerticalTabsSidebar: View, Equatable {
             // and notifications still carry the affected panel scope. AppKit
             // rows receive the keyed cache refresh without a full projection.
             while !Task.isCancelled {
-                SharedLiveAgentIndex.shared.refreshCachedProcessLivenessForSidebar()
+                let sharedIndex = SharedLiveAgentIndex.shared
+                if sharedIndex.hasCachedProcessLivenessEntries() || sharedIndex.index == nil {
+                    sharedIndex.refreshCachedProcessLivenessForSidebar()
+                }
                 do {
-                    try await ContinuousClock().sleep(for: .seconds(15))
+                    try await ContinuousClock().sleep(for: .seconds(30))
                 } catch {
                     return
                 }
