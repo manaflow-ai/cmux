@@ -954,10 +954,26 @@ impl OrderedControlQueue {
                 self.wire_running.store(false, Ordering::Release);
                 // A producer can enqueue after the empty check but before the
                 // flag reset. Re-check once and keep one worker alive.
-                if !self.wire_pending.lock().expect("ordered control pending lock").is_empty()
-                    && !self.wire_running.swap(true, Ordering::AcqRel)
-                {
+                let pending_after_reset =
+                    !self.wire_pending.lock().expect("ordered control pending lock").is_empty();
+                if pending_after_reset && !self.wire_running.swap(true, Ordering::AcqRel) {
                     continue;
+                }
+                // A close that could not fit in the bounded wire queue is
+                // retryable, not a successful barrier. Once the queue drains,
+                // start the close worker again so a retired target does not
+                // depend on a future viewer event to make progress.
+                if !pending_after_reset {
+                    let retry_close = {
+                        let state = self.state.lock().expect("ordered control queue lock");
+                        !state.closing.is_empty()
+                            && state.closing_waiters.is_empty()
+                            && state.closing_inflight.is_empty()
+                            && !state.closing_failed
+                    };
+                    if retry_close {
+                        self.schedule_closing();
+                    }
                 }
                 return;
             };
@@ -1220,7 +1236,10 @@ impl OrderedControlQueue {
             // before input is admitted. If the bounded queue rejected the
             // report/claim pair, fail this attachment instead of letting
             // bytes overtake an authority transition that can never run.
-            let claim_without_fence = state.claim_requested.is_some()
+            let claim_requested = self.target.get().and_then(Weak::upgrade).is_some_and(|target| {
+                target.state.lock().expect("terminal sizing state lock").claim_requested.is_some()
+            });
+            let claim_without_fence = claim_requested
                 && state.claim_fence.is_none()
                 && !state.pending_resize.as_ref().is_some_and(|(_, _, claim)| *claim);
             if state.closing_failed || !close_ready || claim_without_fence {
@@ -1373,6 +1392,13 @@ impl OrderedControlQueue {
         let completed = self.drain_closing().await;
         self.closing_running.store(false, Ordering::Release);
         self.closing_notify.notify_waiters();
+        if !completed && !self.state.lock().expect("ordered control queue lock").closing_failed {
+            // If the bounded wire queue was full, retry once the current
+            // worker has drained it. The wire worker also performs this check
+            // when it reaches an empty queue; this call closes the race where
+            // it finished while this waiter still owned `closing_running`.
+            self.schedule_closing();
+        }
         completed
     }
 
