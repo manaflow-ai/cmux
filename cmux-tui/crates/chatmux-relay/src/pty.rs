@@ -2649,7 +2649,8 @@ impl TerminalSizing {
         let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
         let mut state = target.state.lock().expect("terminal sizing state lock");
         let generation_current = Self::current_generation(target) == generation;
-        let current = !state.retired
+        let current = !queue_state.closing_failed
+            && !state.retired
             && state.owner.is_none()
             && candidate_viewer_id(&state) == Some(viewer_id)
             && smallest_sizing_grid(&state.viewers) == Some(grid)
