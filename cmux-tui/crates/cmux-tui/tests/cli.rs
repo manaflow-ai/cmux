@@ -4249,7 +4249,12 @@ fn pipe_io_startup_connect_failure_reports_daemon_lost() {
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_line = stderr.lines().rev().find(|line| line.trim_start().starts_with('{')).unwrap();
     let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
