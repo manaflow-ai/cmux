@@ -387,6 +387,7 @@ struct ArtifactSidebarFileAccess {
     func dragItemProvider(for sourceURL: URL, artifactRoot: URL) -> NSItemProvider? {
         guard sourceURL.isFileURL else { return nil }
         let provider = NSItemProvider()
+        provider.suggestedName = sourceURL.lastPathComponent
         let typeIdentifiers = [UTType.fileURL.identifier, UTType.folder.identifier]
         for typeIdentifier in typeIdentifiers {
             provider.registerFileRepresentation(
@@ -399,9 +400,14 @@ struct ArtifactSidebarFileAccess {
                     for: sourceURL,
                     artifactRoot: artifactRoot
                 ) {
-                    withExtendedLifetime(opened) {
-                        completion(opened.readURL, false, nil)
-                    }
+                    completion(opened.readURL, false, nil)
+                    let progress = Progress(totalUnitCount: 1)
+                    // NSItemProvider owns the returned progress for the
+                    // duration of the file load; this keeps the descriptor
+                    // alive until Foundation has finished consuming the URL.
+                    progress.cancellationHandler = { _ = opened }
+                    progress.pausingHandler = { _ = opened }
+                    return progress
                 } else {
                     completion(nil, false, nil)
                 }
