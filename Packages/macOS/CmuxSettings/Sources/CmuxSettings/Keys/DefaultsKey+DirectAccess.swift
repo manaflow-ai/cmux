@@ -18,11 +18,21 @@ import Foundation
 /// `UserDefaults` is documented thread-safe, so these calls are safe from any
 /// thread; they provide no change observation.
 extension DefaultsKey {
+    func decodedValue(in defaults: UserDefaults) -> Value? {
+        let rawValue = defaults.object(forKey: userDefaultsKey)
+        if userDefaultsKey == BrowserExternalURLPolicy.userDefaultsKey,
+           let normalized = BrowserExternalURLPolicy.legacyArrayStringValue(from: rawValue),
+           let value = normalized as? Value {
+            return value
+        }
+        return Value.decodeFromUserDefaults(rawValue)
+    }
+
     /// Returns the current value for this key in `defaults`, falling back to
     /// ``defaultValue`` when no override is stored or the stored value does
     /// not decode as `Value`.
     public func value(in defaults: UserDefaults) -> Value {
-        Value.decodeFromUserDefaults(defaults.object(forKey: userDefaultsKey)) ?? defaultValue
+        decodedValue(in: defaults) ?? defaultValue
     }
 
     /// Writes `value` for this key into `defaults`.

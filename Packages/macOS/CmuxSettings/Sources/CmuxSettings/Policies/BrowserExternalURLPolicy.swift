@@ -27,17 +27,14 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
         self.patterns = Self.normalizedPatterns(from: patterns)
     }
 
-    /// Migrates a legacy array representation to the newline text used by the
-    /// Settings editor, preserving the same normalized rules as matching.
+    /// Returns the newline text expected by the Settings editor for a legacy
+    /// array value, or `nil` when the stored value is not an array of strings.
     ///
-    /// The migration is intentionally limited to this key so unrelated string
-    /// settings continue to reject type-mismatched UserDefaults values.
-    static func migrateLegacyArrayIfNeeded(in defaults: UserDefaults) {
-        guard let rawValue = defaults.object(forKey: Self.userDefaultsKey),
-              let values = arrayValues(from: rawValue) else {
-            return
-        }
-        defaults.set(normalizedPatterns(from: values).joined(separator: "\n"), forKey: Self.userDefaultsKey)
+    /// This compatibility seam is consumed by typed ``DefaultsKey`` reads for
+    /// this key only; unrelated string settings retain strict decoding.
+    static func legacyArrayStringValue(from rawValue: Any?) -> String? {
+        guard let values = arrayValues(from: rawValue) else { return nil }
+        return normalizedPatterns(from: values).joined(separator: "\n")
     }
 
     private init(rawValue: Any?) {
