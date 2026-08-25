@@ -93,6 +93,72 @@ struct CmuxConfigWorkspaceActionTests {
         }
     }
 
+    @Test func invalidWorkspaceActionDoesNotDiscardValidActions() throws {
+        let result = try CmuxConfigFile.decodeToleratingInvalidActions(from: Data("""
+        {
+          "actions": {
+            "good-one": { "type": "command", "command": "echo good" },
+            "bad-one": {
+              "type": "workspace",
+              "workspace": {
+                "layout": {
+                  "direction": "horizontal",
+                  "children": [
+                    { "pane": { "surfaces": [{ "type": "terminal" }] } }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """.utf8))
+
+        #expect(result.config.actions["good-one"]?.action != nil)
+        #expect(result.config.actions["bad-one"] == nil)
+        let issue = try #require(result.actionIssues.first)
+        #expect(issue.path.contains("actions.bad-one.workspace.layout"))
+        #expect(issue.message.contains("exactly 2 children"))
+    }
+
+    @MainActor
+    @Test func configStoreKeepsValidActionWhenSiblingHasInvalidLayout() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "good-one": { "type": "command", "command": "echo good" },
+            "bad-one": {
+              "type": "workspace",
+              "workspace": {
+                "layout": {
+                  "direction": "horizontal",
+                  "children": [{ "pane": { "surfaces": [{ "type": "terminal" }] } }]
+                }
+              }
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        #expect(store.resolvedAction(id: "good-one") != nil)
+        #expect(store.resolvedAction(id: "bad-one") == nil)
+        #expect(store.configurationIssues.contains {
+            $0.message?.contains("actions.bad-one.workspace.layout") == true
+        })
+    }
+
     @Test func workspaceActionEncodeDecodeRoundTrip() throws {
         let definition = CmuxWorkspaceDefinition(
             name: "Round Trip",
