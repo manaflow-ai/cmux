@@ -163,17 +163,22 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
 
         guard let surfaceView else { return }
         for runtime in pending.values {
-            var requests = [
-                runtime.latestRuntimeReset,
-                runtime.latestRuntimeEnded,
-                runtime.latestLinkHover
-            ].compactMap { $0 }
+            var requests: [Request] = []
+            if let latestRuntimeReset = runtime.latestRuntimeReset {
+                requests.append(latestRuntimeReset)
+            }
+            if let latestRuntimeEnded = runtime.latestRuntimeEnded {
+                requests.append(latestRuntimeEnded)
+            }
             if let firstShape = runtime.firstShape {
-                requests.insert(firstShape, at: 2)
+                requests.append(firstShape)
                 if let latestShape = runtime.latestShape,
                    latestShape.sequence != firstShape.sequence {
-                    requests.insert(latestShape, at: 3)
+                    requests.append(latestShape)
                 }
+            }
+            if let latestLinkHover = runtime.latestLinkHover {
+                requests.append(latestLinkHover)
             }
             for request in requests {
                 guard let terminalSurface = surfaceView.terminalSurface,
