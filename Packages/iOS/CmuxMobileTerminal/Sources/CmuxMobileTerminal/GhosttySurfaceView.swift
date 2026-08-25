@@ -453,6 +453,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var missed = 0
         var maxGapMs: Double = 0
         var loggedDisplayInfo = false
+        /// Pixel batches whose render was pre-admitted and ran inline on the
+        /// surface queue vs batches that fell back to completion-time
+        /// submission (gate busy). Proves whether the hop-collapse engages.
+        var inlineRenders = 0
+        var fallbackRenders = 0
     }
     var debugScrollFrameRateStats = DebugScrollFrameRateStats()
     /// When the previous display-link callback finished (hitch attribution).

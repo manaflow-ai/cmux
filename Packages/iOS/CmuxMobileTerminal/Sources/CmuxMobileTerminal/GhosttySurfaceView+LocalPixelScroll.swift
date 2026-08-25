@@ -87,6 +87,13 @@ extension GhosttySurfaceView {
         // gate is busy, suppressed, or rendering is paused; the batch then
         // falls back to completion-time submission unchanged.
         let preadmittedRender = preadmitLocalScrollRenderSubmission()
+        #if DEBUG
+        if preadmittedRender != nil {
+            debugScrollFrameRateStats.inlineRenders += 1
+        } else {
+            debugScrollFrameRateStats.fallbackRenders += 1
+        }
+        #endif
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         let pixelState = localPixelScrollState

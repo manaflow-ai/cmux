@@ -64,11 +64,15 @@ extension GhosttySurfaceView {
                 "perf.display max_fps=\(screen.maximumFramesPerSecond)"
             )
         }
+        MainThreadStallProbe.installIfNeeded()
+        MainThreadStallProbe.scrollActive = scrollInteractionActive
         guard scrollInteractionActive else {
             debugScrollFrameRateStats.windowStart = 0
             debugScrollFrameRateStats.ticks = 0
             debugScrollFrameRateStats.missed = 0
             debugScrollFrameRateStats.maxGapMs = 0
+            debugScrollFrameRateStats.inlineRenders = 0
+            debugScrollFrameRateStats.fallbackRenders = 0
             return
         }
         if debugScrollFrameRateStats.windowStart == 0 {
@@ -105,12 +109,14 @@ extension GhosttySurfaceView {
         let fps = Double(debugScrollFrameRateStats.ticks) / windowElapsed
         let linkFps = grantedDuration > 0 ? Int((1.0 / grantedDuration).rounded()) : 0
         MobileDebugLog.anchormux(
-            "perf.refresh scroll_fps=\(Int(fps.rounded())) link_fps=\(linkFps) missed=\(debugScrollFrameRateStats.missed) max_gap_ms=\(Int(debugScrollFrameRateStats.maxGapMs))"
+            "perf.refresh scroll_fps=\(Int(fps.rounded())) link_fps=\(linkFps) missed=\(debugScrollFrameRateStats.missed) max_gap_ms=\(Int(debugScrollFrameRateStats.maxGapMs)) inline=\(debugScrollFrameRateStats.inlineRenders) fb=\(debugScrollFrameRateStats.fallbackRenders)"
         )
         debugScrollFrameRateStats.windowStart = now
         debugScrollFrameRateStats.ticks = 0
         debugScrollFrameRateStats.missed = 0
         debugScrollFrameRateStats.maxGapMs = 0
+        debugScrollFrameRateStats.inlineRenders = 0
+        debugScrollFrameRateStats.fallbackRenders = 0
     }
 }
 #endif
