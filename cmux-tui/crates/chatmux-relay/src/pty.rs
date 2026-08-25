@@ -4685,17 +4685,31 @@ struct ControlTerminalControl {
 
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) {
-        if let Some(queue) = &self.queue {
+        if self.sizing.is_some() {
+            let Some(queue) = &self.queue else {
+                // A protocol-10+ control must never bypass the sizing actor.
+                // The open path rejects this state; keep the proxy fail
+                // closed if a later lifecycle race drops its endpoint.
+                self.release();
+                return;
+            };
             queue.enqueue_input(data);
         } else {
             // Protocols without shared sizing use the legacy whole-session
-            // path. Protocol-10+ raw attachments always install `queue`.
+            // path. Protocol-10+ raw attachments always install `queue` and
+            // take the fail-closed branch above if that invariant is broken.
             self.control
                 .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
         }
     }
     fn resize(&self, cols: u16, rows: u16) {
         if let Some(sizing) = &self.sizing {
+            if self.queue.is_none() {
+                // Do not send a direct resize after shared sizing setup has
+                // failed. Such a frame could race a retired transport.
+                self.release();
+                return;
+            }
             sizing.update(SizingGrid { cols, rows });
         } else {
             // Legacy protocol path: no relay sizing coordinator exists.
@@ -5083,7 +5097,16 @@ impl Inner {
             // unavailable control reply must not hold `pty_opened` for the
             // full three-second request budget. Subsequent resize requests
             // are coalesced by the same worker and converge the grid.
-            let _ = sizing.join(Arc::clone(&control), SizingGrid { cols, rows });
+            if sizing.join(Arc::clone(&control), SizingGrid { cols, rows }).is_none() {
+                // Protocol-10+ attachments require the shared sizing queue.
+                // Do not emit `pty_opened` and fall back to direct control
+                // writes when the target is retired or its close barrier has
+                // failed: that would bypass the fail-closed generation fence.
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "terminal sizing coordination is unavailable; reconnect and retry".to_owned(),
+                ));
+            }
         } else {
             // The client sends one canonical resize after `pty_opened` for
             // protocol 5-9. Do not send a second pre-open resize here: the
@@ -5093,7 +5116,20 @@ impl Inner {
         // The lease installs the queue before `pty_opened` is emitted. The
         // proxy uses that exact queue for every later input so a resize that
         // was accepted before open cannot be overtaken on the control FIFO.
-        let sizing_queue = sizing.as_ref().and_then(|lease| lease.queue());
+        let sizing_queue = if let Some(sizing) = &sizing {
+            let Some(queue) = sizing.queue() else {
+                // The lease was reported as joined, but its endpoint was
+                // retired before the proxy was created. Keep the same
+                // fail-closed rule as the join check above.
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "terminal sizing coordination is unavailable; reconnect and retry".to_owned(),
+                ));
+            };
+            Some(queue)
+        } else {
+            None
+        };
 
         let proxy = Arc::new(ControlTerminalControl {
             control,
@@ -7979,6 +8015,37 @@ mod tests {
                 "send"
             ]
         );
+    }
+
+    #[test]
+    fn protocol_ten_proxy_fails_closed_without_sizing_queue() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let lease = TerminalSizingLease::new(
+            &coordinator,
+            SizingKey {
+                socket_path: PathBuf::from("/tmp/cmux-sizing-missing-queue.sock"),
+                surface_id: 26,
+            },
+            1,
+            26,
+        );
+        let proxy = ControlTerminalControl {
+            control: Arc::new(control.clone()),
+            surface_id: 26,
+            sizing: Some(lease),
+            queue: None,
+            ended: AtomicBool::new(false),
+        };
+
+        // A protocol-10+ proxy without its ordered queue must never fall
+        // back to direct daemon writes. The defensive path closes the
+        // transport instead.
+        proxy.write(b"must-not-bypass-sizing");
+        proxy.resize(120, 40);
+        assert!(control.sends().is_empty());
+        assert!(control.requests().is_empty());
+        assert!(control.ended());
     }
 
     #[tokio::test]
