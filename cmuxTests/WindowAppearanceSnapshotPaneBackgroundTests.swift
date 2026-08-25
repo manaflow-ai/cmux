@@ -98,7 +98,7 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
 
     /// Verifies portal geometry and visibility remain the root mask's source of truth.
     @MainActor
-    @Test func portalReconcilesRootExclusionOnNoninteractiveMoveResetAndHide() throws {
+    @Test func portalReconcilesRootExclusionOnNoninteractiveMoveResetAndHide() async throws {
         let bounds = NSRect(x: 0, y: 0, width: 360, height: 180)
         let contentView = NSView(frame: bounds)
         let window = NSWindow(
@@ -159,12 +159,14 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
 
         hosted.setBackgroundColor(.clear, excludesSharedRootBackdrop: false)
+        await Task.yield()
         #expect(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root))
 
         hosted.setBackgroundColor(
             .systemOrange.withAlphaComponent(0.42),
             excludesSharedRootBackdrop: true
         )
+        await Task.yield()
         #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
 
         portal.hideEntry(forHostedId: ObjectIdentifier(hosted))
