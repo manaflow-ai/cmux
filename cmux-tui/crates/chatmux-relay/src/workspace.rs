@@ -1055,7 +1055,16 @@ async fn run_git_diff(
     let mut files: i64 = 0;
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;
-    while let Ok(Some(line)) = lines.next_line().await {
+    loop {
+        let line = match lines.next_line().await {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(error) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(Refusal::failed(format!("could not read git diff: {error}")));
+            }
+        };
         if line.starts_with("diff --git ") {
             files += 1;
             if !capped {
