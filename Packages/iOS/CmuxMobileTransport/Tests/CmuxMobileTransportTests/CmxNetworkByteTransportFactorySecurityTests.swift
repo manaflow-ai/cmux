@@ -27,6 +27,13 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
 }
 
 @Suite struct CmxTransportFactorySecurityTests {
+    @Test func defaultNetworkFactoryAdvertisesOnlyDialableRouteKinds() {
+        #expect(
+            CmxNetworkByteTransportFactory().supportedKinds
+                == [.tailscale, .debugLoopback]
+        )
+    }
+
     @Test func buildsLoopbackTransportWithExplicitAuthorizationIntent() throws {
         let route = try CmxAttachRoute(
             id: "loopback",
@@ -72,10 +79,10 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
             transportMode: .lanOnly
         )
 
-        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+        #expect(throws: CmxNetworkByteTransportError.unsupportedRouteKind(.lan)) {
             _ = try CmxNetworkByteTransportFactory().makeTransport(for: route)
         }
-        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+        #expect(throws: CmxNetworkByteTransportError.unsupportedRouteKind(.lan)) {
             _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
         }
         #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {

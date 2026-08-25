@@ -164,17 +164,26 @@ import Testing
         #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
             liveTransportMode: .automatic,
             newDefaultTransportMode: .tailscale,
-            hasExplicitPairingOverride: true
+            hasExplicitPairingOverride: true,
+            hasRecoveryTarget: false
         ))
         #expect(shell.shouldRecoverForegroundForDefaultMethodChange(
             liveTransportMode: .automatic,
             newDefaultTransportMode: .tailscale,
-            hasExplicitPairingOverride: false
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: false
         ))
         #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
             liveTransportMode: nil,
             newDefaultTransportMode: .tailscale,
-            hasExplicitPairingOverride: false
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: false
+        ))
+        #expect(shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: nil,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: true
         ))
     }
 

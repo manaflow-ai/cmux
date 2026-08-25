@@ -21,6 +21,19 @@ import Testing
     }
 }
 
+@Test func loopbackRouteReportsItsConcretePathBeforeConnecting() async throws {
+    let route = try CmxAttachRoute(
+        id: "loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 49831)
+    )
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+    let observing = try #require(transport as? any CmxByteTransportPathObserving)
+
+    #expect(await observing.currentTransportPath() == .debugLoopback)
+    await observing.close()
+}
+
 @Test func networkTransportExchangesBytesOverHostPortRoute() async throws {
     let server = try NetworkEchoServer(response: Data("pong".utf8))
     let port = try await server.start()
