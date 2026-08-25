@@ -420,6 +420,8 @@ public struct CMUXMobileRootScene: View {
             MobileBottomScrollStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
             ToastGalleryView()
+        } else if ProcessInfo.processInfo.environment["CMUX_TERMINAL_LAB"] == "1" {
+            TerminalLabView()
         } else {
             makeMobileAppView()
         }

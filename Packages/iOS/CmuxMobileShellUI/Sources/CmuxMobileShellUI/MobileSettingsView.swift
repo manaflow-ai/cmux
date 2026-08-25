@@ -7,6 +7,9 @@ import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+#if DEBUG
+import CmuxMobileTerminal
+#endif
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -329,6 +332,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        TerminalLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.terminalLab",
+                                defaultValue: "Terminal Lab"
+                            ),
+                            systemImage: "cable.connector.horizontal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalLab")
                 }
                 #endif
 
