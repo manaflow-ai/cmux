@@ -59,6 +59,11 @@ final class MainWindowLifecycleCoordinator {
             [SurfaceResumeBindingIndex.PanelKey: Int64]
         ) async -> ProcessDetectedResumeIndexes?
     ) async -> ProcessDetectedResumeIndexes? {
+        for (key, device) in ttyDeviceBindings where
+            windowlessRecoveryResumeIndexesBindings[key] == nil {
+            windowlessRecoveryResumeIndexesBindings[key] = device
+        }
+        windowlessRecoveryResumeIndexesGeneration &+= 1
         if let task = windowlessRecoveryResumeIndexesTask {
             return await task.value
         }
@@ -68,12 +73,6 @@ final class MainWindowLifecycleCoordinator {
         guard windowlessRecoveryResumeIndexesWorkerTask == nil else {
             return nil
         }
-        for (key, device) in ttyDeviceBindings where
-            windowlessRecoveryResumeIndexesBindings[key] == nil {
-            windowlessRecoveryResumeIndexesBindings[key] = device
-        }
-        windowlessRecoveryResumeIndexesGeneration &+= 1
-
         let task = Task { @MainActor [weak self] in
             guard let self else {
                 return nil
@@ -117,8 +116,12 @@ final class MainWindowLifecycleCoordinator {
             guard let indexes else {
                 // An unavailable fresh scan must not immediately launch another
                 // worker; its handle remains coalesced until the worker exits.
-                windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
-                windowlessRecoveryTTYDeviceBindings = nil
+                // Keep bindings that arrived while the scan was running so the
+                // next pass can retry them once that worker has drained.
+                if scanGeneration == windowlessRecoveryResumeIndexesGeneration {
+                    windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+                    windowlessRecoveryTTYDeviceBindings = nil
+                }
                 windowlessRecoveryResumeIndexesTask = nil
                 return nil
             }
