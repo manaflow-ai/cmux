@@ -2069,6 +2069,23 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             restorableCodexAgent(sessionId: sessionId, workingDirectory: firstRemoteDirectory),
             panelId: sourcePanelId
         )
+        let firstBindingAgent = restorableCodexAgent(
+            sessionId: sessionId,
+            workingDirectory: firstRemoteDirectory
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(sessionId)",
+                cwd: firstRemoteDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: firstBindingAgent.launchCommand,
+                restoreWorkingDirectorySelection: .exact(firstRemoteDirectory),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
 
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
@@ -2085,6 +2102,11 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!startupInput.contains(firstRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
         #expect(restoredPanel.requestedWorkingDirectory == latestRemoteDirectory)
+        let restoredBinding = try #require(
+            restored.surfaceResumeBinding(panelId: restoredPanelId)
+        )
+        #expect(restoredBinding.restoreWorkingDirectorySelection == .exact(latestRemoteDirectory))
+        #expect(restoredBinding.cwd == latestRemoteDirectory)
 
         let newerRemoteDirectory = "/repo-c"
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
@@ -2104,6 +2126,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(secondAgent.restoreWorkingDirectorySelection == .exact(newerRemoteDirectory))
         #expect(secondStartupInput.contains(newerRemoteDirectory), Comment(rawValue: secondStartupInput))
         #expect(!secondStartupInput.contains(latestRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(
+            secondRestore.surfaceResumeBinding(panelId: secondPanelId)?.restoreWorkingDirectorySelection ==
+                .exact(newerRemoteDirectory)
+        )
     }
 
     @MainActor
