@@ -433,7 +433,7 @@ final class MobilePairingModel {
         }
     }
 
-    private static func lanLines(_ routes: [CmxAttachRoute]) -> [String] {
+    private nonisolated static func lanLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
             guard route.kind == .lan,
                   case let .hostPort(host, port) = route.endpoint else {
