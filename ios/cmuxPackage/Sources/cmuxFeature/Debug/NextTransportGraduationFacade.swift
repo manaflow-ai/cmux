@@ -220,7 +220,24 @@ final class NextTransportGraduationFacade {
             return nil
         }
         let client = NextTransportDialClient()
-        client.configure(ticketJSON: bootstrap.ticket, grantJSON: bootstrap.grant)
+        var ticketJSON = bootstrap.ticket
+        // Soak rig: with direct addresses stripped, every byte MUST cross
+        // the relay — a simulator on the Mac's own machine cannot cheat the
+        // non-local test over LAN/loopback.
+        if UserDefaults.standard.bool(forKey: "dev.cmux.nextTransport.ios.soak.relayOnly"),
+            var object = (try? JSONSerialization.jsonObject(with: Data(ticketJSON.utf8)))
+                as? [String: Any]
+        {
+            object["addrs"] = [String]()
+            if let data = try? JSONSerialization.data(withJSONObject: object),
+                let stripped = String(data: data, encoding: .utf8)
+            {
+                ticketJSON = stripped
+                graduationLog.notice(
+                    "soak relayOnly: direct addrs stripped for mac=\(String(macID.prefix(8)), privacy: .public)")
+            }
+        }
+        client.configure(ticketJSON: ticketJSON, grantJSON: bootstrap.grant)
         clients[macID] = client
         graduationLog.notice(
             """
