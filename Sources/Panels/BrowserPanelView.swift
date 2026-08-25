@@ -1844,7 +1844,11 @@ struct BrowserPanelView: View {
             if panel.shouldRenderWebView {
                 Group {
                     if panel.isChromiumBacked {
-                        ChromiumBrowserHostRepresentable(panel: panel)
+                        ChromiumBrowserHostRepresentable(
+                            panel: panel,
+                            isVisibleInUI: isVisibleInUI,
+                            isCurrentPaneOwner: isCurrentPaneOwner
+                        )
                             .accessibilityIdentifier("BrowserChromiumSurface")
                     } else {
                         WebViewRepresentable(

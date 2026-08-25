@@ -60,15 +60,22 @@
     "browser.chromium.cdp.disconnected": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CDP disconnected: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CDP接続が切断されました: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Browser connection closed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ接続が閉じられました" } }
       }
     },
     "browser.chromium.cdp.protocolError": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CDP protocol error: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CDPプロトコルエラー: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Browser communication failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ通信に失敗しました" } }
+      }
+    },
+    "browser.chromium.cdp.commandFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser command failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザコマンドに失敗しました" } }
       }
     },
     "browser.chromium.cdp.malformedMessage": {
@@ -209,6 +216,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Chromium operation ended without a result" } },
         "ja": { "stringUnit": { "state": "translated", "value": "結果がないままChromium操作が終了しました" } }
+      }
+    },
+    "browser.chromium.automation.startupFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium could not start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumを起動できませんでした" } }
       }
     },
     "browser.chromium.automation.malformedCookies": {

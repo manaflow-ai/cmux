@@ -15,9 +15,7 @@ final class BrowserPaneEngineController {
     var kind: BrowserEngineKind { adapter.kind }
     var contentView: NSView? { adapter.contentView }
     var remoteDebuggingEndpoint: BrowserCDPEndpoint? { adapter.remoteDebuggingEndpoint }
-    var chromiumStartupReadinessTask: Task<Void, Never>? {
-        (adapter as? ChromiumBrowserPaneEngineAdapter)?.startupReadinessTask
-    }
+    var chromiumStartupReadinessTask: Task<Void, Never>? { adapter.startupReadinessTask }
 
     init(
         kind: BrowserEngineKind,
@@ -120,6 +118,10 @@ final class BrowserPaneEngineController {
 
     func start(initialURL: URL?) {
         adapter.start(initialURL: initialURL)
+    }
+
+    func waitForStartupReadiness() async {
+        await adapter.startupReadinessTask?.value
     }
 
     func stop() {

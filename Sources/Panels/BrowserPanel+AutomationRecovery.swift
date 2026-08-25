@@ -47,6 +47,8 @@ extension BrowserPanel {
                 self.historyStore.recordTypedNavigation(url: targetURL)
             }
             if let cef = self.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
+                await cef.startupReadinessTask?.value
+                try Task.checkCancellation()
                 if reload {
                     try await cef.reload()
                 } else if let targetURL {
@@ -82,7 +84,8 @@ extension BrowserPanel {
                 presentInsecureHTTPAlert(
                     for: URLRequest(url: targetURL),
                     intent: .currentTab,
-                    recordTypedNavigation: recordTypedNavigation
+                    recordTypedNavigation: recordTypedNavigation,
+                    deferNavigation: true
                 ) { [weak self] resolution in
                     guard let self else { return }
                     if case .proceededInCurrentTab = resolution {

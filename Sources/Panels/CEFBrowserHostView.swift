@@ -14,6 +14,15 @@ final class CEFBrowserHostView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var isAdopted = false
 
+    /// Whether this pane currently owns the visible browser surface. CEF's
+    /// child window must stay ordered out for inactive tabs/workspaces.
+    var isPaneVisible = false {
+        didSet {
+            guard oldValue != isPaneVisible else { return }
+            reconcile()
+        }
+    }
+
     var onFocus: (() -> Void)?
 
     init() {
@@ -86,7 +95,9 @@ final class CEFBrowserHostView: NSView {
     /// Aligns the CEF window with the current pane geometry and visibility.
     func reconcile() {
         guard let cefWindow else { return }
-        guard let hostWindow = window, !isHiddenOrHasHiddenAncestor,
+        guard isPaneVisible,
+              let hostWindow = window,
+              !isHiddenOrHasHiddenAncestor,
               bounds.width > 1, bounds.height > 1 else {
             if isAdopted {
                 window?.removeChildWindow(cefWindow)

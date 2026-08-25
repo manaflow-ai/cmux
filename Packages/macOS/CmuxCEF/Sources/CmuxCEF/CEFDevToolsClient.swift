@@ -60,19 +60,34 @@ public final class CEFDevToolsClient {
         var envelope: [String: Any] = ["id": id, "method": method]
         if !params.isEmpty { envelope["params"] = params }
         let message = try JSONSerialization.data(withJSONObject: envelope)
-        return try await withCheckedThrowingContinuation { continuation in
-            guard browser.sendDevToolsMessage(message) else {
-                continuation.resume(throwing: ClientError.notConnected)
-                return
+        return try await withTaskCancellationHandler(
+            operation: {
+                try await withCheckedThrowingContinuation { continuation in
+                    guard !Task.isCancelled else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    pending[id] = continuation
+                    guard browser.sendDevToolsMessage(message) else {
+                        pending.removeValue(forKey: id)?.resume(
+                            throwing: ClientError.notConnected
+                        )
+                        return
+                    }
+                }
+            },
+            onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelPendingCommand(id: id)
+                }
             }
-            pending[id] = continuation
-        }
+        )
     }
 
     /// Streams protocol events until the browser closes.
     public func events() -> AsyncStream<Event> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(256)) { continuation in
             eventContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
@@ -111,5 +126,9 @@ public final class CEFDevToolsClient {
         }
         for continuation in eventContinuations.values { continuation.finish() }
         eventContinuations.removeAll()
+    }
+
+    private func cancelPendingCommand(id: Int) {
+        pending.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
 }

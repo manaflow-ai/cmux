@@ -1,5 +1,6 @@
 @preconcurrency import Foundation
 import CryptoKit
+import OSLog
 
 /// Finds a cmux-owned headless-shell executable and optionally installs one.
 /// The Foundation file manager is thread-safe; keeping it private prevents
@@ -7,6 +8,10 @@ import CryptoKit
 /// SAFETY: the immutable `FileManager`, `URLSession`, storage resolver, and
 /// `@Sendable` providers are only used through Foundation's thread-safe APIs.
 struct ChromiumRuntimeArtifactStore: Sendable {
+    // URLSession's resource timeout is caller-configurable; this outer
+    // deadline also bounds sessions supplied by tests or the app composition.
+    private let downloadTimeout: Duration
+
     // FileManager is documented thread-safe. Keep the escape hatch on the
     // single immutable property used by filesystem operations.
     private nonisolated(unsafe) let fileManager: FileManager
@@ -18,8 +23,10 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         fileManager: FileManager,
         urlSession: URLSession,
         executableOverrideProvider: @escaping @Sendable () -> URL?,
-        storage: ChromiumOwnedStorage
+        storage: ChromiumOwnedStorage,
+        downloadTimeout: Duration = .seconds(120)
     ) {
+        self.downloadTimeout = downloadTimeout
         self.fileManager = fileManager
         self.urlSession = urlSession
         self.storage = storage
@@ -64,7 +71,25 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         } catch {
             throw ChromiumRuntimeArtifactError.executableNotFound
         }
-        let (archiveURL, response) = try await urlSession.download(from: artifact.downloadURL)
+        let download = try await withThrowingTaskGroup(of: ChromiumRuntimeDownloadResult.self) { group in
+            group.addTask {
+                let (archiveURL, response) = try await urlSession.download(from: artifact.downloadURL)
+                return ChromiumRuntimeDownloadResult(archiveURL: archiveURL, response: response)
+            }
+            group.addTask { [downloadTimeout] in
+                // A CDN stall is a genuine operation deadline, not a state
+                // polling delay; cancellation stops the URLSession task.
+                try await ContinuousClock().sleep(for: downloadTimeout)
+                throw ChromiumRuntimeArtifactError.downloadFailed("timeout")
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
+            return result
+        }
+        let archiveURL = download.archiveURL
+        let response = download.response
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -170,7 +195,8 @@ struct ChromiumRuntimeArtifactStore: Sendable {
     /// Runs the system archive tool without blocking an executor thread on
     /// `waitUntilExit()`. The termination callback is the process readiness
     /// signal; stderr is drained after termination because `unzip -q` emits
-    /// only bounded diagnostics.
+    /// only bounded diagnostics. Raw diagnostics are retained for private
+    /// logging and never become part of the user-facing error.
     private func extractArchive(_ archiveURL: URL, into staging: URL) async throws {
         let unzip = Process()
         unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
@@ -179,24 +205,22 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         unzip.standardError = errorPipe
         unzip.standardOutput = FileHandle.nullDevice
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let completion = ChromiumExtractionCompletion()
-            let finish: @Sendable (Result<Void, any Error>) -> Void = { result in
-                guard completion.claim() else { return }
-                continuation.resume(with: result)
+        let status: Int32
+        do {
+            status = try await runProcess(unzip)
+        } catch {
+            throw ChromiumRuntimeArtifactError.extractionFailed("unzip could not start")
+        }
+        let diagnostics = String(
+            data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if status != 0 {
+            if let diagnostics, !diagnostics.isEmpty {
+                Logger(subsystem: "com.cmux.browser", category: "runtime")
+                    .error("Chromium archive extraction failed: \(diagnostics, privacy: .private(mask: .hash))")
             }
-            unzip.terminationHandler = { process in
-                guard process.terminationStatus == 0 else {
-                    finish(.failure(ChromiumRuntimeArtifactError.extractionFailed("unzip failed")))
-                    return
-                }
-                finish(.success(()))
-            }
-            do {
-                try unzip.run()
-            } catch {
-                finish(.failure(ChromiumRuntimeArtifactError.extractionFailed("unzip could not start")))
-            }
+            throw ChromiumRuntimeArtifactError.extractionFailed("unzip failed")
         }
     }
 
@@ -222,7 +246,12 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         listing.arguments = ["-Z1", archiveURL.path]
         listing.standardOutput = listingHandle
         listing.standardError = FileHandle.nullDevice
-        let status = try await runProcess(listing)
+        let status: Int32
+        do {
+            status = try await runProcess(listing)
+        } catch {
+            throw ChromiumRuntimeArtifactError.invalidArchive
+        }
         guard status == 0 else {
             throw ChromiumRuntimeArtifactError.invalidArchive
         }

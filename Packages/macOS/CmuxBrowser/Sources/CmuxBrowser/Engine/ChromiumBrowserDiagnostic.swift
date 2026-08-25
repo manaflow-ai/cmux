@@ -25,6 +25,8 @@ public enum ChromiumBrowserDiagnostic: Error, Equatable, Sendable {
     case navigationTimedOut
     /// An operation ended without success or an explicit failure.
     case operationEnded
+    /// Chromium could not finish creating a usable browser session.
+    case startupFailed
     /// Chromium returned an invalid cookie payload.
     case malformedCookies
     /// A caller supplied a cookie that CDP cannot represent.
@@ -78,6 +80,8 @@ public enum ChromiumBrowserDiagnostic: Error, Equatable, Sendable {
             return Self.localized("browser.chromium.automation.navigationTimedOut", "Timed out waiting for Chromium navigation")
         case .operationEnded:
             return Self.localized("browser.chromium.automation.operationEnded", "Chromium operation ended without a result")
+        case .startupFailed:
+            return Self.localized("browser.chromium.automation.startupFailed", "Chromium could not start")
         case .malformedCookies:
             return Self.localized("browser.chromium.automation.malformedCookies", "Chromium returned malformed cookies")
         case .invalidCookiePayload:

@@ -4,6 +4,8 @@ import SwiftUI
 /// Mounts the current Chromium host view into SwiftUI pane content.
 struct ChromiumBrowserHostRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
+    let isVisibleInUI: Bool
+    let isCurrentPaneOwner: Bool
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView(frame: .zero)
@@ -22,6 +24,9 @@ struct ChromiumBrowserHostRepresentable: NSViewRepresentable {
         guard let host = panel.chromiumContentView else {
             container.subviews.forEach { $0.removeFromSuperview() }
             return
+        }
+        if let cefHost = host as? CEFBrowserHostView {
+            cefHost.isPaneVisible = isVisibleInUI && isCurrentPaneOwner
         }
         guard host.superview !== container else {
             host.frame = container.bounds

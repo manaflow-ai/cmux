@@ -339,10 +339,12 @@ static void CEF_CALLBACK app_on_before_command_line_processing(
     cef_app_t *self, const cef_string_t *process_type,
     struct _cef_command_line_t *command_line) {
   if (process_type && process_type->length > 0) return;  // Browser process only.
-  // cmux-owned profiles encrypt cookies with the mock key instead of a
-  // per-bundle "Chromium Safe Storage" keychain item; every tagged dev
-  // bundle id would otherwise raise a login-keychain password prompt.
+  // Debug-tagged bundles may use a mock keychain to avoid prompting during
+  // local dogfood. Release builds retain Chromium's real Keychain-backed
+  // Safe Storage encryption for persisted cookies and session tokens.
+#if DEBUG
   append_switch(command_line, "use-mock-keychain");
+#endif
   if (!g_extension_paths || !g_extension_paths[0]) return;
   cef_string_t name = {};
   cef_string_t value = {};
@@ -472,7 +474,14 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   cef_settings_t settings;
   memset(&settings, 0, sizeof(settings));
   settings.size = sizeof(settings);
+#if DEBUG
+  // Tagged Debug bundles are ad-hoc signed and cannot launch the helper with
+  // Chromium's production sandbox entitlement. Release builds leave this
+  // disabled so CEF keeps its renderer sandbox boundary.
   settings.no_sandbox = 1;
+#else
+  settings.no_sandbox = 0;
+#endif
   settings.external_message_pump = 1;
   settings.remote_debugging_port = options->remote_debugging_port;
   settings.log_severity = LOGSEVERITY_WARNING;

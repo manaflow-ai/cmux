@@ -356,7 +356,9 @@ extension ChromiumBrowserSession {
         internalPort = nil
         mainFrameID = nil
         isLoading = false
-        state = error is CancellationError || isStopping ? .stopped : .failed(error.localizedDescription)
+        state = error is CancellationError || isStopping
+            ? .stopped
+            : .failed(ChromiumBrowserDiagnostic.startupFailed.message)
         publish()
     }
 

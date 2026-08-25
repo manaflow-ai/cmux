@@ -5807,7 +5807,8 @@ final class BrowserPanel: Panel, ObservableObject {
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
         onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in },
-        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
+        deferNavigation: Bool = false
     ) {
         guard let url = request.url else {
             onNavigationStarted?(nil)
@@ -5868,7 +5869,8 @@ final class BrowserPanel: Panel, ObservableObject {
                     intent: intent,
                     recordTypedNavigation: recordTypedNavigation,
                     onResolution: onResolution,
-                    onNavigationStarted: onNavigationStarted
+                    onNavigationStarted: onNavigationStarted,
+                    deferNavigation: deferNavigation
                 )
             }
         )
@@ -5887,7 +5889,8 @@ final class BrowserPanel: Panel, ObservableObject {
                         intent: intent,
                         recordTypedNavigation: recordTypedNavigation,
                         onResolution: onResolution,
-                        onNavigationStarted: onNavigationStarted
+                        onNavigationStarted: onNavigationStarted,
+                        deferNavigation: deferNavigation
                     )
                 }
             },
@@ -5910,7 +5913,8 @@ final class BrowserPanel: Panel, ObservableObject {
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
         onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
-        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
+        deferNavigation: Bool = false
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
@@ -5931,11 +5935,13 @@ final class BrowserPanel: Panel, ObservableObject {
             case .currentTab:
                 onResolution(.proceededInCurrentTab)
                 insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(
-                    request: request,
-                    recordTypedNavigation: recordTypedNavigation,
-                    onNavigationStarted: onNavigationStarted
-                )
+                if !deferNavigation {
+                    navigateWithoutInsecureHTTPPrompt(
+                        request: request,
+                        recordTypedNavigation: recordTypedNavigation,
+                        onNavigationStarted: onNavigationStarted
+                    )
+                }
             case .newTab:
                 onNavigationStarted?(nil)
                 onResolution(.proceededInNewTab)

@@ -103,7 +103,7 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                 hasStarted = false
                 remoteDebuggingEndpoint = nil
                 let snapshot = ChromiumSessionSnapshot(
-                    state: .failed(error.localizedDescription)
+                    state: .failed(ChromiumBrowserDiagnostic.startupFailed.message)
                 )
                 await MainActor.run { [weak self] in
                     self?.onSnapshot?(snapshot)

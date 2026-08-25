@@ -39,22 +39,24 @@ public enum CDPError: Error, Equatable, Sendable, CustomStringConvertible, Local
                 defaultValue: "CDP is not connected",
                 bundle: .module
             )
-        case .disconnected(let message):
-            let format = String(
+        case .disconnected:
+            return String(
                 localized: "browser.chromium.cdp.disconnected",
-                defaultValue: "CDP disconnected: %@",
+                defaultValue: "Browser connection closed",
                 bundle: .module
             )
-            return String.localizedStringWithFormat(format, message)
-        case .protocolError(let message):
-            let format = String(
+        case .protocolError:
+            return String(
                 localized: "browser.chromium.cdp.protocolError",
-                defaultValue: "CDP protocol error: %@",
+                defaultValue: "Browser communication failed",
                 bundle: .module
             )
-            return String.localizedStringWithFormat(format, message)
-        case .commandFailed(let message):
-            return message
+        case .commandFailed:
+            return String(
+                localized: "browser.chromium.cdp.commandFailed",
+                defaultValue: "Browser command failed",
+                bundle: .module
+            )
         case .malformedMessage:
             return String(
                 localized: "browser.chromium.cdp.malformedMessage",

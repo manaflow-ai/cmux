@@ -305,9 +305,13 @@ extension BrowserPanel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
+                await self.browserEngineController.waitForStartupReadiness()
+                try Task.checkCancellation()
                 try await self.browserEngineController.adapter.navigate(to: url)
             } catch {
-                self.applyChromiumSnapshot(.init(state: .failed(error.localizedDescription)))
+                self.applyChromiumSnapshot(
+                    .init(state: .failed(ChromiumBrowserDiagnostic.operationEnded.message))
+                )
             }
         }
     }
@@ -316,6 +320,8 @@ extension BrowserPanel {
         guard isChromiumBacked else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.browserEngineController.waitForStartupReadiness()
+            guard !Task.isCancelled else { return }
             try? await self.browserEngineController.adapter.goBack()
         }
     }
@@ -324,6 +330,8 @@ extension BrowserPanel {
         guard isChromiumBacked else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.browserEngineController.waitForStartupReadiness()
+            guard !Task.isCancelled else { return }
             try? await self.browserEngineController.adapter.goForward()
         }
     }
@@ -332,6 +340,8 @@ extension BrowserPanel {
         guard isChromiumBacked else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.browserEngineController.waitForStartupReadiness()
+            guard !Task.isCancelled else { return }
             try? await self.browserEngineController.adapter.reload()
         }
     }
@@ -341,6 +351,8 @@ extension BrowserPanel {
         awaitPromise: Bool = true
     ) async throws -> CDPValue {
         guard isChromiumBacked else { throw CDPError.notConnected }
+        await browserEngineController.waitForStartupReadiness()
+        try Task.checkCancellation()
         return try await browserEngineController.adapter.evaluateJavaScript(
             script,
             awaitPromise: awaitPromise
@@ -349,6 +361,8 @@ extension BrowserPanel {
 
     func screenshotChromium() async throws -> Data {
         guard isChromiumBacked else { throw CDPError.notConnected }
+        await browserEngineController.waitForStartupReadiness()
+        try Task.checkCancellation()
         return try await browserEngineController.adapter.screenshotPNG()
     }
 

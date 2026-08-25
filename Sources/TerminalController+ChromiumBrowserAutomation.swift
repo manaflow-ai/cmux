@@ -317,6 +317,7 @@ extension TerminalController {
         ) { finish in
             operationTask = Task { @MainActor in
                 do {
+                    await adapter.startupReadinessTask?.value
                     try Task.checkCancellation()
                     let value: ChromiumAutomationResult
                     switch operation {
@@ -329,15 +330,19 @@ extension TerminalController {
                         value = .screenshot(try await adapter.screenshotPNG())
                     case .navigate(let url):
                         try await adapter.navigate(to: url)
+                        try await adapter.waitForLoadCompletion()
                         value = .completed
                     case .back:
                         try await adapter.goBack()
+                        try await adapter.waitForLoadCompletion()
                         value = .completed
                     case .forward:
                         try await adapter.goForward()
+                        try await adapter.waitForLoadCompletion()
                         value = .completed
                     case .reload:
                         try await adapter.reload()
+                        try await adapter.waitForLoadCompletion()
                         value = .completed
                     case .setViewport(let width, let height):
                         _ = try await adapter.sendCommand(

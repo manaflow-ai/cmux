@@ -18,18 +18,17 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     var contentView: NSView? { hostView }
     var onSnapshot: ((ChromiumSessionSnapshot) -> Void)?
     var onContentFocused: (() -> Void)?
+    var startupReadinessTask: Task<Void, Never>? { startupTask }
 
     private let profileID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
-    private var startDeferralTask: Task<Void, Never>?
-    private var bootstrapTask: Task<Void, Never>?
+    private var startupTask: Task<Void, Never>?
     private var documentScriptRemovalTask: Task<Void, Never>?
     private var colorSchemeTask: Task<Void, Never>?
     private var hasStarted = false
-    private var pendingInitialURL: URL?
     private var readyContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var isReady = false
 
@@ -64,8 +63,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     }
 
     deinit {
-        startDeferralTask?.cancel()
-        bootstrapTask?.cancel()
+        startupTask?.cancel()
         documentScriptRemovalTask?.cancel()
         colorSchemeTask?.cancel()
         browser?.close()
@@ -74,20 +72,32 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func start(initialURL: URL?) {
         guard !hasStarted else { return }
         hasStarted = true
-        pendingInitialURL = initialURL
         publishSnapshot(state: .starting)
-        startDeferralTask = Task { @MainActor [weak self] in
+        startupTask?.cancel()
+        startupTask = Task { @MainActor [weak self] in
             await CEFRuntimeBootstrap.waitUntilSafeToInitialize()
             guard let self, self.hasStarted, !Task.isCancelled else { return }
-            self.completeStart(initialURL: initialURL)
+            do {
+                try self.completeStart()
+                try await self.ready()
+                try await self.installStoredDocumentScripts()
+                try await self.applyStoredColorScheme()
+                if let initialURL {
+                    try await self.navigate(to: initialURL)
+                    try await self.waitForLoadCompletion()
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                self.cleanupAfterStartupFailure()
+                self.publishFailure(ChromiumBrowserDiagnostic.startupFailed.message)
+            }
         }
     }
 
-    private func completeStart(initialURL: URL?) {
+    private func completeStart() throws {
         guard CEFRuntimeBootstrap.initializeIfNeeded() else {
-            publishFailure("Chromium (CEF) runtime unavailable")
-            hasStarted = false
-            return
+            throw CDPError.notConnected
         }
         if remoteDebuggingPort.isExternallyAttachable {
             remoteDebuggingEndpoint = BrowserCDPEndpoint(port: remoteDebuggingPort.rawValue)
@@ -100,17 +110,15 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             ? nil
             : CEFRuntimeBootstrap.profileCachePath(for: profileID)
         guard let browser = CEFBrowser.create(
-            url: initialURL ?? URL(string: "about:blank")!,
+            url: URL(string: "about:blank")!,
             cachePath: cachePath
         ) else {
             remoteDebuggingEndpoint = nil
-            publishFailure("Chromium (CEF) browser creation failed")
-            hasStarted = false
-            return
+            throw CDPError.notConnected
         }
         self.browser = browser
         self.devTools = CEFDevToolsClient(browser: browser)
-        currentURL = initialURL
+        currentURL = nil
         let events = browser.events()
         eventTask = Task { [weak self] in
             for await event in events {
@@ -120,10 +128,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     }
 
     func stop() {
-        startDeferralTask?.cancel()
-        startDeferralTask = nil
-        bootstrapTask?.cancel()
-        bootstrapTask = nil
+        startupTask?.cancel()
+        startupTask = nil
         documentScriptRemovalTask?.cancel()
         documentScriptRemovalTask = nil
         colorSchemeTask?.cancel()
@@ -372,11 +378,6 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
             for waiter in waiters { waiter.resume(returning: ()) }
-            bootstrapTask?.cancel()
-            bootstrapTask = Task { [weak self] in
-                try? await self?.installStoredDocumentScripts()
-                try? await self?.applyStoredColorScheme()
-            }
         case .titleChanged(let value):
             title = value
             publishSnapshot(state: .running(nil))
@@ -391,8 +392,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             publishSnapshot(state: .running(nil))
         case .closed:
             isReady = false
-            bootstrapTask?.cancel()
-            bootstrapTask = nil
+            startupTask?.cancel()
+            startupTask = nil
             documentScriptRemovalTask?.cancel()
             documentScriptRemovalTask = nil
             colorSchemeTask?.cancel()
@@ -424,6 +425,27 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     private func publishFailure(_ message: String) {
         onSnapshot?(ChromiumSessionSnapshot(state: .failed(message)))
+    }
+
+    /// Releases a partially-created CEF browser before exposing startup
+    /// failure. CEF may have created its native window before a later bootstrap
+    /// command fails, so leaving the handle alive would leak a hidden child and
+    /// make a subsequent retry create a second browser for the same pane.
+    private func cleanupAfterStartupFailure() {
+        eventTask?.cancel()
+        eventTask = nil
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = nil
+        colorSchemeTask?.cancel()
+        colorSchemeTask = nil
+        cancelReadyWaiters()
+        hostView.detach()
+        browser?.close()
+        browser = nil
+        devTools = nil
+        remoteDebuggingEndpoint = nil
+        hasStarted = false
+        isReady = false
     }
 
     private func cancelReadyWaiters() {

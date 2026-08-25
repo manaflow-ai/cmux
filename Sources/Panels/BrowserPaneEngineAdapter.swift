@@ -9,6 +9,7 @@ protocol BrowserPaneEngineAdapter: AnyObject {
     var kind: BrowserEngineKind { get }
     var contentView: NSView? { get }
     var remoteDebuggingEndpoint: BrowserCDPEndpoint? { get }
+    var startupReadinessTask: Task<Void, Never>? { get }
 
     func start(initialURL: URL?)
     func stop()
