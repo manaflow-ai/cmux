@@ -12,19 +12,28 @@ import Foundation
 /// its source array is immutable after initialization and callbacks carry only
 /// a sendable invalidation signal; cancellation is idempotent.
 public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
+    /// A stream element emitted when a watched inode may have changed.
+    public typealias Event = Void
+
     private let sources: [any DispatchSourceFileSystemObject]
+    private let continuation: AsyncStream<Event>.Continuation
 
     /// Creates a monitor for one private snapshot root.
     ///
     /// - Parameters:
     ///   - rootURL: The staging root whose files should be watched.
     ///   - fileManager: Filesystem provider used to enumerate the snapshot.
-    ///   - onViolation: Callback delivered when a watched inode changes.
+    ///
+    /// Consume ``events`` to receive invalidation signals without polling.
     public init(
         rootURL: URL,
-        fileManager: FileManager = .default,
-        onViolation: @escaping @Sendable () -> Void
+        fileManager: FileManager = .default
     ) {
+        let (events, continuation) = AsyncStream<Event>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.events = events
+        self.continuation = continuation
         var paths = [rootURL.standardizedFileURL]
         if let enumerator = fileManager.enumerator(
             at: rootURL,
@@ -49,7 +58,9 @@ public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
                 eventMask: [.write, .delete, .rename, .attrib, .extend, .link, .revoke],
                 queue: DispatchQueue.global(qos: .utility)
             )
-            source.setEventHandler(handler: onViolation)
+            source.setEventHandler {
+                continuation.yield(())
+            }
             source.setCancelHandler {
                 Darwin.close(descriptor)
             }
@@ -59,9 +70,13 @@ public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
         self.sources = sources
     }
 
+    /// The event-driven invalidation stream for this snapshot.
+    public nonisolated let events: AsyncStream<Event>
+
     /// Stops all filesystem sources. Repeated calls are harmless.
     public func cancel() {
         sources.forEach { $0.cancel() }
+        continuation.finish()
     }
 
     deinit {
