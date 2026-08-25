@@ -105,7 +105,8 @@ final class RecoverableMainWindowRoute {
               proposedContext.sidebarSelectionState === context.sidebarSelectionState else {
             return nil
         }
-        if let routeWindow = window {
+        if let routeWindow = window,
+           routeWindow.isVisible || routeWindow.isMiniaturized {
             guard proposedContext.window === routeWindow else { return nil }
         }
 

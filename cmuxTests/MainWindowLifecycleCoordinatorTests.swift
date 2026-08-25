@@ -232,23 +232,28 @@ struct MainWindowLifecycleCoordinatorTests {
     func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
         let coordinator = MainWindowLifecycleCoordinator()
         let probe = WindowlessRecoveryLoadProbe()
-        let bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        let firstBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        let laterKey = SurfaceResumeBindingIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        let laterBindings = [laterKey: Int64(42)]
         let loader: @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
-        ) async -> ProcessDetectedResumeIndexes = { _ in
-            await probe.load()
+        ) async -> ProcessDetectedResumeIndexes = { bindings in
+            await probe.load(bindings: bindings)
         }
 
         let first = Task { @MainActor in
             await coordinator.loadWindowlessRecoveryResumeIndexes(
-                ttyDeviceBindings: bindings,
+                ttyDeviceBindings: firstBindings,
                 loader: loader
             )
         }
         await probe.waitUntilStarted()
         let second = Task { @MainActor in
             await coordinator.loadWindowlessRecoveryResumeIndexes(
-                ttyDeviceBindings: bindings,
+                ttyDeviceBindings: laterBindings,
                 loader: loader
             )
         }
@@ -259,7 +264,9 @@ struct MainWindowLifecycleCoordinatorTests {
         _ = await first.value
         _ = await second.value
 
-        #expect(await probe.loadCount == 1)
+        #expect(await probe.loadCount > 0)
+        #expect(await probe.loadCount <= 2)
+        #expect(await probe.observedBinding(laterKey))
         #expect(await probe.observedCancellation)
     }
 
@@ -318,13 +325,17 @@ struct MainWindowLifecycleCoordinatorTests {
 private actor WindowlessRecoveryLoadProbe {
     private(set) var loadCount = 0
     private(set) var observedCancellation = false
+    private(set) var observedBindingKeys: Set<SurfaceResumeBindingIndex.PanelKey> = []
     private var hasStarted = false
     private var isReleased = false
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
     private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
-    func load() async -> ProcessDetectedResumeIndexes {
+    func load(
+        bindings: [SurfaceResumeBindingIndex.PanelKey: Int64]
+    ) async -> ProcessDetectedResumeIndexes {
         loadCount += 1
+        observedBindingKeys.formUnion(bindings.keys)
         hasStarted = true
         for waiter in startedWaiters {
             waiter.resume()
@@ -353,5 +364,9 @@ private actor WindowlessRecoveryLoadProbe {
             waiter.resume()
         }
         releaseWaiters.removeAll(keepingCapacity: false)
+    }
+
+    func observedBinding(_ key: SurfaceResumeBindingIndex.PanelKey) -> Bool {
+        observedBindingKeys.contains(key)
     }
 }

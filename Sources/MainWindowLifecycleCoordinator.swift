@@ -18,6 +18,10 @@ final class MainWindowLifecycleCoordinator {
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesTask:
         Task<ProcessDetectedResumeIndexes, Never>?
+    @ObservationIgnored
+    private var windowlessRecoveryResumeIndexesBindings:
+        [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+    @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
 
     init(
@@ -37,21 +41,46 @@ final class MainWindowLifecycleCoordinator {
             [SurfaceResumeBindingIndex.PanelKey: Int64]
         ) async -> ProcessDetectedResumeIndexes
     ) async -> ProcessDetectedResumeIndexes {
+        for (key, device) in ttyDeviceBindings where
+            windowlessRecoveryResumeIndexesBindings[key] == nil {
+            windowlessRecoveryResumeIndexesBindings[key] = device
+        }
+        windowlessRecoveryResumeIndexesGeneration &+= 1
         if let task = windowlessRecoveryResumeIndexesTask {
             return await task.value
         }
 
-        windowlessRecoveryResumeIndexesGeneration &+= 1
-        let generation = windowlessRecoveryResumeIndexesGeneration
-        let task = Task {
-            await loader(ttyDeviceBindings)
+        let task = Task { @MainActor [weak self] in
+            guard let self else {
+                return .cached(restorableAgentIndex: .empty)
+            }
+            return await self.runWindowlessRecoveryResumeIndexesLoad(loader: loader)
         }
         windowlessRecoveryResumeIndexesTask = task
-        let indexes = await task.value
-        if generation == windowlessRecoveryResumeIndexesGeneration {
+        return await task.value
+    }
+
+    private func runWindowlessRecoveryResumeIndexesLoad(
+        loader: @escaping @Sendable (
+            [SurfaceResumeBindingIndex.PanelKey: Int64]
+        ) async -> ProcessDetectedResumeIndexes
+    ) async -> ProcessDetectedResumeIndexes {
+        while !Task.isCancelled {
+            let scanGeneration = windowlessRecoveryResumeIndexesGeneration
+            let scanBindings = windowlessRecoveryResumeIndexesBindings
+            let indexes = await loader(scanBindings)
+            guard !Task.isCancelled else { break }
+            guard scanGeneration == windowlessRecoveryResumeIndexesGeneration else {
+                continue
+            }
+            windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
             windowlessRecoveryResumeIndexesTask = nil
+            return indexes
         }
-        return indexes
+
+        windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+        windowlessRecoveryResumeIndexesTask = nil
+        return .cached(restorableAgentIndex: .empty)
     }
 
     /// Cancels a pending detection once no live windowless orphan still needs it.
@@ -64,6 +93,7 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesGeneration &+= 1
         windowlessRecoveryResumeIndexesTask?.cancel()
         windowlessRecoveryResumeIndexesTask = nil
+        windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
     }
 
     var registeredContexts: [AppDelegate.MainWindowContext] {
