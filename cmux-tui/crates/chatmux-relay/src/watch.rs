@@ -154,7 +154,9 @@ impl WatchRegistry {
                 // that fails during startup can finish before its handle is
                 // installed in the registry. Remove our generation's
                 if sessions.get(&task_id).is_some_and(|entry| entry.generation == generation) {
-                    sessions.remove(&task_id);
+                    if let Some(session) = sessions.remove(&task_id) {
+                        session.live.store(false, Ordering::Release);
+                    }
                 }
             }
         }));
