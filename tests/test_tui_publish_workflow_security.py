@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import subprocess
 import tempfile
 import time
@@ -1536,6 +1537,19 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert '--source-digest "$GITHUB_SHA"' in text
     assert '--source-ref "$GITHUB_REF"' in text
     assert "persist-credentials: false" in text
+
+
+def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
+    builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
+    namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")
+    version_re = namespace["VERSION_RE"]
+    assert isinstance(version_re, re.Pattern)
+
+    assert version_re.fullmatch("0.12.1")
+    assert version_re.fullmatch("0.12.1-rc.1")
+    assert version_re.fullmatch("0.12.1-nightly.20260825.7")
+    assert not version_re.fullmatch("0.12.1-rc")
+    assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
 if __name__ == "__main__":
