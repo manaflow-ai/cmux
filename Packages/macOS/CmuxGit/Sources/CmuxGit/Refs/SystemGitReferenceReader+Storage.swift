@@ -3,6 +3,7 @@ import Foundation
 
 extension SystemGitReferenceReader {
     private static let maximumDirectReferenceByteCount = 1 * 1_024 * 1_024
+    private static let maximumDirectObjectIDByteCount = 128
 
     enum QuickReferenceStorageProbe: Sendable {
         case complete(String?)
@@ -160,7 +161,7 @@ extension SystemGitReferenceReader {
             guard path.hasPrefix(basePath + "/"), seenPaths.insert(path).inserted else { continue }
             switch boundedReferenceRead(
                 at: refURL,
-                maximumByteCount: Self.maximumObjectIDByteCount,
+                maximumByteCount: Self.maximumDirectObjectIDByteCount,
                 deadline: deadline
             ) {
             case .contents(let contents, consumedByteCount: byteCount):

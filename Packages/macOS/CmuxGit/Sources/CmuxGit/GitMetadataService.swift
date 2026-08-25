@@ -35,7 +35,7 @@ public struct GitMetadataService: Sendable {
     let referenceReader: any GitReferenceReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
-    private let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
+    let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
