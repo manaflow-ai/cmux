@@ -379,7 +379,7 @@ class TabManager: ObservableObject {
                 let suppressFocusHistory = self.focusHistoryNavigation.consumeSuppressedSelectionSideEffectGeneration(generation)
                 guard self.selectionSideEffectsGeneration == generation else { return }
                 let applySelectionSideEffects = {
-                    self.focusSelectedTabPanel(previousTabId: previousTabId)
+                    self.focusSelectedTabPanel()
                     self.updateWindowTitleForSelectedTab()
                     if let selectedTabId = self.selectedTabId {
                         self.dismissFocusedPanelNotificationIfActive(
@@ -3335,7 +3335,11 @@ class TabManager: ObservableObject {
         applyWindowBackgroundForSelectedTab()
     }
 
-    private func focusSelectedTabPanel(previousTabId: UUID?) {
+    private func focusSelectedTabPanel() {
+        if let request = workspaceHandoffRetirementGate.pendingRequest,
+           request.selectionGeneration == selectionSideEffectsGeneration {
+            prepareWorkspaceUnfocusTarget(for: request.workspaceID)
+        }
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
 
@@ -3348,22 +3352,6 @@ class TabManager: ObservableObject {
             panelId = focusedPanelId
         } else {
             return
-        }
-
-        // ContentView's mounted-workspace reconciliation is authoritative for
-        // the retiring workspace. It can differ from the model's previous
-        // selection when SwiftUI coalesces A -> B -> C, so prefer the pending
-        // handoff request's source over the callback's previous ID.
-        let retiringTabId = workspaceHandoffRetirementGate.pendingRequest?.selectionGeneration == selectionSideEffectsGeneration
-            ? workspaceHandoffRetirementGate.pendingRequest?.workspaceID
-            : previousTabId
-        if let retiringTabId,
-           let previousTab = tabs.first(where: { $0.id == retiringTabId }),
-           let previousPanelId = previousTab.focusedPanelId,
-           previousTab.panels[previousPanelId] != nil {
-            replacePendingWorkspaceUnfocusTarget(
-                with: (tabId: retiringTabId, panelId: previousPanelId)
-            )
         }
 
         // Route workspace reactivation through the normal focus machinery so panel-local
@@ -3412,12 +3400,20 @@ class TabManager: ObservableObject {
             workspaceHandoffRetirementGate.cancel()
             return
         }
+        guard workspaceHandoffRetirementGate.isTracking(
+            selectionGeneration: selectionSideEffectsGeneration
+        ) else {
+            return
+        }
         if let retirement = workspaceHandoffRetirementGate.request(
             workspaceID: workspaceID,
             reason: reason,
             selectionGeneration: selectionSideEffectsGeneration
         ) {
+            prepareWorkspaceUnfocusTarget(for: workspaceID)
             completeWorkspaceHandoffRetirement(retirement)
+        } else {
+            prepareWorkspaceUnfocusTarget(for: workspaceID)
         }
     }
 
@@ -3430,6 +3426,17 @@ class TabManager: ObservableObject {
     ) {
         completePendingWorkspaceUnfocus(reason: retirement.reason)
         workspaceSwitchCoordinator.sourceDidRetire(workspaceID: retirement.workspaceID)
+    }
+
+    private func prepareWorkspaceUnfocusTarget(for workspaceID: UUID) {
+        guard let workspace = tabs.first(where: { $0.id == workspaceID }),
+              let panelID = workspace.focusedPanelId,
+              workspace.panels[panelID] != nil else {
+            return
+        }
+        replacePendingWorkspaceUnfocusTarget(
+            with: (tabId: workspaceID, panelId: panelID)
+        )
     }
 
     private func replacePendingWorkspaceUnfocusTarget(with next: (tabId: UUID, panelId: UUID)) {
@@ -4063,7 +4070,7 @@ class TabManager: ObservableObject {
     // rest of the conformance lives in TabManager+FocusHistoryHosting.swift.
 
     func focusSelectedWorkspacePanel() {
-        focusSelectedTabPanel(previousTabId: nil)
+        focusSelectedTabPanel()
     }
 
     func focusHistoryRevisionDidChange() {

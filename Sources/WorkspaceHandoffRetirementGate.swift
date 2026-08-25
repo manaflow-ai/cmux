@@ -45,6 +45,10 @@ struct WorkspaceHandoffRetirementGate {
         pendingRequest = nil
     }
 
+    func isTracking(selectionGeneration: UInt64) -> Bool {
+        currentSelectionGeneration == selectionGeneration
+    }
+
     private mutating func takeIfReady() -> Request? {
         guard let pendingRequest,
               completedFocusPassGeneration == pendingRequest.selectionGeneration else {
