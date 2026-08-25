@@ -120,6 +120,27 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(issue.message.contains("exactly 2 children"))
     }
 
+    @Test func invalidActionDoesNotHideDuplicateNormalizedIDs() {
+        #expect(throws: (any Error).self) {
+            try CmuxConfigFile.decodeToleratingInvalidActions(from: Data("""
+            {
+              "actions": {
+                "cmux.newWorkspace": { "type": "command", "command": "echo good" },
+                "newWorkspace": {
+                  "type": "workspace",
+                  "workspace": {
+                    "layout": {
+                      "direction": "horizontal",
+                      "children": [{ "pane": { "surfaces": [{ "type": "terminal" }] } }]
+                    }
+                  }
+                }
+              }
+            }
+            """.utf8))
+        }
+    }
+
     @MainActor
     @Test func configStoreKeepsValidActionWhenSiblingHasInvalidLayout() throws {
         let root = FileManager.default.temporaryDirectory
