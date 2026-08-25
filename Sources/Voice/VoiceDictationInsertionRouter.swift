@@ -24,7 +24,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     private weak var pinnedTerminalPanel: TerminalPanel?
     private var activeRoute: DictationInsertionRoute?
 
-    private static let webEditableFocusScript = """
+    private static let pinWebEditableTargetScript = """
     (() => {
       let active = document.activeElement;
       while (active?.shadowRoot?.activeElement) {
@@ -32,10 +32,17 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
       }
       if (!active || active.disabled || active.readOnly) return false;
       const tag = (active.tagName || "").toLowerCase();
-      if (tag === "textarea") return true;
-      if (tag === "input") return active.type !== "hidden";
-      if (active.isContentEditable) return true;
-      return !!active.closest?.('[contenteditable]:not([contenteditable="false"])');
+      let target = null;
+      if (tag === "textarea" || (tag === "input" && active.type !== "hidden")) {
+        target = active;
+      } else if (active.isContentEditable) {
+        target = active;
+      } else {
+        target = active.closest?.('[contenteditable]:not([contenteditable="false"])');
+      }
+      if (!target) return false;
+      window.__cmuxVoiceDictationTarget = target;
+      return true;
     })()
     """
 
@@ -50,7 +57,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         let terminalPanel = focusedTerminalPanel()
         let nativeTextInputIsEditable = textView?.isEditable == true
         let webViewIsEditable = if let webView {
-            await Self.webViewHasEditableFocus(webView)
+            await Self.pinWebViewEditableTarget(webView)
         } else {
             false
         }
@@ -88,7 +95,16 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
             // as success and the controller will settle while text is lost.
             return await withCheckedContinuation { continuation in
                 webView.evaluateJavaScript(
-                    "Boolean(document.execCommand('insertText', false, \(literal)))"
+                    """
+                    (() => {
+                      const target = window.__cmuxVoiceDictationTarget;
+                      if (!target || !target.isConnected || target.disabled || target.readOnly) {
+                        return false;
+                      }
+                      target.focus();
+                      return Boolean(document.execCommand('insertText', false, \(literal)));
+                    })()
+                    """
                 ) { result, error in
                     let commandSucceeded: Bool
                     if let value = result as? Bool {
@@ -112,16 +128,22 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     }
 
     func endSession() {
+        if let webView = pinnedWebView {
+            webView.evaluateJavaScript(
+                "window.__cmuxVoiceDictationTarget = null;",
+                completionHandler: nil
+            )
+        }
         pinnedTextView = nil
         pinnedWebView = nil
         pinnedTerminalPanel = nil
         activeRoute = nil
     }
 
-    private static func webViewHasEditableFocus(_ webView: WKWebView) async -> Bool {
+    private static func pinWebViewEditableTarget(_ webView: WKWebView) async -> Bool {
         guard webView.window != nil else { return false }
         return await withCheckedContinuation { continuation in
-            webView.evaluateJavaScript(Self.webEditableFocusScript) { result, error in
+            webView.evaluateJavaScript(Self.pinWebEditableTargetScript) { result, error in
                 guard error == nil else {
                     continuation.resume(returning: false)
                     return

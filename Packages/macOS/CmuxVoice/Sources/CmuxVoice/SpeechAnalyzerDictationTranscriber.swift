@@ -93,16 +93,14 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         locale: Locale
     ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
         try Task.checkCancellation()
-        let supported = await SpeechTranscriber.supportedLocales
+        let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
         try Task.checkCancellation()
-        guard supported.contains(where: {
-            $0.identifier(.bcp47) == locale.identifier(.bcp47)
-        }) else {
+        guard let supportedLocale else {
             throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier)
         }
 
         let transcriber = SpeechTranscriber(
-            locale: locale,
+            locale: supportedLocale,
             transcriptionOptions: [],
             // Apple's volatileResults contract emits tentative results for an
             // audio range in addition to its finalized result.

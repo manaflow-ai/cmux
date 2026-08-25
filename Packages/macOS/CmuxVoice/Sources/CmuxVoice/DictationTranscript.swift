@@ -52,7 +52,8 @@ public struct DictationTranscript: Equatable, Sendable {
             volatileText = text
             return nil
         case .final(let text):
-            guard !text.isEmpty else { return nil }
+            // A final result, including an empty one, is authoritative: an
+            // empty final explicitly revokes the preceding volatile guess.
             volatileText = ""
             return commit(text)
         }

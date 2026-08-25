@@ -209,8 +209,6 @@ public final class DictationController {
     private func handle(_ event: DictationTranscriptionEvent, generation: Int) async {
         guard let delta = transcript.apply(event) else { return }
         guard await inserter.insertFinalizedText(delta) else {
-            let transcriber = activeTranscriber
-            Task { await transcriber?.finishTranscribing() }
             fail(.insertionTargetUnavailable, generation: generation)
             return
         }
@@ -230,12 +228,17 @@ public final class DictationController {
         // late stream end can neither clobber .failed back to .idle nor
         // re-fire the failure handler.
         guard sessionGeneration == generation, isActive else { return }
+        let transcriber = activeTranscriber
+        sessionTask?.cancel()
         cancelStopWatchdog()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
         phase = .failed(failure)
         failureHandler?(failure)
+        Task {
+            await transcriber?.finishTranscribing()
+        }
     }
 
     private func armStopWatchdog(for generation: Int) {

@@ -56,11 +56,11 @@ final class VoiceDictationCoordinator {
     ///   event should continue through the responder chain.
     @discardableResult
     func handleShortcutToggle() -> Bool {
-        guard catalog.voice.dictationEnabled.value(in: defaults) else { return false }
         if controller.isActive {
             controller.stop()
             return true
         }
+        guard catalog.voice.dictationEnabled.value(in: defaults) else { return false }
         guard catalog.voice.dictationSetupCompleted.value(in: defaults) else {
             presentSetupDialog()
             return true
