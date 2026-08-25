@@ -2074,7 +2074,9 @@ function processInfoResult(value: unknown): ProcessInfoResult {
     ...optionalProperty("executable", optionalString(payload, "executable")),
     argv: Object.freeze([...payload.argv]),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
-    foregroundCwd: requiredNullableString(payload, "foreground_cwd"),
+    foregroundCwd: Object.hasOwn(payload, "foreground_cwd")
+      ? requiredNullableString(payload, "foreground_cwd")
+      : null,
     children: Object.freeze(
       payload.children.map((item) =>
         requiredUnsignedInteger({ child: item }, "child")),

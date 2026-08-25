@@ -842,7 +842,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 	case *TerminalCopyResult:
 		required = []string{"mode", "text"}
 	case *ProcessInfoResult:
-		required = []string{"pid", "argv", "foreground_cwd", "children"}
+		required = []string{"pid", "argv", "children"}
 	case *CellPixelsResult:
 		required = []string{
 			"width_px", "height_px", "resized_terminals", "failures",

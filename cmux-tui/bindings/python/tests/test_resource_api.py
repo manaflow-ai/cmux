@@ -877,7 +877,6 @@ class ResourceApiTests(unittest.TestCase):
                 "executable": "/bin/zsh",
                 "argv": ["/bin/zsh", "-l"],
                 "cwd": "/tmp",
-                "foreground_cwd": "/tmp/subshell",
                 "children": [43],
             },
             "terminal.viewer.resize": {
@@ -963,7 +962,8 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertEqual(terminal.copy().mode, "screen")
                 process = terminal.process()
                 self.assertEqual(process.children, (43,))
-                self.assertEqual(process.foreground_cwd, "/tmp/subshell")
+                # Older servers omit foreground_cwd; decoders treat it as null.
+                self.assertIsNone(process.foreground_cwd)
                 self.assertEqual(
                     terminal.resize_viewer(
                         "terminal-lease",

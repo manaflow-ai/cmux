@@ -3593,9 +3593,10 @@
       "kind": "scalar",
       "name": "string"
      },
-     "presence": "required",
+     "presence": "optional",
      "nullable": true,
-     "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails."
+     "since": 12,
+     "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null."
     }
    },
    "additional_properties": false

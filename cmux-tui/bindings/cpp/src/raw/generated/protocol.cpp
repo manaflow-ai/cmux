@@ -2789,12 +2789,10 @@ Result<Json> Codec<ProcessInfoResult>::encode(const ProcessInfoResult& value) {
     } else {
         object.emplace("cwd", Json(nullptr));
     }
-    if (value.foreground_cwd) {
-        auto encoded = encode_value(*value.foreground_cwd);
+    if (!value.foreground_cwd.is_absent()) {
+        auto encoded = encode_value(value.foreground_cwd);
         if (!encoded) return std::move(encoded).error();
         object.emplace("foreground_cwd", std::move(encoded).value());
-    } else {
-        object.emplace("foreground_cwd", Json(nullptr));
     }
     if (value.pid) {
         auto encoded = encode_value(*value.pid);
@@ -2837,16 +2835,13 @@ Result<ProcessInfoResult> Codec<ProcessInfoResult>::decode(const Json& value) {
         }
     }
     const Json* field_foreground_cwd = value.find("foreground_cwd");
-    if (!field_foreground_cwd) {
-        return make_error(ErrorCode::decode, "missing required field 'foreground_cwd'");
-    }
     if (field_foreground_cwd) {
         if (field_foreground_cwd->is_null()) {
-            result.foreground_cwd.reset();
+            result.foreground_cwd = Field<std::string>::null();
         } else {
             auto decoded = decode_value<std::string>(*field_foreground_cwd);
             if (!decoded) return std::move(decoded).error();
-            result.foreground_cwd = std::move(decoded).value();
+            result.foreground_cwd = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_pid = value.find("pid");

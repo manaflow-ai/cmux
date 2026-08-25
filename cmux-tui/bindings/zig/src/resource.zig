@@ -7058,7 +7058,8 @@ pub const ProcessInfoResult = struct {
     argv: []const []const u8,
     cwd: ?[]const u8,
     /// Working directory of the process group that owns the PTY, read at
-    /// request time. Null when the lookup fails.
+    /// request time. Null when the lookup fails or when an older server
+    /// omits the field.
     foreground_cwd: ?[]const u8,
     children: []const u32,
 };
@@ -7392,6 +7393,18 @@ fn requiredNullableString(
     name: []const u8,
 ) !?[]const u8 {
     const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn optionalNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return null;
     return switch (value) {
         .null => null,
         .string => |text| text,
@@ -8398,7 +8411,7 @@ fn decodeProcessInfoResult(
         .executable = try strictOptionalString(object, "executable"),
         .argv = argv,
         .cwd = try strictOptionalString(object, "cwd"),
-        .foreground_cwd = try requiredNullableString(object, "foreground_cwd"),
+        .foreground_cwd = try optionalNullableString(object, "foreground_cwd"),
         .children = children,
     };
 }

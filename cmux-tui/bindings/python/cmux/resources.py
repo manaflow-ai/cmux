@@ -1398,7 +1398,7 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
         _optional_present_string(payload, "executable"),
         tuple(argv),
         _optional_present_string(payload, "cwd"),
-        _required_nullable_string(payload, "foreground_cwd"),
+        _optional_string(payload, "foreground_cwd"),
         decoded_children,
     )
 

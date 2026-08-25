@@ -1857,14 +1857,15 @@ currently owns the PTY (the `tcgetpgrp` value of the child's controlling
 terminal), so it tracks a foreground subshell that changed directory. It is
 null whenever the lookup fails: no live child, the leader exited, the child
 detached from the terminal, the platform denied the read, or an unsupported
-platform.
+platform. The field is additive within protocol 12; current daemons always
+emit it, and clients treat a missing field from an older daemon as null.
 
 Params: `object{surface:Id}`.
 
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd:string|null}
+object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd?:string|null}
 ```
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.

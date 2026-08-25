@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2c052b184912e61ddb4d9c78b8e056767db8df1034be075e206ef1592b7f3e6b.
+// cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -622,8 +622,9 @@ pub struct PingResult {
 pub struct ProcessInfoResult {
     pub command: Nullable<String>,
     pub cwd: Nullable<String>,
-    /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails.
-    pub foreground_cwd: Nullable<String>,
+    /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_cwd: Optional<String>,
     pub pid: Nullable<u32>,
 }
 

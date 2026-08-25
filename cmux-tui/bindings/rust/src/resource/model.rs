@@ -1234,7 +1234,9 @@ pub struct ProcessInfoResult {
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
     pub cwd: Option<String>,
     /// Working directory of the process group that owns the PTY, read at
-    /// request time. `None` when the lookup fails.
+    /// request time. `None` when the lookup fails or when an older server
+    /// omits the field.
+    #[serde(default)]
     pub foreground_cwd: Option<String>,
     pub children: Vec<u32>,
 }

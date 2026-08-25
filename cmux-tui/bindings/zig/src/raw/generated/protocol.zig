@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2c052b184912e61ddb4d9c78b8e056767db8df1034be075e206ef1592b7f3e6b";
+pub const ir_sha256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -761,8 +761,8 @@ pub const PingResult = struct {
 pub const ProcessInfoResult = struct {
     command: wire.Nullable([]const u8),
     cwd: wire.Nullable([]const u8),
-    /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails.
-    foreground_cwd: wire.Nullable([]const u8),
+    /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    foreground_cwd: wire.Field([]const u8) = .absent,
     pid: wire.Nullable(u32),
 };
 

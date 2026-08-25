@@ -1201,7 +1201,8 @@ struct ProcessInfoResult {
     std::vector<std::string> argv;
     std::optional<std::string> cwd;
     // Working directory of the process group that owns the PTY, read at
-    // request time. Empty when the lookup fails.
+    // request time. Empty when the lookup fails or when an older server
+    // omits the field.
     std::optional<std::string> foreground_cwd;
     std::vector<std::uint32_t> children;
 };
