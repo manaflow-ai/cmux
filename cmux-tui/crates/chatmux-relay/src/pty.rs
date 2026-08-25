@@ -624,7 +624,10 @@ enum OrderedControlCommandKind {
 }
 
 struct OrderedControlQueueState {
-    pending_resize: Option<(Arc<OrderedControlEndpoint>, SizingGrid, bool)>,
+    /// Pending resize metadata carries the generation that created it. A
+    /// worker may run after a newer viewer mutation, so it must never retag an
+    /// old grid with the current generation while flushing the wire command.
+    pending_resize: Option<(u64, Arc<OrderedControlEndpoint>, SizingGrid, bool)>,
     /// The last flushed resize is keyed by generation and endpoint identity
     /// as well as viewer id. A stale worker or reconnect that reuses an id
     /// must receive its own fence.
@@ -768,7 +771,7 @@ impl OrderedControlQueue {
         {
             return false;
         }
-        state.pending_resize = Some((Arc::clone(endpoint), grid, claim));
+        state.pending_resize = Some((self.current_generation(), Arc::clone(endpoint), grid, claim));
         if state.worker_running {
             return false;
         }
@@ -784,7 +787,8 @@ impl OrderedControlQueue {
             // A full bounded wire queue is a deterministic transition
             // failure. Drop the unsent batch and leave ownership frozen; the
             // next explicit viewer event may establish a fresh generation.
-            if state.pending_resize.as_ref().is_some_and(|(_, _, pending_claim)| *pending_claim) {
+            if state.pending_resize.as_ref().is_some_and(|(_, _, _, pending_claim)| *pending_claim)
+            {
                 state.claim_fence = None;
             }
             state.pending_resize = None;
@@ -837,12 +841,27 @@ impl OrderedControlQueue {
         handle.spawn(async move { queue.drain_wire().await });
     }
 
+    /// Retry retired-target removal after the wire actor reaches a true idle
+    /// point. A close acknowledgement can wake the close worker before the
+    /// wire worker has popped its final command; the later idle callback is
+    /// the only safe point at which no post-close command can outlive the
+    /// target.
+    fn remove_retired_if_idle(&self) {
+        if let (Some(coordinator), Some(target)) = (
+            self.coordinator.get().and_then(Weak::upgrade),
+            self.target.get().and_then(Weak::upgrade),
+        ) {
+            coordinator.remove_retired_target(&target);
+        }
+    }
+
     fn drain_wire_sync(&self) {
         loop {
             let Some(command) =
                 self.wire_pending.lock().expect("ordered control pending lock").pop_front()
             else {
                 self.wire_running.store(false, Ordering::Release);
+                self.remove_retired_if_idle();
                 return;
             };
             let endpoint = Arc::clone(&command.endpoint);
@@ -959,6 +978,7 @@ impl OrderedControlQueue {
                 if pending_after_reset && !self.wire_running.swap(true, Ordering::AcqRel) {
                     continue;
                 }
+                self.remove_retired_if_idle();
                 // A close that could not fit in the bounded wire queue is
                 // retryable, not a successful barrier. Once the queue drains,
                 // start the close worker again so a retired target does not
@@ -1126,7 +1146,7 @@ impl OrderedControlQueue {
                 if state
                     .pending_resize
                     .as_ref()
-                    .is_some_and(|(pending, _, _)| Arc::ptr_eq(pending, endpoint))
+                    .is_some_and(|(_, pending, _, _)| Arc::ptr_eq(pending, endpoint))
                 {
                     state.pending_resize = None;
                 }
@@ -1198,7 +1218,7 @@ impl OrderedControlQueue {
             return;
         }
         state.claim_fence = None;
-        if state.pending_resize.as_ref().is_some_and(|(endpoint, _, claim)| {
+        if state.pending_resize.as_ref().is_some_and(|(_, endpoint, _, claim)| {
             *claim
                 && endpoint.viewer_id == fence.viewer_id
                 && endpoint_ptr(endpoint) == fence.endpoint_ptr
@@ -1241,7 +1261,7 @@ impl OrderedControlQueue {
             });
             let claim_without_fence = claim_requested
                 && state.claim_fence.is_none()
-                && !state.pending_resize.as_ref().is_some_and(|(_, _, claim)| *claim);
+                && !state.pending_resize.as_ref().is_some_and(|(_, _, _, claim)| *claim);
             if state.closing_failed || !close_ready || claim_without_fence {
                 (false, false)
             } else {
@@ -1347,7 +1367,7 @@ impl OrderedControlQueue {
         if state
             .pending_resize
             .as_ref()
-            .is_some_and(|(current, _, _)| Arc::ptr_eq(current, endpoint))
+            .is_some_and(|(_, current, _, _)| Arc::ptr_eq(current, endpoint))
         {
             state.pending_resize = None;
         }
@@ -1416,13 +1436,19 @@ impl OrderedControlQueue {
             return;
         };
         handle.spawn(async move {
-            let _ = queue.drain_closing().await;
+            let completed = queue.drain_closing().await;
             queue.closing_running.store(false, Ordering::Release);
             queue.closing_notify.notify_waiters();
             if let (Some(coordinator), Some(target)) = (
                 queue.coordinator.get().and_then(Weak::upgrade),
                 queue.target.get().and_then(Weak::upgrade),
             ) {
+                if completed {
+                    // A pending survivor resize may have been held while the
+                    // detached endpoint's close queue was full. Reconcile
+                    // it only after the daemon-acknowledged close barrier.
+                    coordinator.request_reconcile(Arc::clone(&target));
+                }
                 coordinator.remove_retired_target(&target);
             }
         });
@@ -1472,7 +1498,11 @@ impl OrderedControlQueue {
     fn drain_sync(&self) {
         let flushed = {
             let mut state = self.state.lock().expect("ordered control queue lock");
-            let flushed = self.flush_resize_locked(&mut state);
+            let flushed = if state.closing_failed || !self.close_barrier_ready_locked(&state) {
+                false
+            } else {
+                self.flush_resize_locked(&mut state)
+            };
             state.worker_running = false;
             flushed
         };
@@ -1488,11 +1518,18 @@ impl OrderedControlQueue {
                 if state.closed {
                     state.worker_running = false;
                     (false, false)
+                } else if state.closing_failed || !self.close_barrier_ready_locked(&state) {
+                    // Keep the pending resize and claim fence intact while a
+                    // detached endpoint's FIFO close is queued or retrying.
+                    // The close worker requests a fresh reconcile after its
+                    // daemon acknowledgement.
+                    state.worker_running = false;
+                    (false, false)
                 } else if state.pending_resize.is_some() {
                     if self.flush_resize_locked(&mut state) {
                         (true, true)
                     } else {
-                        if state.pending_resize.as_ref().is_some_and(|(_, _, claim)| *claim) {
+                        if state.pending_resize.as_ref().is_some_and(|(_, _, _, claim)| *claim) {
                             state.claim_fence = None;
                         }
                         state.pending_resize = None;
@@ -1515,7 +1552,18 @@ impl OrderedControlQueue {
     }
 
     fn flush_resize_locked(&self, state: &mut OrderedControlQueueState) -> bool {
-        let Some((endpoint, grid, claim)) = state.pending_resize.clone() else { return true };
+        let Some((generation, endpoint, grid, claim)) = state.pending_resize.clone() else {
+            return true;
+        };
+        if generation != self.current_generation() {
+            // A newer state transition superseded this worker's grid. Do not
+            // retag the old command with the current generation.
+            state.pending_resize = None;
+            if claim {
+                state.claim_fence = None;
+            }
+            return false;
+        }
         if !endpoint.is_active() {
             state.pending_resize = None;
             return false;
@@ -1528,10 +1576,11 @@ impl OrderedControlQueue {
             // the next viewer event; partial report/claim pairs are invalid.
             return false;
         }
-        let (endpoint, grid, claim) = state.pending_resize.take().expect("pending resize");
+        let (generation, endpoint, grid, claim) =
+            state.pending_resize.take().expect("pending resize");
         pending.push_back(OrderedControlCommand {
             endpoint: Arc::clone(&endpoint),
-            generation: Some(self.current_generation()),
+            generation: Some(generation),
             expected_owner: (!claim).then_some(endpoint.viewer_id),
             requires_unowned: claim,
             kind: OrderedControlCommandKind::Send {
@@ -1546,7 +1595,7 @@ impl OrderedControlQueue {
         if claim {
             pending.push_back(OrderedControlCommand {
                 endpoint: Arc::clone(&endpoint),
-                generation: Some(self.current_generation()),
+                generation: Some(generation),
                 expected_owner: (!claim).then_some(endpoint.viewer_id),
                 requires_unowned: claim,
                 kind: OrderedControlCommandKind::Send {
@@ -1560,13 +1609,8 @@ impl OrderedControlQueue {
             });
         }
         drop(pending);
-        state.last_resize = Some((
-            self.current_generation(),
-            endpoint.viewer_id,
-            endpoint_ptr(&endpoint),
-            grid,
-            claim,
-        ));
+        state.last_resize =
+            Some((generation, endpoint.viewer_id, endpoint_ptr(&endpoint), grid, claim));
         // The caller starts the wire worker after releasing `state`; starting
         // a synchronous fallback while this lock is held would self-deadlock.
         true
@@ -2497,11 +2541,9 @@ impl TerminalSizing {
                         || fence.endpoint_ptr != endpoint_ptr(endpoint)
                 }) {
                     queue_state.claim_fence = None;
-                    if queue_state
-                        .pending_resize
-                        .as_ref()
-                        .is_some_and(|(pending, _, claim)| *claim && pending.viewer_id == viewer_id)
-                    {
+                    if queue_state.pending_resize.as_ref().is_some_and(|(_, pending, _, claim)| {
+                        *claim && pending.viewer_id == viewer_id
+                    }) {
                         queue_state.pending_resize = None;
                     }
                 }
@@ -7606,7 +7648,7 @@ mod tests {
             state.applied = Some(SizingGrid { cols: 80, rows: 24 });
             let generation = coordinator.advance_generation(&target);
             queue_state.worker_running = true;
-            queue_state.pending_resize = Some((Arc::clone(&endpoint), grid, false));
+            queue_state.pending_resize = Some((generation, Arc::clone(&endpoint), grid, false));
             generation
         };
 
@@ -7795,6 +7837,42 @@ mod tests {
                 .is_none(),
             "a retired target with an unqueued close must not be revived"
         );
+    }
+
+    #[tokio::test]
+    async fn stale_pending_resize_is_dropped_after_generation_advance() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-pending.sock"),
+            surface_id: 41,
+        };
+        let joined = coordinator
+            .join(key.clone(), 1, 41, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier");
+        joined.await.expect("initial sizing worker");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let old_generation = TerminalSizing::current_generation(&target);
+        {
+            let mut queue_state = target.queue.state.lock().unwrap();
+            let mut state = target.state.lock().unwrap();
+            state.viewers.get_mut(&1).unwrap().grid = SizingGrid { cols: 100, rows: 30 };
+            queue_state.pending_resize = Some((
+                old_generation,
+                Arc::clone(&endpoint),
+                SizingGrid { cols: 100, rows: 30 },
+                false,
+            ));
+            queue_state.worker_running = true;
+            let new_generation = coordinator.advance_generation(&target);
+            assert!(new_generation > old_generation);
+        }
+
+        let sends_before = control.sends().len();
+        target.queue.clone().drain_async().await;
+        assert!(target.queue.state.lock().unwrap().pending_resize.is_none());
+        assert_eq!(control.sends().len(), sends_before, "stale grid must not reach the daemon");
     }
 
     #[test]
