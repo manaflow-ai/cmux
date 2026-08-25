@@ -266,6 +266,20 @@ extension SocketControlServer {
             }
             cleanup.sourceToCancel?.cancel()
 
+            events.breadcrumb(
+                "socket.listener.rearm.started",
+                socketListenerEventData(
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures,
+                        "rearmDelayMs": delayMs,
+                        "rearmBounded": 1,
+                    ]
+                )
+            )
+
             events.rearmRequested(generation, errnoCode, consecutiveFailures, delayMs)
         }
     }
@@ -372,6 +386,18 @@ extension SocketControlServer {
             "socket.listener.rearm.requested",
             socketListenerEventData(
                 stage: "accept_rearm",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "rearmDelayMs": delayMs,
+                ]
+            )
+        )
+        events.breadcrumb(
+            "socket.listener.rearm.ready",
+            socketListenerEventData(
+                stage: "accept_rearm_ready",
                 errnoCode: errnoCode,
                 extra: [
                     "generation": generation,

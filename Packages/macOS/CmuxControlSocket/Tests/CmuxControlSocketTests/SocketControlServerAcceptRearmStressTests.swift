@@ -207,6 +207,7 @@ struct SocketControlServerAcceptRearmStressTests {
         let harness = try AcceptRearmHarness(clock: clock, policy: policy)
         defer { harness.shutdown() }
         let server = harness.server
+        let recorder = harness.recorder
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
 
         let initial = server.listenerStateSnapshot()
@@ -214,7 +215,7 @@ struct SocketControlServerAcceptRearmStressTests {
         #expect(initial.activeGeneration > 0)
 
         let hostRecovery = Task { @MainActor in
-            var rearmIterator = harness.recorder.rearmRequests.makeAsyncIterator()
+            var rearmIterator = recorder.rearmRequests.makeAsyncIterator()
             guard let rearm = await rearmIterator.next() else { return false }
             do {
                 try await clock.sleep(forMilliseconds: rearm.delayMs)
@@ -235,6 +236,7 @@ struct SocketControlServerAcceptRearmStressTests {
                 preserveAcceptFailureStreak: true
             )
         }
+        defer { hostRecovery.cancel() }
 
         await driveBackoffFailure(
             server: server,
@@ -256,11 +258,11 @@ struct SocketControlServerAcceptRearmStressTests {
 
         let didEnterRearm = await waitForRearmCondition {
             server.hasPendingAcceptLoopRearm
-                && harness.recorder.rearms.count == 1
+                && recorder.rearms.count == 1
                 && clock.pendingSleepCount == 1
         }
         #expect(didEnterRearm)
-        let rearm = try #require(harness.recorder.rearms.first)
+        let rearm = try #require(recorder.rearms.first)
         #expect(rearm.errnoCode == EMFILE)
         #expect(rearm.consecutiveFailures == 3)
         #expect(rearm.delayMs == 8)
@@ -277,7 +279,7 @@ struct SocketControlServerAcceptRearmStressTests {
         #expect(exactProbe.errnoCode == ECONNREFUSED)
 
         let started = try #require(
-            harness.recorder.breadcrumbs.first { $0.message == "socket.listener.rearm.started" }
+            recorder.breadcrumbs.first { $0.message == "socket.listener.rearm.started" }
         )
         #expect(started.listenerState == "rearming")
         #expect(started.errnoCode == Int(EMFILE))
@@ -289,7 +291,7 @@ struct SocketControlServerAcceptRearmStressTests {
         #expect(server.isRunning)
         #expect(connectAttempt(to: harness.socketPath).connected)
 
-        let messages = harness.recorder.breadcrumbs.map(\.message)
+        let messages = recorder.breadcrumbs.map(\.message)
         let startedIndex = try #require(messages.firstIndex(of: "socket.listener.rearm.started"))
         let readyIndex = try #require(messages.firstIndex(of: "socket.listener.rearm.ready"))
         let completedIndex = try #require(messages.firstIndex(of: "socket.listener.rearm.completed"))
