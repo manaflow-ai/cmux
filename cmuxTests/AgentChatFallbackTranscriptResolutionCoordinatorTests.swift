@@ -224,6 +224,42 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
     }
 
     @MainActor
+    @Test func claudeHistoryFindsResumedSessionOutsideCurrentWorkingDirectory() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-chat-claude-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessionID = UUID().uuidString.lowercased()
+        let transcript = home
+            .appendingPathComponent(".claude/projects/-Users-example-project", isDirectory: true)
+            .appendingPathComponent("\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcript, atomically: true, encoding: .utf8)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: home.path
+        ))
+
+        let history = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)
+
+        #expect(history != nil)
+        #expect(service.sessionRecord(sessionID: sessionID)?.transcriptPath == transcript.path)
+    }
+
+    @MainActor
     @Test func expiredDeadlineSkipsCodexFallbackEnumeration() throws {
         let fixture = try makeCodexFixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }
