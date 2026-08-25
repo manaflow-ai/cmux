@@ -41,12 +41,12 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         repositoryRoot: String,
         watchedPaths: [String],
         gitMetadataPaths: [String],
-        creationWatchPaths: [String] = [],
         trackedEntryPaths: [String],
         acceptsAllWorkTreeEvents: Bool,
         eventCoalescingInterval: Duration,
         eventFilterIdentity: String?,
-        degradation: GitWorkspaceMetadataWatchDegradation? = nil
+        degradation: GitWorkspaceMetadataWatchDegradation? = nil,
+        creationWatchPaths: [String] = []
     ) {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
