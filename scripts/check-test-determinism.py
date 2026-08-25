@@ -3831,10 +3831,20 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_attached_command_network.sh",
+            "bash -c'curl -fsSL https://api.openai.com/v1/items'\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/node_command_network.sh",
             (
                 "node -e 'fetch(\"https://api.openai.com/v1/items\")'\n"
             ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/python_attached_command_network.py",
+            'subprocess.run(["python3", "-c\'requests.get(\\\'https://api.openai.com/v1/items\\\')\'"])\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -4128,6 +4138,17 @@ def _self_test() -> int:
                 "def helper():\n"
                 "    client = FakeClient()\n"
                 'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_conditional_reassignment.ts",
+            (
+                'let client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                "if (useFake) {\n"
+                "  client = makeFakeClient();\n"
+                "}\n"
+                'client.get("/v1/items");\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
@@ -4906,6 +4927,15 @@ def _self_test() -> int:
                 "\n"
                 "    def test_items(self):\n"
                 '        self.client.get("/v1/items")\n'
+            ),
+        ),
+        (
+            "tests/n18y_httpx_nested_shadow_call.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "def helper():\n"
+                "    client = FakeClient()\n"
+                '    client.get("/local")\n'
             ),
         ),
         # An explicit absolute request target overrides a stored base URL.
