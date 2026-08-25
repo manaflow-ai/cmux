@@ -64,7 +64,7 @@ _LABELS = {
         r"peak\s+physical\s+footprint|physical\s+footprint\s*(?:\(\s*peak\s*\)|peak)|"
         r"peak[_ ]phys(?:ical)?[_ ]footprint|phys[_ ]footprint[_ ]peak"
     ),
-    "dirty_graphics": r"dirty\s+graphics|dirtyGraphics|graphics\s+footprint",
+    "dirty_graphics": r"dirty\s+graphics|dirtyGraphics|graphics\s+footprint|\(\s*graphics\s*\)",
     "iosurface": r"io\s*surface|iosurface|ioSurface",
     "ioaccelerator": r"io\s*accelerator|ioaccelerator|ioAccelerator",
 }
@@ -74,9 +74,9 @@ def parse_footprint_output(text: str) -> dict[str, int | None]:
     """Extract physical and graphics categories from ``footprint`` output.
 
     The output format is not a stable API: some OS versions use a colon,
-    others align values in a table.  We therefore search each known label for
-    the first size token after it and retain ``None`` when a category is not
-    present instead of inventing a zero.
+    others align values in a table.  We search on both sides of each known
+    label, aggregate repeated graphics rows, and retain ``None`` when a
+    category is not present instead of inventing a zero.
     """
 
     result: dict[str, int | None] = {
@@ -86,19 +86,63 @@ def parse_footprint_output(text: str) -> dict[str, int | None]:
         "iosurface_bytes": None,
         "ioaccelerator_bytes": None,
     }
+    def line_value(line: str, label: str) -> int | None:
+        """Read either ``label: value`` or footprint's table row.
+
+        The human-readable format has changed between macOS releases.  Some
+        versions put the value after a label (``IOSurface: 40 MB``), while
+        the current table puts the dirty value before the category
+        (``40 MB ... IOSurface``).  Looking on both sides of the label keeps
+        the collector independent of that presentation detail.
+        """
+
+        label_match = re.search(label, line, re.I)
+        if label_match is None:
+            return None
+        tokens = list(re.finditer(_SIZE_TOKEN, line, re.I))
+        before = [token for token in tokens if token.start() < label_match.start()]
+        after = [token for token in tokens if token.start() >= label_match.end()]
+        # In the table form the first column is Dirty, so the first token
+        # before the category is the value we want.  In key/value form the
+        # first token after the label is the value.
+        candidates = before or after
+        if not candidates:
+            return None
+        return parse_size(candidates[0].group(1))
+
     # Prefer peak-specific expressions before the shorter current expression.
+    # Graphics categories can occur more than once (for example, several
+    # graphics sub-ledgers), so aggregate their dirty columns.  Physical
+    # footprint values are single auxiliary-data entries and use the first
+    # matching line.
     ordered = ("phys_footprint_peak", "phys_footprint", "dirty_graphics", "iosurface", "ioaccelerator")
+    aggregate = {"dirty_graphics", "iosurface", "ioaccelerator"}
     for key in ordered:
-        label = _LABELS[key]
-        pattern = re.compile(rf"(?i)(?:^|\n)[^\n]*?(?:{label})[^\n]*?{_SIZE_TOKEN}")
-        for match in pattern.finditer(text):
-            parsed = parse_size(match.group(1))
-            if parsed is not None:
-                # A line such as "Peak physical footprint: 500M" also
-                # matches the current expression; do not overwrite a peak.
-                if result[f"{key}_bytes"] is None:
-                    result[f"{key}_bytes"] = parsed
+        total = 0
+        found = False
+        for line in text.splitlines():
+            # ``phys_footprint_peak`` also contains the shorter
+            # ``phys_footprint`` label.  Keep the current and peak entries
+            # distinct when scanning auxiliary data.
+            if key == "phys_footprint" and re.search(r"(?i)peak", line):
+                continue
+            # Graphics tables commonly contain a category such as
+            # ``Owned physical footprint (unmapped) (graphics)``.  That is
+            # not the auxiliary ``Physical footprint`` value.
+            if key.startswith("phys_footprint") and re.search(r"(?i)owned\s+physical\s+footprint", line):
+                continue
+            parsed = line_value(line, _LABELS[key])
+            if parsed is None:
+                continue
+            if key in aggregate:
+                total += parsed
+                found = True
+            else:
+                result[f"{key}_bytes"] = parsed
+                found = True
                 break
+        if key in aggregate and found:
+            result[f"{key}_bytes"] = total
 
     # A few footprint versions print key/value pairs without a line prefix,
     # e.g. ``phys_footprint=123456``.  The line parser above handles most
@@ -400,7 +444,9 @@ def evaluate_run(run: Mapping[str, Any], budgets: BudgetConfig = DEFAULT_BUDGETS
         footprint = _bytes(_snapshot_value(snapshot, "phys_footprint_bytes"))
         peak = _bytes(_snapshot_value(snapshot, "phys_footprint_peak_bytes"))
         observed_footprint = max(value for value in (footprint, peak) if value is not None) if any(value is not None for value in (footprint, peak)) else None
-        if observed_footprint is not None and observed_footprint > budgets.app_limit(live, visible):
+        if observed_footprint is None:
+            failures.append(_failure("app_footprint_unavailable", f"{label} did not report a physical app footprint"))
+        elif observed_footprint > budgets.app_limit(live, visible):
             failures.append(_failure("app_footprint", f"{label} app footprint exceeds target-scale budget", observed_bytes=observed_footprint, budget_bytes=budgets.app_limit(live, visible), live_terminals=live, visible_terminals=visible))
         gpu = retained_gpu_bytes(snapshot)
         if gpu is None:
@@ -476,7 +522,7 @@ def evaluate_series(runs: Sequence[Mapping[str, Any]], budgets: BudgetConfig = D
         # visible-renderer intercept cannot masquerade as hidden growth.
         slope_points = [item for item in points if item[0] >= VISIBLE_SURFACE_LIMIT]
         if len(slope_points) < 2:
-            slope_points = points
+            return None
         pairs = [(float(item[1]), float(item[index])) for item in slope_points if item[index] is not None]
         return linear_slope([pair[0] for pair in pairs], [pair[1] for pair in pairs])
 
@@ -510,6 +556,7 @@ def make_artifact(
     budgets: BudgetConfig = DEFAULT_BUDGETS,
     advisory: bool = True,
     collector_warnings: Sequence[str] = (),
+    reveal_hide_cycles: int = 20,
 ) -> dict[str, Any]:
     evaluation = evaluate_series(runs, budgets)
     failures = evaluation["failures"]
@@ -522,7 +569,7 @@ def make_artifact(
         "fixture_contract": {
             "sizes": list(FIXTURE_SIZES),
             "visible_surface_limit": VISIBLE_SURFACE_LIMIT,
-            "reveal_hide_cycles": 20,
+            "reveal_hide_cycles": int(reveal_hide_cycles),
             "minimum_cpu_seconds": MIN_CPU_SECONDS,
             "idle_pty": True,
             "child_workload_charged_to_app": False,

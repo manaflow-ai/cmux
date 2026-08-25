@@ -110,10 +110,16 @@ jobs:
           case "$CYCLES_INPUT" in ''|*[!0-9]*) echo 'cycles must be an integer' >&2; exit 2;; esac
           RESULTS_DIR="$PWD/perf-results"
           mkdir -p "$RESULTS_DIR"
+          # A self-hosted Mac may run the Actions worker outside the Aqua
+          # console session.  Run the AppKit benchmark in the console user's
+          # bootstrap when passwordless sudo is available, matching the
+          # existing activation benchmark's launch policy.
+          chmod 0777 "$RESULTS_DIR"
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
           ENFORCE_ARGS=()
           if [ "$ENFORCE_INPUT" = 'true' ]; then ENFORCE_ARGS+=(--enforce); fi
-          python3 scripts/perf-target-scale.py \
+          BENCHMARK_CMD=(
+            python3 scripts/perf-target-scale.py
             --tag "$PERF_TAG" \
             --app-path "$APP_PATH" \
             --sizes "$SIZES_INPUT" \
@@ -124,6 +130,20 @@ jobs:
             --output "$RESULTS_DIR/target-scale.json" \
             --junit "$RESULTS_DIR/target-scale.junit.xml" \
             "${ENFORCE_ARGS[@]}"
+          )
+          CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != 'root' ] \
+            && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" \
+            && sudo -n true 2>/dev/null; then
+            CONSOLE_HOME="$( (dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
+            [ -n "$CONSOLE_HOME" ] || CONSOLE_HOME="$HOME"
+            sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+              env PATH="$PATH" DEVELOPER_DIR="${DEVELOPER_DIR:-}" HOME="$CONSOLE_HOME" GITHUB_WORKSPACE="$PWD" \
+              bash -c 'cd "$GITHUB_WORKSPACE" && "$@"' bash "${BENCHMARK_CMD[@]}"
+          else
+            echo 'Passwordless sudo/Aqua bootstrap unavailable; running benchmark in the current session.' >&2
+            "${BENCHMARK_CMD[@]}"
+          fi
 
       - name: Write benchmark summary
         if: always()

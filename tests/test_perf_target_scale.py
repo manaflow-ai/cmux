@@ -43,6 +43,23 @@ class TargetScaleMetricsTests(unittest.TestCase):
         self.assertEqual(parsed["iosurface_bytes"], 40 * metrics.BYTES_PER_MIB)
         self.assertEqual(parsed["ioaccelerator_bytes"], 12 * metrics.BYTES_PER_MIB)
 
+    def test_footprint_parser_reads_dirty_before_table_category(self) -> None:
+        parsed = metrics.parse_footprint_output(
+            """
+             53 MB        0 B        0 B         27    IOSurface
+             39 MB        0 B      9152 KB      164    IOAccelerator (graphics)
+             11 MB        0 B        0 B          4    Owned physical footprint (unmapped) (graphics)
+            Auxiliary data:
+                phys_footprint: 110 MB
+                phys_footprint_peak: 120 MB
+            """
+        )
+        self.assertEqual(parsed["phys_footprint_bytes"], 110 * metrics.BYTES_PER_MIB)
+        self.assertEqual(parsed["phys_footprint_peak_bytes"], 120 * metrics.BYTES_PER_MIB)
+        self.assertEqual(parsed["iosurface_bytes"], 53 * metrics.BYTES_PER_MIB)
+        self.assertEqual(parsed["ioaccelerator_bytes"], 39 * metrics.BYTES_PER_MIB)
+        self.assertEqual(parsed["dirty_graphics_bytes"], 50 * metrics.BYTES_PER_MIB)
+
     def test_thread_roles_are_stable(self) -> None:
         listing = """\
 tid thcomm
@@ -109,6 +126,21 @@ tid thcomm
         run["cpu"]["duration_seconds"] = metrics.MIN_CPU_SECONDS - 1
         codes = {failure["code"] for failure in metrics.evaluate_run(run)}
         self.assertIn("cpu_duration", codes)
+
+    def test_missing_app_footprint_is_rejected(self) -> None:
+        run = metrics.synthetic_run(10)
+        run["first_settled"]["phys_footprint_bytes"] = None
+        run["first_settled"]["phys_footprint_peak_bytes"] = None
+        codes = {failure["code"] for failure in metrics.evaluate_run(run)}
+        self.assertIn("app_footprint_unavailable", codes)
+
+    def test_artifact_preserves_requested_cycle_count(self) -> None:
+        artifact = metrics.make_artifact(
+            [metrics.synthetic_run(1)],
+            metadata={"app_version": "synthetic"},
+            reveal_hide_cycles=7,
+        )
+        self.assertEqual(artifact["fixture_contract"]["reveal_hide_cycles"], 7)
 
 
 class TargetScaleCliTests(unittest.TestCase):

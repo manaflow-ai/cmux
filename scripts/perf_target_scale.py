@@ -342,6 +342,12 @@ class TargetScaleRunner:
             command = _safe_text(["ps", "-p", str(pid), "-o", "command="], timeout=5) or ""
             if "cmux DEV" in command and "/Contents/Resources/bin/cmux" not in command:
                 return pid
+        # The app's Popen PID is authoritative when it owns the socket.  Do
+        # this before accepting an arbitrary lsof candidate: cmuxd can also
+        # appear as a socket owner, and charging that helper would invalidate
+        # the app-only measurements.
+        if self.proc and self.proc.pid in candidates:
+            return int(self.proc.pid)
         for pid in candidates:
             if self.proc is None or pid != self.proc.pid:
                 return pid
@@ -777,6 +783,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             budgets=BudgetConfig(),
             advisory=not args.enforce,
             collector_warnings=collector_warnings,
+            reveal_hide_cycles=int(args.cycles),
         )
         _write_json(args.output, artifact)
         if args.junit:
