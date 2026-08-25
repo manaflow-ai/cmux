@@ -8,7 +8,8 @@ import os
 /// Ghostty can report hyperlink state on every cursor-position refresh. The
 /// ingress keeps the first and latest shape per runtime, the latest link state,
 /// and lifecycle transitions independently. At most one main-queue drain is
-/// pending for a view, and the runtime-keyed map is capped to four lifetimes.
+/// pending for a view. The active runtime is registered before native surface
+/// creation so stale callback contexts are rejected before they can evict data.
 /// SAFETY: The weak AppKit view is touched only on the main actor; all
 /// callback-thread state is isolated behind ``pendingState``.
 final class GhosttyPointerStyleIngress: @unchecked Sendable {
@@ -54,6 +55,7 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
     }
 
     private struct PendingState {
+        var activeRuntimeLifetimeId: UUID?
         var byRuntime: [UUID: RuntimePending] = [:]
         var drainScheduled = false
     }
@@ -70,10 +72,32 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
         self.surfaceView = surfaceView
     }
 
+    /// Starts a new native runtime and drops pending callbacks from older ones.
+    func activate(runtimeLifetimeId: UUID) {
+        pendingState.withLock { state in
+            state.activeRuntimeLifetimeId = runtimeLifetimeId
+            state.byRuntime.removeAll(keepingCapacity: true)
+        }
+    }
+
+    /// Retires pending callbacks for a runtime that has been torn down.
+    func retire(runtimeLifetimeId: UUID) {
+        pendingState.withLock { state in
+            state.byRuntime.removeValue(forKey: runtimeLifetimeId)
+        }
+    }
+
     /// Submits one callback and schedules at most one pending main-actor drain.
     @discardableResult
     func submit(_ request: Request) -> Bool {
         let shouldSchedule = pendingState.withLock { state in
+            if let activeRuntimeLifetimeId = state.activeRuntimeLifetimeId,
+               activeRuntimeLifetimeId != request.runtimeLifetimeId {
+                return false
+            }
+            if state.activeRuntimeLifetimeId == nil {
+                state.activeRuntimeLifetimeId = request.runtimeLifetimeId
+            }
             var runtime = state.byRuntime[request.runtimeLifetimeId] ??
                 RuntimePending()
             switch request.event {
@@ -96,14 +120,6 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
                 runtime.latestLinkHover = request
             }
             state.byRuntime[request.runtimeLifetimeId] = runtime
-
-            if state.byRuntime.count > 4 {
-                if let staleRuntime = state.byRuntime.keys.first(
-                    where: { $0 != request.runtimeLifetimeId }
-                ) {
-                    state.byRuntime.removeValue(forKey: staleRuntime)
-                }
-            }
 
             guard !state.drainScheduled else { return false }
             state.drainScheduled = true
