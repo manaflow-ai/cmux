@@ -146,10 +146,11 @@ extension GitMetadataService {
 
         /// Collects raw remote URLs for Git's deferred hasconfig condition.
         ///
-        /// Discovery follows only unconditional includes so a hasconfig include
-        /// cannot satisfy itself by contributing the URL it is meant to gate.
+        /// Discovery follows matching non-hasconfig includes, so a hasconfig
+        /// include cannot satisfy itself with a URL from its own gated file.
         mutating func discoverRemoteURLs(
             from url: URL,
+            repository: ResolvedGitRepository,
             seenConfigPaths: inout Set<String>,
             depth: Int,
             homeDirectory: URL
@@ -165,7 +166,7 @@ extension GitMetadataService {
             }
 
             var currentRemoteName: String?
-            var allowsUnconditionalInclude = false
+            var allowsInclude = false
             for rawLine in config.components(separatedBy: .newlines) {
                 let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
                     .trimmingCharacters(in: .whitespaces)
@@ -173,7 +174,25 @@ extension GitMetadataService {
                     currentRemoteName = GitMetadataService.gitConfigRemoteName(
                         fromSectionHeader: line
                     )
-                    allowsUnconditionalInclude = line.lowercased() == "[include]"
+                    if line.lowercased() == "[include]" {
+                        allowsInclude = true
+                    } else if let condition = GitMetadataService.gitConfigIncludeIfCondition(
+                        fromSectionHeader: line
+                    ) {
+                        // The deferred hasconfig condition must not discover a
+                        // URL from its own include. Other conditions can be
+                        // evaluated normally during the bounded pre-scan.
+                        allowsInclude = !condition.lowercased().hasPrefix("hasconfig:")
+                            && GitMetadataService.gitConfigIncludeIfConditionMatches(
+                                condition,
+                                repository: repository,
+                                configURL: normalizedURL,
+                                discoveredRemoteURLs: discoveredRemoteURLs,
+                                homeDirectory: homeDirectory
+                            )
+                    } else {
+                        allowsInclude = false
+                    }
                     continue
                 }
 
@@ -190,7 +209,7 @@ extension GitMetadataService {
                     continue
                 }
 
-                guard allowsUnconditionalInclude,
+                guard allowsInclude,
                       parts.count == 2,
                       parts[0].lowercased() == "path",
                       let includeURL = GitMetadataService.gitConfigIncludeURL(
@@ -202,6 +221,7 @@ extension GitMetadataService {
                 }
                 discoverRemoteURLs(
                     from: includeURL,
+                    repository: repository,
                     seenConfigPaths: &seenConfigPaths,
                     depth: depth + 1,
                     homeDirectory: homeDirectory
@@ -252,6 +272,7 @@ extension GitMetadataService {
         for configURL in rootConfigURLs {
             discoveryBudget.discoverRemoteURLs(
                 from: configURL,
+                repository: repository,
                 seenConfigPaths: &discoverySeenConfigPaths,
                 depth: 0,
                 homeDirectory: homeDirectory
@@ -922,6 +943,26 @@ extension GitMetadataService {
                 homeDirectory: homeDirectory
             )
         }
+        if lowercasedCondition.hasPrefix("worktree/i:") {
+            let pattern = String(condition.dropFirst("worktree/i:".count))
+            return gitConfigWorktreePatternMatches(
+                pattern,
+                repository: repository,
+                caseInsensitive: true,
+                configURL: configURL,
+                homeDirectory: homeDirectory
+            )
+        }
+        if lowercasedCondition.hasPrefix("worktree:") {
+            let pattern = String(condition.dropFirst("worktree:".count))
+            return gitConfigWorktreePatternMatches(
+                pattern,
+                repository: repository,
+                caseInsensitive: false,
+                configURL: configURL,
+                homeDirectory: homeDirectory
+            )
+        }
         if lowercasedCondition.hasPrefix("onbranch:") {
             var pattern = String(condition.dropFirst("onbranch:".count))
             // Per git, an onbranch pattern ending in "/" matches the whole
@@ -947,6 +988,46 @@ extension GitMetadataService {
         configURL: URL,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Bool {
+        let candidates = [
+            repository.gitDirectory,
+            repository.commonDirectory,
+            repository.workTreeRoot,
+        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        return gitConfigPathPatternMatches(
+            pattern,
+            candidates: candidates,
+            caseInsensitive: caseInsensitive,
+            configURL: configURL,
+            homeDirectory: homeDirectory
+        )
+    }
+
+    private nonisolated static func gitConfigWorktreePatternMatches(
+        _ pattern: String,
+        repository: ResolvedGitRepository,
+        caseInsensitive: Bool,
+        configURL: URL,
+        homeDirectory: URL
+    ) -> Bool {
+        guard !repository.workTreeRoot.isEmpty else { return false }
+        return gitConfigPathPatternMatches(
+            pattern,
+            candidates: [
+                URL(fileURLWithPath: repository.workTreeRoot).standardizedFileURL.path
+            ],
+            caseInsensitive: caseInsensitive,
+            configURL: configURL,
+            homeDirectory: homeDirectory
+        )
+    }
+
+    private nonisolated static func gitConfigPathPatternMatches(
+        _ pattern: String,
+        candidates: [String],
+        caseInsensitive: Bool,
+        configURL: URL,
+        homeDirectory: URL
+    ) -> Bool {
         let isRecursiveDirectoryPattern = pattern.hasSuffix("/")
         var expandedPattern = gitConfigExpandedPattern(
             pattern,
@@ -959,12 +1040,6 @@ extension GitMetadataService {
         if isRecursiveDirectoryPattern {
             expandedPattern.append("**")
         }
-        let candidates = [
-            repository.gitDirectory,
-            repository.commonDirectory,
-            repository.workTreeRoot,
-        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-
         for candidate in candidates {
             if gitConfigGlobMatches(candidate, pattern: expandedPattern, caseInsensitive: caseInsensitive) ||
                 gitConfigGlobMatches(candidate + "/", pattern: expandedPattern, caseInsensitive: caseInsensitive) {

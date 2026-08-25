@@ -14,10 +14,14 @@ extension GitMetadataService {
             }
 
             let remoteName = String(parts[0])
-            guard linkByRemoteName[remoteName] == nil,
-                  let link = repositoryLink(remoteName: remoteName, remoteURL: String(parts[1])) else {
+            guard let link = repositoryLink(
+                remoteName: remoteName,
+                remoteURL: String(parts[1])
+            ) else {
                 continue
             }
+            // Git config is layered and the last value is the effective one
+            // for the synthesized metadata path, matching slug extraction.
             linkByRemoteName[remoteName] = link
         }
 
