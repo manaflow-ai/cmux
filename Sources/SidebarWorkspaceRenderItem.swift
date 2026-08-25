@@ -87,15 +87,15 @@ enum SidebarWorkspaceRenderItem {
         var trailingPinned: [WorkspaceGroup] = []
         var trailingUnpinned: [WorkspaceGroup] = []
         for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
-            // Empty pinned headers must never be inserted in the unpinned
-            // section (and vice versa). Keep pinned empties in the global
-            // pinned bucket; only an unpinned empty can be anchored directly
-            // before a later live unpinned group.
-            let nextLiveUnpinnedGroup = ordered.dropFirst(index + 1).first {
-                memberGroupIds.contains($0.id) && !$0.isPinned
+            // Preserve the group's authoritative slot within its pin tier.
+            // Crossing tiers would violate the sidebar's pinned-first
+            // invariant, so only a later live group in the same tier is a
+            // valid insertion anchor; otherwise defer to that tier boundary.
+            let nextLiveSameTierGroup = ordered.dropFirst(index + 1).first {
+                memberGroupIds.contains($0.id) && $0.isPinned == group.isPinned
             }
-            if !group.isPinned, let nextLiveUnpinnedGroup {
-                emptyBeforeGroup[nextLiveUnpinnedGroup.id, default: []].append(group)
+            if let nextLiveSameTierGroup {
+                emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
             } else if group.isPinned {
                 trailingPinned.append(group)
             } else {
