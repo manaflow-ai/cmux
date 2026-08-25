@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxExtensionKit
@@ -96,6 +97,43 @@ struct CmuxPluginInterpreterSecurityTests {
         } catch let error as CmuxPluginAuthorizationError {
             #expect(error == .disabled)
         }
+    }
+
+    @Test
+    func snapshotVerificationRejectsOwnerClearedRewrite() async throws {
+        let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: snapshotRoot)
+        }
+
+        let manifest = CmuxExtensionManifest.plugin(
+            id: "dev.example.snapshot-verifier",
+            displayName: "Snapshot Verifier",
+            entrypoint: "bin/plugin"
+        )
+        try CmuxPluginSystemTests.writePlugin(manifest, to: root)
+        let plugin = try #require(
+            (await CmuxPluginDirectoryLoader(directoryURL: root).load()).plugins.first
+        )
+        let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
+        let snapshot = try await snapshotter.makeSnapshot(for: plugin)
+        #expect(await snapshotter.verify(snapshot))
+
+        let descriptor = Darwin.open(snapshot.entrypointURL.path, O_RDONLY | O_NOFOLLOW)
+        #expect(descriptor >= 0)
+        if descriptor >= 0 {
+            #expect(Darwin.fchflags(descriptor, UInt32(0)) == 0)
+            Darwin.close(descriptor)
+        }
+        let handle = try FileHandle(forWritingTo: snapshot.entrypointURL)
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data("#!/bin/sh\nprintf tampered\n".utf8))
+        try handle.close()
+
+        #expect(!(await snapshotter.verify(snapshot)))
+        await snapshotter.remove(snapshot)
     }
 
     private func writeInterpreter(

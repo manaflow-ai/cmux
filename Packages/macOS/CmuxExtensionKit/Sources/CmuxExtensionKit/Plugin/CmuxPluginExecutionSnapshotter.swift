@@ -246,6 +246,11 @@ public actor CmuxPluginExecutionSnapshotter {
         removeStagingRoot(snapshot.directoryURL.deletingLastPathComponent())
     }
 
+    /// Revalidates a snapshot before its launch gate grants plugin capabilities.
+    public func verify(_ snapshot: CmuxPluginExecutionSnapshot) -> Bool {
+        CmuxPluginExecutionSnapshotVerifier(fileManager: fileManager).verify(snapshot)
+    }
+
     private func openEntrypoint(
         at url: URL,
         interpreterDescriptor: Int32?

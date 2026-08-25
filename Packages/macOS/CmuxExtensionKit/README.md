@@ -52,8 +52,9 @@ pinned descriptor. The complete launch snapshot is read-only, so
 source-directory, sibling-file, or snapshot-path replacement cannot change the
 bytes that receive the reviewed capabilities. Shebang interpreters are copied
 into that private snapshot and pinned there; CMUX never changes the original
-interpreter file. Use an absolute executable interpreter path when writing
-scripts.
+interpreter file. CMUX rechecks descriptor identity and the complete snapshot
+fingerprint immediately before releasing the process launch gate. Use an
+absolute executable interpreter path when writing scripts.
 Use `TMPDIR` or another application-data location for plugin-generated files.
 Disabling a plugin preserves the reviewed grant but stops its process and event
 stream.

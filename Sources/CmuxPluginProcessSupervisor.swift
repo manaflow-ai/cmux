@@ -128,11 +128,12 @@ final class CmuxPluginProcessSupervisor {
                 await snapshotter.remove(executionSnapshot)
                 return
             }
-            launch(
+            await launch(
                 descriptor: descriptor,
                 executionSnapshot: executionSnapshot,
                 sessionToken: sessionToken,
                 socketPath: socketPath,
+                generation: generation,
                 runtime: runtime,
                 reportError: reportError
             )
@@ -152,10 +153,25 @@ final class CmuxPluginProcessSupervisor {
         executionSnapshot: CmuxPluginExecutionSnapshot,
         sessionToken: String,
         socketPath: String,
+        generation: UInt64,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
-    ) {
+    ) async {
         let pluginID = descriptor.plugin.manifest.id
+
+        let snapshotVerifiedBeforeLaunch = await snapshotter.verify(executionSnapshot)
+        guard snapshotVerifiedBeforeLaunch,
+              runtime.processReconciliationIsAllowed(generation: generation) else {
+            await snapshotter.remove(executionSnapshot)
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
 
         let process = Process()
         let launchGate = Pipe()
@@ -227,6 +243,28 @@ final class CmuxPluginProcessSupervisor {
             return
         }
 
+        // Keep the child behind the launch gate until a second integrity check
+        // confirms that owner-clearable filesystem flags were not bypassed
+        // during process setup.
+        let snapshotVerifiedAfterRun = await snapshotter.verify(executionSnapshot)
+        guard snapshotVerifiedAfterRun,
+              runtime.processReconciliationIsAllowed(generation: generation) else {
+            try? launchGate.fileHandleForReading.close()
+            try? launchGate.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            Task { await snapshotter.remove(executionSnapshot) }
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
+
         let processID = process.processIdentifier
         processes[pluginID] = RunningProcess(
             process: process,
@@ -237,6 +275,26 @@ final class CmuxPluginProcessSupervisor {
             snapshot: executionSnapshot
         )
         runtime.registerProcess(processID, for: pluginID)
+        let snapshotVerifiedBeforeGate = await snapshotter.verify(executionSnapshot)
+        guard snapshotVerifiedBeforeGate,
+              runtime.processReconciliationIsAllowed(generation: generation) else {
+            processes.removeValue(forKey: pluginID)
+            runtime.revokeProcess(processID)
+            try? launchGate.fileHandleForReading.close()
+            try? launchGate.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            Task { await snapshotter.remove(executionSnapshot) }
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
         try? launchGate.fileHandleForReading.close()
         do {
             try launchGate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
