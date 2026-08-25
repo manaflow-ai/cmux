@@ -4,17 +4,87 @@
 // header, and an optional static `Authorization: Bearer <token>`. The relay
 // proves key ownership in its handshake before calling, so the EndpointId is
 // trustworthy; this side only decides whether that endpoint is admitted.
+//
+// The admission lookup deliberately does NOT borrow the shared cloudDb
+// client: its pool checkout and connection phases have no deadline there, so
+// a stalled operation could neither be cancelled nor be counted on to settle.
+// Instead the admission path owns a dedicated client sized to its concurrency
+// cap with a hard bound on every phase (connect, checkout, execution, plus a
+// client-side cancel), so every admission operation settles within a known
+// bound and the concurrency slots — released strictly at settlement — bound
+// retained work without ever staying saturated after an outage heals.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { attachDatabasePool } from "@vercel/functions";
+import type { Pool } from "pg";
+import postgres, { type Sql } from "postgres";
 
-import { cloudDb } from "../../db/client";
-import { irohEndpointBindings } from "../../db/schema";
-import { hasBlockingAccountDeletionIdentity } from "../account/deletionLock";
+import { createAwsRdsIamPool } from "../../db/client";
+import { cloudDbConfig, cloudDbConfigKey } from "../../db/config";
+import { isBlockingAccountDeletionTombstone } from "../account/deletionLock";
 
 export const RELAY_ALLOW_SIGNATURE_HEADER = "x-cmux-relay-allow-signature";
 
 export type RelayAllowAdmission = "allow" | "deny";
+
+/**
+ * Hard cap on concurrently running admission lookups per runtime instance,
+ * and the size of the dedicated admission pool. Cap == pool max means no
+ * admission ever queues inside the driver; a saturated instance rejects
+ * immediately (the route's fail-closed 503, which the relay treats as deny
+ * and retries later). Slots release strictly when their operation settles,
+ * and settlement is guaranteed by the phase deadlines below, so the cap is a
+ * true bound on retained work AND the instance always recovers.
+ */
+export const RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS = 16;
+
+/**
+ * Server-side statement_timeout, set as a session parameter on every
+ * admission connection: Postgres cancels an executing statement and frees
+ * the connection.
+ */
+export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
+
+/**
+ * Client-side settle bound. postgres.js: a timer calls query.cancel(), which
+ * rejects the query whether it is still queued or already executing. pg: the
+ * pool's query_timeout enforces the same bound. Slightly above the statement
+ * timeout so the server usually cancels first.
+ */
+export const RELAY_ALLOW_LOOKUP_SETTLE_MS = 4_000;
+
+/** Connection-establishment (and, for pg, checkout-wait) deadline. */
+const CONNECT_TIMEOUT_MS = 5_000;
+const IDLE_TIMEOUT_SECONDS = 60;
+
+export class RelayAllowAdmissionSaturatedError extends Error {
+  constructor() {
+    super("relay allow admission concurrency saturated");
+    this.name = "RelayAllowAdmissionSaturatedError";
+  }
+}
+
+let inFlightAdmissions = 0;
+
+/**
+ * Runs one admission under the concurrency cap; rejects when saturated. The
+ * slot is held until the operation settles — never released early — which is
+ * safe because every admission operation is deadline-bounded at each phase
+ * and therefore always settles.
+ */
+export async function withRelayAllowAdmissionSlot<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (inFlightAdmissions >= RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS) {
+    throw new RelayAllowAdmissionSaturatedError();
+  }
+  inFlightAdmissions += 1;
+  try {
+    return await operation();
+  } finally {
+    inFlightAdmissions -= 1;
+  }
+}
 
 /**
  * Same canonical-base64 rules as the iroh minter secret, but a missing or
@@ -54,77 +124,106 @@ export function verifyRelayAllowSignature(
     timingSafeEqual(candidate, expected);
 }
 
-/**
- * Server-side execution bound for the admission queries. Postgres cancels a
- * query that exceeds it and returns the pooled connection, so a stalled
- * lookup cannot accumulate in-flight work while the route's own deadline
- * (slightly longer, see the route) bounds the response. Kept below that
- * deadline so the database usually cancels first and the route answers its
- * clean fail-closed 503 through the ordinary error path.
- */
-export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
+type AdmissionRow = {
+  readonly userId: string;
+  readonly tombstoneStatus: string | null;
+  readonly tombstoneUpdatedAt: Date | null;
+  readonly tombstoneAnalyticsDeletedAt: Date | null;
+};
 
-/**
- * Hard cap on concurrently running admission lookups per runtime instance.
- * statement_timeout bounds an executing query, but a stall BEFORE execution
- * (pool checkout, connection establishment, a network black hole) can leave
- * an admission promise pending after its request already answered 503, and
- * the driver exposes no abort signal to cancel it. The cap makes retained
- * work bounded by construction: at most this many admission operations exist
- * at once, and a saturated instance rejects immediately (the route's 503,
- * which the relay treats as deny and retries later) instead of queueing.
- */
-export const RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS = 16;
+// One round trip: the active binding plus its account's deletion tombstone.
+// encode(sha256(convert_to(user_id, 'UTF8')), 'hex') is byte-for-byte
+// accountDeletionUserHash from services/account/deletionLock.ts; the
+// deletion-blocked case in tests/relay-allow-db-behavior.test.ts pins the
+// equivalence against Postgres.
+const ADMISSION_SQL = `
+  select
+    binding.user_id as "userId",
+    tombstone.status as "tombstoneStatus",
+    tombstone.updated_at as "tombstoneUpdatedAt",
+    tombstone.analytics_deleted_at as "tombstoneAnalyticsDeletedAt"
+  from iroh_endpoint_bindings binding
+  left join account_deletion_tombstones tombstone
+    on tombstone.user_id_hash = encode(sha256(convert_to(binding.user_id, 'UTF8')), 'hex')
+  where binding.endpoint_id = $1
+    and binding.revoked_at is null
+  limit 1
+`;
 
-/**
- * Upper bound on how long one admission holds its slot. A slot is released
- * when its operation settles OR when this lease expires, whichever comes
- * first, so operations that never settle cannot keep the instance saturated
- * after the database recovers. The lease sits above every legitimate settle
- * path (2.5 s statement_timeout, the drivers' ~30 s connect timeouts), so it
- * only fires for operations that are already stuck; those keep at most one
- * pooled connection each, which the pool's own max bounds, while admission
- * capacity comes back within one lease.
- */
-export const RELAY_ALLOW_ADMISSION_SLOT_TTL_MS = 45_000;
+type AdmissionClientState = {
+  readonly key: string;
+  readonly lookup: (endpointId: string) => Promise<AdmissionRow | null>;
+  readonly close: () => Promise<void>;
+};
 
-export class RelayAllowAdmissionSaturatedError extends Error {
-  constructor() {
-    super("relay allow admission concurrency saturated");
-    this.name = "RelayAllowAdmissionSaturatedError";
+const globalForAdmission = globalThis as typeof globalThis & {
+  __cmuxRelayAllowAdmission?: AdmissionClientState;
+};
+
+function admissionClient(): AdmissionClientState {
+  const config = cloudDbConfig();
+  const key = cloudDbConfigKey(config);
+  const cached = globalForAdmission.__cmuxRelayAllowAdmission;
+  if (cached?.key === key) return cached;
+
+  let state: AdmissionClientState;
+  if (config.driver === "aws-rds-iam") {
+    const pool: Pool = createAwsRdsIamPool(config, {
+      max: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
+      // Bounds checkout waits as well as connection establishment.
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      idleTimeoutMillis: IDLE_TIMEOUT_SECONDS * 1_000,
+      statement_timeout: RELAY_ALLOW_STATEMENT_TIMEOUT_MS,
+      query_timeout: RELAY_ALLOW_LOOKUP_SETTLE_MS,
+    });
+    attachDatabasePool(pool);
+    state = {
+      key,
+      lookup: async (endpointId) => {
+        const result = await pool.query<AdmissionRow>(ADMISSION_SQL, [endpointId]);
+        return result.rows[0] ?? null;
+      },
+      close: () => pool.end(),
+    };
+  } else {
+    const sql: Sql = postgres(config.url, {
+      max: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
+      prepare: false,
+      connect_timeout: Math.ceil(CONNECT_TIMEOUT_MS / 1_000),
+      idle_timeout: IDLE_TIMEOUT_SECONDS,
+      connection: { statement_timeout: RELAY_ALLOW_STATEMENT_TIMEOUT_MS },
+    });
+    state = {
+      key,
+      lookup: async (endpointId) => {
+        const query = sql.unsafe<AdmissionRow[]>(ADMISSION_SQL, [endpointId]);
+        // cancel() rejects the query whether still queued or executing, so
+        // the operation settles even through a pool or network stall.
+        const settleBound = setTimeout(() => {
+          try {
+            query.cancel();
+          } catch {
+            // Cancellation is best-effort; the statement timeout remains.
+          }
+        }, RELAY_ALLOW_LOOKUP_SETTLE_MS);
+        try {
+          const rows = await query;
+          return rows[0] ?? null;
+        } finally {
+          clearTimeout(settleBound);
+        }
+      },
+      close: () => sql.end(),
+    };
   }
+  globalForAdmission.__cmuxRelayAllowAdmission = state;
+  return state;
 }
 
-let inFlightAdmissions = 0;
-
-/**
- * Runs one admission under the concurrency cap; rejects when saturated. The
- * slot lease is settle-or-expiry: release is idempotent, so an operation that
- * settles after its lease expired does not double-free another slot.
- */
-export async function withRelayAllowAdmissionSlot<T>(
-  operation: () => Promise<T>,
-  slotTtlMs: number = RELAY_ALLOW_ADMISSION_SLOT_TTL_MS,
-): Promise<T> {
-  if (inFlightAdmissions >= RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS) {
-    throw new RelayAllowAdmissionSaturatedError();
-  }
-  inFlightAdmissions += 1;
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    inFlightAdmissions -= 1;
-  };
-  const lease = setTimeout(release, slotTtlMs);
-  // Do not keep a long-lived process alive just for a lease backstop.
-  lease.unref?.();
-  try {
-    return await operation();
-  } finally {
-    clearTimeout(lease);
-    release();
-  }
+export async function closeRelayAllowAdmissionClientForTests(): Promise<void> {
+  const state = globalForAdmission.__cmuxRelayAllowAdmission;
+  globalForAdmission.__cmuxRelayAllowAdmission = undefined;
+  await state?.close();
 }
 
 /**
@@ -136,37 +235,21 @@ export async function withRelayAllowAdmissionSlot<T>(
 export async function relayAllowAdmission(
   endpointId: string,
 ): Promise<RelayAllowAdmission> {
-  return await withRelayAllowAdmissionSlot(() => admissionLookup(endpointId));
+  return await withRelayAllowAdmissionSlot(async () => {
+    const row = await admissionClient().lookup(endpointId);
+    if (!row) return "deny" as const;
+    if (tombstoneBlocks(row)) return "deny" as const;
+    return "allow" as const;
+  });
 }
 
-async function admissionLookup(
-  endpointId: string,
-): Promise<RelayAllowAdmission> {
-  const db = cloudDb();
-  return await db.transaction(async (tx) => {
-    // SET LOCAL via set_config: scoped to this transaction, cancels the
-    // statement server-side on expiry (error 57014 -> the route's 503).
-    await tx.execute(sql`
-      select set_config(
-        'statement_timeout',
-        ${String(RELAY_ALLOW_STATEMENT_TIMEOUT_MS)},
-        true
-      )
-    `);
-    const [binding] = await tx
-      .select({ userId: irohEndpointBindings.userId })
-      .from(irohEndpointBindings)
-      .where(and(
-        eq(irohEndpointBindings.endpointId, endpointId),
-        isNull(irohEndpointBindings.revokedAt),
-      ))
-      .limit(1);
-    if (!binding) return "deny" as const;
-    // Reads through the same transaction so the tombstone check shares this
-    // transaction's statement_timeout.
-    if (await hasBlockingAccountDeletionIdentity(tx, [binding.userId])) {
-      return "deny" as const;
-    }
-    return "allow" as const;
+// Same blocking rule as hasBlockingAccountDeletionIdentity in
+// services/account/deletionLock.ts, applied to the joined tombstone columns.
+function tombstoneBlocks(row: AdmissionRow): boolean {
+  if (row.tombstoneStatus === null) return false;
+  if (row.tombstoneAnalyticsDeletedAt !== null) return true;
+  return isBlockingAccountDeletionTombstone({
+    status: row.tombstoneStatus,
+    updatedAt: row.tombstoneUpdatedAt,
   });
 }

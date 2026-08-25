@@ -9,7 +9,10 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
-import { relayAllowAdmission } from "../services/relay/allow";
+import {
+  closeRelayAllowAdmissionClientForTests,
+  relayAllowAdmission,
+} from "../services/relay/allow";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -42,6 +45,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await closeRelayAllowAdmissionClientForTests();
   await closeCloudDbForTests();
   await sql?.end();
 });
