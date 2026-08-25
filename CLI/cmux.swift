@@ -25334,22 +25334,39 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            if !suppressVisibleMutations {
+                // A started agent is present and ready, not working: it sits at an
+                // empty prompt until the user submits something. Publishing `.idle`
+                // is what separates "an agent is here, ready" from "no agent at
+                // all" — the latter is the pane border's no-agent neutral, so
+                // without this a live agent read as a plain terminal until its
+                // first turn ever started. The status pill stays quiet for ordinary
+                // startup and resume, so this adds no startup chrome; only the
+                // pane's agent-state border changes.
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
+                    lifecycle: .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
+            }
+            if isClearSessionStart, !suppressVisibleMutations {
+                // `/clear` drops the conversation and returns the agent to an empty
+                // prompt. That is ready, not working: reporting `.running` here left
+                // the pane reading as busy until the next turn actually began, which
+                // for an agent left alone after a clear meant indefinitely.
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: String(
+                        localized: "agent.generic.notification.status.idle",
+                        defaultValue: "Idle"
+                    ),
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93",
                     pid: claudePid
                 )
             }
