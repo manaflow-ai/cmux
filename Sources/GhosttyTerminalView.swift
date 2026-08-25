@@ -3843,6 +3843,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// reuse can attach a different terminal before the original runtime is
     /// ready; never replay the old terminal's input into that replacement.
     private var pendingExplicitKeyDownSurfaceID: UUID?
+    private weak var pendingExplicitKeyDownSurface: TerminalSurface?
     private var pendingExplicitKeyDownKeyCodes: [UInt16: Int] = [:]
     private var pendingExplicitKeyUpEvents: [UInt16: [NSEvent]] = [:]
     private var pendingExplicitKeyUpEventCount = 0
@@ -4134,7 +4135,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
         if !isSameSurface {
-            if pendingExplicitKeyDownSurfaceID != surface.id {
+            if pendingExplicitKeyDownSurface !== surface {
                 discardPendingExplicitKeyDownEvents()
             }
             appliedColorScheme = nil
@@ -4163,7 +4164,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let surfaceID = terminalSurface?.id
         if pendingExplicitKeyDownEvents.isEmpty {
             pendingExplicitKeyDownSurfaceID = surfaceID
-        } else if pendingExplicitKeyDownSurfaceID != surfaceID {
+            pendingExplicitKeyDownSurface = terminalSurface
+        } else if pendingExplicitKeyDownSurface !== terminalSurface {
             discardPendingExplicitKeyDownEvents()
             return
         }
@@ -4174,7 +4176,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
         guard surface != nil, !pendingExplicitKeyDownEvents.isEmpty else { return }
         guard let pendingSurfaceID = pendingExplicitKeyDownSurfaceID,
-              pendingSurfaceID == terminalSurface?.id else {
+              let pendingSurface = pendingExplicitKeyDownSurface,
+              pendingSurfaceID == terminalSurface?.id,
+              pendingSurface === terminalSurface else {
             discardPendingExplicitKeyDownEvents()
             return
         }
@@ -4182,7 +4186,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
         pendingExplicitKeyDownSurfaceID = nil
         for event in pendingEvents {
-            guard terminalSurface?.id == pendingSurfaceID else {
+            guard terminalSurface?.id == pendingSurfaceID,
+                  terminalSurface === pendingSurface else {
                 discardPendingExplicitKeyDownEvents()
                 return
             }
@@ -4201,6 +4206,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
         }
+        pendingExplicitKeyDownSurface = nil
         pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEventCount = 0
@@ -4209,6 +4215,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func discardPendingExplicitKeyDownEvents() {
         pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
         pendingExplicitKeyDownSurfaceID = nil
+        pendingExplicitKeyDownSurface = nil
         pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
         pendingExplicitKeyUpEventCount = 0

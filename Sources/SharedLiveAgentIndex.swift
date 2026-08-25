@@ -118,6 +118,13 @@ final class SharedLiveAgentIndex {
     private static let maximumOwnershipSensitiveRefreshPasses = 2
     private static let ownershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
 
+    nonisolated private static func remainingOwnershipRefreshNanoseconds(
+        until deadline: UInt64
+    ) -> UInt64 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return deadline > now ? deadline - now : 0
+    }
+
     nonisolated static func forkExecutableWatchSourceCountBudget(
         softFileDescriptorLimit explicitSoftLimit: Int? = nil,
         openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil,
@@ -494,12 +501,23 @@ final class SharedLiveAgentIndex {
                 return nil
             }
             if let refreshTask {
-                guard await awaitOwnershipRefreshTask(refreshTask, kind: .full) else {
+                guard await awaitOwnershipRefreshTask(
+                    refreshTask,
+                    kind: .full,
+                    timeoutNanoseconds: Self.remainingOwnershipRefreshNanoseconds(
+                        until: ownershipRefreshDeadline
+                    )
+                ) else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
                 guard !Task.isCancelled else { return nil }
+                guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
+                    abandonOwnershipRefreshTasks()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
                 completedRefreshPasses += 1
                 if self.refreshTask == nil,
                    forkAvailabilityRefreshTask == nil,
@@ -514,7 +532,18 @@ final class SharedLiveAgentIndex {
                 continue
             }
             if let forkAvailabilityRefreshTask {
-                guard await awaitOwnershipRefreshTask(forkAvailabilityRefreshTask, kind: .fork) else {
+                guard await awaitOwnershipRefreshTask(
+                    forkAvailabilityRefreshTask,
+                    kind: .fork,
+                    timeoutNanoseconds: Self.remainingOwnershipRefreshNanoseconds(
+                        until: ownershipRefreshDeadline
+                    )
+                ) else {
+                    abandonOwnershipRefreshTasks()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
+                guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
@@ -678,7 +707,8 @@ final class SharedLiveAgentIndex {
     /// detached task that can retain the index or its caller.
     private func awaitOwnershipRefreshTask(
         _ task: Task<Void, Never>,
-        kind: OwnershipRefreshTaskKind
+        kind: OwnershipRefreshTaskKind,
+        timeoutNanoseconds: UInt64
     ) async -> Bool {
         guard !task.isCancelled else { return false }
         let minimumGeneration = refreshCompletionGeneration + 1
@@ -695,11 +725,11 @@ final class SharedLiveAgentIndex {
                 ownershipRefreshWaiters[waiterID] = continuation
                 ownershipRefreshWaiterMinimumGenerations[waiterID] = minimumGeneration
                 ownershipRefreshWaiterKinds[waiterID] = kind
-                let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-                timer.schedule(
-                    deadline: .now() + .nanoseconds(
-                        Int(Self.ownershipRefreshTimeoutNanoseconds)
-                    )
+            let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+            timer.schedule(
+                deadline: .now() + .nanoseconds(
+                    Int(timeoutNanoseconds)
+                )
                 )
                 timer.setEventHandler { [weak self] in
                     Task { @MainActor in
