@@ -1467,6 +1467,15 @@ async fn stop_git(child: &mut tokio::process::Child) {
     .await;
 }
 
+struct GitProcessGuard(Option<u32>);
+impl GitProcessGuard { fn new(child: &tokio::process::Child) -> Self { Self(child.id()) } fn disarm(&mut self) { self.0 = None; } }
+impl Drop for GitProcessGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0 { unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL); } }
+    }
+}
+
 fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
     let text = String::from_utf8_lossy(stderr);
     let text = text.trim();
@@ -1601,6 +1610,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     )
     .spawn()
     .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
     let Some(stdout) = child.stdout.take() else {
         stop_git(&mut child).await;
         return Err(Refusal::failed("git status produced no stdout pipe"));
@@ -1626,6 +1636,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         .wait()
         .await
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => task.finish().await?,
         None => Vec::new(),
@@ -1744,6 +1755,7 @@ async fn run_git_diff(
     let mut child = git_command(&root, &args)
         .spawn()
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
     // Stream stdout: the stat counts the FULL diff, but the patch buffer
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
@@ -1806,6 +1818,7 @@ async fn run_git_diff(
         .wait()
         .await
         .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
+    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => task.finish().await?,
         None => Vec::new(),
