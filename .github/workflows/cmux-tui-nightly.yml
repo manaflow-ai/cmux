@@ -163,6 +163,9 @@ jobs:
               --source-ref "refs/heads/main"
           done
 
+      # cmux-relay packages are validated in the artifact contract above but
+      # publish only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml); nightlies never move relay dist-tags.
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -172,11 +175,6 @@ jobs:
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
             cmux-tui-win32-x64
-            cmux-relay-darwin-arm64
-            cmux-relay-darwin-x64
-            cmux-relay-linux-x64
-            cmux-relay-linux-arm64
-            cmux-relay-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
@@ -185,9 +183,6 @@ jobs:
 
       - name: Publish launcher package with nightly dist-tag
         run: npm publish --provenance --tag nightly dist/npm-packages/cmux
-
-      - name: Publish relay launcher package with nightly dist-tag
-        run: npm publish --provenance --tag nightly dist/npm-packages/cmux-relay
 
   publish-pypi:
     needs:
