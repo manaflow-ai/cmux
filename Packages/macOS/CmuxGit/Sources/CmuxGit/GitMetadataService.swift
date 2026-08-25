@@ -112,11 +112,13 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        let initialReferences = await gitReferenceSnapshot(repository: repository)
-        var trackedChanges = await gitTrackedChangesSnapshot(
+        async let initialReferences = gitReferenceSnapshot(repository: repository)
+        async let initialTrackedChanges = gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let initialReferences = await initialReferences
+        var trackedChanges = await initialTrackedChanges
         // HEAD and index updates are separate filesystem operations. Re-read
         // HEAD after the index scan and discard a generation-cached result when
         // the checkout moved during this observation window.
