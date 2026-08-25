@@ -18,6 +18,19 @@ struct MachineSnapshot: Equatable, Identifiable {
         case attention(String)
     }
 
+    /// Where a machine stands in the free plan's access window. The backend is
+    /// the enforcement point (402 on access verbs); this mirrors it so the row
+    /// can show the countdown and route a locked machine to the upgrade flow
+    /// instead of a doomed connect.
+    enum FreeAccessState: Equatable {
+        /// Paid plan, or the window is disabled server-side.
+        case unrestricted
+        /// Reachable, with this many whole-or-partial days remaining.
+        case active(daysLeft: Int)
+        /// Past the window: preserved but locked until the plan is upgraded.
+        case expired
+    }
+
     let id: String
     let provider: String
     let image: String
@@ -26,6 +39,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
     let label: String?
+    /// Free-plan access window position; `.unrestricted` on paid plans.
+    var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     var stats: VMStats?
 
@@ -60,19 +75,38 @@ struct MachinePlanSnapshot: Equatable {
 }
 
 enum MachineSnapshotBuilder {
-    static func snapshot(from summary: VMSummary) -> MachineSnapshot {
-        MachineSnapshot(
+    static func snapshot(
+        from summary: VMSummary,
+        freeAccessWindowDays: Int = 0,
+        now: Date = Date()
+    ) -> MachineSnapshot {
+        let createdAt = summary.createdAt > 0
+            ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
+            : nil
+        return MachineSnapshot(
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
             isDesktop: summary.image.contains("xfce-vnc"),
             activity: activity(fromStatus: summary.status),
-            createdAt: summary.createdAt > 0
-                ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
-                : nil,
+            createdAt: createdAt,
             label: summary.displayName,
+            freeAccess: freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now),
             stats: nil
         )
+    }
+
+    /// Mirrors the backend's window math (created + windowDays vs now); the
+    /// backend stays the enforcement point, this only drives the row UI.
+    static func freeAccessState(
+        createdAt: Date?,
+        windowDays: Int,
+        now: Date = Date()
+    ) -> MachineSnapshot.FreeAccessState {
+        guard windowDays > 0, let createdAt else { return .unrestricted }
+        let remaining = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400).timeIntervalSince(now)
+        if remaining <= 0 { return .expired }
+        return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
     }
 
     static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
@@ -224,7 +258,10 @@ final class MachinesPanelViewModel: ObservableObject {
         do {
             let page = try await client.listPage()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
-            var snapshots = page.vms.map(MachineSnapshotBuilder.snapshot(from:))
+            let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
+            var snapshots = page.vms.map {
+                MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: freeAccessWindowDays)
+            }
             for index in snapshots.indices {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
