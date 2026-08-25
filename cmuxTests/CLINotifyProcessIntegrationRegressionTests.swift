@@ -3461,6 +3461,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
             ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
             ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
+            ("set-artifacts", ["right-sidebar", "set", "artifacts"], "right_sidebar set artifacts", "OK", ""),
+            ("artifacts-alias", ["right-sidebar", "artifacts"], "right_sidebar set artifacts", "OK", ""),
             ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
         ]
 

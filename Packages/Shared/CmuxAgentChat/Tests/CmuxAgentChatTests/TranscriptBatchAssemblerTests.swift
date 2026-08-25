@@ -92,6 +92,55 @@ import Testing
         #expect(byteCount <= 256 * 1_024)
     }
 
+    @Test("pending artifact mutation keys are bounded and included in the byte budget")
+    func pendingArtifactMutationKeysBounded() {
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(),
+            budget: TranscriptTextBudget()
+        )
+        for key in 0..<400 {
+            assembler.registerArtifactMutation(
+                paths: ["/tmp/artifact.md"],
+                pendingKey: String(repeating: "k", count: 1_000) + "-\(key)",
+                seq: key
+            )
+        }
+
+        let pending = assembler.result(lastTimestamp: nil).state.pendingArtifactMutations
+        let carriedBytes = pending.reduce(0) { total, entry in
+            total + entry.key.utf8.count
+                + entry.value.reduce(0) { $0 + $1.path.utf8.count }
+        }
+
+        #expect(carriedBytes <= 256 * 1_024)
+        #expect(pending.count < 400)
+    }
+
+    @Test("oversized persisted artifact mutation keys are discarded")
+    func oversizedPersistedArtifactMutationKeyDiscarded() {
+        let oversizedKey = String(repeating: "x", count: 10_000)
+        let reference = ChatArtifactTranscriptReference(
+            path: "/tmp/artifact.md",
+            provenance: .referenced,
+            seq: 1
+        )
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(
+                pendingArtifactMutations: [oversizedKey: [reference]]
+            ),
+            budget: TranscriptTextBudget()
+        )
+
+        #expect(assembler.result(lastTimestamp: nil).state.pendingArtifactMutations.isEmpty)
+
+        assembler.registerArtifactMutation(
+            paths: [reference.path],
+            pendingKey: oversizedKey,
+            seq: 2
+        )
+        #expect(assembler.result(lastTimestamp: nil).state.pendingArtifactMutations.isEmpty)
+    }
+
     @Test("supplemental artifact references are bounded during one parse")
     func artifactReferencesBoundedDuringParse() {
         var assembler = TranscriptBatchAssembler(

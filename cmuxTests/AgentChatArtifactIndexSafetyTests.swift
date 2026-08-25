@@ -10,6 +10,43 @@ import Testing
 #endif
 
 struct AgentChatArtifactIndexSafetyTests {
+    @Test func cacheGenerationIncludesTranscriptIdentityAndScanLimit() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let alias = root.appendingPathComponent("alias.jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        try FileManager.default.linkItem(at: transcript, to: alias)
+
+        let index = AgentChatArtifactIndex()
+        let fullSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .claude,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 4_096
+        )
+        let narrowSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .claude,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 2_048
+        )
+        let aliasSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .claude,
+            transcriptPath: alias.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 4_096
+        )
+
+        #expect(fullSnapshot.generation != narrowSnapshot.generation)
+        #expect(fullSnapshot.generation != aliasSnapshot.generation)
+    }
+
     @Test func oversizedTranscriptDoesNotTrustArtifactsOutsideItsCurrentTail() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

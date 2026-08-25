@@ -405,6 +405,20 @@ struct LocalArtifactRepositoryTests {
         let changes = await repository.changes(projectRoot: root)
 
         _ = try ArtifactTestSupport.write(
+            "unrelated project file",
+            named: "Sources/App.swift",
+            under: root
+        )
+        let unrelatedObserved = await firstResult(
+            operation: {
+                var iterator = changes.makeAsyncIterator()
+                return await iterator.next() != nil
+            },
+            timeout: .milliseconds(500)
+        )
+        #expect(unrelatedObserved == nil)
+
+        _ = try ArtifactTestSupport.write(
             "appeared outside cmux",
             named: "external/new-file.md",
             under: root.appendingPathComponent(".cmux/session/artifacts")
