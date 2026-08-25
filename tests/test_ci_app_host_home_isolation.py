@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from typing import Optional
 
 import yaml
 
@@ -124,6 +125,7 @@ def read_published_environment(path: Path) -> dict[str, str]:
 def require_config_path_alias_is_accepted() -> None:
     published: dict[str, str] = {}
     owns_app_host_scope = False
+    outside_root: Optional[Path] = None
     with tempfile.TemporaryDirectory(prefix="cmux-config-path-alias-") as temp:
         temp_root = Path(temp).resolve()
         bin_dir = temp_root / "bin"
@@ -139,6 +141,10 @@ def require_config_path_alias_is_accepted() -> None:
             "set -euo pipefail\n"
             "printf 'cmux DEV [default] reading configuration file path=%s%s\\r\\n' "
             '"$CMUX_TEST_REPORTED_CONFIG_PATH" "${CMUX_TEST_REPORTED_CONFIG_SUFFIX:-}"\n'
+            'if [ -n "${CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH:-}" ]; then\n'
+            "  printf 'cmux DEV [config] reading configuration file path=%s%s\\r\\n' "
+            '"$CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH" "${CMUX_TEST_REPORTED_CONFIG_SUFFIX:-}"\n'
+            "fi\n"
             "printf 'cmux DEV message = \"socket.listener.start\"\\r\\n'\n",
             encoding="utf-8",
         )
@@ -225,12 +231,21 @@ def require_config_path_alias_is_accepted() -> None:
             def run_validation(
                 config_path: Path,
                 config_suffix: str = "",
+                extra_config_path: Optional[str] = None,
             ) -> subprocess.CompletedProcess[str]:
                 invocation_environment = environment.copy()
                 invocation_environment["CMUX_TEST_REPORTED_CONFIG_PATH"] = str(
                     config_path
                 )
                 invocation_environment["CMUX_TEST_REPORTED_CONFIG_SUFFIX"] = config_suffix
+                if extra_config_path is not None:
+                    invocation_environment["CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH"] = (
+                        extra_config_path
+                    )
+                else:
+                    invocation_environment.pop(
+                        "CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH", None
+                    )
                 return subprocess.run(
                     [
                         "/bin/bash",
@@ -256,6 +271,60 @@ def require_config_path_alias_is_accepted() -> None:
                     + validation.stderr
                 )
 
+            # XDG config-file paths may contain spaces. The parser must retain
+            # the complete path while still removing Ghostty's trailing
+            # diagnostic suffix.
+            spaced_config_path = (
+                canonical_home / ".config/ghostty/custom config.ghostty"
+            )
+            spaced_config_path.write_text("# spaced config fixture\n", encoding="utf-8")
+            spaced_validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+                str(spaced_config_path),
+            )
+            if spaced_validation.returncode != 0:
+                raise SystemExit(
+                    "FAIL: app-host wrapper rejected an in-home XDG config path with spaces\n"
+                    + spaced_validation.stdout
+                    + spaced_validation.stderr
+                )
+
+            # A path containing an early space must not be truncated before
+            # canonicalization: doing so could turn an outside traversal into
+            # an apparently safe in-home prefix.
+            spaced_prefix = canonical_home / ".config/ghostty/space"
+            spaced_prefix.mkdir()
+            spaced_directory = canonical_home / ".config/ghostty/space dir"
+            spaced_directory.mkdir()
+            outside_root = Path(
+                tempfile.mkdtemp(
+                    prefix="cmux-config-path-alias-outside-", dir="/tmp"
+                )
+            )
+            outside_config_path = outside_root / "outside.ghostty"
+            outside_config_path.write_text("# outside fixture\n", encoding="utf-8")
+            traversal_path = (
+                f"{spaced_directory}/../../../../{outside_root.name}/"
+                f"{outside_config_path.name}"
+            )
+            traversal_validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+                traversal_path,
+            )
+            traversal_output = (
+                traversal_validation.stdout + traversal_validation.stderr
+            )
+            if traversal_validation.returncode != 1 or (
+                "FAIL: Ghostty accessed configuration outside the isolated "
+                "app-host home" not in traversal_output
+            ):
+                raise SystemExit(
+                    "FAIL: app-host wrapper accepted an outside traversal in an XDG config path\n"
+                    + traversal_output
+                )
+
             outside_config_path = temp_root / "outside" / config_suffix
             outside_config_path.parent.mkdir(parents=True)
             outside_config_path.write_text("# outside fixture\n", encoding="utf-8")
@@ -270,6 +339,8 @@ def require_config_path_alias_is_accepted() -> None:
                     + outside_output
                 )
         finally:
+            if outside_root is not None:
+                shutil.rmtree(outside_root, ignore_errors=True)
             if owns_app_host_scope:
                 for name in (
                     "CMUX_APP_HOST_HOME",

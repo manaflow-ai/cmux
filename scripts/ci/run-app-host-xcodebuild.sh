@@ -134,15 +134,21 @@ extract_app_host_config_path() {
   local path="${line#*path=}"
 
   # Ghostty appends structured diagnostics (for example, `err=...`) to
-  # configuration access lines. Keep only the known path token so a valid
-  # in-home diagnostic is not mistaken for an out-of-scope filesystem path.
-  if [[ "$path" =~ ^(.*Library/Application[[:space:]]Support/com\.mitchellh\.ghostty/config\.ghostty)([[:space:]].*)?$ ]]; then
-    printf '%s\n' "${BASH_REMATCH[1]}"
+  # configuration access lines. Prefer the complete path first so spaces in
+  # a config-file name remain part of the path. Only strip a recognized
+  # trailing diagnostic when the resulting path is an existing, non-symlink
+  # filesystem entry; otherwise validation remains fail-closed below.
+  if [ -e "$path" ] && [ ! -L "$path" ]; then
+    printf '%s\n' "$path"
     return 0
   fi
-  if [[ "$path" =~ ^(.*/\.config/ghostty/[^[:space:]]+)([[:space:]].*)?$ ]]; then
-    printf '%s\n' "${BASH_REMATCH[1]}"
-    return 0
+  if [[ "$path" =~ ^(.*)[[:space:]]err=[[:alnum:]_.:-]+([[:space:]].*)?$ ]]; then
+    local path_without_diagnostic="${BASH_REMATCH[1]}"
+    if [ -e "$path_without_diagnostic" ] \
+      && [ ! -L "$path_without_diagnostic" ]; then
+      printf '%s\n' "$path_without_diagnostic"
+      return 0
+    fi
   fi
 
   # Preserve fail-closed behavior for an unrecognized record.
