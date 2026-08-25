@@ -1572,6 +1572,10 @@ def _shell_command_word_bounds(
     words = _shell_word_bounds(line, start, end)
     index = 0
     while index < len(words):
+        if index == 0:
+            if (body_start := _shell_function_prefix_end(line, words)) is not None:
+                index = body_start
+                continue
         if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
             index = next_index
             continue
@@ -1679,6 +1683,36 @@ def _shell_word_value_and_bounds(
         start += 1
         end -= 1
     return line[start:end], (start, end)
+
+
+def _shell_function_prefix_end(
+    line: str,
+    words: list[tuple[int, int]],
+) -> Optional[int]:
+    """Return the first body-command index for a shell function definition."""
+    if not words:
+        return None
+    values = [
+        _shell_word_value_and_bounds(line, word)[0]
+        for word in words
+    ]
+    if values[0].endswith("()") and len(values) > 1 and values[1] == "{":
+        return 2
+    if (
+        len(values) > 2
+        and values[1] == "()"
+        and values[2] == "{"
+    ):
+        return 3
+    if values[0] == "function":
+        index = 2
+        if len(values) > 1 and values[1].endswith("()"):
+            index = 2
+        if len(values) > index and values[index] == "{":
+            return index + 1
+    if values[0] == "{":
+        return 1
+    return None
 
 
 def _shell_env_split_source_bounds(
@@ -2905,12 +2939,42 @@ def _direct_network_target_ranges(
     return target_ranges
 
 
+def _is_callable_declaration(
+    line: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> bool:
+    """Return whether a generic request-shaped match declares a callable."""
+    prefix = line[: match.start()]
+    if re.search(r"\b(?:async\s+)?function\s*$|\b(?:def|func)\s*$", prefix):
+        return True
+
+    opening_paren = line.find("(", match.start(), match.end())
+    if opening_paren == -1:
+        return False
+    closing_paren = _call_end(line, opening_paren, path_suffix)
+    cursor = closing_paren + 1
+    while cursor < len(line) and line[cursor].isspace():
+        cursor += 1
+    if line.startswith("=>", cursor):
+        return True
+    if cursor < len(line) and line[cursor] == "{":
+        return True
+    if cursor < len(line) and line[cursor] == ":":
+        brace = line.find("{", cursor)
+        semicolon = line.find(";", cursor)
+        return brace != -1 and (semicolon == -1 or brace < semicolon)
+    return False
+
+
 def _network_target_ranges(
     line: str,
     match: re.Match[str],
     path_suffix: str,
 ) -> list[tuple[int, int]]:
     verb_start = match.start()
+    if _is_callable_declaration(line, match, path_suffix):
+        return []
     if path_suffix == ".sh":
         env_split_source = _shell_env_split_source_bounds(line, verb_start)
         if env_split_source is not None:
