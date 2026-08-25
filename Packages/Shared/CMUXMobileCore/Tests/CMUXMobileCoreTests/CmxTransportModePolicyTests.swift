@@ -253,6 +253,15 @@ struct CmxTransportModePolicyTests {
         }
     }
 
+    @Test("policy mismatch is not classified as stale no-route evidence")
+    func routeClassMismatchUsesUnsupportedRouteFailure() {
+        let error = CmxTransportModeError.routeClassMismatch(
+            expected: .lan,
+            actual: .tailscale
+        )
+        #expect(error.diagnosticFailureKind == .unsupportedRoute)
+    }
+
     private func route(
         id: String,
         kind: CmxAttachTransportKind,
