@@ -56,6 +56,43 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func staleRelayAttemptCannotReclaimLifecycleOwner() throws {
+        let fixture = try Fixture()
+        let terminal = try #require(
+            fixture.workspace.panels[fixture.surfaceID] as? TerminalPanel
+        )
+        let terminalLifecycleID = terminal.surface.terminalLifecycleId
+        let currentAttemptID = UUID()
+        fixture.workspace.remoteTerminalAttemptIDsBySurfaceId[fixture.surfaceID]
+            = currentAttemptID
+        let currentSessionID = "session#relay#\(terminalLifecycleID.uuidString)"
+            + "#\(currentAttemptID.uuidString)#43210"
+        let owner = ControlSidebarPanelOwner.workspace(fixture.workspace)
+
+        #expect(owner.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: currentSessionID,
+            startsNewOccupant: true
+        ))
+
+        let staleSessionID = "session#relay#\(terminalLifecycleID.uuidString)"
+            + "#\(UUID().uuidString)#43100"
+        #expect(!owner.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            sessionID: staleSessionID,
+            startsNewOccupant: true
+        ))
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]?
+                .sessionID == currentSessionID
+        )
+    }
+
+    @Test
     func verifiedReplacementStartPublishesOldExitBeforeNewOccupantState() throws {
         let fixture = try Fixture()
         fixture.workspace.setAgentLifecycle(
