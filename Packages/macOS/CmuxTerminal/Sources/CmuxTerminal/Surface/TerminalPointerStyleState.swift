@@ -119,7 +119,7 @@ public struct TerminalPointerStyleState {
 
         case .ghosttyLinkHoverChanged(let active, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
-            let nextActive = active
+            let nextActive = isFocused && active
             guard isGhosttyLinkHoverActive != nextActive else { return false }
             if nextActive, ghosttyShape == GHOSTTY_MOUSE_SHAPE_POINTER {
                 // The pointer action is emitted before the link-hover action.
