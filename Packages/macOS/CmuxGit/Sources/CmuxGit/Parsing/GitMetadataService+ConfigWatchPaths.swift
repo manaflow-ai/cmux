@@ -47,7 +47,10 @@ extension GitMetadataService {
         var pathsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
 
-        let references = await gitReferenceSnapshotForConfig(repository: repository)
+        let references = await gitReferenceSnapshotForConfig(
+            repository: repository,
+            deadline: deadline
+        )
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
             return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
@@ -55,8 +58,12 @@ extension GitMetadataService {
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext,
-            includeConditionalPathsForWatch: true
+            includeConditionalPathsForWatch: true,
+            deadline: deadline
         ).watchPaths() + references.storageWatchPaths
+        guard DispatchTime.now() < deadline else {
+            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+        }
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         guard let header = Self.gitIndexHeaderSummary(indexPath: indexPath),

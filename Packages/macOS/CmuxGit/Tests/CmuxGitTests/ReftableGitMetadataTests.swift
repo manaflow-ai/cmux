@@ -108,6 +108,47 @@ import Testing
         #expect(snapshot.currentCommit == commit)
     }
 
+    @Test func incompleteQuickBackendScanDoesNotTrustLooseRefs() throws {
+        let fixture = try GitRepositoryFixture()
+        let looseCommit = String(repeating: "f", count: 40)
+        try fixture.writeBranch("main", commit: looseCommit)
+        try fixture.writeConfig("""
+        [include]
+            path = backend.inc
+        """)
+        try """
+        [extensions]
+            refStorage = reftable
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("backend.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let plumbingCommit = String(repeating: "a", count: 40)
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [
+                ["symbolic-ref", "--quiet", "HEAD"]: FakeWorkspaceChangesGitRunner.result(
+                    "refs/heads/from-plumbing\n"
+                ),
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/from-plumbing^{commit}",
+                ]: FakeWorkspaceChangesGitRunner.result("\(plumbingCommit)\n"),
+            ])
+        )
+
+        let snapshot = reader.snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .branch("from-plumbing"))
+        #expect(snapshot.currentCommit == plumbingCommit)
+    }
+
     /// Keeps ambient Git repository overrides from redirecting plumbing reads.
     @Test func plumbingIgnoresAmbientRepositorySelection() throws {
         let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)

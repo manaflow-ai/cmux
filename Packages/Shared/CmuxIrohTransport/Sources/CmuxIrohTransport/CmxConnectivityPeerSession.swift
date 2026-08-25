@@ -64,7 +64,7 @@ actor CmxConnectivityPeerSession {
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
     private var retiredDialWaiterGenerations: [UUID: UInt64] = [:]
-    private var nextRetiredDialWaiterGeneration: UInt64 = 0
+    private var retiredDialGeneration: UInt64 = 0
     // A test clock (and a very fast production clock) can expire the deadline
     // before the continuation below is registered. Keep that one-shot result
     // until the waiter observes it instead of dropping the wake-up.
@@ -517,6 +517,9 @@ actor CmxConnectivityPeerSession {
         guard let pending = pendingConnection else { return }
         pendingConnection = nil
         pending.task.cancel()
+        // A timeout may still be queued for an older drain. Tie it to this
+        // retirement generation so it cannot clear a replacement drain.
+        retiredDialGeneration &+= 1
         let drainID = UUID()
         retiredDialDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
@@ -551,8 +554,7 @@ actor CmxConnectivityPeerSession {
     private func waitForRetiredDials() async {
         guard !retiredDialDrains.isEmpty else { return }
         let waiterID = UUID()
-        nextRetiredDialWaiterGeneration &+= 1
-        retiredDialWaiterGenerations[waiterID] = nextRetiredDialWaiterGeneration
+        retiredDialWaiterGenerations[waiterID] = retiredDialGeneration
         let clock = clock
         let deadline = clock.now().addingTimeInterval(
             Self.retiredDialSettleWaitLimitSeconds
@@ -598,7 +600,8 @@ actor CmxConnectivityPeerSession {
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard !Task.isCancelled, retiredDialWaiterGenerations[id] != nil else {
+        guard !Task.isCancelled,
+              retiredDialWaiterGenerations[id] == retiredDialGeneration else {
             return
         }
         retiredDialDrains.removeAll()

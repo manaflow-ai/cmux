@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// Traverses repository config with a reference snapshot supplied by the owner.
@@ -15,6 +16,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private let maximumFileByteCount: Int
     private let storageProbe: any GitReferenceStorageProbing
     private let includeConditionalPathsForWatch: Bool
+    private let deadline: DispatchTime?
 
     /// Creates a traversal for one repository and resolved branch context.
     init(
@@ -23,7 +25,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         configReader: GitConfigFileReader = GitConfigFileReader(),
         maximumFileByteCount: Int = GitConfigFileReader.defaultMaximumByteCount,
         storageProbe: any GitReferenceStorageProbing = SystemGitReferenceStorageProbe(),
-        includeConditionalPathsForWatch: Bool = false
+        includeConditionalPathsForWatch: Bool = false,
+        deadline: DispatchTime? = nil
     ) {
         self.repository = repository
         self.branchContext = branchContext
@@ -31,6 +34,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         self.maximumFileByteCount = max(0, maximumFileByteCount)
         self.storageProbe = storageProbe
         self.includeConditionalPathsForWatch = includeConditionalPathsForWatch
+        self.deadline = deadline
     }
 
     /// Returns every reachable config file in Git's include order.
@@ -71,7 +75,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             remainingFileCount: Self.maximumIncludedFileCount,
             remainingByteCount: Self.maximumTotalConfigByteCount,
             reader: configReader,
-            maximumFileByteCount: maximumFileByteCount
+            maximumFileByteCount: maximumFileByteCount,
+            deadline: deadline
         ))
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             processConfig(at: configURL, state: &state)
@@ -188,7 +193,11 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         if storageName == "reftable" {
             let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-            switch configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
+            switch configReader.read(
+                at: tableList,
+                maximumByteCount: 1 * 1_024,
+                deadline: deadline
+            ) {
             case .contents, .oversized:
                 return true
             case .missing, .unavailable:
@@ -211,14 +220,14 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         guard roots.contains(where: { root in
             path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
         }) else {
-            switch configReader.read(at: url, maximumByteCount: 1) {
+            switch configReader.read(at: url, maximumByteCount: 1, deadline: deadline) {
             case .contents, .oversized:
                 return true
             case .missing, .unavailable:
                 return false
             }
         }
-        switch configReader.read(at: url, maximumByteCount: 1) {
+        switch configReader.read(at: url, maximumByteCount: 1, deadline: deadline) {
         case .contents, .oversized:
             return true
         case .missing, .unavailable:
@@ -240,7 +249,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             remainingFileCount: Self.maximumIncludedFileCount,
             remainingByteCount: Self.maximumTotalConfigByteCount,
             reader: configReader,
-            maximumFileByteCount: maximumFileByteCount
+            maximumFileByteCount: maximumFileByteCount,
+            deadline: deadline
         )
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             appendRemoteVLines(

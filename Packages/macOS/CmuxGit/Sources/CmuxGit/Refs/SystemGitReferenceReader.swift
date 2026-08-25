@@ -3,14 +3,14 @@ import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
 nonisolated struct SystemGitReferenceReader: GitReferenceReading {
-    private static let maximumSymbolicReferenceByteCount = 16 * 1_024
+    static let maximumSymbolicReferenceByteCount = 16 * 1_024
     private static let maximumObjectIDByteCount = 128
     /// Configs above this bound use Git plumbing instead of an unbounded scan.
     private static let maximumReferenceStorageConfigByteCount = 1 * 1_024 * 1_024
 
     private let runnerSelector: GitReferenceRunnerSelector
-    private let storageProbe: any GitReferenceStorageProbing
-    private let configReader: GitConfigFileReader
+    let storageProbe: any GitReferenceStorageProbing
+    let configReader: GitConfigFileReader
     private let boundedCommandWallTimeLimit: TimeInterval
 
     /// Creates a production reader backed by the system Git executable.
@@ -55,43 +55,86 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Resolves refs using direct files or Git plumbing according to storage.
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        if hasReftableDirectory(repository: repository) {
-            return plumbingSnapshot(repository: repository)
+        snapshot(repository: repository, deadline: nil)
+    }
+
+    /// Resolves refs without extending an aggregate caller deadline.
+    func snapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> GitReferenceSnapshot {
+        let deadline = deadline ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
+        guard deadline > DispatchTime.now() else {
+            return unreadableSnapshot()
         }
-        if let configuredStorage = quickReferenceStorageName(repository: repository),
-           configuredStorage != "files" {
-            return plumbingSnapshot(repository: repository)
+        if hasReftableDirectory(repository: repository) {
+            return plumbingSnapshot(repository: repository, deadline: deadline)
         }
         let directSnapshot = fileSnapshot(repository: repository)
+        let configuredStorage: String?
+        switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+        case .complete(let storage):
+            configuredStorage = storage
+        case .incomplete:
+            guard directSnapshot.branchName != ".invalid" else {
+                return plumbingSnapshot(repository: repository, deadline: deadline)
+            }
+            configuredStorage = referenceStorageName(
+                repository: repository,
+                branchContext: .resolved(directSnapshot.branchName),
+                deadline: deadline
+            )
+        }
+        if let configuredStorage, configuredStorage != "files" {
+            return plumbingSnapshot(repository: repository, deadline: deadline)
+        }
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
         }
-        let configuredStorage = referenceStorageName(repository: repository)
+        let configuredStorage = configuredStorage
+            ?? referenceStorageName(
+                repository: repository,
+                branchContext: .resolved(directSnapshot.branchName),
+                deadline: deadline
+            )
         if let configuredStorage, configuredStorage != "files" {
-            return plumbingSnapshot(repository: repository)
+            return plumbingSnapshot(repository: repository, deadline: deadline)
         }
         if directSnapshot.branchName == ".invalid" {
-            return GitReferenceSnapshot(
-                checkedOutBranch: .unreadable,
-                headSignature: nil,
-                currentCommit: nil
-            )
+            return unreadableSnapshot()
         }
         return directSnapshot
     }
 
     /// Reports whether this repository needs storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
+        requiresGitPlumbing(repository: repository, deadline: nil)
+    }
+
+    /// Reports whether plumbing is needed without extending an aggregate deadline.
+    func requiresGitPlumbing(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> Bool {
+        if let deadline, deadline <= DispatchTime.now() {
+            return true
+        }
         if hasReftableDirectory(repository: repository) {
             return true
         }
-        // A valid file-backed HEAD already resolves its object ID without a
-        // config scan. Only ambiguous/unborn/malformed heads need backend
-        // detection, keeping ordinary sidebar refreshes on the direct path.
-        if fileBackedHeadHasResolvedCommit(repository: repository) {
+        switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+        case .complete(let storage):
+            if let storage {
+                return storage != "files"
+            }
+            // A complete root scan with no backend declaration is the ordinary
+            // file-backed case. Ambiguous heads are rechecked by `snapshot`.
             return false
+        case .incomplete:
+            // Includes and oversized configs may hide a non-files backend;
+            // conservatively reserve a plumbing permit before the full scan.
+            return true
         }
-        return referenceStorageName(repository: repository).map({ $0 != "files" }) == true
     }
 
     private func hasReftableDirectory(repository: ResolvedGitRepository) -> Bool {
@@ -100,33 +143,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 .appendingPathComponent("reftable", isDirectory: true).path
             return storageProbe.isDirectory(atPath: path)
         }
-    }
-
-    /// Reads only the root config prefix to catch an explicit non-files backend
-    /// without traversing ordinary include graphs on every hot-path refresh.
-    private func quickReferenceStorageName(repository: ResolvedGitRepository) -> String? {
-        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
-            guard case .contents(let contents, consumedByteCount: _) = configReader.read(
-                at: configURL,
-                maximumByteCount: 64 * 1_024
-            ) else { continue }
-            var inExtensionsSection = false
-            for rawLine in contents.split(whereSeparator: \.isNewline) {
-                let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
-                    .trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("[") && line.hasSuffix("]") {
-                    inExtensionsSection = line.lowercased() == "[extensions]"
-                    continue
-                }
-                guard inExtensionsSection else { continue }
-                let parts = line.split(separator: "=", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
-                return GitMetadataService.gitConfigUnquotedValue(parts[1]).lowercased()
-            }
-        }
-        return nil
     }
 
     /// Builds a snapshot from loose/packed reference files.
@@ -140,14 +156,13 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     }
 
     /// Builds a snapshot from Git's storage-independent plumbing commands.
-    private func plumbingSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        let deadline = DispatchTime.now() + boundedCommandWallTimeLimit
+    private func plumbingSnapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil
+    ) -> GitReferenceSnapshot {
+        let deadline = deadline ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         guard let runner = runnerSelector.select(repository: repository, deadline: deadline) else {
-            return GitReferenceSnapshot(
-                checkedOutBranch: .unreadable,
-                headSignature: nil,
-                currentCommit: nil
-            )
+            return unreadableSnapshot()
         }
         return plumbingSnapshot(repository: repository, runner: runner, deadline: deadline)
     }
@@ -408,41 +423,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return .failed
         }
         return .value(normalized)
-    }
-
-    /// Reads the local extensions.refStorage value, if one is declared.
-    ///
-    /// Root config files are size-bounded before decoding. An oversized config
-    /// returns an unknown storage name, which conservatively selects Git
-    /// plumbing rather than allowing repeated refreshes to scan unbounded data.
-    private func referenceStorageName(repository: ResolvedGitRepository) -> String? {
-        GitConfigBranchTraversal(
-            repository: repository,
-            branchContext: .fileBacked,
-            configReader: configReader
-        ).referenceStorageName()
-    }
-
-    /// Whether a file-backed HEAD already resolves to a complete object ID.
-    private func fileBackedHeadHasResolvedCommit(repository: ResolvedGitRepository) -> Bool {
-        let headURL = URL(fileURLWithPath: repository.gitDirectory)
-            .appendingPathComponent("HEAD")
-        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
-            return false
-        }
-        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("ref: ") else {
-            return normalizedObjectID(trimmed) != nil
-        }
-        let refName = String(trimmed.dropFirst("ref: ".count))
-        guard !refName.isEmpty,
-              let value = GitMetadataService.gitRefValue(
-                  repository: repository,
-                  refName: refName
-              ) else {
-            return false
-        }
-        return normalizedObjectID(value) != nil
     }
 
     /// Reads at most the configured backend-detection limit from one config.

@@ -48,9 +48,10 @@ extension GitMetadataService {
 
     /// Resolves the full reference snapshot for watcher/config consumers.
     nonisolated func gitReferenceSnapshotForConfig(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime
     ) async -> GitReferenceSnapshot {
-        await gitReferenceSnapshot(repository: repository)
+        await gitReferenceSnapshot(repository: repository, deadline: deadline)
     }
 
     /// Resolves the branch context for config traversal on the blocking-I/O lane.
@@ -66,11 +67,33 @@ extension GitMetadataService {
     /// - Returns: A consistent branch, commit, and head-signature snapshot.
     @concurrent
     nonisolated func gitReferenceSnapshot(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil
     ) async -> GitReferenceSnapshot {
-        let shouldLimit = referenceReader.requiresGitPlumbing(repository: repository)
+        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
+        let shouldLimit = referenceReader.requiresGitPlumbing(
+            repository: repository,
+            deadline: deadline
+        )
+        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
         let didAcquire = if shouldLimit {
-            await referenceSnapshotLimiter.acquire()
+            if let deadline {
+                await referenceSnapshotLimiter.acquire(until: deadline)
+            } else {
+                await referenceSnapshotLimiter.acquire()
+            }
         } else {
             true
         }
@@ -87,7 +110,14 @@ extension GitMetadataService {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
                     let snapshot = cancellationSignal.withCurrentBinding {
-                        referenceReader.snapshot(repository: repository)
+                        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+                            return GitReferenceSnapshot(
+                                checkedOutBranch: .unreadable,
+                                headSignature: nil,
+                                currentCommit: nil
+                            )
+                        }
+                        referenceReader.snapshot(repository: repository, deadline: deadline)
                     }
                     continuation.resume(returning: snapshot)
                 }

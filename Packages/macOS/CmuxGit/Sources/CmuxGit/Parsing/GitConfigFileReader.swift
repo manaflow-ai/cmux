@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 /// Reads repository-controlled Git config files through bounded regular-file I/O.
@@ -25,7 +26,8 @@ nonisolated struct GitConfigFileReader: Sendable {
     /// Reads one regular UTF-8 config file without following a blocking FIFO.
     func read(
         at url: URL,
-        maximumByteCount: Int = Self.defaultMaximumByteCount
+        maximumByteCount: Int = Self.defaultMaximumByteCount,
+        deadline: DispatchTime? = nil
     ) -> ReadResult {
         let maximumByteCount = max(0, maximumByteCount)
         let descriptor = Darwin.open(
@@ -48,6 +50,9 @@ nonisolated struct GitConfigFileReader: Sendable {
         data.reserveCapacity(min(maximumByteCount, chunkByteCount))
         var buffer = [UInt8](repeating: 0, count: chunkByteCount)
         while data.count <= maximumByteCount {
+            if let deadline, deadline <= DispatchTime.now() {
+                return .unavailable(consumedByteCount: data.count)
+            }
             let count = buffer.withUnsafeMutableBytes { bytes in
                 Darwin.read(descriptor, bytes.baseAddress, bytes.count)
             }
