@@ -76,6 +76,22 @@ final class PhonePushSerialDeliveryQueue {
         return true
     }
 
+    /// Removes a queued notification update before it reaches the sender.
+    /// An in-flight envelope is left alone; callers should follow this with
+    /// the protocol's dismiss event so a device that already received it can
+    /// clear its delivered banner as well.
+    @discardableResult
+    func cancel(coalescingID: String) -> Bool {
+        guard let index = pending.firstIndex(where: {
+            $0.coalescingID == coalescingID
+                && $0.correlationID != inFlightCorrelationID
+        }) else { return false }
+        pending.remove(at: index)
+        publishPending()
+        finishIfIdle()
+        return true
+    }
+
     func restore(_ envelopes: [PhonePushRequestEnvelope]) {
         let restored = Self.normalized(envelopes + pending)
         pending = Array(restored.suffix(capacity))

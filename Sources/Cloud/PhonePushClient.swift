@@ -266,6 +266,7 @@ final class PhonePushClient {
         title: String,
         subtitle: String,
         body: String,
+        notificationId: String?,
         workspaceId: UUID?,
         surfaceId: UUID?,
         badgeCount: Int,
@@ -285,12 +286,23 @@ final class PhonePushClient {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             macDeviceId: MobileHostIdentity.deviceID(),
             macInstanceTag: MobileHostIdentity.instanceTag(),
-            notificationId: nil,
+            notificationId: notificationId,
             notificationIds: [],
             badgeCount: badgeCount,
             hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
         )
         return enqueue(payload)
+    }
+
+    /// Retracts a Feed-owned phone prompt after its blocking decision resolves.
+    /// The queue cancellation handles an envelope that has not started yet;
+    /// the dismiss event covers an envelope already handed to the network or
+    /// delivered to the paired phone.
+    func cancelEphemeral(notificationId: String, badgeCount: Int) {
+        let trimmed = notificationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        _ = deliveryQueue.cancel(coalescingID: trimmed)
+        forwardDismissed(ids: [trimmed], badgeCount: badgeCount)
     }
 
     /// Enqueues a user-requested diagnostic alert through the production path.

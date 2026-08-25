@@ -6,6 +6,8 @@ import Foundation
 /// request deliberately carries only the content and target needed by the
 /// phone push queue. It must not become a second terminal notification entry.
 nonisolated struct FeedPhonePushRequest: Equatable, Sendable {
+    /// Stable identity shared with the iOS dismiss-sync lane.
+    let notificationId: String
     let title: String
     let subtitle: String
     let body: String
@@ -19,6 +21,7 @@ nonisolated struct FeedPhonePushRequest: Equatable, Sendable {
 protocol FeedPhonePushForwarding {
     @discardableResult
     func forward(_ request: FeedPhonePushRequest) -> PhonePushForwardAdmission
+    func cancel(notificationId: String)
 }
 
 @MainActor
@@ -28,11 +31,19 @@ struct DefaultFeedPhonePushForwarder: FeedPhonePushForwarding {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            notificationId: request.notificationId,
             workspaceId: request.workspaceId,
             surfaceId: request.surfaceId,
             badgeCount: TerminalNotificationStore.shared.unreadNotificationCount,
             retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
             replyShape: request.replyShape
+        )
+    }
+
+    func cancel(notificationId: String) {
+        PhonePushClient.shared.cancelEphemeral(
+            notificationId: notificationId,
+            badgeCount: TerminalNotificationStore.shared.unreadNotificationCount
         )
     }
 }

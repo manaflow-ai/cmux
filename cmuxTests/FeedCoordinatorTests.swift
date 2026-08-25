@@ -777,6 +777,7 @@ struct FeedCoordinatorTests {
         )
 
         let request = await MainActor.run { phoneForwarder.requests.first }
+        #expect(request?.notificationId == "feed.\(requestId)")
         #expect(request?.workspaceId == workspaceId)
         #expect(request?.surfaceId == surfaceId)
         #expect(request?.body == "Bash needs approval")
@@ -787,6 +788,14 @@ struct FeedCoordinatorTests {
                 decision: .permission(.once)
             )
         }
+        #expect(
+            waitForFeedTestSignal(phoneForwarder.cancelled, timeout: .now() + 2) == .success,
+            "resolving a Feed decision must retract its queued phone prompt"
+        )
+        let cancelledNotificationId = await MainActor.run {
+            phoneForwarder.cancelledNotificationIds.first
+        }
+        #expect(cancelledNotificationId == "feed.\(requestId)")
         #expect(
             waitForFeedTestSignal(done, timeout: .now() + 2) == .success
         )
@@ -1004,11 +1013,18 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
 private final class RecordingFeedPhonePushForwarder: FeedPhonePushForwarding {
     var requests: [FeedPhonePushRequest] = []
     nonisolated let forwarded = DispatchSemaphore(value: 0)
+    var cancelledNotificationIds: [String] = []
+    nonisolated let cancelled = DispatchSemaphore(value: 0)
 
     func forward(_ request: FeedPhonePushRequest) -> PhonePushForwardAdmission {
         requests.append(request)
         forwarded.signal()
         return .queued
+    }
+
+    func cancel(notificationId: String) {
+        cancelledNotificationIds.append(notificationId)
+        cancelled.signal()
     }
 }
 
