@@ -264,6 +264,21 @@ import Testing
         #expect(snapshot.remoteVOutput == nil)
     }
 
+    @Test func repositoryLinkAppliesInsteadOfRewrite() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [url "ssh://git@github.com/"]
+            insteadOf = corp:
+        [remote "origin"]
+            url = corp:owner/repo.git
+        """)
+
+        let metadata = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.repositoryLink?.url.absoluteString == "https://github.com/owner/repo")
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))

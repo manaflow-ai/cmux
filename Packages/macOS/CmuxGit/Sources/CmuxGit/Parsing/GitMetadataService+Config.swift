@@ -1,9 +1,16 @@
+import Darwin
 import Foundation
 
 struct GitRemoteConfigSnapshot: Sendable {
     let remoteVOutput: String?
     let configURLs: [URL]
     let isComplete: Bool
+    let watchFallbackURLs: [URL]
+}
+
+struct GitRemoteURLRewrite: Sendable {
+    let replacement: String
+    let prefix: String
 }
 
 extension GitMetadataService {
@@ -16,21 +23,62 @@ extension GitMetadataService {
         var byteCount = 0
         var outputByteCount = 0
         var exceeded = false
+        var fallbackURLs: [URL] = []
+        var urlRewrites: [GitRemoteURLRewrite] = []
+
+        mutating func recordFallback(_ url: URL) {
+            guard fallbackURLs.count < 64 else { return }
+            let normalized = url.standardizedFileURL
+            guard !fallbackURLs.contains(normalized) else { return }
+            fallbackURLs.append(normalized)
+        }
 
         mutating func read(_ url: URL) -> String? {
             guard !exceeded else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return nil
+            }
+            let readURL = url.resolvingSymlinksInPath()
             guard fileCount < Self.maximumFileCount,
-                  let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: readURL.path),
+                  let type = attributes[.type] as? FileAttributeType,
+                  type == .typeRegular,
                   let size = attributes[.size] as? NSNumber,
                   size.int64Value >= 0,
                   size.int64Value <= Int64(Self.maximumByteCount - byteCount) else {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    exceeded = true
-                }
+                exceeded = true
+                recordFallback(url)
                 return nil
             }
-            guard let data = try? Data(contentsOf: url),
+            let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
+            guard descriptor >= 0 else { return nil }
+            defer { Darwin.close(descriptor) }
+
+            var status = stat()
+            guard Darwin.fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let remaining = Self.maximumByteCount - byteCount
+            var data = Data()
+            while data.count < remaining {
+                let chunkSize = min(64 * 1024, remaining - data.count)
+                var buffer = [UInt8](repeating: 0, count: chunkSize)
+                let readCount = buffer.withUnsafeMutableBytes { buffer in
+                    Darwin.read(descriptor, buffer.baseAddress, buffer.count)
+                }
+                guard readCount > 0 else { break }
+                data.append(contentsOf: buffer.prefix(readCount))
+            }
+            guard Darwin.fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_size <= Int64(Self.maximumByteCount - byteCount),
+                  data.count <= remaining,
                   let config = String(data: data, encoding: .utf8) else {
+                exceeded = true
+                recordFallback(url)
                 return nil
             }
             fileCount += 1
@@ -77,9 +125,12 @@ extension GitMetadataService {
             )
         }
         return GitRemoteConfigSnapshot(
-            remoteVOutput: lines.isEmpty ? nil : lines.joined(),
+            remoteVOutput: lines.isEmpty
+                ? nil
+                : rewrittenRemoteVOutput(lines.joined(), rewrites: budget.urlRewrites),
             configURLs: configURLs,
-            isComplete: !budget.exceeded
+            isComplete: !budget.exceeded,
+            watchFallbackURLs: budget.fallbackURLs
         )
     }
 
@@ -98,10 +149,11 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
     ) -> [URL] {
-        gitRemoteConfigSnapshot(
+        let snapshot = gitRemoteConfigSnapshot(
             repository: repository,
             safetyConfiguration: safetyConfiguration
-        ).configURLs
+        )
+        return snapshot.configURLs + snapshot.watchFallbackURLs
     }
 
     /// Parses a single config string into `git remote -v` fetch lines (used by
@@ -149,6 +201,7 @@ extension GitMetadataService {
     ) {
         guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
               !budget.exceeded else {
+            budget.recordFallback(configURL)
             budget.exceeded = true
             return
         }
@@ -157,6 +210,7 @@ extension GitMetadataService {
             return
         }
         guard configURLs.count < GitConfigTraversalBudget.maximumFileCount else {
+            budget.recordFallback(configURL)
             budget.exceeded = true
             return
         }
@@ -166,6 +220,7 @@ extension GitMetadataService {
         }
 
         var currentRemoteName: String?
+        var currentURLRewriteReplacement: String?
         var currentSectionAllowsIncludePath = false
 
         for rawLine in config.components(separatedBy: .newlines) {
@@ -173,6 +228,9 @@ extension GitMetadataService {
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                currentURLRewriteReplacement = gitConfigURLRewriteReplacement(
+                    fromSectionHeader: line
+                )
                 if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
@@ -201,6 +259,18 @@ extension GitMetadataService {
                 let line = "\(currentRemoteName)\t\(remoteURL) (fetch)\n"
                 guard budget.appendOutput(line) else { return }
                 lines.append(line)
+                continue
+            }
+
+            if let replacement = currentURLRewriteReplacement,
+               parts.count == 2,
+               parts[0].lowercased() == "insteadof" {
+                let prefix = gitConfigUnquotedValue(parts[1])
+                if !prefix.isEmpty {
+                    budget.urlRewrites.append(
+                        GitRemoteURLRewrite(replacement: replacement, prefix: prefix)
+                    )
+                }
                 continue
             }
 
@@ -304,6 +374,30 @@ extension GitMetadataService {
         return result
     }
 
+    private nonisolated static func rewrittenRemoteVOutput(
+        _ output: String,
+        rewrites: [GitRemoteURLRewrite]
+    ) -> String {
+        guard !rewrites.isEmpty else { return output }
+        let orderedRewrites = rewrites.sorted {
+            if $0.prefix.count != $1.prefix.count {
+                return $0.prefix.count > $1.prefix.count
+            }
+            return $0.prefix < $1.prefix
+        }
+        return output.split(whereSeparator: \.isNewline).map { line in
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 3, parts[2] == "(fetch)" else {
+                return String(line) + "\n"
+            }
+            let rawURL = String(parts[1])
+            let rewrittenURL = orderedRewrites.first {
+                rawURL.hasPrefix($0.prefix)
+            }.map { $0.replacement + rawURL.dropFirst($0.prefix.count) } ?? rawURL
+            return "\(parts[0])\t\(rewrittenURL) (fetch)\n"
+        }.joined()
+    }
+
     /// Removes a trailing inline `#`/`;` comment from a config line, ignoring
     /// `#`/`;` inside double-quoted strings.
     nonisolated static func gitConfigLineRemovingInlineComment(_ line: String) -> String {
@@ -360,6 +454,21 @@ extension GitMetadataService {
         }
         let name = header.dropFirst(prefix.count).dropLast(suffix.count)
         return name.isEmpty ? nil : String(name)
+    }
+
+    /// The replacement prefix from a `[url "…"]` section header, or `nil`.
+    private nonisolated static func gitConfigURLRewriteReplacement(
+        fromSectionHeader header: String
+    ) -> String? {
+        let prefix = "[url \""
+        let suffix = "\"]"
+        guard header.count > prefix.count + suffix.count - 1,
+              header.lowercased().hasPrefix(prefix),
+              header.hasSuffix(suffix) else {
+            return nil
+        }
+        let replacement = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return replacement.isEmpty ? nil : String(replacement)
     }
 
     /// The condition from an `[includeIf "<condition>"]` section header, or `nil`.
