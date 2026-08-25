@@ -2,6 +2,14 @@ import Dispatch
 import Foundation
 
 extension SystemGitReferenceReader {
+    private static let maximumDirectReferenceByteCount = 1 * 1_024 * 1_024
+
+    private enum BoundedReferenceRead {
+        case contents(String)
+        case missing
+        case unsafe
+    }
+
     enum QuickReferenceStorageProbe: Sendable {
         case complete(String?)
         case incomplete
@@ -57,6 +65,156 @@ extension SystemGitReferenceReader {
 
     func unreadableSnapshot() -> GitReferenceSnapshot {
         GitReferenceSnapshot(checkedOutBranch: .unreadable, headSignature: nil, currentCommit: nil)
+    }
+
+    /// Reads file-backed refs through the same regular-file and byte bounds as config.
+    func boundedFileSnapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime
+    ) -> GitReferenceSnapshot? {
+        switch boundedReferenceRead(
+            at: URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD"),
+            maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+            deadline: deadline
+        ) {
+        case .missing:
+            return unreadableSnapshot()
+        case .unsafe:
+            return nil
+        case .contents(let contents):
+            let head = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !head.isEmpty else { return unreadableSnapshot() }
+            if head.hasPrefix("ref: ") {
+                let refName = String(head.dropFirst("ref: ".count))
+                guard !refName.isEmpty else { return unreadableSnapshot() }
+                let value: String?
+                switch boundedReferenceValue(
+                    repository: repository,
+                    refName: refName,
+                    deadline: deadline
+                ) {
+                case .unsafe:
+                    return nil
+                case .missing:
+                    value = nil
+                case .contents(let contents):
+                    value = contents
+                }
+                let branch: GitCheckedOutBranch
+                if refName.hasPrefix("refs/heads/") {
+                    guard let name = GitMetadataService.normalizedBranchName(
+                        String(refName.dropFirst("refs/heads/".count))
+                    ) else {
+                        return unreadableSnapshot()
+                    }
+                    branch = .branch(name)
+                } else {
+                    branch = .detached
+                }
+                let signature = "\(head)\n\(value ?? "")"
+                return GitReferenceSnapshot(
+                    checkedOutBranch: branch,
+                    headSignature: signature,
+                    currentCommit: value.flatMap(normalizedObjectID)
+                )
+            }
+            let currentCommit = normalizedObjectID(head)
+            return GitReferenceSnapshot(
+                checkedOutBranch: currentCommit == nil ? .unreadable : .detached,
+                headSignature: head,
+                currentCommit: currentCommit
+            )
+        }
+    }
+
+    func fileSnapshotRequiresPlumbing(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> Bool {
+        guard let deadline, deadline > DispatchTime.now() else { return true }
+        return boundedFileSnapshot(repository: repository, deadline: deadline) == nil
+    }
+
+    /// Accepts only complete SHA-1 or SHA-256 object IDs.
+    func normalizedObjectID(_ value: String) -> String? {
+        let normalized = value.lowercased()
+        guard normalized.count == 40 || normalized.count == 64,
+              normalized.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        return normalized
+    }
+
+    private func boundedReferenceValue(
+        repository: ResolvedGitRepository,
+        refName: String,
+        deadline: DispatchTime
+    ) -> BoundedReferenceRead {
+        let lookups = [repository.gitDirectory, repository.commonDirectory].map { base in
+            (base: base, url: URL(fileURLWithPath: base).appendingPathComponent(refName))
+        }
+        var seenPaths: Set<String> = []
+        for lookup in lookups {
+            let refURL = lookup.url
+            let basePath = URL(fileURLWithPath: lookup.base).standardizedFileURL.path
+            let path = refURL.standardizedFileURL.path
+            guard path.hasPrefix(basePath + "/"), seenPaths.insert(path).inserted else { continue }
+            switch boundedReferenceRead(
+                at: refURL,
+                maximumByteCount: Self.maximumObjectIDByteCount,
+                deadline: deadline
+            ) {
+            case .contents(let contents):
+                return .contents(contents)
+            case .missing:
+                continue
+            case .unsafe:
+                return .unsafe
+            }
+        }
+
+        let packedURL = URL(fileURLWithPath: repository.commonDirectory)
+            .appendingPathComponent("packed-refs")
+        switch boundedReferenceRead(
+            at: packedURL,
+            maximumByteCount: Self.maximumDirectReferenceByteCount,
+            deadline: deadline
+        ) {
+        case .missing:
+            return .missing
+        case .unsafe:
+            return .unsafe
+        case .contents(let contents):
+            for rawLine in contents.split(whereSeparator: \.isNewline) {
+                let line = rawLine.trimmingCharacters(in: .whitespaces)
+                guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
+                let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                guard parts.count == 2, String(parts[1]) == refName else { continue }
+                return .contents(String(parts[0]))
+            }
+            return .missing
+        }
+    }
+
+    private func boundedReferenceRead(
+        at url: URL,
+        maximumByteCount: Int,
+        deadline: DispatchTime
+    ) -> BoundedReferenceRead {
+        guard deadline > DispatchTime.now() else { return .unsafe }
+        switch configReader.read(
+            at: url,
+            maximumByteCount: maximumByteCount,
+            deadline: deadline
+        ) {
+        case .contents(let contents, consumedByteCount: _):
+            let value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? .missing : .contents(value)
+        case .missing:
+            return .missing
+        case .oversized, .unavailable:
+            return .unsafe
+        }
     }
 
     /// Resolves the configured backend through the bounded include traversal.

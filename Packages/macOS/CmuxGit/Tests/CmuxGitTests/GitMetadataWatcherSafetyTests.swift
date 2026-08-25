@@ -123,6 +123,26 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.degradation == .unreadableIndex)
     }
 
+    @Test func sha256RepositoriesUseBoundedStatusFallbackForDirtyState() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            objectFormat = sha256
+        """)
+        try fixture.writeRawIndex(Data("sha256 index bytes".utf8))
+        let dirtyStatusReader = RecordingGitDirtyStatusReader(result: true)
+        let service = GitMetadataService(
+            fileStatusReader: CountingGitFileStatusReader(),
+            dirtyStatusReader: dirtyStatusReader
+        )
+
+        let metadata = await service.workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.isDirty)
+        #expect(dirtyStatusReader.callCount == 1)
+    }
+
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

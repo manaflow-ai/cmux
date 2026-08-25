@@ -149,6 +149,42 @@ import Testing
         #expect(snapshot.currentCommit == plumbingCommit)
     }
 
+    @Test func oversizedPackedRefsUseBoundedGitPlumbing() throws {
+        let fixture = try GitRepositoryFixture()
+        try "ref: refs/heads/main\n".write(
+            to: fixture.gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (String(repeating: "# generated\n", count: 120_000) + "\n").write(
+            to: fixture.gitDirectory.appendingPathComponent("packed-refs"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let plumbingCommit = String(repeating: "b", count: 40)
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [
+                ["symbolic-ref", "--quiet", "HEAD"]: FakeWorkspaceChangesGitRunner.result(
+                    "refs/heads/from-plumbing\n"
+                ),
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/from-plumbing^{commit}",
+                ]: FakeWorkspaceChangesGitRunner.result("\(plumbingCommit)\n"),
+            ])
+        )
+
+        let snapshot = reader.snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .branch("from-plumbing"))
+        #expect(snapshot.currentCommit == plumbingCommit)
+    }
+
     /// Keeps ambient Git repository overrides from redirecting plumbing reads.
     @Test func plumbingIgnoresAmbientRepositorySelection() throws {
         let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)

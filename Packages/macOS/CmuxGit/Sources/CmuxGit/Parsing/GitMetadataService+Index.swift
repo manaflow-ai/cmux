@@ -54,6 +54,14 @@ extension GitMetadataService {
     ) -> GitTrackedChangesResolution {
         let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexURL = URL(fileURLWithPath: indexPath)
+        if repositoryUsesSHA256ObjectIDs(repository: repository) {
+            return gitStatusFallbackSnapshot(
+                repository: repository,
+                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
+                indexContentSignature: nil,
+                reason: .unreadableIndex
+            )
+        }
         if let header = Self.gitIndexHeaderSummary(indexPath: indexPath) {
             if header.entryCount > safetyConfiguration.directFileStatusEntryCount {
                 return gitStatusFallbackSnapshot(
@@ -83,12 +91,11 @@ extension GitMetadataService {
             }
         }
         guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
-            return GitTrackedChangesResolution(
-                snapshot: GitTrackedChangesSnapshot(
-                    isDirty: false,
-                    indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
-                    indexContentSignature: nil
-                )
+            return gitStatusFallbackSnapshot(
+                repository: repository,
+                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
+                indexContentSignature: nil,
+                reason: .unreadableIndex
             )
         }
 

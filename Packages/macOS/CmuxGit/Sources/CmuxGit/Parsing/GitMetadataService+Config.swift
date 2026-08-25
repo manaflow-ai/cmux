@@ -21,10 +21,19 @@ extension GitMetadataService {
     /// The repository's top-level config files (common directory, then git
     /// directory).
     nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        [
+        var urls = [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ]
+        // `extensions.worktreeConfig` moves per-worktree settings into this
+        // sibling file. Include it when present; the bounded reader rejects
+        // FIFOs and directories before any content is consumed.
+        let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("config.worktree")
+        if GitConfigFileReader().read(at: worktreeConfigURL, maximumByteCount: 1).isAvailable {
+            urls.append(worktreeConfigURL)
+        }
+        return urls
     }
 
     /// Every config file reachable from the repository roots, following

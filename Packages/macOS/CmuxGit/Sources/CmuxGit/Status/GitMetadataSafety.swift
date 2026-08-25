@@ -47,6 +47,7 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
     case indexByteLimit(count: Int64, limit: Int)
     case directScanDuration(milliseconds: Int)
     case submoduleReferenceBackend
+    case unreadableIndex
 
     var description: String {
         switch self {
@@ -58,6 +59,8 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
             return "direct-scan-duration limitMs=\(milliseconds)"
         case .submoduleReferenceBackend:
             return "submodule-reference-backend"
+        case .unreadableIndex:
+            return "unreadable-index"
         }
     }
 }

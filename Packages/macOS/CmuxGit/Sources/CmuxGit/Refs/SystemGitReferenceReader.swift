@@ -88,7 +88,16 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 includeStorageWatchPaths: includeStorageWatchPaths
             )
         }
-        let directSnapshot = fileSnapshot(repository: repository)
+        guard let directSnapshot = boundedFileSnapshot(
+            repository: repository,
+            deadline: deadline
+        ) else {
+            return plumbingSnapshot(
+                repository: repository,
+                deadline: deadline,
+                includeStorageWatchPaths: includeStorageWatchPaths
+            )
+        }
         let configuredStorage: String?
         switch quickProbe {
         case .complete(let storage):
@@ -156,10 +165,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         case .complete(let storage):
             if let storage {
                 return storage != "files"
+                    || fileSnapshotRequiresPlumbing(repository: repository, deadline: deadline)
             }
-            // A complete root scan with no backend declaration is the ordinary
-            // file-backed case. Ambiguous heads are rechecked by `snapshot`.
-            return false
+            return fileSnapshotRequiresPlumbing(repository: repository, deadline: deadline)
         case .incomplete:
             // Includes and oversized configs may hide a non-files backend;
             // conservatively reserve a plumbing permit before the full scan.
@@ -173,16 +181,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 .appendingPathComponent("reftable", isDirectory: true).path
             return storageProbe.isDirectory(atPath: path)
         }
-    }
-
-    /// Builds a snapshot from loose/packed reference files.
-    private func fileSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        let headSignature = GitMetadataService.gitHeadSignature(repository: repository)
-        return GitReferenceSnapshot(
-            checkedOutBranch: GitMetadataService.gitCheckedOutBranch(repository: repository),
-            headSignature: headSignature,
-            currentCommit: currentCommit(fromHeadSignature: headSignature)
-        )
     }
 
     /// Builds a snapshot from Git's storage-independent plumbing commands.
@@ -477,24 +475,4 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         }
     }
 
-    /// Accepts only complete SHA-1 or SHA-256 object IDs.
-    private func normalizedObjectID(_ value: String) -> String? {
-        let normalized = value.lowercased()
-        guard normalized.count == 40 || normalized.count == 64,
-              normalized.allSatisfy(\.isHexDigit) else {
-            return nil
-        }
-        return normalized
-    }
-
-    /// Extracts the resolved object ID from a file-backed head signature.
-    private func currentCommit(fromHeadSignature signature: String?) -> String? {
-        guard let signature else { return nil }
-        if signature.hasPrefix("ref: ") {
-            let lines = signature.components(separatedBy: "\n")
-            guard lines.count == 2 else { return nil }
-            return normalizedObjectID(lines[1])
-        }
-        return normalizedObjectID(signature)
-    }
 }

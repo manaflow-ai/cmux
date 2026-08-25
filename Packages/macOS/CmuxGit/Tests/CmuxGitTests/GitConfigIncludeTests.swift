@@ -229,6 +229,25 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(paths.count <= 256)
     }
 
+    @Test func readsLinkedWorktreeConfigWhenPresent() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            worktreeConfig = true
+        """)
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config.worktree"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
+    }
+
     @Test func treatsTrailingSlashGitdirAsRecursive() throws {
         // Repo nested under a parent; an includeIf gitdir with a trailing slash
         // must match recursively.
