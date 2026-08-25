@@ -45,6 +45,7 @@ extension CMUXCLI {
                 registry: registry,
                 builder: builder,
                 runner: runner,
+                prune: invocation.prune,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
             )
@@ -129,7 +130,10 @@ extension CMUXCLI {
     ) throws {
         let invocation = try LocalTmuxInvocation.parse(commandArgs)
         guard invocation.canRunWithoutCmux else {
-            throw CLIError(message: "local-tmux \(invocation.action.rawValue) requires a running cmux app; use --headless for a direct tmux client")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.requiresApp", defaultValue: "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client"),
+                invocation.action.rawValue
+            ))
         }
         let registry = LocalTmuxSessionRegistry.live()
         let (_, builder, runner) = try localTmuxRuntime(registry: registry)
@@ -140,7 +144,7 @@ extension CMUXCLI {
             let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
             try statusLocalTmuxSession(record: record, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
         case .cleanup:
-            try cleanupLocalTmuxSessions(registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
+            try cleanupLocalTmuxSessions(registry: registry, builder: builder, runner: runner, prune: invocation.prune, jsonOutput: jsonOutput, idFormat: idFormat)
         case .close:
             let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
             try closeLocalTmuxSession(record: record, registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -174,11 +178,14 @@ extension CMUXCLI {
             path = LocalTmuxExecutableResolver().resolve(environmentPath: environment["PATH"])
         }
         guard let path, FileManager.default.isExecutableFile(atPath: path) else {
-            throw CLIError(message: "local-tmux requires tmux. Install tmux or set CMUX_LOCAL_TMUX_BIN to an executable tmux path", exitCode: 127)
+            throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or set CMUX_LOCAL_TMUX_BIN to an executable tmux path"), exitCode: 127)
         }
         let socketPath = registry.serverSocketURL.path
         guard socketPath.utf8.count < 100 else {
-            throw CLIError(message: "local-tmux state directory is too long for a Unix socket: \(socketPath)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.socketPathTooLong", defaultValue: "local-tmux state directory is too long for a Unix socket: %@"),
+                socketPath
+            ))
         }
         let builder = LocalTmuxCommandBuilder(tmuxPath: path, socketPath: socketPath)
         return (path, builder, LocalTmuxProcessRunner(executablePath: path))
@@ -191,7 +198,7 @@ extension CMUXCLI {
         runner: LocalTmuxProcessRunner
     ) throws -> LocalTmuxSessionRecord {
         guard let rawName = invocation.name else {
-            throw CLIError(message: "local-tmux start requires a session name")
+            throw CLIError(message: String(localized: "cli.localTmux.error.startRequiresName", defaultValue: "local-tmux start requires a session name"))
         }
         let name = try LocalTmuxSessionNameValidator().validate(rawName)
         let cwd = try localTmuxWorkingDirectory(invocation.cwd)
@@ -228,7 +235,10 @@ extension CMUXCLI {
         let candidate = resolvePath(raw ?? FileManager.default.currentDirectoryPath)
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw CLIError(message: "local-tmux working directory is not an accessible directory: \(candidate)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.cwdInvalid", defaultValue: "local-tmux working directory is not an accessible directory: %@"),
+                candidate
+            ))
         }
         return URL(fileURLWithPath: candidate).standardizedFileURL.path
     }
@@ -262,13 +272,19 @@ extension CMUXCLI {
             let validatedName = try LocalTmuxSessionNameValidator().validate(name)
             let checked = try runner.run(arguments: builder.hasSessionArguments(validatedName))
             guard checked.succeeded else {
-                throw CLIError(message: "local-tmux session not found: \(validatedName)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.sessionNotFound", defaultValue: "local-tmux session not found: %@"),
+                    validatedName
+                ))
             }
             let record = LocalTmuxSessionRecord(name: validatedName, socketPath: builder.socketPath, cwd: FileManager.default.currentDirectoryPath)
             try registry.upsert(record)
             return record
         }
-        throw CLIError(message: "local-tmux session not found for id \(invocation.id?.uuidString ?? "unknown")")
+        throw CLIError(message: String.localizedStringWithFormat(
+            String(localized: "cli.localTmux.error.sessionIDNotFound", defaultValue: "local-tmux session not found for id %@"),
+            invocation.id?.uuidString ?? "unknown"
+        ))
     }
 
     private func requireOrDiscoverLocalTmuxRecord(
@@ -292,7 +308,10 @@ extension CMUXCLI {
     ) throws {
         let live = try runner.run(arguments: builder.hasSessionArguments(originalRecord.name))
         guard live.succeeded else {
-            throw CLIError(message: "local-tmux session is no longer running: \(originalRecord.name)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.sessionNotRunning", defaultValue: "local-tmux session is no longer running: %@"),
+                originalRecord.name
+            ))
         }
         let workspace = try resolveLocalTmuxWorkspace(
             invocation: invocation,
@@ -306,6 +325,11 @@ extension CMUXCLI {
            let existingSurface = try findExistingLocalTmuxSurface(
                workspaceID: workspaceID,
                sessionName: originalRecord.name,
+               client: client
+           ),
+           localTmuxSurfaceHasLiveClient(
+               workspaceID: workspaceID,
+               surfaceID: existingSurface,
                client: client
            ) {
             payload = [
@@ -353,7 +377,10 @@ extension CMUXCLI {
             let created = try client.sendV2(method: "workspace.create", params: createParams)
             guard let workspaceID = created["workspace_id"] as? String,
                   let surfaceID = created["surface_id"] as? String else {
-                throw CLIError(message: "local-tmux could not create a workspace for \(originalRecord.name)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.workspaceCreateFailed", defaultValue: "local-tmux could not create a workspace for %@"),
+                    originalRecord.name
+                ))
             }
             payload = try client.sendV2(method: "surface.respawn", params: [
                 "workspace_id": workspaceID,
@@ -382,7 +409,11 @@ extension CMUXCLI {
         payload["session_name"] = updated.name
         payload["socket_path"] = builder.socketPath
         payload["mode"] = "local-tmux"
-        let fallback = "OK session=\(updated.name) surface=\(surfaceID ?? "unknown") mode=local-tmux"
+        let fallback = String.localizedStringWithFormat(
+            String(localized: "cli.localTmux.output.attached", defaultValue: "OK session=%@ surface=%@ mode=local-tmux"),
+            updated.name,
+            surfaceID ?? "unknown"
+        )
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
 
@@ -424,7 +455,10 @@ extension CMUXCLI {
                 return (matches[0].0, matches[0].1, matches[0].2)
             }
             if matches.count > 1 {
-                throw CLIError(message: "local-tmux found multiple workspaces named \(title); pass --workspace to choose the reattach target")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.multipleWorkspaces", defaultValue: "local-tmux found multiple workspaces named %@; pass --workspace to choose the reattach target"),
+                    title
+                ))
             }
         }
         var currentParams: [String: Any] = [:]
@@ -469,6 +503,54 @@ extension CMUXCLI {
             return id
         }
         return nil
+    }
+
+    /// Checks the authoritative process tree before claiming a surface was
+    /// reattached. A persisted marker alone can outlive a failed restore or a
+    /// dead tmux client, so stale surfaces must take the respawn path.
+    private func localTmuxSurfaceHasLiveClient(
+        workspaceID: String,
+        surfaceID: String,
+        client: SocketClient
+    ) -> Bool {
+        guard let payload = try? client.sendV2(
+            method: "system.top",
+            params: [
+                "workspace_id": workspaceID,
+                "include_processes": true,
+            ],
+            responseTimeout: 2.0
+        ),
+        let windows = payload["windows"] as? [[String: Any]] else {
+            return false
+        }
+        for window in windows {
+            for workspace in window["workspaces"] as? [[String: Any]] ?? [] {
+                for pane in workspace["panes"] as? [[String: Any]] ?? [] {
+                    for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
+                        guard (surface["id"] as? String) == surfaceID else { continue }
+                        return localTmuxProcessTreeContainsTmux(
+                            surface["processes"] as? [[String: Any]] ?? []
+                        )
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    private func localTmuxProcessTreeContainsTmux(_ processes: [[String: Any]]) -> Bool {
+        for process in processes {
+            let name = (process["name"] as? String)?.lowercased() ?? ""
+            let path = (process["path"] as? String).map { ($0 as NSString).lastPathComponent.lowercased() } ?? ""
+            if name == "tmux" || name.hasPrefix("tmux:") || path == "tmux" {
+                return true
+            }
+            if localTmuxProcessTreeContainsTmux(process["children"] as? [[String: Any]] ?? []) {
+                return true
+            }
+        }
+        return false
     }
 
 }

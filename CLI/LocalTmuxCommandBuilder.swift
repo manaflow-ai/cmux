@@ -7,7 +7,7 @@ struct LocalTmuxSessionNameValidator {
         guard !name.isEmpty,
               name.count <= 128,
               name.range(of: "^[A-Za-z0-9._:-]+$", options: .regularExpression) != nil else {
-            throw CLIError(message: "local-tmux session names must contain only letters, numbers, dot, underscore, colon, or dash (1–128 characters)")
+            throw CLIError(message: String(localized: "cli.localTmux.error.invalidName", defaultValue: "local-tmux session names must contain only letters, numbers, dot, underscore, colon, or dash (1–128 characters)"))
         }
         return name
     }

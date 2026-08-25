@@ -18,6 +18,7 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               words[0] == "TMUX=",
               words[1] == "CMUX_LOCAL_TMUX=1",
               words[2] == "exec",
+              words[3].hasPrefix("/"),
               (words[3] as NSString).lastPathComponent == "tmux",
               words[4] == "-S",
               words[5].hasPrefix("/"),
@@ -27,6 +28,12 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               words[8].range(of: "^[A-Za-z0-9._:-]{1,128}$", options: .regularExpression) != nil else {
             return nil
         }
+        // The command is later evaluated by a login shell. Accept only the
+        // exact single-quoted serialization produced by LocalTmuxCommandBuilder;
+        // otherwise shell substitutions/operators could survive this word
+        // parser even though their decoded values look structurally valid.
+        let canonical = "TMUX= CMUX_LOCAL_TMUX=1 exec \(shellQuote(words[3])) -S \(shellQuote(words[5])) attach-session -t \(shellQuote(words[8]))"
+        guard command == canonical else { return nil }
         return command
     }
 
@@ -39,6 +46,10 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
                 return false
             }
         }
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Small shell-word reader used only to validate cmux-generated commands.

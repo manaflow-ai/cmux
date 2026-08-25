@@ -52,9 +52,10 @@ cmux local-tmux detach work --all
 ```
 
 `list` reports unmanaged sessions found on the profile socket and stale
-registry entries. `cleanup` removes registry records whose tmux session is
-gone; it never kills an unknown live session. Detach refuses to guess when
-multiple clients are present unless `--client` or `--all` is supplied.
+registry entries. `cleanup` previews stale registry records by default;
+`cleanup --prune` removes them. Neither form kills an unknown live session.
+Detach refuses to guess when multiple clients are present unless `--client` or
+`--all` is supplied.
 
 The state directory is created mode `0700`, the registry and lock mode `0600`,
 and tmux's Unix socket is never exposed by cmux. GUI/API operations still use

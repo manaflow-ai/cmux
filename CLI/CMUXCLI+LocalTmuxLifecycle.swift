@@ -54,14 +54,20 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else if rows.isEmpty {
-            print("No local tmux sessions")
+            print(String(localized: "cli.localTmux.output.noSessions", defaultValue: "No local tmux sessions"))
         } else {
             for row in rows {
                 let name = row["session_name"] as? String ?? "?"
                 let state = (row["live"] as? Bool) == true ? "live" : "stale"
                 let clients = row["clients"] as? Int ?? 0
                 let id = row["id"] as? String
-                print("\(name) [\(state)] clients=\(clients)\(id.map { " id=\($0)" } ?? "")")
+                let rowText = String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.output.sessionRow", defaultValue: "%@ [%@] clients=%lld"),
+                    name,
+                    state,
+                    clients
+                )
+                print(rowText + (id.map { " id=\($0)" } ?? ""))
             }
         }
     }
@@ -96,7 +102,13 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print("\(record.name) [\(result.succeeded ? "live" : "stale")] clients=\(clients.count) socket=\(builder.socketPath)")
+            print(String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.output.status", defaultValue: "%@ [%@] clients=%lld socket=%@"),
+                record.name,
+                result.succeeded ? "live" : "stale",
+                clients.count,
+                builder.socketPath
+            ))
         }
     }
 
@@ -104,11 +116,18 @@ extension CMUXCLI {
         registry: LocalTmuxSessionRegistry,
         builder: LocalTmuxCommandBuilder,
         runner: LocalTmuxProcessRunner,
+        prune: Bool,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        let records = try registry.load()
         let listed = try runner.run(arguments: builder.listSessionsArguments())
-        guard listed.succeeded else {
+        let liveNames: Set<String>
+        if listed.succeeded {
+            liveNames = Set(parseLocalTmuxSessions(listed.stdout).map(\.name))
+        } else if localTmuxListingIndicatesStoppedServer(listed, builder: builder) {
+            liveNames = []
+        } else {
             let detail = listed.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = String(
                 localized: "cli.localTmux.error.cleanupListFailed",
@@ -116,9 +135,15 @@ extension CMUXCLI {
             )
             throw CLIError(message: detail.isEmpty ? message : "\(message) \(detail)")
         }
-        let liveNames = Set(parseLocalTmuxSessions(listed.stdout).map(\.name))
-        let removed = try registry.remove { !liveNames.contains($0.name) }
+        let stale = records.filter { !liveNames.contains($0.name) }
+        let staleIDs = Set(stale.map(\.id))
+        let removed = prune
+            ? try registry.remove { staleIDs.contains($0.id) }
+            : []
         let payload: [String: Any] = [
+            "prune": prune,
+            "stale": stale.map { $0.id.uuidString },
+            "stale_names": stale.map(\.name),
             "removed": removed.map { $0.id.uuidString },
             "removed_names": removed.map(\.name),
             "socket_path": builder.socketPath,
@@ -126,8 +151,30 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print(removed.isEmpty ? "No stale local tmux sessions" : "Removed \(removed.count) stale local tmux session\(removed.count == 1 ? "" : "s")")
+            if stale.isEmpty {
+                print(String(localized: "cli.localTmux.output.noStale", defaultValue: "No stale local tmux sessions"))
+            } else if prune {
+                print(String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.output.removedStale", defaultValue: "Removed %lld stale local tmux session(s)"),
+                    removed.count
+                ))
+            } else {
+                print(String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.output.foundStale", defaultValue: "Found %lld stale local tmux session(s); pass --prune to remove them"),
+                    stale.count
+                ))
+            }
         }
+    }
+
+    private func localTmuxListingIndicatesStoppedServer(
+        _ result: LocalTmuxProcessResult,
+        builder: LocalTmuxCommandBuilder
+    ) -> Bool {
+        guard !FileManager.default.fileExists(atPath: builder.socketPath) else { return false }
+        let detail = result.stderr.lowercased()
+        return detail.contains("no server running")
+            || (detail.contains("error connecting") && detail.contains("no such file or directory"))
     }
 
     func closeLocalTmuxSession(
@@ -141,7 +188,8 @@ extension CMUXCLI {
         let result = try runner.run(arguments: builder.killSessionArguments(record.name))
         guard result.succeeded || result.stderr.localizedCaseInsensitiveContains("no server running") || result.stderr.localizedCaseInsensitiveContains("session not found") else {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIError(message: detail.isEmpty ? "local-tmux close failed" : "local-tmux close failed: \(detail)")
+            let message = String(localized: "cli.localTmux.error.closeFailed", defaultValue: "local-tmux close failed")
+            throw CLIError(message: detail.isEmpty ? message : "\(message): \(detail)")
         }
         _ = try registry.remove(id: record.id)
         let payload: [String: Any] = [
@@ -153,7 +201,10 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print("OK closed session=\(record.name)")
+            print(String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.output.closed", defaultValue: "OK closed session=%@"),
+                record.name
+            ))
         }
     }
 
@@ -174,15 +225,22 @@ extension CMUXCLI {
             target = nil
         } else if let explicit = invocation.clientID {
             guard clients.contains(where: { $0.clientID == explicit }) else {
-                throw CLIError(message: "local-tmux client not found for session \(record.name): \(explicit)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.clientNotFound", defaultValue: "local-tmux client not found for session %@: %@"),
+                    record.name,
+                    explicit
+                ))
             }
             target = explicit
         } else {
             guard clients.count == 1, let only = clients.first else {
                 if clients.isEmpty {
-                    throw CLIError(message: "local-tmux session has no attached clients: \(record.name)")
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.localTmux.error.noClients", defaultValue: "local-tmux session has no attached clients: %@"),
+                        record.name
+                    ))
                 }
-                throw CLIError(message: "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly")
+                throw CLIError(message: String(localized: "cli.localTmux.error.multipleClients", defaultValue: "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly"))
             }
             target = only.clientID
         }
@@ -203,7 +261,18 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print(invocation.all ? "OK detached all clients from session=\(record.name)" : "OK detached session=\(record.name) client=\(target ?? "unknown")")
+            if invocation.all {
+                print(String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.output.detachedAll", defaultValue: "OK detached all clients from session=%@"),
+                    record.name
+                ))
+            } else {
+                print(String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.output.detached", defaultValue: "OK detached session=%@ client=%@"),
+                    record.name,
+                    target ?? "unknown"
+                ))
+            }
         }
     }
 
@@ -225,10 +294,14 @@ extension CMUXCLI {
             try process.run()
             process.waitUntilExit()
         } catch {
-            throw CLIError(message: "local-tmux could not start an interactive client: \(error)", exitCode: 127)
+            let message = String(localized: "cli.localTmux.error.interactiveStart", defaultValue: "local-tmux could not start an interactive client")
+            throw CLIError(message: "\(message): \(error)", exitCode: 127)
         }
         guard process.terminationStatus == 0 else {
-            throw CLIError(message: "local-tmux interactive client exited with status \(process.terminationStatus)", exitCode: process.terminationStatus)
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.interactiveExit", defaultValue: "local-tmux interactive client exited with status %d"),
+                process.terminationStatus
+            ), exitCode: process.terminationStatus)
         }
     }
 
@@ -284,7 +357,13 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print("OK session=\(record.name) id=\(record.id.uuidString) state=\(state) socket=\(record.socketPath)")
+            print(String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.output.record", defaultValue: "OK session=%@ id=%@ state=%@ socket=%@"),
+                record.name,
+                record.id.uuidString,
+                state,
+                record.socketPath
+            ))
         }
     }
 }

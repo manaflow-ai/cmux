@@ -50,11 +50,20 @@ enum LocalTmuxRegistryError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .insecurePath(let path):
-            return "local-tmux state path is not owned by the current user or is group/world accessible: \(path)"
+            return String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.insecurePath", defaultValue: "local-tmux state path is not owned by the current user or is group/world accessible: %@"),
+                path
+            )
         case .cannotLock(let path):
-            return "could not lock local-tmux state: \(path)"
+            return String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.lockFailed", defaultValue: "could not lock local-tmux state: %@"),
+                path
+            )
         case .invalidState(let path):
-            return "local-tmux state is invalid: \(path)"
+            return String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.invalidState", defaultValue: "local-tmux state is invalid: %@"),
+                path
+            )
         case .fileSystem(let message):
             return message
         }
@@ -156,7 +165,8 @@ struct LocalTmuxSessionRegistry {
                 ofItemAtPath: rootURL.path
             )
         } catch {
-            throw LocalTmuxRegistryError.fileSystem("could not create local-tmux state directory: \(error)")
+            let message = String(localized: "cli.localTmux.error.createDirectory", defaultValue: "could not create local-tmux state directory")
+            throw LocalTmuxRegistryError.fileSystem("\(message): \(error)")
         }
         try validateSecurePath(rootURL.path, expectedDirectory: true)
         if fileManager.fileExists(atPath: sessionsURL.path) {
@@ -243,7 +253,11 @@ struct LocalTmuxSessionRegistry {
                 contents: data,
                 attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
             ) else {
-                throw LocalTmuxRegistryError.fileSystem("could not write \(sessionsURL.path)")
+                let message = String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.writeState", defaultValue: "could not write %@"),
+                    sessionsURL.path
+                )
+                throw LocalTmuxRegistryError.fileSystem(message)
             }
             if fileManager.fileExists(atPath: sessionsURL.path) {
                 _ = try fileManager.replaceItemAt(sessionsURL, withItemAt: temporary)
@@ -257,7 +271,11 @@ struct LocalTmuxSessionRegistry {
         } catch let error as LocalTmuxRegistryError {
             throw error
         } catch {
-            throw LocalTmuxRegistryError.fileSystem("could not persist \(sessionsURL.path): \(error)")
+            let message = String.localizedStringWithFormat(
+                String(localized: "cli.localTmux.error.persistState", defaultValue: "could not persist %@"),
+                sessionsURL.path
+            )
+            throw LocalTmuxRegistryError.fileSystem("\(message): \(error)")
         }
     }
 }
