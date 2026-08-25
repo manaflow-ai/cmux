@@ -1791,6 +1791,13 @@
         "en": { "stringUnit": { "state": "translated", "value": "Image URL: {url}" } },
         "ja": { "stringUnit": { "state": "translated", "value": "画像 URL: {url}" } }
       }
+    },
+    "markdown.web.rendererInitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown renderer failed to initialize. Showing raw source." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdownレンダラーの初期化に失敗しました。元のテキストを表示しています。" } }
+      }
     }
   },
   "version": "1.0"

@@ -207,10 +207,16 @@ struct MarkdownWebContentView: UIViewRepresentable {
         }
 
         private static func renderMarkdownScript(_ markdown: String) -> String? {
-            guard let data = try? JSONSerialization.data(withJSONObject: [markdown]),
+            let failureMessage = String(
+                localized: "markdown.web.rendererInitFailed",
+                defaultValue: "Markdown renderer failed to initialize. Showing raw source.",
+                bundle: .module
+            )
+            guard let data = try? JSONSerialization.data(withJSONObject: [markdown, failureMessage]),
                   let arrayLiteral = String(data: data, encoding: .utf8) else { return nil }
             return """
-            (function(md) {
+            (function(args) {
+              var md = args[0];
               if (window.__cmuxRenderMarkdown) {
                 window.__cmuxRenderMarkdown(md);
                 return;
@@ -221,8 +227,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
                 div.textContent = String(s == null ? '' : s);
                 return div.innerHTML;
               }
-              el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
-            })(\(arrayLiteral)[0]);
+              el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">' + esc(args[1]) + '\\n\\n' + esc(md) + '</pre>';
+            })(\(arrayLiteral));
             """
         }
 
@@ -258,41 +264,42 @@ struct MarkdownWebContentView: UIViewRepresentable {
         }
 
         private func handleLibRequest(_ lib: String) {
-            guard let webView else { return }
             if requestedLibs.contains(lib) { return }
             requestedLibs.insert(lib)
 
-            let assets = MarkdownWebViewerAssets.shared
-            let sources: [String?]
+            let specs: [(name: String, ext: String)]
             switch lib {
             case "mermaid":
-                sources = [assets.asset(name: "mermaid.min", ext: "js")]
+                specs = [("mermaid.min", "js")]
             case "vega-lite":
-                sources = [
-                    assets.asset(name: "vega.min", ext: "js"),
-                    assets.asset(name: "vega-lite.min", ext: "js"),
-                    assets.asset(name: "vega-embed.min", ext: "js"),
-                ]
+                specs = [("vega.min", "js"), ("vega-lite.min", "js"), ("vega-embed.min", "js")]
             default:
                 return
             }
 
-            var injection = ""
-            for case let src? in sources where !src.isEmpty {
-                injection += src
-                injection += "\n;"
-            }
-            guard !injection.isEmpty else {
-                requestedLibs.remove(lib)
-                return
-            }
-            let libLiteral = (try? JSONSerialization.data(withJSONObject: [lib]))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-            let suffix = "\nwindow.__cmuxLibLoaded && window.__cmuxLibLoaded(\(libLiteral)[0]);"
-            webView.evaluateJavaScript(injection + suffix) { [weak self] _, error in
-                if error != nil {
-                    Task { @MainActor [weak self] in
-                        self?.requestedLibs.remove(lib)
+            // The diagram bundles are megabytes; read and inflate them off the
+            // main actor, then inject on main.
+            Task { [weak self] in
+                guard let sources = await MarkdownWebViewerAssets.shared.assets(specs),
+                      sources.contains(where: { !$0.isEmpty }) else {
+                    self?.requestedLibs.remove(lib)
+                    return
+                }
+                guard let self, let webView = self.webView else { return }
+
+                var injection = ""
+                for src in sources where !src.isEmpty {
+                    injection += src
+                    injection += "\n;"
+                }
+                let libLiteral = (try? JSONSerialization.data(withJSONObject: [lib]))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+                let suffix = "\nwindow.__cmuxLibLoaded && window.__cmuxLibLoaded(\(libLiteral)[0]);"
+                webView.evaluateJavaScript(injection + suffix) { [weak self] _, error in
+                    if error != nil {
+                        Task { @MainActor [weak self] in
+                            self?.requestedLibs.remove(lib)
+                        }
                     }
                 }
             }

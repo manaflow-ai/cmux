@@ -15,9 +15,18 @@ final class MarkdownWebViewerAssets {
 
     private let bundle: Bundle
     private var cache: [String: String] = [:]
+    private var cachedShellHTML: String??
 
     /// True when every asset the shell template splices in is present.
     let isAvailable: Bool
+
+    /// True when the spliced shell actually loads and decodes, so choosing the
+    /// web renderer can never strand the reader on a blank pane when an asset
+    /// is present but corrupt. The result (including the spliced shell) is
+    /// computed once and cached.
+    var isUsable: Bool {
+        shellHTML() != nil
+    }
 
     init(bundle: Bundle) {
         self.bundle = bundle
@@ -37,6 +46,15 @@ final class MarkdownWebViewerAssets {
     ]
 
     func shellHTML() -> String? {
+        if let cachedShellHTML {
+            return cachedShellHTML
+        }
+        let spliced = splicedShellHTML()
+        cachedShellHTML = spliced
+        return spliced
+    }
+
+    private func splicedShellHTML() -> String? {
         guard isAvailable,
               let shell = asset(name: "shell", ext: "html"),
               let githubCSS = asset(name: "github-markdown", ext: "css"),
@@ -71,14 +89,38 @@ final class MarkdownWebViewerAssets {
         return source
     }
 
-    private static func assetURL(name: String, ext: String, bundle: Bundle) -> URL? {
+    /// Off-main variant for the multi-megabyte lazy diagram libraries, so the
+    /// first mermaid/vega render doesn't inflate them on the main actor.
+    /// Returns nil when any requested asset is missing or corrupt.
+    func assets(_ specs: [(name: String, ext: String)]) async -> [String]? {
+        var sources: [String] = []
+        for spec in specs {
+            let key = "\(spec.name).\(spec.ext)"
+            if let cached = cache[key] {
+                sources.append(cached)
+                continue
+            }
+            guard let url = Self.assetURL(name: spec.name, ext: spec.ext, bundle: bundle) else {
+                return nil
+            }
+            let loaded = await Task.detached(priority: .userInitiated) {
+                Self.loadAsset(url: url)
+            }.value
+            guard let loaded else { return nil }
+            cache[key] = loaded
+            sources.append(loaded)
+        }
+        return sources
+    }
+
+    private nonisolated static func assetURL(name: String, ext: String, bundle: Bundle) -> URL? {
         bundle.url(forResource: name, withExtension: "\(ext).deflate", subdirectory: "markdown-viewer")
             ?? bundle.url(forResource: name, withExtension: "\(ext).deflate")
             ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "markdown-viewer")
             ?? bundle.url(forResource: name, withExtension: ext)
     }
 
-    private static func loadAsset(url: URL) -> String? {
+    private nonisolated static func loadAsset(url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         if url.lastPathComponent.hasSuffix(".deflate") {
             guard let inflated = MarkdownViewerAssetCompression.inflate(data) else { return nil }

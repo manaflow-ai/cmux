@@ -16,7 +16,7 @@ struct ChatArtifactMarkdownView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        if MarkdownWebViewerAssets.shared.isAvailable {
+        if MarkdownWebViewerAssets.shared.isUsable {
             MarkdownWebContentView(
                 markdown: markdown,
                 theme: .resolve(isDark: colorScheme == .dark),

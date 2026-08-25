@@ -39,7 +39,7 @@ struct MarkdownWebRendererConfigurationTests {
 
     @Test("missing bundle assets disable the web renderer instead of crashing")
     @MainActor
-    func missingAssetsFallBack() throws {
+    func missingAssetsFallBack() async throws {
         let emptyBundleDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-assets-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyBundleDir, withIntermediateDirectories: true)
@@ -48,8 +48,10 @@ struct MarkdownWebRendererConfigurationTests {
         let bundle = try #require(Bundle(url: emptyBundleDir))
         let assets = MarkdownWebViewerAssets(bundle: bundle)
         #expect(!assets.isAvailable)
+        #expect(!assets.isUsable)
         #expect(assets.shellHTML() == nil)
         #expect(assets.asset(name: "mermaid.min", ext: "js") == nil)
+        #expect(await assets.assets([(name: "mermaid.min", ext: "js")]) == nil)
     }
 #endif
 }
