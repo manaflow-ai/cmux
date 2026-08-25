@@ -1,20 +1,15 @@
 /// Bounded min-heap used to evict the least-recently referenced artifact path.
 struct ChatArtifactRecencyHeap {
-    struct Entry {
-        let path: String
-        let seq: Int
-    }
-
-    private var entries: [Entry] = []
+    private var entries: [ChatArtifactRecencyHeapEntry] = []
 
     var count: Int { entries.count }
 
     mutating func insert(path: String, seq: Int) {
-        entries.append(Entry(path: path, seq: seq))
+        entries.append(ChatArtifactRecencyHeapEntry(path: path, seq: seq))
         siftUp(from: entries.count - 1)
     }
 
-    mutating func pop() -> Entry? {
+    mutating func pop() -> ChatArtifactRecencyHeapEntry? {
         guard !entries.isEmpty else { return nil }
         if entries.count == 1 { return entries.removeLast() }
         let result = entries[0]
@@ -24,14 +19,19 @@ struct ChatArtifactRecencyHeap {
     }
 
     mutating func compact(currentSequences: [String: Int]) {
-        entries = currentSequences.map { Entry(path: $0.key, seq: $0.value) }
+        entries = currentSequences.map {
+            ChatArtifactRecencyHeapEntry(path: $0.key, seq: $0.value)
+        }
         guard entries.count > 1 else { return }
         for index in stride(from: entries.count / 2 - 1, through: 0, by: -1) {
             siftDown(from: index)
         }
     }
 
-    private func precedes(_ lhs: Entry, _ rhs: Entry) -> Bool {
+    private func precedes(
+        _ lhs: ChatArtifactRecencyHeapEntry,
+        _ rhs: ChatArtifactRecencyHeapEntry
+    ) -> Bool {
         if lhs.seq != rhs.seq { return lhs.seq < rhs.seq }
         return lhs.path < rhs.path
     }
