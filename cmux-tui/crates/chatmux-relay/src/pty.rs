@@ -652,15 +652,16 @@ impl Inner {
             }
         };
 
-        let cancelled = {
-            let mut opening = self.opening_ids.lock().expect("opening lock");
-            let cancelled =
-                self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
-            opening.remove(&pty_id);
-            cancelled
-        };
-        reservation.active = false;
+        // Keep the opening reservation held until the attachment is installed.
+        // `close` takes this lock first, so it cannot observe a gap between
+        // removing the opening marker and inserting the attachment.
+        let mut opening = self.opening_ids.lock().expect("opening lock");
+        let cancelled =
+            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
         if cancelled {
+            opening.remove(&pty_id);
+            drop(opening);
+            reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
             return;
@@ -677,6 +678,9 @@ impl Inner {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
+        opening.remove(&pty_id);
+        drop(opening);
+        reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
@@ -771,18 +775,21 @@ impl Inner {
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
     fn close(&self, pty_id: &str) {
+        // Match `open`'s lock order. If opening still owns the reservation,
+        // record cancellation and let it dispose the newly opened PTY.
+        let opening = self.opening_ids.lock().expect("opening lock");
+        if opening.contains(pty_id) {
+            self.cancelled_openings
+                .lock()
+                .expect("cancelled openings lock")
+                .insert(pty_id.to_owned());
+            return;
+        }
+        drop(opening);
         let attachment = self.attachments.lock().expect("attach lock").remove(pty_id);
         if let Some(attachment) = attachment {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
-        } else {
-            let opening = self.opening_ids.lock().expect("opening lock");
-            if opening.contains(pty_id) {
-                self.cancelled_openings
-                    .lock()
-                    .expect("cancelled openings lock")
-                    .insert(pty_id.to_owned());
-            }
         }
     }
 
