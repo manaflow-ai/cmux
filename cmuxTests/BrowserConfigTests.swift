@@ -5599,6 +5599,19 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
                 targetFrameIsMain: true
             )
         )
+        let siblingCallbackURL = try XCTUnwrap(
+            URL(string: "cmux-dev-other://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                siblingCallbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(siblingCallbackURL)
+        )
     }
 
     func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {

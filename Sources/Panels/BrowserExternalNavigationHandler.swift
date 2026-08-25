@@ -23,7 +23,11 @@ struct BrowserExternalNavigationHandler {
 
     /// Returns whether a URL matches a configured external rule.
     func shouldOpenExternally(_ url: URL) -> Bool {
-        shouldOpenExternally(url.absoluteString)
+        guard url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+              !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) else {
+            return false
+        }
+        return shouldOpenExternally(url.absoluteString)
     }
 
     /// Returns whether raw URL text matches a configured external rule.
@@ -40,6 +44,9 @@ struct BrowserExternalNavigationHandler {
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?
     ) -> Bool {
+        guard !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) else {
+            return false
+        }
         guard navigationType == .linkActivated,
               targetFrameIsMain != false,
               url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased() else {
