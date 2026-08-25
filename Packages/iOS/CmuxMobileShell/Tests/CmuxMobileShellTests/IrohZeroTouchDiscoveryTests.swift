@@ -663,6 +663,37 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(discovery.callCount() == 1)
     }
 
+    @Test func lanOverrideKeepsDiscoveryWhenDefaultIsTailscale() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let fixture = try await makeFixture(
+            discovery: ScriptedIrohDiscovery(snapshots: [[live]]),
+            reportedDeviceID: "mac-a",
+            connectionMethod: .tailscale
+        )
+        defer { fixture.cleanup() }
+
+        try await fixture.store.upsert(
+            macDeviceID: live.deviceID,
+            displayName: live.displayName,
+            routes: live.routes,
+            instanceTag: live.instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: live.lastSeenAt
+        )
+        try await fixture.store.setConnectionMethod(
+            macDeviceID: live.deviceID,
+            instanceTag: live.instanceTag,
+            rawValue: MobileConnectionMethod.lan.rawValue,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        await fixture.shell.loadPairedMacs()
+
+        #expect(!fixture.shell.zeroTouchIrohDiscoveryDisabled)
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,

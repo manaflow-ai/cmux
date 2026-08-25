@@ -223,7 +223,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(pathHints.isEmpty)
     }
 
-    @Test func physicalDeviceMixedRoutesPreserveEveryClassInCompactCode() throws {
+    @Test func physicalDeviceMixedRoutesKeepLegacyTailscaleQRCodeCompatibility() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
             workspaceID: "",
@@ -234,9 +234,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .physicalDevice)
         let attachURL = try #require(payload["attach_url"] as? String)
-        #expect(attachURL.contains("?v=1&payload="))
-        let decoded = try compactTicket(from: attachURL)
-        #expect(decoded.routes == ticket.routes)
+        #expect(attachURL.contains("?v=2&"))
+        #expect(!attachURL.contains("payload="))
+        let components = try #require(URLComponents(string: attachURL))
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .tailscale)
         #expect(decoded.authToken == nil)
     }
 
