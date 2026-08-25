@@ -192,4 +192,17 @@ import Testing
         #expect(grid.plainRow(0) == "ab  cd")
         #expect(grid.rowSpans[0].first?.totalCellWidth == 6)
     }
+
+    @Test func rejectsUnboundedRemoteDimensionsBeforeAllocatingRows() throws {
+        var grid = HiveTerminalGridModel()
+        let oversizedRows = try fullFrame(columns: 80, rows: Int.max, rowSpans: [])
+        let oversizedColumns = try fullFrame(columns: Int.max, rows: 24, rowSpans: [])
+
+        let rejectedRows = grid.apply(oversizedRows)
+        #expect(!rejectedRows)
+        #expect(!grid.hasContent)
+        let rejectedColumns = grid.apply(oversizedColumns)
+        #expect(!rejectedColumns)
+        #expect(grid.rowSpans.isEmpty)
+    }
 }

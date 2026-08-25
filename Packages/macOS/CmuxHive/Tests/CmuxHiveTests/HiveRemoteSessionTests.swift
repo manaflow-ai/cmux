@@ -48,9 +48,13 @@ private func workspaceListResult() -> [String: Any] {
 
 /// A full render-grid frame pre-encoded to a JSON string so `@Sendable`
 /// handler closures can capture it (`[String: Any]` is not Sendable).
-private func fullFrameJSONString(text: String, stateSeq: UInt64) throws -> String {
+private func fullFrameJSONString(
+    surfaceID: String = "term-1",
+    text: String,
+    stateSeq: UInt64
+) throws -> String {
     let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: "term-1",
+        surfaceID: surfaceID,
         stateSeq: stateSeq,
         columns: 20,
         rows: 5,
@@ -247,6 +251,70 @@ private func jsonObject(_ string: String) -> [String: Any] {
 
         terminal.detach()
         await macSession.disconnect()
+    }
+
+    @MainActor
+    @Test func sharedRenderGridRouterUsesOneHostSubscriptionForMultipleTerminals() async throws {
+        let replayOne = try fullFrameJSONString(surfaceID: "term-1", text: "one", stateSeq: 1)
+        let replayTwo = try fullFrameJSONString(surfaceID: "term-2", text: "two", stateSeq: 1)
+        let transport = ScriptedHostTransport { method, params in
+            switch method {
+            case "mobile.workspace.list":
+                return workspaceListResult()
+            case "mobile.events.subscribe":
+                return ["stream_id": "s", "topics": ["workspace.updated", "terminal.render_grid"]]
+            case "mobile.terminal.replay":
+                let surfaceID = params["surface_id"] as? String
+                return [
+                    "workspace_id": "ws-1",
+                    "surface_id": surfaceID ?? "",
+                    "seq": 1,
+                    "render_grid": jsonObject(surfaceID == "term-2" ? replayTwo : replayOne),
+                ]
+            default:
+                return [:]
+            }
+        }
+        let session = HiveRemoteMacSession(
+            runtime: makeRuntime(transport: transport),
+            macDeviceID: "mac-b",
+            displayName: "Studio",
+            routes: [try tailscaleRoute()],
+            retryDelay: { _ in },
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            requiresHostIdentity: false
+        )
+        session.connect()
+        try await waitUntil { session.phase == .connected }
+        let noDelay: @Sendable (Int) async -> Void = { _ in }
+        let first = try #require(session.makeTerminalSession(
+            workspaceID: "ws-1",
+            terminalID: "term-1",
+            retryDelay: noDelay
+        ))
+        let second = try #require(session.makeTerminalSession(
+            workspaceID: "ws-1",
+            terminalID: "term-2",
+            retryDelay: noDelay
+        ))
+        first.attach()
+        second.attach()
+        await transport.waitForMethod("mobile.terminal.replay", count: 2)
+        try await waitUntil { first.phase == .live && second.phase == .live }
+
+        let subscribeCount = await transport.sentMethods.filter { $0 == "mobile.events.subscribe" }.count
+        #expect(subscribeCount == 1)
+
+        await transport.pushEvent(
+            topic: "terminal.render_grid",
+            payload: jsonObject(try fullFrameJSONString(surfaceID: "term-2", text: "updated", stateSeq: 2))
+        )
+        try await waitUntil { second.grid.plainRow(0) == "updated" }
+        #expect(first.grid.plainRow(0) == "one")
+
+        first.detach()
+        second.detach()
+        await session.disconnect()
     }
 }
 
