@@ -141,12 +141,17 @@ struct RightSidebarPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             modeBar
-                .rightSidebarChromeBottomBorder()
+                .rightSidebarChromeBottomBorder(
+                    backgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Keep every mode (including Dock and AppKit-backed file rows) on the
+        // same resolved cmux scheme as the window and left sidebar.
+        .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
         .background(
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)
@@ -360,7 +365,11 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                SessionIndexView(
+                    store: sessionIndexStore,
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    onResume: onResumeSession
+                )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
@@ -372,7 +381,9 @@ struct RightSidebarPanelView: View {
                     onOpenArtifact: onOpenArtifact
                 )
             case .feed:
-                FeedPanelView()
+                FeedPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:

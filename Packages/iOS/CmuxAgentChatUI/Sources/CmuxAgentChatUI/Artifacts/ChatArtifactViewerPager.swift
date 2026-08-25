@@ -74,20 +74,12 @@ struct ChatArtifactViewerPager: View {
             #if os(iOS)
             .chatArtifactFileActionPresentation(fileActionPresentationBinding)
             .alert(
-                String(
-                    localized: "chat.artifact.action_failed.title",
-                    defaultValue: "Couldn't complete action",
-                    bundle: .module
-                ),
+                fileActionFailurePresentation.title,
                 isPresented: fileActionErrorBinding
             ) {
                 Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
             } message: {
-                Text(String(
-                    localized: "chat.artifact.action_failed.message",
-                    defaultValue: "Check the connection to your Mac and try again.",
-                    bundle: .module
-                ))
+                Text(fileActionFailurePresentation.message)
             }
             #endif
             .onChange(of: initialPath) { _, newPath in
@@ -208,7 +200,7 @@ struct ChatArtifactViewerPager: View {
                 Task { await model.prepareSave(for: path, loader: loader) }
             },
             saveToArtifacts: saveToArtifacts,
-            toggleSearch: model.toggleSearch,
+            toggleSearch: { path in model.toggleSearch(for: path, loader: loader) },
             toggleGoToLine: model.toggleGoToLine,
             requestTop: model.requestTop,
             requestBottom: model.requestBottom,
@@ -235,12 +227,15 @@ struct ChatArtifactViewerPager: View {
         case .copyImage:
             guard case .image(let data) = snapshot.state else { return }
             UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied())
         case .copyContents:
             UIPasteboard.general.string = snapshot.renderedText
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied())
         case .copyPath:
             UIPasteboard.general.string = snapshot.path
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
         }
     }
@@ -313,5 +308,13 @@ struct ChatArtifactViewerPager: View {
         artifactSaveTask = nil
         isSavingToArtifacts = false
     }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: model.toolbarSnapshot.fileActionState.failure ?? .loadFailed,
+            scope: scope
+        )
+    }
+
     #endif
 }

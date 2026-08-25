@@ -6,8 +6,6 @@ import { z } from "zod";
 import { env } from "@/app/env";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const feedbackRecipient = "feedback@manaflow.com";
 const maxAttachmentCount = 10;
@@ -64,10 +62,16 @@ export async function POST(request: Request) {
       }
 
       if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
-        const { error, rateLimited } = await checkRateLimit(
-          feedbackConfig.rateLimitId,
-          { request },
-        );
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(feedbackConfig.rateLimitId, { request });
+        } catch {
+          console.error("feedback.route.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
 
         setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
         if (rateLimited || error === "blocked") {

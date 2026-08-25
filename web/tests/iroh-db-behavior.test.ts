@@ -390,6 +390,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -418,6 +419,206 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("adopts legacy and tag-only Mac bindings into the bundle namespace", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-adoption";
+    const deviceId = randomUUID();
+    const endpointId = "35".repeat(32);
+
+    const register = async (
+      appInstanceId: string,
+      clientNamespace: string,
+      nonceHash: string,
+    ) => {
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        clientNamespace,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "36".repeat(32),
+        nonceHash,
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+      }));
+      return await Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace,
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: NOW,
+      }));
+    };
+
+    const legacy = await register(randomUUID(), "legacy", "37".repeat(32));
+    const tagOnly = await register(
+      randomUUID(),
+      "mac:stable",
+      "38".repeat(32),
+    );
+    const adopted = await register(
+      randomUUID(),
+      "mac:com.cmuxterm.app",
+      "39".repeat(32),
+    );
+
+    expect(adopted.binding.id).toBe(legacy.binding.id);
+    expect(tagOnly.binding.id).toBe(legacy.binding.id);
+    expect(adopted.created).toBe(false);
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      select id, client_namespace as "clientNamespace"
+      from iroh_endpoint_bindings
+      where user_id = ${userId}
+    `;
+    expect(rows).toEqual([{
+      id: legacy.binding.id,
+      clientNamespace: "mac:com.cmuxterm.app",
+    }]);
+  });
+
+  dbTest("drains a migrated legacy revocation before namespace adoption", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-revocation";
+    const [legacy] = await requiredSql()<Array<{ id: string }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values (
+        ${userId},
+        ${randomUUID()},
+        ${randomUUID()},
+        'legacy',
+        'stable',
+        'ios',
+        ${"39".repeat(32)},
+        1
+      )
+      returning id
+    `;
+    if (!legacy) throw new Error("legacy binding insert failed");
+
+    const revoked = await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: legacy.id,
+      clientNamespace: "dev.cmux.app.internal",
+      now: NOW,
+    }));
+
+    expect(revoked).toEqual({ revoked: true, accountRevision: 1 });
+    const [stored] = await requiredSql()<Array<{
+      revokedAt: Date | null;
+      revokedReason: string | null;
+    }>>`
+      select
+        revoked_at as "revokedAt",
+        revoked_reason as "revokedReason"
+      from iroh_endpoint_bindings
+      where id = ${legacy.id}
+    `;
+    expect(stored?.revokedAt).toEqual(NOW);
+    expect(stored?.revokedReason).toBe("user_requested");
+  });
+
+  dbTest("isolates iOS discovery while Mac admission sees iOS peers", async () => {
+    const repo = requiredRepository();
+    const userId = "user-namespace-discovery";
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.internal',
+          'stable',
+          'ios',
+          ${"3a".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.demo',
+          'stable',
+          'ios',
+          ${"3b".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'mac:stable',
+          'stable',
+          'mac',
+          ${"3c".repeat(32)},
+          1
+        )
+      returning id, client_namespace as "clientNamespace"
+    `;
+    const idByNamespace = new Map(
+      rows.map((row) => [row.clientNamespace, row.id]),
+    );
+
+    const demo = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "dev.cmux.app.demo",
+      callerBindingId: idByNamespace.get("dev.cmux.app.demo")!,
+      callerPlatform: "ios",
+      now: NOW,
+    }));
+    expect(demo.bindings.map((row) => row.id).sort()).toEqual([
+      idByNamespace.get("dev.cmux.app.demo"),
+      idByNamespace.get("mac:stable"),
+    ].sort());
+
+    const mac = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "mac:stable",
+      callerBindingId: idByNamespace.get("mac:stable")!,
+      callerPlatform: "mac",
+      now: NOW,
+    }));
+    expect(mac.bindings.map((row) => row.id).sort()).toEqual(
+      [...idByNamespace.values()].sort(),
+    );
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
@@ -453,6 +654,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       deviceUuid: deviceId,
       appInstanceId,
+      clientNamespace: "legacy",
       tag: "stable",
       endpointId,
       identityGeneration: 1,
@@ -470,6 +672,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -527,6 +730,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -614,6 +818,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId,
+          clientNamespace: "legacy",
           tag: "stable",
           platform,
           endpointId,
@@ -745,6 +950,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId: input.appInstanceId,
+          clientNamespace: "legacy",
           tag: input.tag,
           platform: "ios",
           endpointId: input.endpointId,
@@ -850,6 +1056,7 @@ describe("Iroh trust broker database behavior", () => {
         userId,
         deviceUuid: deviceId,
         appInstanceId: input.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         endpointId: endpoint,
         identityGeneration: 1,
@@ -872,6 +1079,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -969,6 +1177,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -1052,6 +1261,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -1133,6 +1343,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId,
+          clientNamespace: "legacy",
           tag: "stable",
           platform: "ios",
           endpointId: input.endpointId,
@@ -1250,6 +1461,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "ios",
         endpointId: "c1".repeat(32),
@@ -1285,6 +1497,89 @@ describe("Iroh trust broker database behavior", () => {
     }));
     expect(complete.bindings).toHaveLength(301);
     expect(complete.accountRevision).toBe(registration.accountRevision);
+  });
+
+  dbTest("filters scoped discovery in the authoritative SQL snapshot", async () => {
+    const repo = requiredRepository();
+    const userId = "user-scoped-discovery";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const localId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      endpointId: "d1".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const eligibleMacId = await insertBinding({
+      userId,
+      endpointId: "d2".repeat(32),
+      platform: "mac",
+      tag: "FeatureA",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d3".repeat(32),
+      platform: "mac",
+      tag: "other",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d4".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: false,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d5".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const revokedMacId = await insertBinding({
+      userId,
+      endpointId: "d6".repeat(32),
+      platform: "mac",
+      tag: "nightly",
+      pairingEnabled: true,
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set revoked_at = ${NOW}, revoked_reason = 'test'
+      where id = ${revokedMacId}
+    `;
+    await insertBinding({
+      userId: "other-user",
+      endpointId: "d7".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: true,
+    });
+
+    const snapshot = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: NOW,
+      scope: {
+        localBinding: {
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform: "ios",
+        },
+        peerBindings: {
+          platform: "mac",
+          tags: ["featurea", "nightly"],
+          pairingEnabled: true,
+        },
+      },
+    }));
+
+    expect(snapshot.bindings.map((binding) => binding.id)).toEqual(
+      [localId, eligibleMacId].sort(),
+    );
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1989,6 +2284,7 @@ async function insertBinding(input: {
   readonly endpointId: string;
   readonly platform?: "mac" | "ios";
   readonly tag?: string;
+  readonly pairingEnabled?: boolean;
   readonly pathHints?: unknown[];
 }): Promise<string> {
   const [row] = await requiredSql()<Array<{ id: string }>>`
@@ -1998,7 +2294,8 @@ async function insertBinding(input: {
       path_hints_next_expiry
     ) values (
       ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, ${input.tag ?? "stable"},
-      ${input.platform ?? "mac"}, ${input.endpointId}, 1, true, '[]'::jsonb,
+      ${input.platform ?? "mac"}, ${input.endpointId}, 1,
+      ${input.pairingEnabled ?? true}, '[]'::jsonb,
       ${requiredSql().json((input.pathHints ?? []) as never)},
       ${earliestStoredHintExpiry(input.pathHints ?? [])}
     ) returning id::text

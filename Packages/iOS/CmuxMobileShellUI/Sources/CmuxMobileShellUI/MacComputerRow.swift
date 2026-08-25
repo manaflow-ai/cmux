@@ -23,9 +23,10 @@ struct MacComputerRow: View {
     }
 
     let computer: MacComputerSnapshot
-    /// Hides this computer on the current iPhone. When `nil`, hide affordances
-    /// are omitted.
-    var hide: ((String) -> Void)? = nil
+    /// Changes whether this computer appears on the current iPhone. When `nil`,
+    /// the visibility switch is omitted.
+    var setVisible: ((Bool) -> Void)? = nil
+    var isVisibilityMutating = false
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -36,22 +37,30 @@ struct MacComputerRow: View {
     var isConnecting: Bool = false
 
     var body: some View {
-        rowContainer
-        .contextMenu { hideMenuButton }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            hideSwipeButton
+        HStack(spacing: 8) {
+            rowContainer
+            if let setVisible {
+                ComputerVisibilityToggle(
+                    computerID: computer.id,
+                    computerName: computer.title,
+                    isVisible: true,
+                    isDisabled: isVisibilityMutating,
+                    setVisible: setVisible
+                )
+            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
     }
 
     @ViewBuilder
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.id) {
+            NavigationLink(value: computer.connectionRef) {
                 rowLabel
             }
+            .accessibilityElement(children: .combine)
         case .reconnect:
             Button {
                 connect?(computer.id)
@@ -59,6 +68,7 @@ struct MacComputerRow: View {
                 rowLabel
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -104,36 +114,6 @@ struct MacComputerRow: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private var hideSwipeButton: some View {
-        if let hide {
-            Button {
-                hide(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
-                    systemImage: "eye.slash"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerHideSwipeButton-\(computer.id)")
-        }
-    }
-
-    @ViewBuilder
-    private var hideMenuButton: some View {
-        if let hide {
-            Button {
-                hide(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
-                    systemImage: "eye.slash"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerHideMenuButton-\(computer.id)")
-        }
-    }
-
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
@@ -150,7 +130,9 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.id)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
         }
     }
 
@@ -177,7 +159,8 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }

@@ -112,28 +112,28 @@ final class WorkspaceContentViewVisibilityTests {
         let secondTarget = Self.restoreFocusTarget()
 
         coordinator.request(target: firstTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: nil,
+                currentHost: nil,
                 focusedPanelId: nil,
                 targetPanelExists: true
             )
         )
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
         )
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: secondTarget.workspaceId,
+                currentHost: secondTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
@@ -143,7 +143,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: secondTarget.panelId,
                 targetPanelExists: true
             )
@@ -153,7 +153,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: false
             )
@@ -161,7 +161,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
 
         coordinator.request(target: secondTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == secondTarget.host)
 
         #expect(coordinator.claimRestoreAttempt())
         #expect(!coordinator.claimRestoreAttempt())
@@ -169,17 +169,40 @@ final class WorkspaceContentViewVisibilityTests {
 
         for _ in 0..<4 {
             #expect(coordinator.claimRestoreAttempt())
-            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            #expect(coordinator.pendingTarget?.host == secondTarget.host)
             coordinator.finishRestoreAttempt()
         }
         #expect(!coordinator.claimRestoreAttempt())
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
 
         coordinator.request(target: secondTarget)
         #expect(coordinator.claimRestoreAttempt())
 
         coordinator.clear()
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
+
+        let dockTarget = CommandPaletteRestoreFocusTarget(
+            host: .windowDock(UUID()),
+            panelId: UUID(),
+            intent: .browser(.webView)
+        )
+        coordinator.request(target: dockTarget)
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: dockTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.host == dockTarget.host)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: firstTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
     }
 
     @Test

@@ -29,7 +29,7 @@ authenticated WebSocket transports.
 The Zig adapter targets Zig 0.15.2. Set `CMUX_ZIG` when that compiler is not
 the `zig` on `PATH`.
 
-Generated protocol-10 compatibility tests are intentionally separate:
+Generated protocol-12 compatibility tests are intentionally separate:
 
 ```sh
 python3 cmux-tui/bindings/conformance/raw/runner.py \

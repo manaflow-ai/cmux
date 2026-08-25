@@ -5,9 +5,8 @@ import {
   subrouterErrorResponse,
 } from "../../../../../../services/subrouter/routeHelpers";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
+import { captureCoderouterEvent } from "../../../../../../services/coderouter/analytics";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   readonly params: Promise<{ readonly accountId: string }>;
@@ -40,6 +39,16 @@ export async function POST(
       accountId,
       input.value,
     );
+    captureCoderouterEvent({
+      event: "coderouter_account_added",
+      userId: context.user.id,
+      teamId: context.team.teamId,
+      properties: {
+        provider: input.value.provider,
+        source: "legacy_dashboard",
+        already_exists: true,
+      },
+    });
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);

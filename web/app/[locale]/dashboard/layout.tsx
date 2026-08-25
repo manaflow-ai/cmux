@@ -2,9 +2,12 @@ import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { isVaultEnabled } from "@/services/vault/config";
 import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
+
+export const instant = true;
 
 // Auth redirects are owned by each page, not this layout: a layout cannot see
 // the requested URL, so redirecting here would send unauthenticated visitors
@@ -25,7 +28,7 @@ export default async function DashboardLayout({
       <StackProvider app={getStackServerApp()}>
         <StackTheme>
           <DashboardQueryProvider>
-            <DashboardShell>
+            <DashboardShell vaultEnabled={isVaultEnabled()}>
               <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
             </DashboardShell>
           </DashboardQueryProvider>

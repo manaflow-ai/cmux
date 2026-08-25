@@ -27,6 +27,7 @@ struct SessionIndexTableViewportTests {
             isCollapsed: false,
             actions: IndexSectionActions(
                 onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
@@ -112,6 +113,7 @@ struct SessionIndexTableViewportTests {
         )
         let actions = IndexSectionActions(
             onBeginDrag: {},
+            beginSessionDrag: { _, _, _, _, _ in false },
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
@@ -308,7 +310,11 @@ struct SessionIndexTableViewportTests {
         )
 
         let host = NSHostingView(
-            rootView: SessionIndexView(store: store, onResume: nil)
+            rootView: SessionIndexView(
+                store: store,
+                chromeBackgroundColor: .black,
+                onResume: nil
+            )
                 .frame(width: 320, height: 300)
         )
         let window = NSWindow(
@@ -388,6 +394,7 @@ struct SessionIndexTableViewportTests {
             isCollapsed: false,
             actions: IndexSectionActions(
                 onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,

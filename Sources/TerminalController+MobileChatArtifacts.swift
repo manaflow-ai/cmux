@@ -3,6 +3,18 @@ import CmuxArtifacts
 import CmuxSettings
 import Foundation
 
+private enum TerminalControllerChatArtifactIndexProvider {
+    static let shared = AgentChatArtifactIndex()
+    static let ordering = ChatArtifactGalleryOrderingCache()
+    static let rowCounts = ChatArtifactGalleryRowCountCache(maximumAge: 2)
+}
+
+private enum MobileChatArtifactIndexError: Error {
+    case unavailable
+    case sessionNotFound
+    case sessionUnavailable
+}
+
 extension TerminalController {
     func v2MobileChatArtifactGallery(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -34,9 +46,7 @@ extension TerminalController {
             cursor = nil
         }
         do {
-            guard let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID) else {
-                return mobileChatArtifactError(.notFound, path: "")
-            }
+            let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID)
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let includeDirectories = v2Bool(params, "include_directories") ?? false
@@ -60,9 +70,13 @@ extension TerminalController {
                     includeDirectories: includeDirectories
                 )
             }.value
-            return .ok(ChatArtifactWire.payload(page) ?? [:])
-        } catch {
+            return ChatArtifactWire.result(page)
+        } catch MobileChatArtifactIndexError.unavailable {
+            return mobileChatArtifactError(.unavailable, path: "")
+        } catch MobileChatArtifactIndexError.sessionNotFound {
             return mobileChatArtifactError(.notFound, path: "")
+        } catch {
+            return mobileChatArtifactError(.sessionUnavailable, path: "")
         }
     }
 
@@ -70,10 +84,20 @@ extension TerminalController {
     /// both gallery pages and terminal-bound count-only scans.
     func mobileChatArtifactIndexedSession(
         sessionID: String
-    ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
-        guard let service = agentChatTranscriptService,
-              let resolved = try await service.resolvedTranscript(sessionID: sessionID) else {
-            return nil
+    ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot) {
+        guard let service = agentChatTranscriptService else {
+            throw MobileChatArtifactIndexError.unavailable
+        }
+        let resolved: (record: AgentChatSessionRecord, path: String)
+        do {
+            guard let transcript = try await service.resolvedTranscript(sessionID: sessionID) else {
+                throw MobileChatArtifactIndexError.sessionNotFound
+            }
+            resolved = transcript
+        } catch let error as MobileChatArtifactIndexError {
+            throw error
+        } catch {
+            throw MobileChatArtifactIndexError.sessionUnavailable
         }
         let snapshot = try await service.artifactIndex.snapshot(
             sessionID: resolved.record.sessionID,
@@ -122,19 +146,14 @@ extension TerminalController {
             let stat = try await Task.detached {
                 try ArtifactByteReader().stat(path: resolved.canonicalPath)
             }.value
-            return .ok(ChatArtifactWire.payload(stat) ?? [:])
-        } catch ArtifactByteReader.Error.fileNotFound {
-            debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
-            )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
-        } catch ArtifactByteReader.Error.unsupportedMedia {
-            return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
+            return ChatArtifactWire.result(stat)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
             debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+                code: "read_failed", reason: "stat-failed", path: resolved.requestedPath
             )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: resolved.requestedPath)
         }
     }
 
@@ -161,16 +180,16 @@ extension TerminalController {
                         data: nil
                     )
                 }
-                return .ok(ChatArtifactWire.payload(
+                return ChatArtifactWire.result(
                     try await executionContext.issueArtifactTransfer(
                         canonicalPath: resolved.canonicalPath
                     )
-                ) ?? [:])
+                )
             }
             let chunk = try await Task.detached {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
-            return .ok(ChatArtifactWire.payload(chunk) ?? [:])
+            return ChatArtifactWire.result(chunk)
         } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
             switch error.issueFailure {
             case .fileNotFound:
@@ -180,6 +199,12 @@ extension TerminalController {
                     path: resolved.requestedPath
                 )
                 return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: resolved.requestedPath)
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: resolved.requestedPath)
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: resolved.requestedPath)
             case .unavailable:
                 debugLogMobileChatArtifactDenial(
                     code: "unavailable",
@@ -188,16 +213,13 @@ extension TerminalController {
                 )
                 return mobileChatArtifactError(.unavailable, path: resolved.requestedPath)
             }
-        } catch ArtifactByteReader.Error.fileNotFound {
-            debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
-            )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
             debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+                code: "read_failed", reason: "fetch-failed", path: resolved.requestedPath
             )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: resolved.requestedPath)
         }
     }
 
@@ -211,16 +233,11 @@ extension TerminalController {
             let thumbnail = try await Task.detached {
                 try ArtifactByteReader().thumbnail(path: resolved.canonicalPath, maxDimension: maxDimension)
             }.value
-            return .ok(ChatArtifactWire.payload(thumbnail) ?? [:])
-        } catch ArtifactByteReader.Error.unsupportedMedia {
-            return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
-        } catch ArtifactByteReader.Error.fileNotFound {
-            debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
-            )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            return ChatArtifactWire.result(thumbnail)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
-            return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
+            return mobileArtifactReadFailure(.previewFailed, path: resolved.requestedPath)
         }
     }
 
@@ -233,17 +250,14 @@ extension TerminalController {
             let listing = try await Task.detached {
                 try ArtifactByteReader().list(path: resolved.canonicalPath)
             }.value
-            return .ok(ChatArtifactWire.payload(listing) ?? [:])
-        } catch ArtifactByteReader.Error.fileNotFound {
-            debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
-            )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            return ChatArtifactWire.result(listing)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
             debugLogMobileChatArtifactDenial(
-                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+                code: "read_failed", reason: "list-failed", path: resolved.requestedPath
             )
-            return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: resolved.requestedPath)
         }
     }
 
@@ -347,7 +361,7 @@ extension TerminalController {
             }
             resolved = transcript
         } catch {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+            return .failure(mobileChatArtifactError(.sessionUnavailable, path: requestedPath))
         }
         do {
             let pathResult = try await service.artifactIndex.canonicalPath(
@@ -371,9 +385,16 @@ extension TerminalController {
                 ))
             case .canonicalizationFailed:
                 debugLogMobileChatArtifactDenial(
-                    code: "forbidden", reason: "canonicalization-failed", path: requestedPath
+                    code: "invalid_params", reason: "canonicalization-failed", path: requestedPath
                 )
-                return .failure(mobileChatArtifactError(.forbidden, path: requestedPath))
+                return .failure(.err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "mobile.chat.artifact.error.invalidPath",
+                        defaultValue: "The file path is invalid."
+                    ),
+                    data: ["path": requestedPath]
+                ))
             case .notInSet:
                 debugLogMobileChatArtifactDenial(
                     code: "forbidden", reason: "not-in-set", path: requestedPath
@@ -381,7 +402,7 @@ extension TerminalController {
                 return .failure(mobileChatArtifactError(.forbidden, path: requestedPath))
             }
         } catch {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+            return .failure(mobileChatArtifactError(.sessionUnavailable, path: requestedPath))
         }
     }
 
@@ -409,6 +430,7 @@ extension TerminalController {
 
     private enum MobileChatArtifactErrorKind {
         case notFound
+        case sessionUnavailable
         case forbidden
         case fileNotFound
         case unsupportedMedia
@@ -422,10 +444,19 @@ extension TerminalController {
         switch kind {
         case .notFound:
             return .err(
-                code: "not_found",
+                code: "session_not_found",
                 message: String(
                     localized: "mobile.chat.artifact.error.sessionNotFound",
                     defaultValue: "That agent session is no longer available."
+                ),
+                data: nil
+            )
+        case .sessionUnavailable:
+            return .err(
+                code: "session_unavailable",
+                message: String(
+                    localized: "mobile.chat.artifact.error.sessionUnavailable",
+                    defaultValue: "That session exists, but its file history could not be read."
                 ),
                 data: nil
             )
@@ -467,15 +498,100 @@ extension TerminalController {
             )
         }
     }
+
+    func mobileArtifactReadFailure(
+        _ error: ArtifactByteReader.Error,
+        path: String?
+    ) -> V2CallResult {
+        let data = path.map { ["path": $0] }
+        switch error {
+        case .fileNotFound:
+            return .err(
+                code: "file_not_found",
+                message: String(
+                    localized: "mobile.chat.artifact.error.fileNotFound",
+                    defaultValue: "That file is no longer available on the Mac."
+                ),
+                data: data
+            )
+        case .permissionDenied:
+            return .err(
+                code: "permission_denied",
+                message: String(
+                    localized: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "cmux does not have permission to read that file."
+                ),
+                data: data
+            )
+        case .notDirectory:
+            return .err(
+                code: "not_directory",
+                message: String(
+                    localized: "mobile.chat.artifact.error.notDirectory",
+                    defaultValue: "That path is not a folder."
+                ),
+                data: data
+            )
+        case .notRegularFile:
+            return .err(
+                code: "not_regular_file",
+                message: String(
+                    localized: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "That path is not a regular file."
+                ),
+                data: data
+            )
+        case .unsupportedMedia:
+            return .err(
+                code: "unsupported_media",
+                message: String(
+                    localized: "mobile.chat.artifact.error.unsupportedMedia",
+                    defaultValue: "This file type cannot be previewed."
+                ),
+                data: data
+            )
+        case .corruptMedia:
+            return .err(
+                code: "corrupt_media",
+                message: String(
+                    localized: "mobile.chat.artifact.error.corruptMedia",
+                    defaultValue: "The file contains invalid or damaged media data."
+                ),
+                data: data
+            )
+        case .previewFailed:
+            return .err(
+                code: "preview_failed",
+                message: String(
+                    localized: "mobile.chat.artifact.error.previewFailed",
+                    defaultValue: "The Mac could not create a preview for that file."
+                ),
+                data: data
+            )
+        case .readFailed:
+            return .err(
+                code: "read_failed",
+                message: String(
+                    localized: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac found that file but could not read it."
+                ),
+                data: data
+            )
+        }
+    }
 }
 
 private struct ChatArtifactWire {
-    static func payload<T: Encodable>(_ value: T) -> [String: Any]? {
+    static func result<T: Encodable>(_ value: T) -> TerminalController.V2CallResult {
         let coding = ChatWireCoding()
         guard let data = try? coding.encode(value),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+            return .err(
+                code: "internal_error",
+                message: "Failed to encode chat artifact response",
+                data: nil
+            )
         }
-        return object
+        return .ok(object)
     }
 }

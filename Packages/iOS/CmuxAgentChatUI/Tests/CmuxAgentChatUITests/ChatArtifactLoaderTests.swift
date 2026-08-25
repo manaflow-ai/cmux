@@ -40,6 +40,75 @@ struct ChatArtifactLoaderTests {
         #expect(await source.thumbnailRequestCount() == 2)
     }
 
+    @Test func sourceIdentityIsRetainedForConnectionReplacement() {
+        let loader = ChatArtifactLoader(
+            source: CountingArtifactSource(),
+            sessionID: "session-1",
+            sourceIdentity: "source-1"
+        )
+
+        #expect(loader.sourceIdentity == "source-1")
+    }
+
+    @Test func sourceIdentitySeparatesThumbnailAndContentCaches() async throws {
+        let thumbnailCache = ChatArtifactThumbnailCache()
+        let firstSource = CountingArtifactSource(thumbnailData: Data([1]))
+        let secondSource = CountingArtifactSource(thumbnailData: Data([2]))
+        let firstLoader = ChatArtifactLoader(
+            source: firstSource,
+            sessionID: "session-1",
+            sourceIdentity: "source-1",
+            cache: thumbnailCache
+        )
+        let secondLoader = ChatArtifactLoader(
+            source: secondSource,
+            sessionID: "session-1",
+            sourceIdentity: "source-2",
+            cache: thumbnailCache
+        )
+
+        let firstThumbnail = try await firstLoader.thumbnail(
+            path: "/tmp/image.png",
+            maxDimension: 256
+        )
+        let secondThumbnail = try await secondLoader.thumbnail(
+            path: "/tmp/image.png",
+            maxDimension: 256
+        )
+
+        #expect(firstThumbnail.data == Data([1]))
+        #expect(secondThumbnail.data == Data([2]))
+        #expect(await firstSource.thumbnailRequestCount() == 1)
+        #expect(await secondSource.thumbnailRequestCount() == 1)
+
+        let contentDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-source-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: contentDirectory) }
+        let firstContent = Data("first".utf8)
+        let secondContent = Data("other".utf8)
+        let firstContentLoader = makeContentLoader(
+            sourceIdentity: "source-1",
+            contentCache: ChatArtifactContentCache(directory: contentDirectory),
+            data: firstContent
+        )
+        let secondContentLoader = makeContentLoader(
+            sourceIdentity: "source-2",
+            contentCache: ChatArtifactContentCache(directory: contentDirectory),
+            data: secondContent
+        )
+
+        let firstBytes = try await streamedBytes(
+            from: firstContentLoader,
+            size: Int64(firstContent.count)
+        )
+        let secondBytes = try await streamedBytes(
+            from: secondContentLoader,
+            size: Int64(secondContent.count)
+        )
+        #expect(firstBytes == firstContent)
+        #expect(secondBytes == secondContent)
+    }
+
     @Test func terminalScopeUsesDistinctCacheAndRoutesToTerminalClosures() async throws {
         let cache = ChatArtifactThumbnailCache()
         let chatSource = CountingArtifactSource()
@@ -122,13 +191,88 @@ struct ChatArtifactLoaderTests {
         #expect(result.reference == ".cmux/codex-session-1/artifacts/plan.md")
         #expect(await source.lastSaveRequest() == "session-1:/tmp/plan.md")
     }
+
+    @Test func panelScopeResolvesBytesAndPinsDirectoryBrowsingOff() async throws {
+        let source = CountingTerminalArtifactSource()
+        let loader = ChatArtifactLoader(
+            panelWorkspaceID: "workspace-1",
+            panelSurfaceID: "surface-1",
+            supportsArtifacts: true,
+            stat: { path in try await source.stat(path: path) },
+            fetch: { path, progress in try await source.fetch(path: path, progress: progress) },
+            thumbnail: { path, dimension in
+                try await source.thumbnail(path: path, maxDimension: dimension)
+            }
+        )
+
+        #expect(loader.scope == .panel(workspaceID: "workspace-1", surfaceID: "surface-1"))
+        #expect(loader.supportsArtifacts)
+        #expect(!loader.supportsDirectoryBrowsing)
+        #expect(try await loader.fetch(path: "/tmp/panel.md") == Data([4, 5, 6]))
+        #expect(try await loader.stat(path: "/tmp/panel.md").kind == .image)
+        await #expect(throws: ChatArtifactError.unsupported) {
+            try await loader.list(path: "/tmp")
+        }
+    }
+}
+
+private func makeContentLoader(
+    sourceIdentity: String,
+    contentCache: ChatArtifactContentCache,
+    data: Data
+) -> ChatArtifactLoader {
+    ChatArtifactLoader(
+        supportsArtifacts: true,
+        scope: .chat(sessionID: "session-1"),
+        sourceIdentity: sourceIdentity,
+        contentCache: contentCache,
+        stream: { _, receive in
+            try await receive(ChatArtifactChunk(
+                data: data,
+                offset: 0,
+                totalSize: Int64(data.count),
+                eof: true
+            ))
+        }
+    )
+}
+
+private func streamedBytes(
+    from loader: ChatArtifactLoader,
+    size: Int64
+) async throws -> Data {
+    let accumulator = DataAccumulator()
+    try await loader.stream(
+        path: "/tmp/image.txt",
+        modifiedAt: Date(timeIntervalSince1970: 1),
+        size: size,
+        onChunk: { chunk in await accumulator.append(chunk.data) }
+    )
+    return await accumulator.data()
+}
+
+private actor DataAccumulator {
+    private var value = Data()
+
+    func append(_ data: Data) {
+        value.append(data)
+    }
+
+    func data() -> Data {
+        value
+    }
 }
 
 private actor CountingArtifactSource: ChatEventSource {
     nonisolated let supportsArtifacts = true
     nonisolated let supportsArtifactSave = true
+    private let thumbnailData: Data
     private var requests = 0
     private var saveRequest: String?
+
+    init(thumbnailData: Data = Data([1, 2, 3])) {
+        self.thumbnailData = thumbnailData
+    }
 
     func thumbnailRequestCount() -> Int {
         requests
@@ -178,7 +322,7 @@ private actor CountingArtifactSource: ChatEventSource {
         maxDimension: Int
     ) async throws -> ChatArtifactThumbnail {
         requests += 1
-        return ChatArtifactThumbnail(data: Data([1, 2, 3]), pixelWidth: maxDimension, pixelHeight: maxDimension)
+        return ChatArtifactThumbnail(data: thumbnailData, pixelWidth: maxDimension, pixelHeight: maxDimension)
     }
 
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {

@@ -1,6 +1,6 @@
 # Build a cmux-tui Frontend
 
-This guide covers the private protocol-v10 frontend interface. Applications
+This guide covers the private protocol-v12 frontend interface. Applications
 and extensions should use [`cmux.protocol/2`](resource-api-v2.md) and its typed
 terminal, browser, sidebar, and session streams.
 
@@ -24,16 +24,16 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 10` before enabling protocol-v10 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 12` before enabling protocol-v12 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
-{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"]}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
+{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"]}
 {"id":2,"ok":true,"data":{}}
 ```
 
-Require `protocol == 10` for the complete flow in this guide, including per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
+Require `protocol == 12` for the complete flow in this guide, including lifecycle readiness, terminal lifecycle results, and per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
 
 Echo every optional capability the frontend will use through
 `set-client-info`. Capability state belongs to this connection. Lease-capable
@@ -50,7 +50,7 @@ session resource, not a child of a workspace or tab. One terminal may appear
 in any number of tabs or frontend projection nodes at once. Closing a tab,
 pane, screen, workspace, window, or frontend connection only removes that
 view. Only [`close-terminal`](commands.md#close-terminal) terminates and
-tombstones the terminal on protocol v10. The public resource API names the
+tombstones the terminal on protocol v11. The public resource API names the
 same lifecycle operation `terminal.close`.
 
 The server workspace/screen/pane/tab tree is one durable shared projection.
@@ -120,7 +120,7 @@ render-state -> (render-delta | scroll-changed)* -> detached
 
 The initial snapshot and render tap are registered under one lock, so there is no missing or duplicated frame between them. Attach events may arrive before the attach command response.
 
-Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v10, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v11, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
 `render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow. Merge pages and project absolute graphics anchors only when the page `epoch` equals the render `history_epoch`; suppress graphics and reload the page after a mismatch.
 
@@ -161,7 +161,7 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}
