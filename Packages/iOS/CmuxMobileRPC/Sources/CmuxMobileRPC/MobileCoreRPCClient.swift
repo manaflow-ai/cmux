@@ -30,6 +30,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public var attachTicket: CmxAttachTicket { ticket }
     /// The mode captured when this client's physical transport was created.
     public var transportMode: CmxTransportMode { transportRequest.transportMode }
+    /// The complete Direct-mode path allowlist captured for this client.
+    public var irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? {
+        transportRequest.irohDirectOnlyDialCandidates
+    }
     /// Whether this session is bound to an exact Tailscale endpoint the user
     /// authorized locally, rather than an endpoint learned through discovery.
     public var usesLocallyAuthorizedTailscaleRoute: Bool {

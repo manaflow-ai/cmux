@@ -615,13 +615,19 @@ public actor CmxConnectivityEngine {
             buildSession: { request in
                 let endpoint = try await supervisor.activeEndpoint()
                 let context = try await contextProvider.context(for: request)
+                // The request is the policy authority. A stale/default mode
+                // returned by a context provider must not widen a pinned dial
+                // before the session validates its plan.
+                try CmxTransportModePolicy(request.transportMode).validate(
+                    irohDialPlan: context.dialPlan
+                )
                 let session = try CmxIrohClientSession(
                     endpoint: endpoint,
                     targetIdentity: peerID.identity,
                     dialPlan: context.dialPlan,
                     credential: context.credential,
                     privateFallbackAuthorization: context.privateFallbackAuthorization,
-                    transportMode: context.transportMode,
+                    transportMode: request.transportMode,
                     privateFallbackValidator: contextProvider,
                     privateFallbackContextProvider: {
                         try await contextProvider.contextWithPrivateFallback(

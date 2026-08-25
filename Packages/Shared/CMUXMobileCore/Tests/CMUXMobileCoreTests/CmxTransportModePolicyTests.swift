@@ -186,6 +186,27 @@ struct CmxTransportModePolicyTests {
         }
     }
 
+    @Test("Direct mode rejects relay paths and only allows direct attribution")
+    func directModeIsRelayFree() throws {
+        let relay = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://relay.example/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let relayPlan = CmxIrohDialPlan(
+            publicPaths: [relay],
+            privateFallbackPaths: []
+        )
+        let directPolicy = CmxTransportModePolicy(.direct)
+        #expect(directPolicy.irohDialPlan(relayPlan).publicPaths.isEmpty)
+        #expect(throws: CmxTransportModeError.self) {
+            try directPolicy.validate(irohDialPlan: relayPlan)
+        }
+        #expect(directPolicy.allows(path: .irohDirect))
+        #expect(!directPolicy.allows(path: .irohRelay(region: "us-east")))
+    }
+
     @Test("legacy Direct mode fails closed without an explicit allowlist")
     func directModeRequiresCandidates() throws {
         let request = CmxByteTransportRequest(

@@ -349,6 +349,9 @@ public actor CmxIrohClientSession {
                           fallbackContext.dialPlan.publicPaths == dialPlan.publicPaths else {
                         throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
                     }
+                    try CmxTransportModePolicy(transportMode).validate(
+                        irohDialPlan: fallbackContext.dialPlan
+                    )
                 } else {
                     fallbackContext = CmxIrohClientContext(
                         dialPlan: dialPlan,

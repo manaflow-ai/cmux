@@ -233,6 +233,28 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
+            // Preserve the released-client Tailscale grammar whenever one is
+            // available, even when the authenticated ticket also carries Iroh
+            // and LAN routes. The compact fallback cannot be decoded by old
+            // clients after the `.lan` route kind was introduced.
+            if let pairingURL = tailscaleCompatibilityAttachURL(
+                for: ticket,
+                pairingURLScheme: pairingURLScheme
+            ) {
+                return pairingURL
+            }
+            // A current client can bootstrap LAN Only from an identity-only
+            // Iroh code; the broker supplies the LAN path inside encrypted Iroh.
+            if ticket.routes.contains(where: { $0.kind == .iroh }),
+               ticket.routes.contains(where: { $0.kind == .lan }),
+               let pairingURL = CmxPairingQRCode().encode(
+                   ticket,
+                   routeDisclosureMode: .irohIdentityOnly,
+                   pairingURLScheme: pairingURLScheme
+               ),
+               let url = URL(string: pairingURL) {
+                return url
+            }
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
                     ticket,

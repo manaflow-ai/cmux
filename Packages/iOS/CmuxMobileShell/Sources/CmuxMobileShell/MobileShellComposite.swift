@@ -5632,6 +5632,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     establishmentOutcome: nil
                 )
             }
+            let desiredMode = connectionMethod(for: mac).transportMode
+            let desiredDirectCandidates = irohMethodPinnedDialCandidates(
+                forMacDeviceID: mac.macDeviceID,
+                instanceTag: mac.instanceTag,
+                knownPairing: mac
+            )
+            guard existing.client.transportMode == desiredMode,
+                  existing.client.irohDirectOnlyDialCandidates
+                    == desiredDirectCandidates else {
+                // A persisted mode or Direct allowlist change is a physical
+                // transport policy change, not a workspace refresh. Drain the
+                // old owner so the retry path establishes a client with the new
+                // immutable request instead of reusing stale policy.
+                await retireSecondaryControlOwner(
+                    existing,
+                    shouldRetry: allowsNewConnections
+                )
+                return SecondaryMacReconciliationResult(
+                    macDeviceID: mac.macDeviceID,
+                    establishmentOutcome: nil
+                )
+            }
             let refresh = enqueueSecondaryWorkspaceRefresh(
                 existing,
                 displayName: mac.displayName,

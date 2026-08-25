@@ -267,8 +267,15 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// hints inside the encrypted Iroh session; Tailscale never rides Iroh.
     public func irohDialPlan(_ plan: CmxIrohDialPlan) -> CmxIrohDialPlan {
         switch mode {
-        case .automatic, .direct:
+        case .automatic:
             return plan
+        case .direct:
+            return CmxIrohDialPlan(
+                publicPaths: plan.publicPaths.filter {
+                    $0.kind == .directAddress
+                },
+                privateFallbackPaths: []
+            )
         case .iroh:
             // Iroh-only still permits Iroh's native direct/relay phases.  The
             // path-hint filter above has already removed provider-attributed
@@ -311,8 +318,16 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// this second check protects direct callers and reconnect races.
     public func validate(irohDialPlan plan: CmxIrohDialPlan) throws {
         switch mode {
-        case .automatic, .direct:
+        case .automatic:
             return
+        case .direct:
+            guard plan.privateFallbackPaths.isEmpty,
+                  plan.publicPaths.allSatisfy({ $0.kind == .directAddress }) else {
+                throw CmxTransportModeError.routeClassMismatch(
+                    expected: .iroh,
+                    actual: .iroh
+                )
+            }
         case .iroh:
             let hints = plan.publicPaths + plan.privateFallbackPaths
             guard let nonNative = hints.first(where: { $0.source != .native }) else {
@@ -345,6 +360,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
 
     /// Returns whether a live path is permitted by this mode.
     public func allows(path: CmxTransportPath) -> Bool {
+        if mode == .direct {
+            return path == .irohDirect
+        }
         guard let required = mode.pinnedClass else { return true }
         return path.transportClass == required
     }

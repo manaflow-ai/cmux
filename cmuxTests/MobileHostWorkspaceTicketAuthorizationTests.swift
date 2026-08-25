@@ -35,6 +35,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
+    private func lanRoute(
+        id: String = "lan",
+        host: String = "192.168.1.10",
+        priority: Int = 5
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .lan,
+            endpoint: .hostPort(host: host, port: 58465),
+            priority: priority
+        )
+    }
+
     private func irohRoute(withPathHint: Bool = true) throws -> CmxAttachRoute {
         let pathHints = if withPathHint {
             [
@@ -177,6 +190,34 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "2")
         #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == false)
         #expect(try CmxPairingQRCode().decode(components).routes == ticket.routes)
+    }
+
+    @Test func physicalDeviceMixedIrohAndLANUsesIdentityOnlyIrohCode() throws {
+        let store = MobileAttachTicketStore()
+        let iroh = try irohRoute()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [iroh, try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=3&i="))
+        #expect(!attachURL.contains("payload="))
+        #expect(!attachURL.contains("192.168.1.10"))
+
+        let components = try #require(URLComponents(string: attachURL))
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .iroh)
+        guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
+            Issue.record("Expected an identity-only Iroh route")
+            return
+        }
+        #expect(identity.endpointID == endpointID)
+        #expect(pathHints.isEmpty)
     }
 
     @Test func physicalDeviceCanonicalizesFilteredSecondaryRouteForV2() throws {
