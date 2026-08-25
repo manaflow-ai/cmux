@@ -8,7 +8,7 @@ struct CmuxConfigValidationIssue: Equatable, Sendable, CustomStringConvertible {
     let message: String
 
     var description: String {
-        "(path): (message)"
+        path + ": " + message
     }
 }
 
