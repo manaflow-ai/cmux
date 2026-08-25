@@ -261,13 +261,15 @@ struct AgentHookNotificationPolicyTests {
     }
 
     @Test func cursorCommandPreviewRedactsHeaderAndFlagCredentials() {
-        let command = "curl -H 'X-Api-Key: shortsecret' --api-key shortsecret --token shorttoken AWS_SECRET_ACCESS_KEY=abc123 -u alice:s3cr3t"
+        let command = "curl -H 'X-Api-Key: shortsecret' --api-key shortsecret --token shorttoken AWS_SECRET_ACCESS_KEY=abc123 -u alice:s3cr3t redis-cli -a s3cr3t mysql -psecret openssl -pass pass:hunter2"
         let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(command)
 
         #expect(!redacted.contains("shortsecret"))
         #expect(!redacted.contains("shorttoken"))
         #expect(!redacted.contains("abc123"))
         #expect(!redacted.contains("alice:s3cr3t"))
+        #expect(!redacted.contains("s3cr3t"))
+        #expect(!redacted.contains("hunter2"))
         #expect(redacted.contains("<credential>:<token>"))
         #expect(redacted.contains("<credential>=<token>"))
     }

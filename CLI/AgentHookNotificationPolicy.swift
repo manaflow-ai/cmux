@@ -263,7 +263,8 @@ enum AgentHookNotificationPolicy {
         // rather than manufacturing an uncorrelatable Needs input state.
         guard approvalMode == "allowlist",
               let command = payload?["command"] as? String,
-              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              command.count <= 8_192 else {
             return false
         }
         guard !deniedShellCommands.contains(where: {
@@ -281,7 +282,7 @@ enum AgentHookNotificationPolicy {
         command: String
     ) -> Bool {
         let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedEntry.count >= 7,
+        guard trimmedEntry.count >= 7, trimmedEntry.count <= 512,
               trimmedEntry.range(
                   of: #"^Shell\("#,
                   options: [.regularExpression, .caseInsensitive]
@@ -328,19 +329,37 @@ enum AgentHookNotificationPolicy {
     }
 
     private static func globMatches(_ pattern: String, value: String) -> Bool {
-        var regex = "^"
-        for scalar in pattern.unicodeScalars {
-            switch scalar {
-            case "*":
-                regex += ".*"
-            case "?":
-                regex += "."
-            default:
-                regex += NSRegularExpression.escapedPattern(for: String(scalar))
+        guard pattern.count <= 512, value.count <= 8_192 else { return false }
+        let patternScalars = Array(pattern.unicodeScalars)
+        let valueScalars = Array(value.unicodeScalars)
+        var patternIndex = 0
+        var valueIndex = 0
+        var lastStarIndex: Int?
+        var valueAtLastStar = 0
+
+        while valueIndex < valueScalars.count {
+            if patternIndex < patternScalars.count,
+               (patternScalars[patternIndex] == valueScalars[valueIndex]
+                || patternScalars[patternIndex] == "?") {
+                patternIndex += 1
+                valueIndex += 1
+            } else if patternIndex < patternScalars.count,
+                      patternScalars[patternIndex] == "*" {
+                lastStarIndex = patternIndex
+                valueAtLastStar = valueIndex
+                patternIndex += 1
+            } else if let lastStarIndex {
+                patternIndex = lastStarIndex + 1
+                valueAtLastStar += 1
+                valueIndex = valueAtLastStar
+            } else {
+                return false
             }
         }
-        regex += "$"
-        return value.range(of: regex, options: .regularExpression) != nil
+        while patternIndex < patternScalars.count, patternScalars[patternIndex] == "*" {
+            patternIndex += 1
+        }
+        return patternIndex == patternScalars.count
     }
 
     /// Redacts credentials before a command reaches durable hook state or UI.
@@ -355,6 +374,7 @@ enum AgentHookNotificationPolicy {
             (#"(?i)\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*:\s*(?:Bearer\s+)?(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>:<token>"),
             (#"(?i)--?(?:api[-_]?key|password|secret|token|authorization|cookie)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>=<token>"),
             (#"(?i)(?:^|\s)(?:-u|--user)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)(?:^|\s)(?:-a|-p|-pass|--pass|--password|--auth|--credential)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
             (#"(?i)\b[A-Za-z_]*(?:api[_-]?key|password|secret|token|authorization|cookie)[A-Za-z0-9_]*\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s;&|]+)"#, "<credential>=<token>"),
             (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
             (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),

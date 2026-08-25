@@ -2025,7 +2025,7 @@ final class ClaudeHookSessionStore {
             l_type: Int16(F_WRLCK),
             l_whence: Int16(SEEK_SET)
         )
-        let deadline = Date.now.addingTimeInterval(1.0)
+        let deadline = Date.now.addingTimeInterval(3.0)
         while Darwin.fcntl(fd, F_SETLK, &lock) != 0 {
             guard errno == EACCES || errno == EAGAIN, Date.now < deadline else {
                 Darwin.close(fd)
@@ -32289,11 +32289,11 @@ export default CMUXSessionRestore;
                 }
                 if let permissions = json["permissions"] as? [String: Any],
                    let allowed = permissions["allow"] as? [String] {
-                    allowedShellCommands = allowed
+                    allowedShellCommands = Array(allowed.prefix(128))
                 }
                 if let permissions = json["permissions"] as? [String: Any],
                    let denied = permissions["deny"] as? [String] {
-                    deniedShellCommands = denied
+                    deniedShellCommands = Array(denied.prefix(128))
                 }
             }
 
@@ -32417,7 +32417,7 @@ export default CMUXSessionRestore;
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
-        let cursorCriticalResponseTimeout: TimeInterval = 0.75
+        let cursorCriticalResponseTimeout: TimeInterval = 0.35
         var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
         defer { cursorLifecycleLease?.release() }
         func acquireCursorLifecycleLease() -> Bool {
