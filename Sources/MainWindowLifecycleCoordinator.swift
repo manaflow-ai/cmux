@@ -17,7 +17,7 @@ final class MainWindowLifecycleCoordinator {
     private(set) var persistenceTopologyRevision: UInt64 = 0
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesTask:
-        Task<ProcessDetectedResumeIndexes, Never>?
+        Task<ProcessDetectedResumeIndexes?, Never>?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesBindings:
         [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
@@ -40,7 +40,7 @@ final class MainWindowLifecycleCoordinator {
         loader: @escaping @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
         ) async -> ProcessDetectedResumeIndexes
-    ) async -> ProcessDetectedResumeIndexes {
+    ) async -> ProcessDetectedResumeIndexes? {
         for (key, device) in ttyDeviceBindings where
             windowlessRecoveryResumeIndexesBindings[key] == nil {
             windowlessRecoveryResumeIndexesBindings[key] = device
@@ -52,7 +52,7 @@ final class MainWindowLifecycleCoordinator {
 
         let task = Task { @MainActor [weak self] in
             guard let self else {
-                return .cached(restorableAgentIndex: .empty)
+                return nil
             }
             return await self.runWindowlessRecoveryResumeIndexesLoad(loader: loader)
         }
@@ -64,8 +64,13 @@ final class MainWindowLifecycleCoordinator {
         loader: @escaping @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
         ) async -> ProcessDetectedResumeIndexes
-    ) async -> ProcessDetectedResumeIndexes {
-        while !Task.isCancelled {
+    ) async -> ProcessDetectedResumeIndexes? {
+        // One retry captures bindings that arrive while the first scan is off-main;
+        // persistent churn fails closed instead of keeping a prune alive forever.
+        let maximumAttempts = 2
+        var attempts = 0
+        while !Task.isCancelled && attempts < maximumAttempts {
+            attempts += 1
             let scanGeneration = windowlessRecoveryResumeIndexesGeneration
             let scanBindings = windowlessRecoveryResumeIndexesBindings
             let indexes = await loader(scanBindings)
@@ -78,7 +83,7 @@ final class MainWindowLifecycleCoordinator {
             return indexes
         }
 
-        return .cached(restorableAgentIndex: .empty)
+        return nil
     }
 
     /// Cancels a pending detection once no live windowless orphan still needs it.
@@ -202,6 +207,7 @@ final class MainWindowLifecycleCoordinator {
             return false
         }
         registeredContextsByLookupKey.removeValue(forKey: lookupKey)
+        record.order = issueOrder()
         record.phase = .orphaned(route)
         recordsByWindowId[context.windowId] = record
         trimFrozenOrphanRecordsToLimit()

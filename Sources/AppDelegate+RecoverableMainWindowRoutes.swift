@@ -226,7 +226,7 @@ extension AppDelegate {
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
-                    await ProcessDetectedResumeIndexes.load(
+                    await ProcessDetectedResumeIndexes.loadFresh(
                         ttyDeviceBindings: bindings
                     )
                 }
@@ -237,12 +237,13 @@ extension AppDelegate {
                   self.windowForMainWindowId(route.windowId) == nil else {
                 return
             }
+            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex ?? .empty
             self.freezeWindowlessRecoverableMainWindowRoute(
                 route,
-                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: ttyDeviceBindings.isEmpty
                     ? nil
-                    : resumeIndexes.surfaceResumeBindingIndex
+                    : resumeIndexes?.surfaceResumeBindingIndex
             )
         }
     }

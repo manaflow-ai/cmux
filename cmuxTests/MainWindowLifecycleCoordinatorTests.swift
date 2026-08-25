@@ -259,6 +259,31 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[3], windowIds[2]])
     }
 
+    @Test("Frozen orphan retention follows orphaning order")
+    func frozenOrphanRetentionFollowsOrphaningOrder() {
+        let coordinator = MainWindowLifecycleCoordinator(maximumFrozenOrphanRecords: 2)
+        let windowIds = (0..<3).map { _ in UUID() }
+        let managers = windowIds.map { _ in TabManager(autoWelcomeIfNeeded: false) }
+        defer { managers.forEach { tearDown($0) } }
+
+        let contexts = zip(windowIds, managers).map { windowId, manager in
+            makeContext(windowId: windowId, manager: manager)
+        }
+        for (context, manager) in zip(contexts, managers) {
+            coordinator.register(context, lookupKey: ObjectIdentifier(manager))
+        }
+
+        for index in [2, 0, 1] {
+            let route = RecoverableMainWindowRoute(
+                windowId: windowIds[index],
+                frozenWindowSnapshot: emptyWindowSnapshot(windowId: windowIds[index])
+            )
+            #expect(coordinator.transitionToOrphaned(route, from: contexts[index]))
+        }
+
+        #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[1], windowIds[0]])
+    }
+
     @Test("Windowless recovery detection is coalesced and canceled when unused")
     func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
         let coordinator = MainWindowLifecycleCoordinator()
