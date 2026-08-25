@@ -20,7 +20,7 @@ final class MainWindowLifecycleCoordinator {
         Task<ProcessDetectedResumeIndexes?, Never>?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesWorkerTask:
-        Task<ProcessDetectedResumeIndexes, Never>?
+        (token: UUID, task: Task<Void, Never>)?
     @ObservationIgnored
     private var windowlessRouteFreezeTasks:
         [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
@@ -36,7 +36,7 @@ final class MainWindowLifecycleCoordinator {
     deinit {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
         windowlessRecoveryResumeIndexesTask?.cancel()
-        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
+        windowlessRecoveryResumeIndexesWorkerTask?.task.cancel()
     }
 
     init(
@@ -60,8 +60,10 @@ final class MainWindowLifecycleCoordinator {
         ) async -> ProcessDetectedResumeIndexes?
     ) async -> ProcessDetectedResumeIndexes? {
         if let workerTask = windowlessRecoveryResumeIndexesWorkerTask {
-            _ = await workerTask.value
-            windowlessRecoveryResumeIndexesWorkerTask = nil
+            _ = await workerTask.task.value
+            if windowlessRecoveryResumeIndexesWorkerTask?.token == workerTask.token {
+                windowlessRecoveryResumeIndexesWorkerTask = nil
+            }
             guard !Task.isCancelled else { return nil }
         }
         for (key, device) in ttyDeviceBindings where
@@ -142,7 +144,7 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesGeneration &+= 1
         windowlessRecoveryResumeIndexesTask?.cancel()
         windowlessRecoveryResumeIndexesTask = nil
-        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
+        windowlessRecoveryResumeIndexesWorkerTask?.task.cancel()
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
         windowlessRecoveryTTYDeviceBindings = nil
     }
@@ -155,7 +157,16 @@ final class MainWindowLifecycleCoordinator {
         _ task: Task<ProcessDetectedResumeIndexes, Never>
     ) {
         guard windowlessRecoveryResumeIndexesWorkerTask == nil else { return }
-        windowlessRecoveryResumeIndexesWorkerTask = task
+        let token = UUID()
+        let completionTask = Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self else { return }
+            guard self.windowlessRecoveryResumeIndexesWorkerTask?.token == token else {
+                return
+            }
+            self.windowlessRecoveryResumeIndexesWorkerTask = nil
+        }
+        windowlessRecoveryResumeIndexesWorkerTask = (token: token, task: completionTask)
     }
 
     /// Owns one deferred freeze task until it completes or its route leaves recovery.
@@ -191,7 +202,7 @@ final class MainWindowLifecycleCoordinator {
         windowlessRouteFreezeTasks.removeAll(keepingCapacity: false)
         windowlessRecoveryResumeIndexesTask?.cancel()
         windowlessRecoveryResumeIndexesTask = nil
-        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
+        windowlessRecoveryResumeIndexesWorkerTask?.task.cancel()
     }
 
     /// Indicates whether a windowless route is within the caller's bounded orphan set.
