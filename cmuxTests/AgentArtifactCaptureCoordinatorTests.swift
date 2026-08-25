@@ -329,6 +329,84 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     @MainActor
+    @Test func lateAuthorizedToolUpdateSchedulesDebouncedCapture() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = UUID().uuidString
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(
+                    store: OutOfOrderCaptureStore(suspendsFirstImport: false)
+                )
+            )
+        )
+        let updatedTool = ChatMessage(
+            id: "apply-patch",
+            seq: 4,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 4),
+            kind: .toolUse(ChatToolUse(
+                toolName: "apply_patch",
+                summary: "apply_patch plan.md",
+                status: .succeeded,
+                referencedPaths: [projectRoot.appendingPathComponent("plan.md").path],
+                artifactMutationAuthorized: true
+            ))
+        )
+
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [],
+                updated: [updatedTool],
+                discoveredTitle: nil
+            ),
+            sessionID: sessionID
+        )
+
+        #expect(service.artifactCaptureDebounceTasks[sessionID] != nil)
+        #expect(service.artifactCaptureTasks[sessionID] == nil)
+    }
+
+    @MainActor
+    @Test func deinitCancelsActiveAutomaticCaptureTask() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore()
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let indexed = snapshot(
+            revision: 1,
+            path: projectRoot.appendingPathComponent("plan.md").path
+        )
+        var service: AgentChatTranscriptService? = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: coordinator
+        )
+        service?.scheduleIndexedArtifactCapture(record: record, snapshot: indexed)
+        let captureTask = try #require(service?.artifactCaptureTasks[record.sessionID]?.task)
+        await store.waitUntilFirstImportStarts()
+        service = nil
+
+        #expect(captureTask.isCancelled)
+        await store.releaseFirstImport()
+        await captureTask.value
+    }
+
+    @MainActor
     @Test func completedTranscriptTurnsCaptureWithoutMobileSubscribers() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

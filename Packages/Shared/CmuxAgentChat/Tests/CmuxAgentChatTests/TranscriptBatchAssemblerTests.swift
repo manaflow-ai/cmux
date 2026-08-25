@@ -45,4 +45,50 @@ import Testing
         let state = assembler.result(lastTimestamp: nil).state
         #expect(state.pendingToolUses.count == 10)
     }
+
+    @Test("pending artifact mutation references are bounded by count")
+    func pendingArtifactMutationReferenceCountBounded() {
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(),
+            budget: TranscriptTextBudget()
+        )
+        for key in 0..<2_000 {
+            assembler.registerArtifactMutation(
+                paths: ["/tmp/artifact-\(key).md"],
+                pendingKey: "mutation-\(key)",
+                seq: key
+            )
+        }
+
+        let pending = assembler.result(lastTimestamp: nil).state.pendingArtifactMutations
+        let referenceCount = pending.values.reduce(0) { $0 + $1.count }
+
+        #expect(referenceCount <= 1_024)
+        #expect(pending["mutation-1_999"] != nil)
+        #expect(pending["mutation-0"] == nil)
+    }
+
+    @Test("pending artifact mutation references are bounded by UTF-8 bytes")
+    func pendingArtifactMutationBytesBounded() {
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(),
+            budget: TranscriptTextBudget()
+        )
+        let pathPrefix = "/tmp/" + String(repeating: "x", count: 1_000)
+        for key in 0..<400 {
+            let paths = (0..<8).map { "\(pathPrefix)-\(key)-\($0).md" }
+            assembler.registerArtifactMutation(
+                paths: paths,
+                pendingKey: "mutation-\(key)",
+                seq: key
+            )
+        }
+
+        let pending = assembler.result(lastTimestamp: nil).state.pendingArtifactMutations
+        let byteCount = pending.values
+            .flatMap { $0 }
+            .reduce(0) { $0 + $1.path.utf8.count }
+
+        #expect(byteCount <= 256 * 1_024)
+    }
 }
