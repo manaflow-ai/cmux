@@ -24,6 +24,13 @@ extension CMUXCLI {
         autoNamingSource(for: def) == .hookMessageCache
     }
 
+    /// Returns whether a session has stored auto-naming state that can be
+    /// replayed without generating a new title. Manual workspaces use this
+    /// guard to avoid reading their transcript when there is nothing to repair.
+    func hasReplayableAutoNamingState(_ session: ClaudeHookSessionRecord?) -> Bool {
+        session?.autoNameLastTitle != nil || session?.autoNameInFlightAt != nil
+    }
+
     /// A manual workspace suppresses new title generation, but a stored auto
     /// title still needs the detached pass for transcript-shrink reconciliation
     /// and independently auto-owned panel repair.
@@ -33,7 +40,7 @@ extension CMUXCLI {
     ) -> Bool {
         guard probe["enabled"] as? Bool == true else { return false }
         guard probe["workspace_user_owned"] as? Bool == true else { return true }
-        return session?.autoNameLastTitle != nil
+        return hasReplayableAutoNamingState(session)
     }
 
     func autoNamingMessages(
@@ -84,6 +91,10 @@ extension CMUXCLI {
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
+            return
+        }
+        if workspaceUserOwned, !hasReplayableAutoNamingState(mapped) {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.user-owned-no-replay")
             return
         }
 
@@ -285,6 +296,10 @@ extension CMUXCLI {
             engine: engine,
             allowNewTitleGeneration: allowSummarization
         ) else { return }
+        if outcome.reconciliationExhausted {
+            telemetry.breadcrumb("\(telemetryKey).reconcile-exhausted")
+            return
+        }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
             let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
