@@ -21,6 +21,10 @@ final class FileContentChangeCoordinator {
         watcher: FileWatcher?,
         task: Task<Void, Never>?
     )
+    private typealias Observation = (
+        canonicalPath: String,
+        watchedPath: String
+    )
 
     /// Private storage for one canonical path; it has no independent lifecycle
     /// or consumer, so keeping it nested preserves the coordinator's ownership
@@ -35,7 +39,7 @@ final class FileContentChangeCoordinator {
 
     private let makeFileWatcher: FileWatcherFactory
     private var entriesByPath: [String: Entry] = [:]
-    private var pathsByObservationID: [UUID: String] = [:]
+    private var observationsByID: [UUID: Observation] = [:]
 
     init(
         makeFileWatcher: @escaping FileWatcherFactory = { path in
@@ -78,7 +82,10 @@ final class FileContentChangeCoordinator {
         }
         entry.observers[observationID] = onChange
         entriesByPath[canonicalPath] = entry
-        pathsByObservationID[observationID] = canonicalPath
+        observationsByID[observationID] = (
+            canonicalPath: canonicalPath,
+            watchedPath: watchedPath
+        )
 
         // Close the capture/attachment gap: the first fingerprint is sampled
         // before watcher construction and this second sample happens after the
@@ -94,20 +101,38 @@ final class FileContentChangeCoordinator {
     }
 
     func removeObservation(_ observationID: UUID) {
-        guard let canonicalPath = pathsByObservationID.removeValue(
-            forKey: observationID
-        ), var entry = entriesByPath[canonicalPath] else {
+        guard let observation = observationsByID.removeValue(forKey: observationID),
+              var entry = entriesByPath[observation.canonicalPath] else {
             return
         }
         entry.observers.removeValue(forKey: observationID)
-        guard entry.observers.isEmpty else {
-            entriesByPath[canonicalPath] = entry
+        guard !entry.observers.isEmpty else {
+            entriesByPath.removeValue(forKey: observation.canonicalPath)
+            for registration in entry.watches.values {
+                registration.task?.cancel()
+            }
             return
         }
-        entriesByPath.removeValue(forKey: canonicalPath)
-        for registration in entry.watches.values {
-            registration.task?.cancel()
+
+        let remainingWatchedPaths = Set(
+            observationsByID.values
+                .filter { $0.canonicalPath == observation.canonicalPath }
+                .map { $0.watchedPath }
+        )
+        var requiredWatchPaths = remainingWatchedPaths
+        if remainingWatchedPaths.contains(where: { $0 != observation.canonicalPath }) {
+            // Alias observers need the stable target watcher so a retargeted
+            // alias cannot strand panels still showing the original inode.
+            requiredWatchPaths.insert(observation.canonicalPath)
         }
+        for watchPath in Array(entry.watches.keys)
+            where !requiredWatchPaths.contains(watchPath) {
+            if let registration = entry.watches.removeValue(forKey: watchPath) {
+                registration.task?.cancel()
+            }
+            entry.lastObservedStates.removeValue(forKey: watchPath)
+        }
+        entriesByPath[observation.canonicalPath] = entry
     }
 
     /// Publishes only after an in-app writer has successfully committed bytes.
