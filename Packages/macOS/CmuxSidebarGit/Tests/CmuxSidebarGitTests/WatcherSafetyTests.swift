@@ -24,12 +24,14 @@ import CmuxGit
     private func descriptor(
         repositoryRoot: String,
         identity: String,
-        degradation: GitWorkspaceMetadataWatchDegradation? = nil
+        degradation: GitWorkspaceMetadataWatchDegradation? = nil,
+        creationWatchPaths: [String] = []
     ) -> GitWorkspaceMetadataWatchDescriptor {
         GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: repositoryRoot,
             watchedPaths: [repositoryRoot],
             gitMetadataPaths: [repositoryRoot + "/.git/index"],
+            creationWatchPaths: creationWatchPaths,
             trackedEntryPaths: [repositoryRoot + "/Sources/App.swift"],
             acceptsAllWorkTreeEvents: false,
             eventCoalescingInterval: .milliseconds(250),
@@ -84,6 +86,7 @@ import CmuxGit
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let descriptorReader = GatedWatchDescriptorReader()
+        let creationWatchPath = "/tmp/cmux-creation-watch-\(UUID().uuidString)"
         let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
         defer { logContinuation.finish() }
         let service = makeService(
@@ -112,7 +115,8 @@ import CmuxGit
         await descriptorReader.resumeNext(with: descriptor(
             repositoryRoot: fixture.root.path,
             identity: "fresh",
-            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1)
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [creationWatchPath]
         ))
 
         var logIterator = logEvents.makeAsyncIterator()
@@ -122,6 +126,7 @@ import CmuxGit
         )
         #expect(appliedLog.contains("workspace.gitWatch.degraded"))
         #expect(installedWatcherKey.eventFilterIdentity == "fresh")
+        #expect(service.workspaceGitMetadataCreationWatchersByPath[creationWatchPath] != nil)
         #expect(await descriptorReader.requestCount == 2)
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
