@@ -14,13 +14,6 @@ import OSLog
 /// instead of pinning itself to the outgoing panel wrapper.
 @MainActor
 struct ControlTerminalSocketTarget {
-    /// Relationship between workspace-panel ownership and canonical runtime.
-    enum BindingState: String {
-        case bound
-        case registryRebound = "registry_rebound"
-        case unavailable
-    }
-
     nonisolated private static let logger = Logger(
         subsystem: "com.cmuxterm.app",
         category: "socket.terminal-binding"
@@ -29,7 +22,7 @@ struct ControlTerminalSocketTarget {
     let surfaceID: UUID
     let panel: TerminalPanel
     let surface: TerminalSurface
-    let bindingState: BindingState
+    let bindingState: ControlTerminalSocketBindingState
 
     /// Sends socket text through the canonical surface while preserving the
     /// panel-owned hibernation resume path when both owners already agree.
@@ -202,7 +195,7 @@ private extension ControlTerminalSocketTarget {
               canonical.tabId == workspaceID else {
             return nil
         }
-        let state: ControlTerminalSocketTarget.BindingState = canonical === panel.surface
+        let state: ControlTerminalSocketBindingState = canonical === panel.surface
             ? .bound
             : .registryRebound
         if state == .registryRebound {
@@ -232,7 +225,7 @@ extension TerminalController {
                 inWindow: terminalTarget?.surface.isViewInWindow
                     ?? terminalPanel.surface.isViewInWindow,
                 socketBindingRawValue: terminalTarget?.bindingState.rawValue
-                    ?? ControlTerminalSocketTarget.BindingState.unavailable.rawValue
+                    ?? ControlTerminalSocketBindingState.unavailable.rawValue
             )
         }
         let inWindow = (panel as? BrowserPanel).map { $0.webView.window != nil }

@@ -979,6 +979,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
+		93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
@@ -3805,6 +3806,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSimulatorPendingTextInput.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
+		93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlTerminalSocketBindingState.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
@@ -6848,6 +6850,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */,
 				C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */,
 				93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */,
+				93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */,
 				C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */,
 				C0DE00000000000000000F02 /* TerminalController+SSHSessionAttachContext.swift */,
 				8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */,
@@ -9610,6 +9613,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */,
 				C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */,
 				D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */,
+				93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
