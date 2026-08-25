@@ -47,6 +47,7 @@ describe("apns payload", () => {
       surfaceId: "sf-2",
       retargetsToLiveSurfaceOwner: false,
       macDeviceId: "mac-3",
+      macInstanceTag: "nightly",
     }) as { aps: Record<string, unknown>; cmux: Record<string, string | boolean> };
 
     expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
@@ -57,6 +58,7 @@ describe("apns payload", () => {
       surfaceId: "sf-2",
       retargetsToLiveSurfaceOwner: false,
       macDeviceId: "mac-3",
+      macInstanceTag: "nightly",
     });
   });
 
@@ -169,11 +171,13 @@ describe("apns payload", () => {
     expect("badge" in payload.aps).toBe(false);
   });
 
-  test("dismiss push is banner-less: content-available + badge + dismissed ids only", () => {
+  test("dismiss push is banner-less and carries the exact Mac instance owner", () => {
     const payload = buildApnsPayload({
       kind: "dismiss",
       title: "",
       body: "",
+      macDeviceId: "mac-1",
+      macInstanceTag: "nightly",
       dismissedIds: ["n-1", "n-2"],
       badgeCount: 0,
     }) as { aps: Record<string, unknown>; cmux: Record<string, unknown> };
@@ -182,7 +186,11 @@ describe("apns payload", () => {
     // Nothing visible: no alert, no sound, no category.
     expect("alert" in payload.aps).toBe(false);
     expect("sound" in payload.aps).toBe(false);
-    expect(payload.cmux).toEqual({ dismissedIds: ["n-1", "n-2"] });
+    expect(payload.cmux).toEqual({
+      dismissedIds: ["n-1", "n-2"],
+      macDeviceId: "mac-1",
+      macInstanceTag: "nightly",
+    });
   });
 });
 
@@ -475,6 +483,12 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
     });
+    const maximumDevTag = "a".repeat(64);
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}`)).toEqual({
+      bundleId: `dev.cmux.ios.${maximumDevTag}`,
+      environment: "sandbox",
+    });
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}a`)).toBeNull();
 
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
@@ -510,6 +524,7 @@ describe("apns route policy", () => {
       workspaceId: " ws-1 ",
       surfaceId: " sf-1 ",
       macDeviceId: " mac-1 ",
+      macInstanceTag: " nightly ",
       notificationId: " n-1 ",
       retargetsToLiveSurfaceOwner: false,
       hideContent: true,
@@ -525,6 +540,7 @@ describe("apns route policy", () => {
         workspaceId: "ws-1",
         surfaceId: "sf-1",
         macDeviceId: "mac-1",
+        macInstanceTag: "nightly",
         notificationId: "n-1",
         correlationId: null,
         expirationEpochSeconds: null,
@@ -557,6 +573,7 @@ describe("apns route policy", () => {
         workspaceId: null,
         surfaceId: null,
         macDeviceId: null,
+        macInstanceTag: null,
         notificationId: null,
         correlationId: null,
         expirationEpochSeconds: null,
@@ -621,6 +638,7 @@ describe("apns route policy", () => {
         workspaceId: null,
         surfaceId: null,
         macDeviceId: null,
+        macInstanceTag: null,
         notificationId: null,
         correlationId: null,
         expirationEpochSeconds: null,
@@ -1504,8 +1522,8 @@ describe("apns sender transport", () => {
     }
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
-      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
     ]);
     expect(closed).toEqual([productionHost, sandboxHost]);
   });
@@ -1891,6 +1909,7 @@ describe("apns sender transport", () => {
     expect(requests).toBe(1);
     expect(accepted).toEqual([{
       deviceToken: target.deviceToken,
+      bundleId: target.bundleId,
       status: 200,
       reason: undefined,
       prune: false,
@@ -1966,8 +1985,8 @@ describe("apns sender transport", () => {
     );
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 0, reason: "connection_error", prune: false },
-      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", status: 0, reason: "connection_error", prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
   });
@@ -2030,13 +2049,13 @@ describe("apns sender transport", () => {
     );
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
-      { deviceToken: "b".repeat(64), status: 0, reason: "request failed", prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "dev.cmux.app.beta", status: 0, reason: "request failed", prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
   });
 
-  test("stamps apns-collapse-id from the notification id so the banner is dismiss-syncable", async () => {
+  test("scopes apns-collapse-id to the notification's Mac app instance", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
     class FakeRequest extends EventEmitter {
@@ -2071,13 +2090,36 @@ describe("apns sender transport", () => {
     await sendApnsNotification(
       { keyP8: p8, keyId: "KID-COLLAPSE", teamId: "TEAM456" },
       [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
-      { title: "agent", body: "done", notificationId: "n-7" },
+      {
+        title: "agent",
+        body: "done",
+        notificationId: "n-7",
+        macDeviceId: "MAC-A",
+        macInstanceTag: "stable",
+      },
       1000,
       transport,
     );
 
     expect(capturedHeaders).toHaveLength(1);
-    expect(capturedHeaders[0]["apns-collapse-id"]).toBe("n-7");
+    const stableCollapseId = capturedHeaders[0]["apns-collapse-id"];
+    expect(stableCollapseId).toMatch(/^cmux-[A-Za-z0-9_-]{43}$/);
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-COLLAPSE", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
+      {
+        title: "agent",
+        body: "done",
+        notificationId: "n-7",
+        macDeviceId: "MAC-A",
+        macInstanceTag: "nightly",
+      },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders[1]["apns-collapse-id"]).not.toBe(stableCollapseId);
   });
 
   test("omits apns-collapse-id when there is no notification id", async () => {

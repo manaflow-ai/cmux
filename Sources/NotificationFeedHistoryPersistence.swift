@@ -8,7 +8,7 @@ nonisolated private let notificationFeedPersistenceLogger = Logger(
 
 /// The durable feed's startup state. Unsupported snapshots remain intact and
 /// put persistence into a read-only mode until this version of cmux exits.
-nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
+enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
     case missing
     case loaded(NotificationFeedHistorySnapshot)
     case corrupt

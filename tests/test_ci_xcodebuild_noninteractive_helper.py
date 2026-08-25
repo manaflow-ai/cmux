@@ -89,6 +89,32 @@ def main() -> int:
         print("FAIL: helper did not report idle timeout")
         return 1
 
+    heartbeat_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            "import os, time; os.close(1); os.close(2); time.sleep(0.35)",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS": "0.1",
+        },
+    )
+    if heartbeat_result.returncode != 0 or heartbeat_result.stdout.count(
+        "[xcodebuild still running after"
+    ) < 2:
+        print(heartbeat_result.stdout, end="")
+        print(heartbeat_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not emit recurring heartbeats for a quiet child")
+        return 1
+
     post_test_env = {
         **os.environ,
         "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "0.2",
@@ -229,7 +255,10 @@ def main() -> int:
             print("FAIL: helper did not write child output to log path")
             return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and idle-times out stuck children")
+    print(
+        "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
+        "heartbeats quiet children, and idle-times out stuck children"
+    )
     return 0
 
 

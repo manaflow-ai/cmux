@@ -3088,6 +3088,80 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
     );
 }
 
+#[test]
+fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+    let mut harness = RecoveryHarness::start("dead-hosts-restart");
+    let first = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let pane = first["pane"].as_u64().unwrap();
+    let workspace_id = first["workspace"].as_u64().unwrap();
+    let first_terminal = first["terminal_id"].as_str().unwrap().to_string();
+    let second = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"run","argv":["/bin/cat"],"pane":pane,
+            "cols":80,"rows":24,
+        }),
+    );
+    let second_terminal = second["terminal_id"].as_str().unwrap().to_string();
+    assert_eq!(second["pane"].as_u64(), Some(pane), "second terminal left the first pane");
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspace_key = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let records = wait_for_host_records(&harness.host_root(), 2);
+
+    // Stop the mux first so it observes neither Exit. Startup then has to
+    // reconcile two dead hosts behind the same pane. Recovery of the first
+    // one must not depend on the second one already having a live surface.
+    harness.signal_daemon(libc::SIGSTOP);
+    for (_, record) in &records {
+        // SAFETY: the record PIDs are the harness-owned terminal hosts.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.sigkill();
+    harness.restart();
+
+    for terminal_id in [&first_terminal, &second_terminal] {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            if resolved["lifecycle"] == "exited" {
+                assert_eq!(resolved["surface"], serde_json::Value::Null);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "dead startup host {terminal_id} was not projected as Exited"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    wait_for_no_host_records(&harness.host_root());
+    let recovered = request(&harness.socket, serde_json::json!({"id":5,"cmd":"list-workspaces"}));
+    let workspace = recovered["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
+        .expect("original workspace was not recovered");
+    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+}
+
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");

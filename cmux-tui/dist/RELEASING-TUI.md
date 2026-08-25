@@ -19,27 +19,76 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 - npm `cmux-tui-darwin-x64`: macOS x64 binary package.
 - npm `cmux-tui-linux-x64`: Linux x64 binary package.
 - npm `cmux-tui-linux-arm64`: Linux arm64 binary package.
+- npm `cmux-relay`: launcher for the chatmux machine relay. Built and
+  validated with every TUI release, but published ONLY through the
+  `cmux-relay-vX.Y.Z` tag family (`relay-publish-npm.yml`).
+- npm `cmux-relay-*`: platform relay binary packages (including Windows x64);
+  same relay-only publish path.
+- Windows packages are published when the release input `include_windows` is
+  enabled. Configure Trusted Publishers for both `cmux-tui-win32-x64` and
+  `cmux-relay-win32-x64` before enabling that input.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
+
+Relay autostart needs a durable native executable. `npx cmux-relay
+--autostart` is refused when npm resolves the relay from its disposable
+`_npx` cache, because npm can remove that directory after the command exits.
+Install the package globally (`npm install --global cmux-relay`) or in a
+persistent project, then run `cmux-relay --autostart`.
 
 Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
 
+Before upload, the package contract validator checks the exact five npm package
+trees, including both the TUI binary and hook, then runs `npm pack` and an
+offline install of the matching Linux package. It checks the exact six PyPI
+wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
+When `include_windows` is enabled, npm publishes the Windows TUI binary and
+hook and the Windows relay binary as platform packages. PyPI remains Unix-only.
+
 ## One-time registry setup
 
-Add npm Trusted Publishers for all five npm package names:
+Add npm Trusted Publishers for the cmux TUI package names:
 
 - `cmux`
 - `cmux-tui-darwin-arm64`
 - `cmux-tui-darwin-x64`
 - `cmux-tui-linux-x64`
 - `cmux-tui-linux-arm64`
+- `cmux-tui-win32-x64`
 
 Use these npm trusted-publisher settings for each package:
 
 - Repository: `manaflow-ai/cmux`
 - Workflow: `tui-publish-npm.yml`
 - Environment: `npm-tui`
+
+The cmux-relay package names publish through their own tag family
+(`cmux-relay-vX.Y.Z`, workflow `relay-publish-npm.yml`) and need their own
+trusted publishers:
+
+- `cmux-relay`
+- `cmux-relay-darwin-arm64`
+- `cmux-relay-darwin-x64`
+- `cmux-relay-linux-x64`
+- `cmux-relay-linux-arm64`
+- `cmux-relay-win32-x64`
+
+with:
+
+- Repository: `manaflow-ai/cmux`
+- Workflow: `relay-publish-npm.yml`
+- Environment: `npm-tui`
+
+The `cmux-relay` launcher name itself is owned by the chatmux repo's Node
+publisher until the relay Rust cutover (chatmux `docs/RELAY-RUST.md`): move
+its trusted publisher to this repository before the first stable
+`cmux-relay-vX.Y.Z` tag. Release candidates (`cmux-relay-vX.Y.Z-rc.N`)
+publish under the `next` dist-tag; stable relay tags take `latest`, which IS
+the production cutover flip — coordinate with the chatmux repo variable
+`CHATMUX_RELAY_PUBLISH_MODE=external-rust` so the Node publisher stands down
+first. The coordinated TUI publish and the nightly lane validate the relay
+package contract but never publish or move relay dist-tags.
 
 Add a PyPI Trusted Publisher for:
 

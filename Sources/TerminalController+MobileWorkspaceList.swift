@@ -249,6 +249,19 @@ extension TerminalController {
         } else {
             simulators = []
         }
+        let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
+            var payload: [String: Any] = [
+                "surface_id": surface.surfaceID,
+                "kind": surface.kind,
+                "title": surface.title,
+                "is_focused": surface.isFocused,
+                "file_path": v2OrNull(surface.filePath),
+            ]
+            if let todo = surface.todo {
+                payload["todo"] = mobileTodoPayload(todo)
+            }
+            return payload
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
@@ -288,6 +301,7 @@ extension TerminalController {
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals,
+            "surfaces": surfaces,
             "simulators": simulators
         ]
     }

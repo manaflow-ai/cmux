@@ -8,22 +8,27 @@ internal import Foundation
 /// while this policy supplies the compatibility boundary used by persistence,
 /// registry projection, and live connection validation.
 public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
-    /// A tagged development build may use only the matching Mac development tag.
-    case development(expectedInstanceTag: String)
+    private static let nonDevelopmentTags: Set<String> = [
+        "default",
+        "nightly",
+        "rc",
+        "staging",
+    ]
+
+    /// A development iOS build may use any authenticated development Mac tag.
+    /// The exact tag remains part of each Mac's identity; this case only defines
+    /// the development build lane.
+    case development
     /// A distributed iOS build may use Stable and Nightly Mac releases.
     case official
 
     /// Resolves the policy compiled into the running iOS app.
     ///
-    /// - Parameter buildScope: The tagged development scope, when this is a
-    ///   tagged DEBUG build.
-    /// - Returns: Exact-tag development compatibility for DEBUG builds and
-    ///   official compatibility for distributed builds.
-    public static func current(
-        buildScope: MobileIOSBuildScope?
-    ) -> MobileMacBuildCompatibilityPolicy {
+    /// - Returns: Development-lane compatibility for DEBUG builds and official
+    ///   compatibility for distributed builds.
+    public static func current() -> MobileMacBuildCompatibilityPolicy {
         #if DEBUG
-        return .development(expectedInstanceTag: buildScope?.value ?? "dev")
+        return .development
         #else
         return .official
         #endif
@@ -36,14 +41,38 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     ///
     /// - Parameter instanceTag: The tag reported by authenticated host status.
     /// - Returns: `true` only when the Mac instance is compatible.
-    public func allows(instanceTag: String?) -> Bool {
+    public func allows(
+        instanceTag: String?,
+        clientNamespace: String? = nil
+    ) -> Bool {
         guard let normalizedTag = Self.normalized(instanceTag) else { return false }
         switch self {
-        case .development(let expectedInstanceTag):
-            return normalizedTag == Self.normalized(expectedInstanceTag)
+        case .development:
+            if let clientNamespace,
+               clientNamespace != "legacy",
+               !Self.isDevelopmentMacNamespace(clientNamespace) {
+                return false
+            }
+            return !Self.nonDevelopmentTags.contains(normalizedTag)
         case .official:
+            if let clientNamespace,
+               clientNamespace != "legacy",
+               !Self.isOfficialMacNamespace(clientNamespace) {
+                return false
+            }
             return normalizedTag == "default" || normalizedTag == "nightly"
         }
+    }
+
+    private static func isDevelopmentMacNamespace(_ value: String) -> Bool {
+        value == "mac:com.cmuxterm.app.debug"
+            || value.hasPrefix("mac:com.cmuxterm.app.debug.")
+    }
+
+    private static func isOfficialMacNamespace(_ value: String) -> Bool {
+        value == "mac:com.cmuxterm.app"
+            || value == "mac:com.cmuxterm.app.nightly"
+            || value.hasPrefix("mac:com.cmuxterm.app.nightly.")
     }
 
     /// Returns whether authenticated host status is compatible with this build.
@@ -54,10 +83,17 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     /// fail-closed, as do development builds and newer untagged Mac releases.
     public func allowsAuthenticatedHost(
         instanceTag: String?,
+        clientNamespace: String? = nil,
         macAppVersion: String?,
         usesLocallyAuthorizedTailscaleRoute: Bool
     ) -> Bool {
-        if allows(instanceTag: instanceTag) {
+        if case .development = self, clientNamespace == nil {
+            // Direct pairing has no broker binding to supply the Mac bundle
+            // namespace. Require host status to carry it so manual and QR
+            // routes enforce the same channel boundary as discovery.
+            return false
+        }
+        if allows(instanceTag: instanceTag, clientNamespace: clientNamespace) {
             return true
         }
         guard case .official = self,

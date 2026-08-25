@@ -558,7 +558,10 @@ struct SidebarWorkspaceTableSuspensionTests {
         #expect(appliedInputs == 1)
         #expect(viewportFlushes == 1)
         #expect(postUpdateActions == 1)
-        #expect(reloads == 2)
+        #expect(
+            reloads == 1,
+            "An authoritative apply owns the current row graph, so a stale staged reload is superseded."
+        )
     }
 
     @Test
@@ -615,7 +618,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
             fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
             rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
-            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false
+            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: false
         )
     }
 

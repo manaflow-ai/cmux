@@ -97,11 +97,62 @@ import Testing
     }
 
     @Test func metaRequiresExactCanonicalForm() {
-        // Only the CLI's exact two-field serialization parses; reordered,
+        // Only the CLI's exact canonical serialization parses; reordered,
         // duplicated, or trailing fields stay part of the legacy body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;note") == nil)
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+    }
+
+    @Test func legacyTwoFieldMetaParsesWithoutAgentContext() {
+        // Pre-extension senders emit only `c=;p=`: identical parse to before,
+        // with no agent context attached.
+        let parsed = AgentNotificationMeta(meta: "c=turn-complete;p=0")
+        #expect(parsed?.category == .turnComplete)
+        #expect(parsed?.pending == false)
+        #expect(parsed?.agentKind == nil)
+        #expect(parsed?.isSubagent == nil)
+    }
+
+    @Test func metaParsesAgentKindAndSubagentFlag() {
+        let full = AgentNotificationMeta(meta: "c=turn-complete;p=0;a=claude;n=1")
+        #expect(full?.category == .turnComplete)
+        #expect(full?.pending == false)
+        #expect(full?.agentKind == "claude")
+        #expect(full?.isSubagent == true)
+
+        let kindOnly = AgentNotificationMeta(meta: "c=needs-permission;p=1;a=hermes-agent")
+        #expect(kindOnly?.agentKind == "hermes-agent")
+        #expect(kindOnly?.isSubagent == nil)
+
+        let flagOnly = AgentNotificationMeta(meta: "c=idle-reminder;p=0;n=0")
+        #expect(flagOnly?.agentKind == nil)
+        #expect(flagOnly?.isSubagent == false)
+    }
+
+    @Test func metaRejectsMalformedAgentFields() {
+        // The extended grammar is just as strict as the legacy one: invalid
+        // slugs, bad flags, reordered or duplicated fields all fold the whole
+        // segment back into the legacy notification body.
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=Claude") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=cl aude") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=2") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=1;a=claude") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=claude;a=codex") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=claude;n=1;x=1") == nil)
+    }
+
+    @Test func agentKindTagValidationMatchesSlugGrammar() {
+        #expect(AgentNotificationMeta.isValidAgentKindTag("claude"))
+        #expect(AgentNotificationMeta.isValidAgentKindTag("hermes-agent"))
+        #expect(AgentNotificationMeta.isValidAgentKindTag("agent_2.beta"))
+        #expect(!AgentNotificationMeta.isValidAgentKindTag(""))
+        #expect(!AgentNotificationMeta.isValidAgentKindTag("Claude"))
+        #expect(!AgentNotificationMeta.isValidAgentKindTag("a|b"))
+        #expect(!AgentNotificationMeta.isValidAgentKindTag("a;b"))
+        #expect(!AgentNotificationMeta.isValidAgentKindTag(String(repeating: "a", count: 65)))
     }
 }

@@ -666,6 +666,7 @@ import Testing
 
         #expect(store.pairedMacLoadState == .notLoaded)
         #expect(!store.hasKnownPairedMac)
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
         #expect(store.tailscalePairingRequired)
     }
 
@@ -689,12 +690,46 @@ import Testing
             pairingHintDefaults: pairingDefaults
         )
 
+        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
         #expect(!store.tailscalePairingRequired)
         store.pairedMacLoadState = .failed
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
         #expect(store.tailscalePairingRequired)
     }
 
-    @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
+    @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
+        )!
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .loadingAuthorization
+        )
+        store.pairedMacLoadState = .failed
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .pairingRequired
+        )
+    }
+
+    /// Switching an Iroh-identified pairing to Tailscale Only still replaces
+    /// the live session (its route decisions were made under the old method),
+    /// but the replacement dial rides the Iroh lane pinned to the pairing's
+    /// numeric Tailscale addresses: transport admission stays the single auth
+    /// authority for every session purpose, and the raw TCP lane is reserved
+    /// for legacy pairings without an Iroh identity.
+    @Test func changingToTailscaleReplacesLiveIrohWithPinnedIrohDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         // The factory boxes the live Iroh transport it hands out, so the test
@@ -752,21 +787,26 @@ import Testing
         #expect(store.activeRoute?.kind == .iroh)
         #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
 
+        // The box tracks the most recent transport, so capture the original
+        // live session before the method change replaces it.
+        let originalTransport = await liveTransportBox.get()
+
         methodStore.method = .tailscale
 
-        // `activeRoute == nil` only proves the store cleared its logical
-        // route; the dropped live Iroh transport must also finish closing so
-        // no physical cleanup work is still pending when the test completes.
+        // The reconnected route only proves the store's logical state; the
+        // replaced live Iroh transport must also finish closing so no
+        // physical cleanup work is still pending when the test completes.
         let applied = try await pollUntil {
-            let liveTransportClosed =
-                await liveTransportBox.get()?.isClosedForTesting() == true
-            return factory.attemptedKinds().contains(.tailscale)
-                && store.connectionState == .disconnected
-                && store.activeRoute == nil
-                && liveTransportClosed
+            let originalTransportClosed =
+                await originalTransport?.isClosedForTesting() == true
+            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
+                && store.connectionState == .connected
+                && originalTransportClosed
         }
         #expect(applied)
-        #expect(store.activeRoute == nil)
-        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+        #expect(store.activeRoute?.kind == .iroh)
+        // Tailscale Only never dials the raw TCP lane for a pairing with an
+        // Iroh identity, even when that dial would be authorized.
+        #expect(!factory.attemptedKinds().contains(.tailscale))
     }
 }

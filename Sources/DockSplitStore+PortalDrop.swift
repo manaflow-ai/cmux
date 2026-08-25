@@ -4,7 +4,7 @@ import CmuxWorkspaces
 import Foundation
 
 /// Portal pane-drop routing for the Dock — the Dock equivalent of
-/// `Workspace.portalPaneDropZone` / `performPortalPaneDrop`.
+/// `Workspace.portalPaneDropZone` / `performPortalSurfaceDrop`.
 ///
 /// Dock terminals are portal-hosted and share `PaneDropTargetView` with the
 /// main area. Without this, every tab dropped onto a Dock pane was routed to
@@ -44,19 +44,23 @@ extension DockSplitStore {
     /// - External drag (source is the main area or another Dock): route through
     ///   `moveSurfaceIntoDock` so the live panel transfers in.
     @discardableResult
-    func performPortalPaneDrop(
+    func performPortalSurfaceDrop(
         tabId: UUID,
         sourcePaneId: UUID,
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> Bool {
+        guard !isRetired else { return false }
         let sourcePane = PaneID(id: sourcePaneId)
 
         guard containsPane(sourcePane.id) else {
             return AppDelegate.shared?.moveSurfaceIntoDock(
                 sourceTabId: tabId,
                 destinationDock: self,
-                destination: Self.externalDropDestination(for: zone, targetPane: paneId)
+                destination: PaneDropRouting.destination(
+                    targetPane: paneId,
+                    zone: zone
+                )
             ) ?? false
         }
 
@@ -82,16 +86,34 @@ extension DockSplitStore {
         return didMove
     }
 
-    private static func externalDropDestination(
-        for zone: DropZone,
-        targetPane paneId: PaneID
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
-        switch zone {
-        case .center: return .insert(targetPane: paneId, targetIndex: nil)
-        case .left: return .split(targetPane: paneId, orientation: .horizontal, insertFirst: true)
-        case .right: return .split(targetPane: paneId, orientation: .horizontal, insertFirst: false)
-        case .top: return .split(targetPane: paneId, orientation: .vertical, insertFirst: true)
-        case .bottom: return .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
+    /// Creates a restore-aware Vault terminal in the requested Dock position.
+    func performPortalVaultSessionDrop(
+        entry: SessionEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        guard let launch = entry.resumeLaunch else { return false }
+        switch destination {
+        case .insert(let paneId, _):
+            return newSurface(
+                kind: .terminal,
+                inPane: paneId,
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent,
+                focus: true
+            ) != nil
+        case .split(let paneId, let orientation, let insertFirst):
+            let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
+            return newSplit(
+                kind: .terminal,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent,
+                focus: true
+            ) != nil
         }
     }
 
@@ -101,6 +123,7 @@ extension DockSplitStore {
     func handleExternalFileDrop(
         _ request: BonsplitController.ExternalFileDropRequest
     ) -> Bool {
+        guard !isRetired else { return false }
         let filePaths = request.urls
             .filter(\.isFileURL)
             .map(\.path)
@@ -148,7 +171,7 @@ extension DockSplitStore {
         focus: Bool,
         targetIndex: Int? = nil
     ) -> [FilePreviewPanel] {
-        guard containsPane(paneId.id) else { return [] }
+        guard !isRetired, containsPane(paneId.id) else { return [] }
         let previousFocus = focusedDockPaneSelection()
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
@@ -181,7 +204,7 @@ extension DockSplitStore {
         focus: Bool,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
-        guard containsPane(paneId.id) else { return nil }
+        guard !isRetired, containsPane(paneId.id) else { return nil }
         let previousFocus = focusedDockPaneSelection()
         guard let panel = newFilePreviewSurfaceInValidatedPane(
             inPane: paneId,
@@ -205,6 +228,7 @@ extension DockSplitStore {
         filePath: String,
         targetIndex: Int?
     ) -> FilePreviewPanel? {
+        guard !isRetired else { return nil }
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
@@ -235,7 +259,7 @@ extension DockSplitStore {
         filePath: String,
         focus: Bool
     ) -> (panel: FilePreviewPanel, pane: PaneID)? {
-        guard containsPane(paneId.id) else { return nil }
+        guard !isRetired, containsPane(paneId.id) else { return nil }
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         let tab = Bonsplit.Tab(
             title: panel.displayTitle,

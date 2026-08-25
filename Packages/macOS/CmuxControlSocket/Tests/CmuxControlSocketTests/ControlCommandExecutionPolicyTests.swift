@@ -35,6 +35,8 @@ struct ControlCommandExecutionPolicyTests {
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+            "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
@@ -143,6 +145,9 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.capabilities") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.stat") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
 
@@ -319,6 +324,8 @@ struct ControlCommandExecutionPolicyTests {
             "list_notifications", "clear_notifications",
         ]
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
+        let agentJournal: Set<String> = ["agent_journal_append"]
+        #expect(ControlCommandExecutionPolicy.agentJournalV1Commands == agentJournal)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
         let diagnosticRead: Set<String> = ["iroh_diag"]
@@ -341,11 +348,13 @@ struct ControlCommandExecutionPolicyTests {
             ControlCommandExecutionPolicy.configurationMutationV1Commands
                 == configurationMutations
         )
-        let expectedWorker = telemetry.union(notification).union(terminalRead)
+        let expectedWorker = telemetry.union(notification).union(agentJournal)
+            .union(terminalRead)
             .union(diagnosticRead).union(resolutionReads).union(sends)
             .union(configurationMutations).union(windowCapture).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except terminal and diagnostic reads, blocking
+        // Every member except terminal and diagnostic reads, the journal
+        // append (durability fsync must never run inline on main), blocking
         // configuration mutations, and async window capture is deliberately
         // main-thread callable (deadlock-free inline: bus enqueues plus
         // inline-collapsing hops).
@@ -354,6 +363,7 @@ struct ControlCommandExecutionPolicyTests {
                 == expectedWorker
                     .subtracting(terminalRead)
                     .subtracting(diagnosticRead)
+                    .subtracting(agentJournal)
                     .subtracting(configurationMutations)
                     .subtracting(windowCapture)
         )

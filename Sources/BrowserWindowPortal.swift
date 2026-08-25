@@ -234,6 +234,8 @@ final class WindowBrowserHostView: NSView {
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    private let paneTransferSourceResolver = PaneTransferSourceResolver()
+    let paneDropRoutingSession = PaneDropRoutingSession()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -385,7 +387,21 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        performHitTest(
+            at: point,
+            currentEvent: NSApp.currentEvent,
+            dragPasteboard: NSPasteboard(name: .drag)
+        )
+    }
+
+    // Treat the event and drag pasteboard as one routing snapshot; AppKit can
+    // otherwise advance either ambient value during nested hit testing.
+    func performHitTest(
+        at point: NSPoint,
+        currentEvent: NSEvent?,
+        dragPasteboard: NSPasteboard
+    ) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: currentEvent)
         guard routingContext.allowsPortalPointerHitTesting else {
             let hitView = super.hitTest(point)
             return hitView === self ? nil : hitView
@@ -457,15 +473,24 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
-        // Browser hover routing also arrives as cursor/enter events and may not
-        // report a pressed-button state, so include that path here.
-        if routingContext.allowsBrowserPortalDragRouting,
-           Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: eventType
-           ) {
+        // Live pane transfers stay in the portal so every source reaches the
+        // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
+        // unknown transfer payloads still pass through to the SwiftUI layers.
+        if Self.shouldPassThroughToDragTargets(
+            pasteboardTypes: dragPasteboard.types,
+            eventType: eventType,
+            hasActiveDropDrag: hasActivePaneDropDrag
+        ) {
+            if routingContext.eventKind == .pointerUp,
+               hasActivePaneDropDrag,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
+            if let transfer = paneTransferSourceResolver.transfer(from: dragPasteboard),
+               paneTransferSourceResolver.source(for: transfer) != nil,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
             return nil
         }
 
@@ -812,12 +837,26 @@ final class WindowBrowserHostView: NSView {
 
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasActiveDropDrag: hasActiveDropDrag
         )
+    }
+
+    private func paneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
+        for subview in subviews.reversed() {
+            guard let slotView = subview as? WindowBrowserSlotView,
+                  !slotView.isHidden else { continue }
+            let pointInSlot = slotView.convert(point, from: self)
+            if let target = slotView.paneDropTargetForDrop(at: pointInSlot) {
+                return target
+            }
+        }
+        return nil
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
@@ -1156,11 +1195,7 @@ struct BrowserPortalDesignComposerConfiguration {
     let controller: BrowserDesignModeController
 }
 
-struct BrowserPaneDropContext: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let paneId: PaneID
-}
+typealias BrowserPaneDropContext = PaneDropContext
 
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }

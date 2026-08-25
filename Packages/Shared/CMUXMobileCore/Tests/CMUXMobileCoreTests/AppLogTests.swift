@@ -40,7 +40,11 @@ import Testing
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.background.rawValue
         ))
-        try await waitForProcessed(log, 3)
+        log.ingest(DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.workspaceOpenSucceeded.rawValue
+        ))
+        try await waitForProcessed(log, 4)
         await log.flushForTesting()
 
         let app = try contents(of: appURL)
@@ -49,6 +53,8 @@ import Testing
         #expect(!network.contains("Simulator"))
         #expect(network.contains("dial") || network.contains("Dial"))
         #expect(!app.contains("dial") && !app.contains("Dial"))
+        #expect(app.contains("workspaceOpenSucceeded"))
+        #expect(!network.contains("workspaceOpenSucceeded"))
         // Cross-cutting context lands in both files.
         let appLifecycleInApp = app.contains("lifecycle") || app.contains("Lifecycle")
         let appLifecycleInNetwork = network.contains("lifecycle") || network.contains("Lifecycle")
@@ -101,8 +107,8 @@ import Testing
         #expect(lines.last?.contains("Stalled") == true)
     }
 
-    /// Exceeding the byte budget rotates the current generation to `.1` and
-    /// keeps writing to a fresh file.
+    /// Exceeding the byte budget moves the current generation to a unique
+    /// archive and keeps writing to a fresh active file.
     @Test func rotatesWhenExceedingMaxBytes() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -119,16 +125,131 @@ import Testing
         }
         try await waitForProcessed(log, 40)
 
-        let rotated = appURL.appendingPathExtension("1")
-        #expect(FileManager.default.fileExists(atPath: rotated.path))
+        let generations = AppLog.logFileURLs(for: appURL)
+        let archives = generations.filter { $0 != appURL }
+        #expect(!archives.isEmpty)
         let active = try contents(of: appURL)
         #expect(active.contains("cmux app log"))
-        #expect(try contents(of: rotated).contains("filler line"))
+        #expect(archives.contains { (try? contents(of: $0).contains("filler line")) == true })
     }
 
-    /// A failed launch-time rotation (busy file, read-only directory) must
-    /// append to the existing log instead of truncating away the diagnostics
-    /// a user may be about to share.
+    @Test func ordersArchivesByEmbeddedGenerationStamp() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let olderArchive = dir.appendingPathComponent(
+            "app.archive-0000000001000-AAAAAAAA.log"
+        )
+        let newerArchive = dir.appendingPathComponent(
+            "app.archive-0000000002000-BBBBBBBB.log"
+        )
+        let unparseableArchive = dir.appendingPathComponent(
+            "app.archive-unparseable.log"
+        )
+        try Data("active\n".utf8).write(to: appURL)
+        try Data("older\n".utf8).write(to: olderArchive)
+        try Data("newer\n".utf8).write(to: newerArchive)
+        try Data("unparseable\n".utf8).write(to: unparseableArchive)
+
+        let distantFuture = Date(timeIntervalSince1970: 9_000)
+        let distantPast = Date(timeIntervalSince1970: 1_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantFuture],
+            ofItemAtPath: olderArchive.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantPast],
+            ofItemAtPath: newerArchive.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantFuture],
+            ofItemAtPath: unparseableArchive.path
+        )
+
+        let generations = AppLog.logFileURLs(for: appURL)
+        #expect(generations.map(\.lastPathComponent) == [
+            appURL.lastPathComponent,
+            newerArchive.lastPathComponent,
+            olderArchive.lastPathComponent,
+            unparseableArchive.lastPathComponent,
+        ])
+    }
+
+    @Test func reopensExistingGenerationAcrossLaunches() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+
+        let firstLaunch = AppLog(
+            appFileURL: appURL,
+            networkFileURL: nil,
+            buildStamp: "test"
+        )
+        firstLaunch.mirrorAppLine("first launch")
+        try await waitForProcessed(firstLaunch, 1)
+
+        let secondLaunch = AppLog(
+            appFileURL: appURL,
+            networkFileURL: nil,
+            buildStamp: "test"
+        )
+        secondLaunch.mirrorAppLine("second launch")
+        try await waitForProcessed(secondLaunch, 1)
+
+        let persisted = try contents(of: appURL)
+        #expect(persisted.contains("first launch"))
+        #expect(persisted.contains("second launch"))
+        #expect(persisted.components(separatedBy: "cmux app log").count == 2)
+        #expect(!FileManager.default.fileExists(
+            atPath: appURL.appendingPathExtension("1").path
+        ))
+    }
+
+    @Test func migratesLegacyRotationWithoutDeletingIt() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let legacyURL = appURL.appendingPathExtension("1")
+        try Data("legacy generation\n".utf8).write(to: legacyURL)
+
+        _ = AppLog(appFileURL: appURL, networkFileURL: nil, buildStamp: "test")
+
+        #expect(!FileManager.default.fileExists(atPath: legacyURL.path))
+        let generations = AppLog.logFileURLs(for: appURL)
+        #expect(generations.contains { (try? contents(of: $0).contains("legacy generation")) == true })
+    }
+
+    @Test func boundsTimestampedArchiveCount() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let log = AppLog(
+            appFileURL: appURL,
+            networkFileURL: nil,
+            maxFileBytes: 160,
+            buildStamp: "test",
+            maxArchiveCount: 2,
+            maxRetainedBytes: 480
+        )
+
+        for index in 0..<100 {
+            log.mirrorAppLine("bounded line \(index) 0123456789")
+        }
+        try await waitForProcessed(log, 100)
+
+        let archives = AppLog.logFileURLs(for: appURL).filter { $0 != appURL }
+        #expect(archives.count <= 2)
+        #expect(!archives.isEmpty)
+        let totalBytes = AppLog.logFileURLs(for: appURL).reduce(0) { result, url in
+            let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            return result + (size ?? 0)
+        }
+        #expect(totalBytes <= 480)
+    }
+
+    /// A failed size rotation (busy file, read-only directory) must append to
+    /// the existing log instead of truncating away diagnostics a user may be
+    /// about to share.
     @Test func failedRotationAppendsInsteadOfTruncating() async throws {
         let dir = try makeTempDirectory()
         defer {
@@ -147,7 +268,12 @@ import Testing
             ofItemAtPath: dir.path
         )
 
-        let log = AppLog(appFileURL: appURL, networkFileURL: nil, buildStamp: "test")
+        let log = AppLog(
+            appFileURL: appURL,
+            networkFileURL: nil,
+            maxFileBytes: 32,
+            buildStamp: "test"
+        )
         log.mirrorAppLine("post-failure line 1")
         log.mirrorAppLine("post-failure line 2")
         log.mirrorAppLine("post-failure line 3")
@@ -171,12 +297,19 @@ import Testing
 
     @Test func classificationCoversNetworkPlane() {
         #expect(DiagnosticEventCode.transportDialFailed.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialPlanBuilt.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportPrivateAddressJoin.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportLANDiscovery.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialLegSucceeded.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialLegFailed.appLogDomain == .network)
+        #expect(DiagnosticEventCode.lanPublicationState.appLogDomain == .network)
         #expect(DiagnosticEventCode.sessionClosed.appLogDomain == .network)
         #expect(DiagnosticEventCode.discoveryFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.relayPolicyRefreshFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.simulatorInputLifecycle.appLogDomain == .app)
         #expect(DiagnosticEventCode.browserStreamLifecycle.appLogDomain == .app)
         #expect(DiagnosticEventCode.composerViewAppear.appLogDomain == .app)
+        #expect(DiagnosticEventCode.appFeatureAction.appLogDomain == .app)
         #expect(DiagnosticEventCode.appLifecycleChanged.appLogDomain == .both)
         #expect(DiagnosticEventCode.reachabilityChanged.appLogDomain == .both)
     }

@@ -1,0 +1,227 @@
+name: cmux-relay release
+
+# npm publisher for the chatmux machine relay (crate chatmux-relay, npm name
+# cmux-relay). This tag family is the ONLY cmux-side publisher for cmux-relay:
+# the coordinated TUI publish (tui-publish-npm.yml) and the nightly lane
+# deliberately do not touch the cmux-relay dist-tags, so a routine TUI release
+# can never move cmux-relay@latest away from the shipping relay.
+#
+# Dist-tag policy (chatmux relay Rust cutover, chatmux docs/RELAY-RUST.md):
+# - cmux-relay-vX.Y.Z-rc.N publishes under `next` — Sprites and the sandbox
+#   images install cmux-relay@latest at provision, so release candidates must
+#   never take `latest`.
+# - cmux-relay-vX.Y.Z (stable) publishes under `latest`. Cutting the first
+#   stable tag IS the production cutover flip; coordinate with the chatmux
+#   repo variable CHATMUX_RELAY_PUBLISH_MODE=external-rust so the old Node
+#   publisher stands down first.
+on:
+  push:
+    tags:
+      - "cmux-relay-v*"
+
+permissions: {}
+
+concurrency:
+  group: cmux-relay-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: derive relay version and dist-tag
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dist_tag: ${{ steps.version.outputs.dist_tag }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Derive relay version and dist-tag
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            echo "cmux-relay publishes require a cmux-relay-v* tag ref." >&2
+            exit 1
+          fi
+          [[ "$GITHUB_REF_NAME" =~ ^cmux-relay-v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || {
+            echo "tag must match cmux-relay-vX.Y.Z or cmux-relay-vX.Y.Z-rc.N" >&2
+            exit 1
+          }
+          version="${GITHUB_REF_NAME#cmux-relay-v}"
+          git fetch --force origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "release tag $GITHUB_REF_NAME is not an ancestor of protected main" >&2
+            exit 1
+          }
+          if [[ "$version" == *-rc.* ]]; then
+            dist_tag="next"
+          else
+            dist_tag="latest"
+          fi
+          {
+            echo "version=$version"
+            echo "dist_tag=$dist_tag"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## cmux-relay release"
+            echo "Version: \`$version\`"
+            echo "npm dist-tag: \`$dist_tag\`"
+            if [[ "$dist_tag" == "latest" ]]; then
+              echo "This publish takes over \`cmux-relay@latest\`. The chatmux Node publisher must already be in external-rust mode (CHATMUX_RELAY_PUBLISH_MODE)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-package:
+    needs: version
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      package_npm: true
+      package_pypi: false
+      include_windows: true
+      attest_packages: true
+
+  publish:
+    needs:
+      - version
+      - build-package
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: read
+    environment:
+      name: npm-tui
+      url: https://www.npmjs.com/package/cmux-relay
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download npm package directories
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC support
+        run: npm install -g npm@11.5.1
+
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ needs.version.outputs.version }}" \
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Verify relay npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              -path '*/cmux-relay-*/bin/cmux-relay*' \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF"
+          done
+
+      - name: Publish relay platform packages
+        env:
+          DIST_TAG: ${{ needs.version.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          packages=(
+            cmux-relay-darwin-arm64
+            cmux-relay-darwin-x64
+            cmux-relay-linux-x64
+            cmux-relay-linux-arm64
+            cmux-relay-win32-x64
+          )
+          for package in "${packages[@]}"; do
+            echo "Publishing $package@$DIST_TAG"
+            # --access public is required to publish a NEW unscoped package
+            # with --provenance; every cmux-relay platform package starts new.
+            if ! npm publish --provenance --access public --tag "$DIST_TAG" "dist/npm-packages/$package"; then
+              cat >&2 <<'EOF'
+          npm publish failed.
+
+          For the first publish of the cmux-relay package names from this
+          repository, add npm Trusted Publishers for:
+          - cmux-relay
+          - cmux-relay-darwin-arm64
+          - cmux-relay-darwin-x64
+          - cmux-relay-linux-x64
+          - cmux-relay-linux-arm64
+          - cmux-relay-win32-x64
+
+          Trusted publisher settings for each package:
+          - Repository: manaflow-ai/cmux
+          - Workflow: relay-publish-npm.yml
+          - Environment: npm-tui
+
+          The cmux-relay launcher name itself is owned by the chatmux repo's
+          Node publisher until the R5 owner switch (chatmux
+          docs/RELAY-RUST.md); its trusted publisher must be moved to this
+          repository before the first stable cmux-relay-vX.Y.Z tag.
+          EOF
+              exit 1
+            fi
+          done
+
+      - name: Publish relay launcher package
+        env:
+          DIST_TAG: ${{ needs.version.outputs.dist_tag }}
+        run: npm publish --provenance --access public --tag "$DIST_TAG" dist/npm-packages/cmux-relay
+
+      - name: Smoke install from the registry
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Registry propagation can lag the publish by a few seconds.
+          for attempt in $(seq 1 10); do
+            if npm install -g "cmux-relay@$VERSION"; then
+              break
+            fi
+            if [[ "$attempt" == "10" ]]; then
+              echo "npm install -g cmux-relay@$VERSION never resolved" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          cmux-relay --version

@@ -14,11 +14,18 @@ extension AppDelegateShortcutRoutingTests {
         hostedView: GhosttySurfaceScrollView
     ) {
         window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let deadline = Date(timeIntervalSinceNow: 1)
+        repeat {
+            window.displayIfNeeded()
+            if hostedView.surfaceView.window === window,
+               window.makeFirstResponder(hostedView.surfaceView),
+               hostedView.isSurfaceViewFirstResponder() {
+                break
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        } while Date() < deadline
         XCTAssertTrue(
             hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to own first responder before repair test"

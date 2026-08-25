@@ -27,6 +27,7 @@ struct MobileHostServiceSettingsTests {
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
         let automatic = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: false,
             legacyListenerRunning: false
         )
@@ -34,6 +35,7 @@ struct MobileHostServiceSettingsTests {
         #expect(!automatic.startsLegacyListener)
 
         let tailscaleCompatible = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: false
         )
@@ -41,11 +43,24 @@ struct MobileHostServiceSettingsTests {
         #expect(tailscaleCompatible.startsLegacyListener)
 
         let alreadyListening = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: true
         )
         #expect(alreadyListening.activatesIroh)
         #expect(!alreadyListening.startsLegacyListener)
+    }
+
+    @Test func managedRemoteControlPolicyOverridesEveryTransport() {
+        // Even a user who explicitly enabled the legacy listener gets no
+        // transport while the MDM policy is enforced.
+        let disabled = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: true,
+            legacyListenerEnabled: true,
+            legacyListenerRunning: false
+        )
+        #expect(!disabled.activatesIroh)
+        #expect(!disabled.startsLegacyListener)
     }
 
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
@@ -107,6 +122,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -126,6 +142,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )

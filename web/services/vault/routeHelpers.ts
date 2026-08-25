@@ -18,6 +18,7 @@ import {
   enforceBrowserMutationProtection,
   jsonResponse,
 } from "@/services/vms/routeHelpers";
+import { authProviderErrorResponse } from "@/services/vms/authErrors";
 
 type VerifyRequestOptions = NonNullable<Parameters<typeof verifyRequest>[1]>;
 type VaultRouteRequirements = {
@@ -159,7 +160,12 @@ async function withAuthedVaultApiRouteConfiguration(
     failureLog,
     requirements,
     async (context) => {
-      const user = await verify(request, verifyOptions);
+      let user: Awaited<ReturnType<typeof verify>>;
+      try {
+        user = await verify(request, verifyOptions);
+      } catch (error) {
+        return authProviderErrorResponse(error, `${route}.auth`);
+      }
       if (!user) return unauthorized();
       const mutationForbidden = enforceBrowserMutationProtection(request);
       if (mutationForbidden) return mutationForbidden;

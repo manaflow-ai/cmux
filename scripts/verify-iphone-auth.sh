@@ -17,6 +17,8 @@
 #
 # Usage:
 #   scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>] [--timeout <s>]
+#       [--auth-profile personal] [--expected-account <email>]
+#       [--credentials-file <path>]
 #
 # Device id defaults to CMUX_IPHONE_DEVICE_ID, then the first line of
 # ~/.config/cmux/iphone-device-id. Timeout defaults to
@@ -30,6 +32,9 @@ set -euo pipefail
 TAG=""
 DEVICE_ID=""
 TIMEOUT="${CMUX_VERIFY_IPHONE_AUTH_TIMEOUT_SECONDS:-45}"
+AUTH_PROFILE="personal"
+EXPECTED_ACCOUNT=""
+AUTH_CREDENTIALS_FILE="${CMUX_IOS_DOGFOOD_CREDENTIALS_FILE:-$HOME/.secrets/cmuxterm-dev.env}"
 
 usage() { sed -n '2,27p' "$0"; }
 
@@ -38,6 +43,9 @@ while [[ $# -gt 0 ]]; do
     --tag) TAG="${2:-}"; shift 2 ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --timeout) TIMEOUT="${2:-}"; shift 2 ;;
+    --auth-profile) AUTH_PROFILE="${2:-}"; shift 2 ;;
+    --expected-account) EXPECTED_ACCOUNT="${2:-}"; shift 2 ;;
+    --credentials-file) AUTH_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -48,12 +56,26 @@ if [[ ! "$TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: --timeout must be a positive integer" >&2
   exit 2
 fi
+# This gate proves persisted auth on the user's physical iPhone. The shared
+# agent profile is intentionally simulator-only; fail closed before loading
+# credentials or probing the device/Mac.
+if [[ "$AUTH_PROFILE" != "personal" ]]; then
+  echo "error: physical iPhone auth verification requires --auth-profile personal (agent is simulator-only)" >&2
+  exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+# shellcheck source=scripts/lib/dev-secrets.sh
+source "$SCRIPT_DIR/lib/dev-secrets.sh"
 cmux_attach_validate_dev_tag "$TAG" || exit 2
+credential_args=(--profile "$AUTH_PROFILE" --credentials-file "$AUTH_CREDENTIALS_FILE")
+[[ -n "$EXPECTED_ACCOUNT" ]] && credential_args+=(--expected-account "$EXPECTED_ACCOUNT")
+cmux_dev_secrets_load "${credential_args[@]}" >/dev/null || exit $?
+EXPECTED_ACCOUNT="$CMUX_DEV_AUTH_ACCOUNT"
+unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
 
 SLUG="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$SLUG"
@@ -72,7 +94,8 @@ if [[ -z "$DEVICE_ID" ]]; then
   exit 2
 fi
 
-RETRY_CMD="scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $DEVICE_ID --ensure-mac"
+printf -v AUTH_CREDENTIALS_FILE_QUOTED '%q' "$AUTH_CREDENTIALS_FILE"
+RETRY_CMD="scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $DEVICE_ID --ensure-mac --auth-profile $AUTH_PROFILE --expected-account $EXPECTED_ACCOUNT --credentials-file $AUTH_CREDENTIALS_FILE_QUOTED"
 
 fail() {
   local reason="$1"
@@ -123,6 +146,9 @@ if ! cmux_attach_mac_socket_ready "$TAG"; then
   cmux_attach_mac_socket_ready "$TAG" \
     || fail "tagged Mac '$TAG' did not bind its debug socket after launch"
 fi
+if ! cmux_attach_wait_for_mac_auth_account "$TAG" "$REPO_ROOT" "$EXPECTED_ACCOUNT"; then
+  fail "tagged Mac '$TAG' is not authenticated as the selected $AUTH_PROFILE account ($EXPECTED_ACCOUNT)"
+fi
 
 if ! READINESS_CURSOR="$(cmux_attach_readiness_cursor "$TAG" "$REPO_ROOT")"; then
   fail "could not read the tagged Mac's event stream (socket up but not answering)"
@@ -166,5 +192,5 @@ else
   echo "warning: verification passed but the readiness receipt could not be persisted at $RECEIPT_PATH; this PASS exit code is authoritative, receipt-consuming automation will not see this run" >&2
 fi
 
-printf 'PASS: %s on %s is signed in + paired (usable RPC session with tagged Mac '\''%s'\'' in %sms)\n' \
-  "$BUNDLE_ID" "$DEVICE_ID" "$TAG" "$LATENCY_MS"
+printf 'PASS: %s on %s is signed in + paired as profile %s (%s), usable RPC session with tagged Mac '\''%s'\'' in %sms\n' \
+  "$BUNDLE_ID" "$DEVICE_ID" "$AUTH_PROFILE" "$EXPECTED_ACCOUNT" "$TAG" "$LATENCY_MS"

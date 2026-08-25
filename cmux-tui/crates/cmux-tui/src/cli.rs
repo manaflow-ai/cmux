@@ -35,6 +35,29 @@ const PUBLIC_SCOPES: &[&str] = &[
     "raw",
 ];
 
+const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
+    "connect",
+    "ssh",
+    "forward",
+    "rpc",
+    "enroll",
+    "known-daemons",
+    "remote-probe",
+    "remote-link",
+    "remote-sidecar",
+    "remote-stop",
+    "install-self",
+];
+
+/// Returns whether argv selects the remote command family.
+///
+/// Keeping this classifier next to the public CLI grammar prevents startup
+/// routing and the Unix remote implementation from maintaining separate lists.
+pub(super) fn is_remote_invocation(args: &[String]) -> bool {
+    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OutputMode {
     #[default]
@@ -246,6 +269,25 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         if value == "--" {
             after_separator = true;
             command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        // Match clap's standard long-option form, where an option value can
+        // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
+        // This keeps one-token invocations convenient without changing the
+        // existing separated-value grammar.
+        if let Some((flag, inline_value)) = value.split_once('=')
+            && matches!(flag, "--socket" | "--session" | "--machine")
+        {
+            if inline_value.is_empty() {
+                return Err((UsageError::new(format!("{flag} needs a value")), global.output));
+            }
+            match flag {
+                "--socket" => global.socket = Some(PathBuf::from(inline_value)),
+                "--session" => global.session = Some(inline_value.to_owned()),
+                "--machine" => global.machine = Some(inline_value.to_owned()),
+                _ => unreachable!(),
+            }
             index += 1;
             continue;
         }
@@ -634,6 +676,28 @@ mod tests {
             command,
             strings(&["workspace", "current", "run", "--", "tool", "--session", "literal",])
         );
+    }
+
+    #[test]
+    fn global_value_options_accept_inline_equals_values() {
+        let (global, command) = parse_globals(&strings(&[
+            "--socket=/tmp/review.sock",
+            "--session=review-session",
+            "--machine=builder",
+            "workspace",
+            "list",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.machine.as_deref(), Some("builder"));
+        assert_eq!(command, strings(&["workspace", "list"]));
+    }
+
+    #[test]
+    fn global_value_options_reject_empty_inline_values() {
+        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--socket needs a value"));
     }
 
     #[test]

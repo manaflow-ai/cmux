@@ -6,17 +6,35 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct MobileMacBuildCompatibilityPolicyTests {
-    @Test func developmentRequiresExactTag() {
-        let policy = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "icap"
-        )
+    @Test func developmentAllowsSiblingTagsWithoutBuildMetadata() {
+        let policy = MobileMacBuildCompatibilityPolicy.development
 
         #expect(policy.allows(instanceTag: "icap"))
         #expect(policy.allows(instanceTag: " ICAP "))
-        #expect(!policy.allows(instanceTag: "tsmig"))
+        #expect(policy.allows(instanceTag: "tsmig"))
         #expect(!policy.allows(instanceTag: "default"))
         #expect(!policy.allows(instanceTag: "nightly"))
+        #expect(!policy.allows(instanceTag: "rc"))
+        #expect(!policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: nil))
+        #expect(policy.allows(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.debug.sibling"
+        ))
+        #expect(!policy.allows(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.staging.sibling"
+        ))
+    }
+
+    @Test func currentDevelopmentPolicyNeedsNoBuildMetadata() {
+        let policy = MobileMacBuildCompatibilityPolicy.current()
+
+        #expect(policy.allows(instanceTag: "phand1"))
+        #expect(policy.allows(instanceTag: "phand2"))
+        #expect(policy.allows(instanceTag: "phand3"))
+        #expect(policy.allows(instanceTag: "unrelated"))
+        #expect(!policy.allows(instanceTag: "default"))
     }
 
     @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
@@ -62,9 +80,7 @@ import Testing
 
     @Test func legacyExceptionNeverWeakensTaggedOrDevelopmentIdentity() {
         let official = MobileMacBuildCompatibilityPolicy.official
-        let development = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "tsauth"
-        )
+        let development = MobileMacBuildCompatibilityPolicy.development
 
         #expect(official.allowsAuthenticatedHost(
             instanceTag: "default",
@@ -81,9 +97,26 @@ import Testing
             macAppVersion: "0.64.17",
             usesLocallyAuthorizedTailscaleRoute: true
         ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.debug.sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.staging.sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
     }
 
-    @Test func scopedStoreHidesAndRejectsIncompatibleRows() async throws {
+    @Test func scopedDevelopmentStorePreservesSiblingRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -108,16 +141,14 @@ import Testing
                 now: Date(timeIntervalSince1970: seen)
             )
         }
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
-        #expect(try await scoped.loadAll(
+        #expect(Set(try await scoped.loadAll(
             stackUserID: "user-1", teamID: "team-a"
-        ).map(\.instanceTag) == ["icap"])
+        ).compactMap(\.instanceTag)) == ["icap", "tsmig"])
         #expect(try await scoped.activeMac(
             stackUserID: "user-1", teamID: "team-a"
-        ) == nil)
+        )?.instanceTag == "tsmig")
 
         try await scoped.upsert(
             macDeviceID: "other-mac",
@@ -131,7 +162,7 @@ import Testing
         )
         #expect(try await raw.loadAll(
             stackUserID: "user-1", teamID: "team-a"
-        ).allSatisfy { $0.macDeviceID != "other-mac" })
+        ).contains { $0.macDeviceID == "other-mac" && $0.instanceTag == "tsmig" })
     }
 
     @Test func scopedStoreKeepsUnclaimedLegacyRowsMigratable() async throws {
@@ -162,9 +193,7 @@ import Testing
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 1)
         )
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
         #expect(try await scoped.loadAll(
             stackUserID: "user-1", teamID: "team-a"
@@ -186,7 +215,7 @@ import Testing
         ).first?.routes == [updatedRoute])
     }
 
-    @Test func scopedRemoveAllPreservesIncompatibleRows() async throws {
+    @Test func scopedRemoveAllRemovesAllDevelopmentRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -211,15 +240,13 @@ import Testing
                 now: Date(timeIntervalSince1970: seenAt)
             )
         }
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
         try await scoped.removeAll()
 
         #expect(try await raw.loadAll(
             stackUserID: nil, teamID: nil
-        ).compactMap(\.instanceTag) == ["tsmig"])
+        ).isEmpty)
     }
 
     @Test func officialStoreKeepsStableAndNightlyButRejectsDevelopment() async throws {
@@ -255,9 +282,9 @@ import Testing
     }
 
     @MainActor
-    @Test func registryProjectionKeepsOnlyCompatibleInstances() {
+    @Test func registryProjectionKeepsEveryDevelopmentInstance() {
         let store = MobileShellComposite(
-            buildCompatibilityPolicy: .development(expectedInstanceTag: "icap")
+            buildCompatibilityPolicy: .development
         )
         let device = RegistryDevice(
             deviceId: "shared-mac",
@@ -277,14 +304,14 @@ import Testing
         let projected = store.compatibleRegistryDevices([device])
 
         #expect(projected.count == 1)
-        #expect(projected[0].instances.map(\.tag) == ["icap"])
-        #expect(projected[0].lastSeenAt == Date(timeIntervalSince1970: 10))
+        #expect(projected[0].instances.map(\.tag) == ["icap", "tsmig"])
+        #expect(projected[0].lastSeenAt == Date(timeIntervalSince1970: 20))
     }
 
     @MainActor
-    @Test func presenceProjectionKeepsOnlyCompatibleInstances() {
+    @Test func presenceProjectionKeepsEveryDevelopmentInstance() {
         let store = MobileShellComposite(
-            buildCompatibilityPolicy: .development(expectedInstanceTag: "icap")
+            buildCompatibilityPolicy: .development
         )
         let icap = PresenceInstance(
             deviceId: "shared-mac",
@@ -321,9 +348,9 @@ import Testing
             return
         }
         #expect(snapshot.devices.count == 1)
-        #expect(snapshot.devices[0].instances.map(\.tag) == ["icap"])
-        #expect(!snapshot.devices[0].online)
-        #expect(snapshot.devices[0].lastSeenAt == 10)
-        #expect(store.compatiblePresenceUpdate(.online(tsmig)) == nil)
+        #expect(snapshot.devices[0].instances.map(\.tag) == ["icap", "tsmig"])
+        #expect(snapshot.devices[0].online)
+        #expect(snapshot.devices[0].lastSeenAt == 20)
+        #expect(store.compatiblePresenceUpdate(.online(tsmig)) == .online(tsmig))
     }
 }

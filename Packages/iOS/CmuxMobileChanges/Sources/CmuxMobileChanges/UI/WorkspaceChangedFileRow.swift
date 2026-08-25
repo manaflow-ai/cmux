@@ -3,6 +3,10 @@ import SwiftUI
 struct WorkspaceChangedFileRow: View {
     let snapshot: ChangedFileRowSnapshot
     let theme: ChangesTheme
+    /// Tree nesting level; zero renders flush like the flat list.
+    var indentationDepth: Int = 0
+    /// The tree conveys the directory, so nested rows drop the path prefix.
+    var showsDirectoryPrefix: Bool = true
     let onSelect: @MainActor @Sendable (Int) -> Void
 
     var body: some View {
@@ -45,6 +49,7 @@ struct WorkspaceChangedFileRow: View {
                     }
                 }
             }
+            .padding(.leading, ChangedFilesTreeRow.indentationWidth(forDepth: indentationDepth))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -54,17 +59,18 @@ struct WorkspaceChangedFileRow: View {
     }
 
     private var pathText: Text {
+        let prefix = showsDirectoryPrefix ? snapshot.file.directoryPrefix : ""
         if snapshot.file.kind == .renamed {
             return Text(snapshot.file.displayFilename).fontWeight(.semibold)
         }
         // A deleted file's whole path dims: the row is a record of something
         // gone, so nothing in it competes with living files while scanning.
         if snapshot.file.kind == .deleted {
-            return (Text(snapshot.file.directoryPrefix)
+            return (Text(prefix)
                 + Text(snapshot.file.filename).fontWeight(.semibold))
                 .foregroundColor(.secondary)
         }
-        return Text(snapshot.file.directoryPrefix).foregroundColor(.secondary)
+        return Text(prefix).foregroundColor(.secondary)
             + Text(snapshot.file.filename).fontWeight(.semibold)
     }
 

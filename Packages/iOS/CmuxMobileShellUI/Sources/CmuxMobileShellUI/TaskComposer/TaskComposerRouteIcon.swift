@@ -10,21 +10,18 @@ struct TaskComposerRouteIcon: View {
     let content: Content
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.accentColor.opacity(0.12))
-
+        Group {
             switch content {
             case .symbol(let name):
                 Image(systemName: name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
             case .emoji(let emoji):
                 Text(emoji)
-                    .font(.system(size: 17))
+                    .font(.system(size: 19))
             }
         }
-        .frame(width: 28, height: 28)
+        .frame(width: 32, height: 32)
         .accessibilityHidden(true)
     }
 }
@@ -38,11 +35,11 @@ struct TaskComposerRouteLabel: View {
     let chevronSystemName: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             TaskComposerRouteIcon(content: icon)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption2.weight(.medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -60,6 +57,7 @@ struct TaskComposerRouteLabel: View {
                 .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .padding(.horizontal, 16)
         .contentShape(Rectangle())
     }
 }

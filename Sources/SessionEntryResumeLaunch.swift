@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 /// The terminal startup plan shared by every Vault resume entry point.
-nonisolated struct SessionEntryResumeLaunch: Sendable {
+struct SessionEntryResumeLaunch: Sendable {
     /// How the terminal starts the selected Vault session.
     enum Strategy: Sendable, Equatable {
         /// Resolve structured argv and environment through `cmux restore`.
@@ -22,7 +22,7 @@ nonisolated struct SessionEntryResumeLaunch: Sendable {
 }
 
 /// Agent-specific launch fields used to assemble one restorable snapshot.
-nonisolated private struct SessionEntryResumeSnapshotComponents {
+private struct SessionEntryResumeSnapshotComponents {
     /// Captured executable and option arguments before resume arguments are applied.
     let arguments: [String]
     /// Replay-safe environment required by the agent profile.
@@ -60,11 +60,14 @@ extension SessionEntry {
     }
 
     /// Builds the explicit compatibility launch for an unsupported registration.
+    /// The legacy command is a POSIX one-liner typed into the user's shell, so
+    /// it goes through the typed-boundary dialect wrap (nushell cannot parse
+    /// POSIX; the `restoreVerb` strategy types only bare words and needs none).
     private var legacyResumeLaunch: SessionEntryResumeLaunch? {
         guard let legacyCommand = copyResumeCommand else { return nil }
         return SessionEntryResumeLaunch(
             strategy: .legacyCommand,
-            initialInput: legacyCommand + "\n",
+            initialInput: TerminalStartupTypedShellCommand().typedInput(posixCommand: legacyCommand) + "\n",
             workingDirectory: resumeWorkingDirectory,
             startupRestoreAgent: nil
         )

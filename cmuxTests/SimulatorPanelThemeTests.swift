@@ -14,6 +14,25 @@ import Testing
 @MainActor
 @Suite("Simulator panel visibility", .serialized)
 struct SimulatorPanelVisibilityTests {
+    @Test("Mobile demand starts a hidden Simulator panel")
+    func mobileDemandStartsHiddenPanel() async {
+        let client = SimulatorThemePaneClient(devices: [])
+        let panel = SimulatorPanel(client: client)
+        let consumerID = UUID()
+        defer {
+            panel.setMobileFrameDemand(false, consumerID: consumerID)
+            panel.close()
+        }
+
+        panel.setMobileFrameDemand(true, consumerID: consumerID)
+
+        for _ in 0..<100 {
+            if await client.discoveryCount > 0 { break }
+            await Task.yield()
+        }
+        #expect(await client.discoveryCount == 1)
+    }
+
     @Test("A surviving Simulator host keeps framebuffer publication active")
     func survivingHostKeepsFramebufferActive() async throws {
         let device = SimulatorDevice(

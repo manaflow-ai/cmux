@@ -12,6 +12,7 @@ import {
 import {
   coderouterOrganizationFromCookieHeader,
 } from "../../../../services/coderouter/organizationScope";
+import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -47,6 +48,14 @@ export async function GET(request: Request): Promise<Response> {
         });
       }
       selectedTeamId ??= stackSelectedTeamId;
+      captureCoderouterEvent({
+        event: "coderouter_organization_catalog_viewed",
+        ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
+        properties: {
+          organization_count: teams.length,
+          has_selected_organization: selectedTeamId !== null,
+        },
+      });
       return jsonResponse({ selectedTeamId, teams });
     });
   } catch (error) {

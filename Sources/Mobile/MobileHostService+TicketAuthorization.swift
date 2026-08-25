@@ -38,6 +38,10 @@ extension MobileHostService {
         }
 
         switch request.method {
+#if DEBUG
+        case "mobile.rpc.methods":
+            return nil
+#endif
         case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
              "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
@@ -82,7 +86,12 @@ extension MobileHostService {
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.todo.add", "mobile.todo.set_state", "mobile.todo.edit",
+             "mobile.todo.move", "mobile.todo.remove", "mobile.todo.open",
+             "mobile.status.set", "mobile.status.cycle",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
@@ -127,7 +136,11 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status", "phone_push.status.get":
+        case "mobile.host.status", "phone_push.status.get",
+             "caffeine.status", "caffeine.set":
+            // Caffeine is Mac-scoped, and the same-account data-plane gate is
+            // authoritative. A workspace-scoped attach ticket must not make
+            // the phone lose this host-wide control.
             return nil
         default:
             return scopedTicketError

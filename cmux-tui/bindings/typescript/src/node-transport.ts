@@ -1,5 +1,6 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import * as net from "node:net";
-import * as os from "node:os";
 import * as path from "node:path";
 import { CmuxConnectionError } from "./errors.js";
 import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
@@ -18,10 +19,76 @@ import {
   utf8ByteLength,
 } from "./transport-limits.js";
 
+/**
+ * Validates the session component used by the default Unix socket path.
+ *
+ * Session names may contain legacy spaces, Unicode, punctuation, and long
+ * text. They must remain one non-empty path component and cannot contain
+ * separators, NUL, control characters, or Unicode line separators.
+ */
+export function validateSessionName(session: string): void {
+  const invalid =
+    session.length === 0
+    || session === "."
+    || session === ".."
+    || [...session].some((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return (
+        character === "/"
+        || character === "\\"
+        || character === "\u0000"
+        || codePoint <= 0x1f
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+        || codePoint === 0x85
+        || codePoint === 0x2028
+        || codePoint === 0x2029
+        || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      );
+    });
+  if (invalid) {
+    throw new TypeError(
+      "session name must be a non-empty path component "
+      + "without separators or control characters",
+    );
+  }
+}
+
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
-  const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+  return defaultSocketPaths(session)[0];
+}
+
+/** Candidate paths in server lookup order. */
+export function defaultSocketPaths(session = "main"): string[] {
+  validateSessionName(session);
+  const uid = process.getuid?.() ?? 0;
+  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || "/tmp";
+  const fileName = `${session}.sock`;
+  const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
+  // A fitting preferred path is authoritative. Do not probe a same-name
+  // /tmp socket in that case, because it can belong to another runtime.
+  if (unixSocketPathFits(preferred)) return [preferred];
+  const candidates: string[] = [];
+  // Only try the raw /tmp compatibility path after the preferred base failed.
+  // When the preferred base is already /tmp this is the same path.
+  if (base !== "/tmp") {
+    const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
+    if (unixSocketPathFits(fallback)) candidates.push(fallback);
+  }
+  if (candidates.length) return candidates;
+  const digest = createHash("sha256").update(session, "utf8").digest("hex");
+  const hashed = path.join(base, `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+  const hashedFallback = path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+  if (unixSocketPathFits(hashed)) candidates.push(hashed);
+  if (unixSocketPathFits(hashedFallback) && !candidates.includes(hashedFallback)) candidates.push(hashedFallback);
+  return candidates;
+}
+
+function unixSocketPathFits(socketPath: string): boolean {
+  // Node implements IPC paths as named pipes on Windows, not sockaddr_un.
+  if (process.platform === "win32") return true;
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  return Buffer.byteLength(socketPath) < capacity;
 }
 
 /** Reads the current or legacy cmux-tui socket environment variable. */
@@ -29,7 +96,42 @@ export function envSocketPath(): string | undefined {
   return process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
 }
 
+/**
+ * Validate a Node Unix-socket path before asking net.createConnection to use it.
+ * Node passes this value to sockaddr_un, whose sun_path field is bounded.
+ * Linux abstract-namespace sockets use a leading NUL and are kept supported.
+ */
+export function validateUnixSocketPath(socketPath: string): void {
+  if (socketPath.length === 0) {
+    throw new TypeError("Unix socket path must be non-empty");
+  }
+  const abstract = socketPath.startsWith("\u0000");
+  if (abstract && process.platform !== "linux") {
+    throw new TypeError("abstract Unix socket paths are only supported on Linux");
+  }
+  const nulOffset = abstract ? 1 : 0;
+  if (socketPath.slice(nulOffset).includes("\u0000")) {
+    throw new TypeError("Unix socket path must not contain embedded NUL characters");
+  }
+  if (!unixSocketPathFits(socketPath)) {
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    throw new RangeError(
+      `Unix socket path exceeds the ${capacity - 1}-byte platform limit`,
+    );
+  }
+}
+
+/** Compatibility validator used by the high-level and raw Node clients. */
+export function validateSocketPath(socketPath: string): void {
+  if (socketPath.length === 0) {
+    throw new TypeError("socketPath must be a non-empty path");
+  }
+  validateUnixSocketPath(socketPath);
+}
+
 export interface UnixSocketTransportOptions {
+  /** Additional paths to try after ENOENT/ECONNREFUSED during initial connect. */
+  fallbackSocketPaths?: readonly string[];
   maxInboundMessageBytes?: number;
   maxOutboundMessageBytes?: number;
   maxPendingBytes?: number;
@@ -46,7 +148,9 @@ interface PendingMessage {
 /** Unix-socket JSON-lines transport for Node.js. */
 export class UnixSocketTransport implements Transport {
   readonly supportsDispatchGuard: true = true;
-  private readonly socket: net.Socket;
+  private socket: net.Socket;
+  private readonly fallbackSocketPaths: string[];
+  private fallbackIndex = 0;
   private readonly pending: PendingMessage[] = [];
   private readonly messageHandlers = new Set<(json: string) => void>();
   private readonly closeHandlers = new Set<() => void>();
@@ -59,9 +163,15 @@ export class UnixSocketTransport implements Transport {
   private pendingBytes = 0;
   private flushing = false;
   private connected = false;
+  private closing = false;
   private closed = false;
 
-  constructor(readonly socketPath: string, options: UnixSocketTransportOptions = {}) {
+  constructor(public socketPath: string, options: UnixSocketTransportOptions = {}) {
+    validateUnixSocketPath(socketPath);
+    for (const fallback of options.fallbackSocketPaths ?? []) {
+      validateUnixSocketPath(fallback);
+    }
+    this.fallbackSocketPaths = [...(options.fallbackSocketPaths ?? [])].filter((p) => p !== socketPath);
     this.maxInboundMessageBytes = positiveLimit(
       "maxInboundMessageBytes",
       options.maxInboundMessageBytes,
@@ -90,7 +200,11 @@ export class UnixSocketTransport implements Transport {
       (error) => this.failAndClose(error),
     );
     this.socket = net.createConnection({ path: socketPath });
-    this.socket.on("connect", () => {
+    this.bindSocket(this.socket);
+  }
+
+  private bindSocket(socket: net.Socket): void {
+    socket.on("connect", () => {
       this.connected = true;
       try {
         this.flushPending();
@@ -105,15 +219,41 @@ export class UnixSocketTransport implements Transport {
         }
       }
     });
-    this.socket.on("data", (chunk: Buffer) => this.receive(chunk));
-    this.socket.on("error", (error) => {
+    socket.on("data", (chunk: Buffer) => {
+      try {
+        this.receive(chunk);
+      } catch (error) {
+        try {
+          this.failAndClose(error instanceof Error ? error : new Error(String(error)));
+        } catch {
+          // Error observers must not throw through the EventEmitter callback.
+        }
+      }
+    });
+    socket.on("error", (error: NodeJS.ErrnoException) => {
+      // Node may deliver a queued error after a fallback socket replaced it.
+      // Ignore events from that stale EventEmitter, as they do not describe
+      // the active connection.
+      if (socket !== this.socket) return;
+      // destroy() may emit a queued error after an intentional close.
+      if (this.closing || this.closed) return;
+      if (!this.connected && (error.code === "ENOENT" || error.code === "ECONNREFUSED") && this.fallbackIndex < this.fallbackSocketPaths.length) {
+        const next = this.fallbackSocketPaths[this.fallbackIndex++];
+        socket.destroy();
+        // A connection cannot carry a partial JSON line across sockets.
+        this.inbound.reset();
+        this.socketPath = next;
+        this.socket = net.createConnection({ path: next });
+        this.bindSocket(this.socket);
+        return;
+      }
       const prefix = this.connected
         ? "socket error"
         : `cannot connect to session socket ${this.socketPath}`;
       this.connected = false;
       this.fail(new CmuxConnectionError(`${prefix}: ${error.message}`));
     });
-    this.socket.on("close", () => this.finish());
+    socket.on("close", () => { if (socket === this.socket) this.finish(); });
   }
 
   send(json: string): void {
@@ -133,7 +273,7 @@ export class UnixSocketTransport implements Transport {
     onDispatched: OnDispatched,
     dispatchGuard?: DispatchGuard,
   ): Unsubscribe {
-    if (this.closed) throw new CmuxConnectionError("session socket closed");
+    if (this.closing || this.closed) throw new CmuxConnectionError("session socket closed");
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
       throw new CmuxConnectionError(
@@ -181,7 +321,8 @@ export class UnixSocketTransport implements Transport {
   }
 
   close(): void {
-    if (!this.closed) {
+    if (!this.closing && !this.closed) {
+      this.closing = true;
       this.inbound.dispose();
       this.socket.destroy();
     }

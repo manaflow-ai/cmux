@@ -3,7 +3,7 @@ import Bonsplit
 import CmuxSettings
 import Foundation
 
-nonisolated enum DockBatchCloseConfirmationPolicy: Sendable {
+enum DockBatchCloseConfirmationPolicy: Sendable {
     case tabsRequiringConfirmation
     case allTabs
 }

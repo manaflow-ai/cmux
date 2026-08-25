@@ -136,6 +136,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// (queue full of non-droppable events). Re-requested once the drain frees
     /// room, so a fully stalled connection cannot spin the producer.
     private var resyncAfterDrainSurfaceIDs: Set<String> = []
+    /// Panels whose absolute snapshot was shed after the producer considered
+    /// it sent. Drain progress requests one exact-session replay for each.
+    private var simulatorFrameReplayAfterDrainPanelIDs: Set<String> = []
 
     init(
         maximumEventCount: Int = MobileHostConnectionEventQueue.defaultMaximumEventCount,
@@ -199,6 +202,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         var shedSummary = MobileHostEventShedSummary()
         if !hasRoomLocked(for: frame) {
             shedSummary = shedDroppableEventsLocked(for: frame, resyncSurfaceIDs: &resyncSurfaceIDs)
+            simulatorFrameReplayAfterDrainPanelIDs.formUnion(shedSummary.simulatorFramePanelIDs)
         }
         if isRenderGrid,
            let coalesceKey,
@@ -335,6 +339,28 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         return requests
     }
 
+    /// Simulator panels whose latest absolute frame must be replayed now that
+    /// this exact connection's queue has made write progress.
+    func takeSimulatorFrameReplayAfterDrainRequests() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !simulatorFrameReplayAfterDrainPanelIDs.isEmpty else { return [] }
+        let requests = simulatorFrameReplayAfterDrainPanelIDs
+        simulatorFrameReplayAfterDrainPanelIDs.removeAll()
+        return requests
+    }
+
+    /// Restores replay debt when subscription ownership changes while the
+    /// connection actor is awaiting the producer callback.
+    func requeueSimulatorFrameReplayAfterDrainRequests(_ panelIDs: Set<String>) {
+        guard !panelIDs.isEmpty else { return }
+        lock.lock()
+        if !isClosed {
+            simulatorFrameReplayAfterDrainPanelIDs.formUnion(panelIDs)
+        }
+        lock.unlock()
+    }
+
     /// Rejects all future admissions and releases every queued payload.
     func close() {
         lock.lock()
@@ -343,6 +369,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         queuedByteCount = 0
         poisonedRenderGridSurfaceIDs.removeAll()
         resyncAfterDrainSurfaceIDs.removeAll()
+        simulatorFrameReplayAfterDrainPanelIDs.removeAll()
         subscribedTopics.removeAll()
         lock.unlock()
     }

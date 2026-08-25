@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import Testing
 
@@ -440,6 +441,114 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
+    @MainActor
+    func unreadRefreshKeepsTableHeightInLockstepWithTheReconfiguredCell() async throws {
+        let workspace = Workspace()
+        let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
+        var pumpModel = baseModel
+        pumpModel.latestNotificationText = "metadata refresh"
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: baseModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: baseModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: environment,
+            workspace: workspace,
+            rebuild: { pumpModel },
+            unreadRebuild: { snapshot in
+                var fresh = baseModel
+                let summary = snapshot.summary(forWorkspaceId: workspace.id)
+                fresh.unreadCount = summary.unreadCount
+                fresh.latestNotificationText = summary.latestNotificationText
+                return fresh
+            }
+        )
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        _ = cache.prepareRows(at: [0], in: [row], columnWidth: 320)
+        let cacheSnapshot = SidebarUnreadSnapshot(
+            summaryByWorkspaceId: [workspace.id: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: "cache fingerprint notification"
+            )]
+        )
+        let cacheUpdatedRow = row.applyingUnreadSnapshot(cacheSnapshot)
+        let cacheChanges = cache.prepareRows(
+            at: [0],
+            in: [cacheUpdatedRow],
+            columnWidth: 320
+        )
+        #expect(cacheChanges == IndexSet(integer: 0))
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let unread = SidebarUnreadModel()
+        controller.setUnreadSource(unread)
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        // The initial pump replay installs a height override for the shorter
+        // live model. The unread update below must retire that override before
+        // the cell is painted with its taller notification preview.
+        let pumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let baseHeight = ceil(
+            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
+        )
+        #expect(pumpHeight > baseHeight)
+
+        let latestText = String(repeating: "latest agent message ", count: 30)
+        unread.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspace.id,
+            summary: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: latestText
+            ),
+            totalUnreadCount: 1
+        )
+        await flushUntil { cell.currentModelForMeasurement?.latestNotificationText == latestText }
+        #expect(cell.currentModelForMeasurement?.latestNotificationText == latestText)
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let installedModel = try #require(cell.currentModelForMeasurement)
+        let expectedHeight = ceil(
+            cell.layoutContent(model: installedModel, width: cell.bounds.width, apply: false)
+        )
+        let servedHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let tableHeight = container.tableView.rect(ofRow: 0).height
+            - container.tableView.intercellSpacing.height
+        #expect(abs(servedHeight - expectedHeight) < 0.5)
+        #expect(abs(tableHeight - expectedHeight) < 0.5)
+    }
+
+    @Test
     func reorderIndicatorPainterMatchesPredicateAndSuppressesDraggedRow() {
         let ids = (0..<5).map { _ in UUID() }
 
@@ -547,6 +656,15 @@ struct SidebarWorkspaceTableTests {
         }
     }
 
+    @MainActor
+    private func flushUntil(_ predicate: @escaping () -> Bool) async {
+        for _ in 0..<32 {
+            if predicate() { return }
+            await flushStagedTableMutations()
+            await Task.yield()
+        }
+    }
+
 #if DEBUG
     @MainActor
     private func configure(
@@ -607,3 +725,142 @@ struct SidebarWorkspaceTableTests {
         }
     }
 }
+
+#if DEBUG
+@Suite
+struct SidebarWorkspaceTableResizeLifecycleTests {
+    @Test
+    @MainActor
+    func appliedRowsStayStableUntilInteractiveResizeEnds() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let third = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 1)
+
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var resizeIsActive = true
+        defer {
+            if resizeIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A live resize must keep the controller's previously applied row graph stable."
+        )
+
+        controller.apply(
+            rows: [first, second, third],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId, third.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A newer resize-time snapshot must not replace the applied row graph."
+        )
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        resizeIsActive = false
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 3,
+            "Resize completion must reconcile the newest deferred row graph."
+        )
+    }
+
+    @MainActor
+    private func makeRowConfiguration() -> SidebarWorkspaceTableRowConfiguration {
+        let workspaceId = UUID()
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: TestRowContent()
+        ) { _, _ in
+            AnyView(TestRowContent())
+        }
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+
+    @MainActor
+    private func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _, _ in nil },
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
+    }
+
+    private struct TestRowContent: View, Equatable {
+        var body: some View {
+            EmptyView()
+        }
+    }
+}
+#endif

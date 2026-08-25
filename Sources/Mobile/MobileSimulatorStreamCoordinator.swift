@@ -186,6 +186,18 @@ final class MobileSimulatorStreamCoordinator {
         pruneCachesForClosedPanels()
     }
 
+    /// Replays frames only through sessions owned by the connection whose
+    /// bounded event queue shed them.
+    func requestFrameReplay(connectionID: UUID, panelIDStrings: Set<String>) {
+        for panelIDString in panelIDStrings {
+            guard let panelID = UUID(uuidString: panelIDString),
+                  let session = sessions[SessionKey(connectionID: connectionID, panelID: panelID)] else {
+                continue
+            }
+            session.requestFrameReplay()
+        }
+    }
+
     private func sessionEnded(key: SessionKey, sessionID: UUID) {
         guard sessions[key]?.id == sessionID else { return }
         sessions[key] = nil

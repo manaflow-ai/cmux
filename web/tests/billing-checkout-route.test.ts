@@ -31,7 +31,11 @@ const anonymousUser = {
 };
 
 let userResponses: unknown[] = [];
-const getUser = mock(async () => userResponses.shift() ?? null);
+let stackAuthUnavailable = false;
+const getUser = mock(async () => {
+  if (stackAuthUnavailable) throw new Error("Stack Auth unavailable");
+  return userResponses.shift() ?? null;
+});
 let stripeConfigured = false;
 const createdStripeSessions: unknown[] = [];
 const createdStripeCustomers: unknown[] = [];
@@ -126,6 +130,7 @@ describe("billing checkout route", () => {
     anonymousUser.update.mockResolvedValue(undefined);
     signedInUser.selectedTeam = null;
     userResponses = [];
+    stackAuthUnavailable = false;
     stripeConfigured = false;
     createdStripeSessions.length = 0;
     createdStripeCustomers.length = 0;
@@ -400,6 +405,21 @@ describe("billing checkout route", () => {
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
     });
+  });
+
+  test("bounds Stack Auth failures before creating a checkout", async () => {
+    stripeConfigured = true;
+    stackAuthUnavailable = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("format=json returns the Stripe URL as JSON instead of a 302", async () => {

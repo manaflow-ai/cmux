@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CmuxSettings
@@ -42,6 +43,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -56,12 +58,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.containerView = container
         context.coordinator.onContainerChange?(container)
         return container
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview

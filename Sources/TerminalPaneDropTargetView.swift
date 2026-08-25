@@ -9,13 +9,12 @@ final class PaneDropTargetView: NSView {
     var dropContext: PaneDropContext? {
         didSet {
             if dropContext != oldValue {
-                clearActiveDropContainer()
+                transferDropRouter.clear()
             }
         }
     }
     private var activeZone: DropZone?
-    private weak var activeDropContainer: (any PaneDropContainer)?
-    private var activeDropContainerContext: PaneDropContext?
+    private let transferDropRouter = PaneTransferDropRouter()
     private let dropRoutingRegistration = PaneDropRoutingRegistration()
     private let dropZoneOverlayView = NSView(frame: .zero)
     private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
@@ -41,7 +40,7 @@ final class PaneDropTargetView: NSView {
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
-            clearActiveDropContainer()
+            transferDropRouter.clear()
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -93,9 +92,9 @@ final class PaneDropTargetView: NSView {
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         if let dropContext {
-            _ = resolveAndCacheDropContainer(for: dropContext)
+            transferDropRouter.begin(context: dropContext)
         } else {
-            clearActiveDropContainer()
+            transferDropRouter.clear()
         }
         let operation = updateDragState(sender, phase: "entered")
         dropRoutingRegistration.update(sender, operation: operation, targetView: self)
@@ -111,22 +110,48 @@ final class PaneDropTargetView: NSView {
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dropRoutingRegistration.clear(sender)
         clearDragState(phase: "exited")
-        clearActiveDropContainer()
+        transferDropRouter.clear()
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
         dropRoutingRegistration.clear(sender)
         clearDragState(phase: "ended")
-        clearActiveDropContainer()
+        transferDropRouter.clear()
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let dropContext else {
-            clearActiveDropContainer()
+            transferDropRouter.clear()
             return false
         }
-        return dropContainer(for: dropContext) != nil
+        guard let container = transferDropRouter.container(for: dropContext) else {
+            return false
+        }
+
+        let textDestinationKind = container.fileDropTextDestinationKind(
+            in: dropContext.paneId,
+            hasHostedTerminal: hostedView != nil
+        )
+        if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            canDropAsText: textDestinationKind != nil
+        ) {
+            return !DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard).isEmpty
+        }
+
+        switch transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: paneDropZone(for: sender)
+        ) {
+        case .accepted:
+            return true
+        case .rejected:
+            return false
+        case .notTransfer:
+            return DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types)
+        }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -134,7 +159,7 @@ final class PaneDropTargetView: NSView {
         defer {
             dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")
-            clearActiveDropContainer()
+            transferDropRouter.clear()
         }
 
         guard let dropContext else {
@@ -144,7 +169,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        guard let container = dropContainer(for: dropContext) else {
+        guard let container = transferDropRouter.container(for: dropContext) else {
 #if DEBUG
             cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingContainer")
 #endif
@@ -178,31 +203,29 @@ final class PaneDropTargetView: NSView {
             return handled
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
-            guard container.canPerformPortalPaneDrop(transfer) else {
-                return false
-            }
-            let zone = resolvedZone(
-                for: sender,
-                transfer: transfer,
-                context: dropContext,
-                container: container
-            )
-            let handled = container.performPortalPaneDrop(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                zone: zone
+        let transferResolution = transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: paneDropZone(for: sender)
+        )
+        switch transferResolution {
+        case .accepted(let plan):
+            let handled = transferDropRouter.perform(
+                plan,
+                pasteboard: sender.draggingPasteboard
             )
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) " +
+                "tab=\(plan.transfer.tabId.uuidString.prefix(5)) zone=\(plan.zone) " +
                 "pane=\(dropContext.paneId.id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
+        case .rejected:
+            return false
+        case .notTransfer:
+            break
         }
 
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
@@ -222,10 +245,10 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        let zone = fileDropZone(for: sender)
+        let zone = paneDropZone(for: sender)
         let handled = container.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
-            destination: PaneDropRouting.filePreviewDestination(
+            destination: PaneDropRouting.destination(
                 targetPane: dropContext.paneId,
                 zone: zone
             )
@@ -256,7 +279,7 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        guard let container = dropContainer(for: dropContext) else {
+        guard let container = transferDropRouter.container(for: dropContext) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -279,26 +302,26 @@ final class PaneDropTargetView: NSView {
             return DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: sender.draggingPasteboard.types)
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
-            guard container.canPerformPortalPaneDrop(transfer) else {
-                clearDragState(phase: "\(phase).reject")
-                return []
-            }
-            let zone = resolvedZone(
-                for: sender,
-                transfer: transfer,
-                context: dropContext,
-                container: container
-            )
-            setActiveDropZone(zone)
+        let transferResolution = transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: paneDropZone(for: sender)
+        )
+        switch transferResolution {
+        case .accepted(let plan):
+            setActiveDropZone(plan.zone)
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
+                "tab=\(plan.transfer.tabId.uuidString.prefix(5)) zone=\(plan.zone)"
             )
 #endif
             return .move
+        case .rejected:
+            clearDragState(phase: "\(phase).reject")
+            return []
+        case .notTransfer:
+            break
         }
 
         guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else {
@@ -315,7 +338,7 @@ final class PaneDropTargetView: NSView {
             return operation
         }
 
-        let zone = fileDropZone(for: sender)
+        let zone = paneDropZone(for: sender)
         setActiveDropZone(zone)
 #if DEBUG
         cmuxDebugLog(
@@ -324,32 +347,6 @@ final class PaneDropTargetView: NSView {
         )
 #endif
         return .copy
-    }
-
-    /// Resolves pane ownership once when a drag enters this target.
-    private func resolveAndCacheDropContainer(
-        for context: PaneDropContext
-    ) -> (any PaneDropContainer)? {
-        let container = AppDelegate.shared?.paneDropContainer(for: context)
-        activeDropContainer = container
-        activeDropContainerContext = container == nil ? nil : context
-        return container
-    }
-
-    /// Reuses the active owner, resolving it once when overlay forwarding starts late.
-    private func dropContainer(
-        for context: PaneDropContext
-    ) -> (any PaneDropContainer)? {
-        if activeDropContainerContext == context {
-            return activeDropContainer
-        }
-        return resolveAndCacheDropContainer(for: context)
-    }
-
-    /// Releases cached ownership when the drag or target context ends.
-    private func clearActiveDropContainer() {
-        activeDropContainer = nil
-        activeDropContainerContext = nil
     }
 
     static func simulatorFileDropOperation(
@@ -366,25 +363,9 @@ final class PaneDropTargetView: NSView {
         return canHandle ? .copy : []
     }
 
-    private func fileDropZone(for sender: any NSDraggingInfo) -> DropZone {
+    private func paneDropZone(for sender: any NSDraggingInfo) -> DropZone {
         let location = convert(sender.draggingLocation, from: nil)
         return PaneDropRouting.zone(for: location, in: bounds.size)
-    }
-
-    private func resolvedZone(
-        for sender: any NSDraggingInfo,
-        transfer: PaneDragTransfer,
-        context: PaneDropContext,
-        container: any PaneDropContainer
-    ) -> DropZone {
-        let location = convert(sender.draggingLocation, from: nil)
-        let proposedZone = PaneDropRouting.zone(for: location, in: bounds.size)
-        return container.portalPaneDropZone(
-            tabId: transfer.tabId,
-            sourcePaneId: transfer.sourcePaneId,
-            targetPane: context.paneId,
-            proposedZone: proposedZone
-        )
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {

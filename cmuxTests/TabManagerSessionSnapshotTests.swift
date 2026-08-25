@@ -23,7 +23,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private func reserveRemoteRestoreSocket() -> String {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-restore-\(UUID().uuidString).sock"
         let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
         XCTAssertEqual(TerminalController.shared.currentSocketPathForRemoteRestore(), reservedPath)
@@ -31,7 +31,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private func cleanupRemoteRestoreSocket(_ path: String) {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
@@ -3247,8 +3247,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

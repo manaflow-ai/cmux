@@ -455,16 +455,13 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(themeBackground.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
-        let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
-
+    func testBrowserChromeColorSchemeUsesExplicitSurfaceAuthority() {
         XCTAssertEqual(
             resolvedBrowserChromeColorScheme(
                 for: .dark,
-                themeBackgroundColor: darkTranslucentBackground,
-                windowBackgroundColor: .white
+                ambientColorScheme: .light
             ),
-            .light
+            .dark
         )
     }
 

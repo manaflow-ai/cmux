@@ -1,7 +1,7 @@
 import Foundation
 
 /// Identifies the split container that owns a panel.
-nonisolated enum PanelHost: Equatable, Hashable, Sendable {
+enum PanelHost: Equatable, Hashable, Sendable {
     case workspace(UUID)
     case workspaceDock(UUID)
     case windowDock(UUID)

@@ -18,6 +18,9 @@ public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -54,6 +57,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
     ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
     ///     leaving the raw Tailscale route fail-closed.
+    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
+    ///     complete path allowlist for an Iroh route. Ignored for other route
+    ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -63,6 +69,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -106,7 +113,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: route.kind == .iroh
+                ? irohDirectOnlyDialCandidates
+                : nil
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -698,7 +708,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

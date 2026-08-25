@@ -13,6 +13,7 @@ import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -34,17 +35,23 @@ export async function GET(request: NextRequest) {
   const billingAvailable = isStripeBillingConfigured();
   const stackServerApp = getStackServerApp();
   const bearer = parseBearer(request);
-  const user = bearer
-    ? await stackServerApp.getUser({
+  const loadUser = () => bearer
+    ? stackServerApp.getUser({
         tokenStore: {
           accessToken: bearer.accessToken,
           refreshToken: bearer.refreshToken,
         },
       })
-    : await stackServerApp.getUser({
+    : stackServerApp.getUser({
         or: ANONYMOUS_IF_EXISTS,
         tokenStore: request as unknown as { headers: { get(name: string): string | null } },
       });
+  let user: Awaited<ReturnType<typeof loadUser>>;
+  try {
+    user = await loadUser();
+  } catch (error) {
+    return authProviderErrorResponse(error, "billing.plan.auth");
+  }
 
   if (!user) {
     return jsonResponse({

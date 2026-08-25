@@ -160,7 +160,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let manager = TabManager()
         let dockWorkspace = try #require(manager.selectedWorkspace)
-        let dock = dockWorkspace.dockSplit
+        let dock = try #require(dockWorkspace.dockSplit)
         defer {
             dock.closeAllPanels()
             dockWorkspace.teardownAllPanels()
@@ -421,6 +421,100 @@ struct AgentSessionAutoResumeSwiftTests {
             )
             #expect(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
+            )
+        }
+    }
+
+    /// Regression for #10156: SessionStart is the first authoritative child
+    /// identity for a Claude fork. Close history can snapshot the pane before a
+    /// prompt completes, so the binding update must synchronously replace the
+    /// structured parent snapshot and carry the fork's worktree cwd through
+    /// close/reopen restore.
+    @MainActor
+    @Test func claudeForkSessionStartBindingImmediatelyReplacesParentRestoreIdentity() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let worktree = try makeTemporaryProjectDirectory(prefix: "cmux-fork-worktree")
+            defer { try? FileManager.default.removeItem(atPath: worktree) }
+            let parentSessionId = "019f436f-1111-4222-8333-aaaaaaaaaaaa"
+            let childSessionId = "019f436f-2222-4333-8444-bbbbbbbbbbbb"
+            let source = Workspace()
+            defer { source.teardownAllPanels() }
+            let sourcePanelId = try #require(source.focusedPanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .claude,
+                    sessionId: parentSessionId,
+                    workingDirectory: worktree,
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        launcher: "claude",
+                        executablePath: "/usr/local/bin/claude",
+                        arguments: [
+                            "/usr/local/bin/claude",
+                            "--resume",
+                            parentSessionId,
+                            "--fork-session",
+                        ],
+                        workingDirectory: worktree,
+                        capturedAt: 1_777_777_776,
+                        source: "environment"
+                    )
+                ),
+                panelId: sourcePanelId
+            )
+
+            let childBinding = SurfaceResumeBindingSnapshot(
+                name: "Claude Code",
+                kind: "claude",
+                command: "'/usr/local/bin/claude' '--resume' '\(childSessionId)'",
+                cwd: worktree,
+                checkpointId: childSessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: [
+                        "/usr/local/bin/claude",
+                        "--resume",
+                        parentSessionId,
+                        "--fork-session",
+                    ],
+                    workingDirectory: worktree,
+                    capturedAt: 1_777_777_777,
+                    source: "environment"
+                ),
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            )
+            #expect(source.setSurfaceResumeBinding(childBinding, panelId: sourcePanelId))
+
+            let liveAgent = try #require(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            #expect(liveAgent.sessionId == childSessionId)
+            #expect(liveAgent.workingDirectory == worktree)
+
+            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let savedTerminal = try #require(snapshot.panels.first?.terminal)
+            #expect(savedTerminal.agent?.sessionId == childSessionId)
+            #expect(savedTerminal.agent?.workingDirectory == worktree)
+            #expect(savedTerminal.resumeBinding?.checkpointId == childSessionId)
+            #expect(savedTerminal.resumeBinding?.cwd == worktree)
+
+            let restored = Workspace()
+            defer { restored.teardownAllPanels() }
+            let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+            let restoredAgent = try #require(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent
+            )
+            #expect(restoredAgent.sessionId == childSessionId)
+            #expect(restoredAgent.workingDirectory == worktree)
+            try assertAgentAutoResumeUsesStartupInput(
+                restoredPanel,
+                scriptContains: ["restore claude \(childSessionId)"],
+                scriptDoesNotContain: [parentSessionId]
             )
         }
     }

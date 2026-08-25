@@ -572,13 +572,13 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         let base = try MobilePairedMacStore(
             databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
-        // A row tagged for a DIFFERENT build ("other") plus the untagged row the
+        // A row tagged for an incompatible distributed build plus the untagged row the
         // user forgets. Tagged first so the untagged upsert cannot claim it.
         try await base.upsert(
             macDeviceID: "mac-a",
-            displayName: "Desk Mac (other)",
+            displayName: "Desk Mac (Stable)",
             routes: [try Self.route("100.82.214.113")],
-            instanceTag: "other",
+            instanceTag: "default",
             markActive: false,
             stackUserID: "user-1",
             teamID: nil,
@@ -595,12 +595,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             now: Date(timeIntervalSince1970: 2)
         )
         let forget = WildcardRecordingForget()
-        // Production rail: this build expects tag "mine", so the "other" row is
-        // incompatible — visible to the cleanup enumeration but historically
+        // Development rail: the Stable row is incompatible, visible to the
+        // cleanup enumeration but historically
         // silently skipped by the compatibility guard on exact-scope deletes.
-        let compatible = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "mine")
-            .scoping(base)
+        let compatible = MobileMacBuildCompatibilityPolicy.development.scoping(base)
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
@@ -619,7 +617,7 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         let ok = await store.forgetHiddenComputer(hidden)
 
         #expect(ok)
-        // The wildcard revoke killed the "other" binding too, so its local row
+        // The wildcard revoke killed the Stable binding too, so its local row
         // must be gone — not silently skipped while the forget reports success.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" })

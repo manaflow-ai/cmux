@@ -11,6 +11,7 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID> = [],
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
+        guard !isRetired else { return [:] }
         cancelConfigurationTasks()
         removeAllPanels()
         hasLoadedConfiguration = true
@@ -293,7 +294,8 @@ extension DockSplitStore {
         // A rebuilt shell must not inherit socket-report dedupe state from a
         // closed surface whose persisted ID it is reusing.
         TerminalController.shared.cleanupSurfaceState(
-            surfaceIds: [reusableSurfaceId]
+            surfaceIds: [reusableSurfaceId],
+            workspaceID: workspaceId
         )
         let terminal = TerminalPanel(
             id: reusableSurfaceId,
@@ -433,6 +435,10 @@ extension DockSplitStore {
         snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID
     ) -> TabID? {
+        guard !isRetired else {
+            panel.close()
+            return nil
+        }
         panels[panel.id] = panel
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
         guard let tabId = bonsplitController.createTab(

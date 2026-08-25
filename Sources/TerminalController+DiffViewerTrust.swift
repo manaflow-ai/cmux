@@ -2,7 +2,7 @@ import CmuxBrowser
 import Foundation
 
 /// Off-main validation result passed through the socket worker's existing main hop.
-nonisolated enum DiffViewerSessionPreparation: Sendable {
+enum DiffViewerSessionPreparation: Sendable {
     case notNeeded
     case prepared(CmuxDiffViewerPreparedSession)
     case invalid(message: String, details: String?)

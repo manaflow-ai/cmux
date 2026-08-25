@@ -65,6 +65,28 @@ describe("Vault route helper", () => {
     expect(span?.events.some((event) => event.name === "exception")).toBe(false);
   });
 
+  test("maps Stack Auth outages without invoking the handler", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => {
+        throw new Error("Stack Auth unavailable");
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "authentication_unavailable",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   test("returns sanitized internal_error for unexpected handler failures", async () => {
     const originalError = console.error;
     const consoleError = mock(() => {});

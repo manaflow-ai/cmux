@@ -499,6 +499,7 @@ struct SessionIndexViewTests {
                 section: section,
                 search: search,
                 loadSnapshot: loadSnapshot,
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onResume: nil
             ),
             onDismiss: onDismiss

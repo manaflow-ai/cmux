@@ -96,10 +96,13 @@ extension SimulatorPaneCoordinator {
         case let .frameTransport(frameTransport):
             if frameIsVisible { self.frameTransport = frameTransport }
         case let .status(status):
+            let previousStatus = self.status
             self.status = status
             if status == .streaming {
                 failure = nil
-                if !frameIsVisible { enqueue(.setFramebufferPublishing(false)) }
+                if previousStatus != .streaming {
+                    reconcileFramePublication(forceIfMissing: true)
+                }
             }
             let sessionEnded: Bool = switch status {
             case .deviceUnavailable, .failed: true

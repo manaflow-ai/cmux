@@ -71,4 +71,22 @@ describe("dashboard shell", () => {
     expect(html).not.toContain("vaultGroup");
     expect(html).toContain('href="/dashboard/coderouter"');
   });
+
+  test("renders iOS TestFlight in its own section below coderouter", () => {
+    const html = renderToStaticMarkup(
+      <DashboardShell vaultEnabled>
+        <p>Dashboard content</p>
+      </DashboardShell>,
+    );
+
+    expect(html).toContain('href="/dashboard/testflight"');
+    expect(html).toContain("iosGroup");
+    // iOS section sits on its own, below coderouter and above the account group.
+    const coderouterIndex = html.indexOf('href="/dashboard/coderouter"');
+    const testflightIndex = html.indexOf('href="/dashboard/testflight"');
+    const billingIndex = html.indexOf('href="/dashboard/billing"');
+    expect(coderouterIndex).toBeGreaterThan(-1);
+    expect(testflightIndex).toBeGreaterThan(coderouterIndex);
+    expect(billingIndex).toBeGreaterThan(testflightIndex);
+  });
 });

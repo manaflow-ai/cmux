@@ -86,7 +86,10 @@ pub(crate) fn rows(
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) -> Vec<ProjectionRow> {
-    let mut rows = Vec::new();
+    // Workspace rows are the common projection and can reach roughly 1000
+    // entries. Reserve that baseline up front so a render does not repeatedly
+    // grow and copy the backing buffer while appending the tree.
+    let mut rows = Vec::with_capacity(tree.workspaces.len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
     append_level(
@@ -338,6 +341,7 @@ mod tests {
             id: "test".into(),
             levels,
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 22,
             max_width: 0,
             collapse_priority: 20,

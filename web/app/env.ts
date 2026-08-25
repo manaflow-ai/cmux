@@ -168,6 +168,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Native ingress gates run before Stack verification, so provider outages
+    // cannot turn reconnect/readiness fan-out into an auth-request storm.
+    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -331,6 +335,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
+    ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),

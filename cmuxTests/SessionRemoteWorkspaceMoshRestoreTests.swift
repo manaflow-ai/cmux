@@ -49,7 +49,9 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
             localMoshMissingMessage: "local Mosh missing",
             localMoshUnsupportedMessage: "local Mosh unsupported",
             remoteMoshMissingMessage: "remote Mosh missing",
-            remoteMoshProbeFailedMessage: "remote Mosh probe failed"
+            remoteMoshProbeFailedMessage: "remote Mosh probe failed",
+            remoteBootstrapInstallFailedMessage: "remote bootstrap install failed",
+            remoteMoshAddressFallbackMessage: "remote Mosh address fallback"
         ).command()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -84,7 +86,7 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         let command = try #require(configuration.terminalStartupCommand)
 
         #expect(configuration.terminalTransport == .mosh)
-        #expect(command.contains("--experimental-remote-ip=remote"), "\(command)")
+        #expect(command.contains("cmux_mosh_remote_ip_mode"), "\(command)")
         #expect(command.contains("dev@example.com"), "\(command)")
         #expect(command.contains("2222"), "\(command)")
         #expect(command.contains("ProxyJump=bastion"), "\(command)")

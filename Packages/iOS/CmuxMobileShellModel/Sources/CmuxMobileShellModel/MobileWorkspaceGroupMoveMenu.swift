@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Menu model for moving one workspace into a workspace group without dragging.
@@ -102,12 +103,12 @@ public struct MobileWorkspaceGroupMoveMenu: Equatable, Sendable {
         group: MobileWorkspaceGroupPreview,
         workspace: MobileWorkspacePreview
     ) -> Bool {
-        normalized(group.macDeviceID) == normalized(workspace.macDeviceID)
-            && normalized(group.macInstanceTag) == normalized(workspace.macInstanceTag)
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value, !value.isEmpty else { return nil }
-        return value
+        CmxMacAppInstanceIdentity(
+            macDeviceID: group.macDeviceID ?? "",
+            instanceTag: group.macInstanceTag
+        ) == CmxMacAppInstanceIdentity(
+            macDeviceID: workspace.macDeviceID ?? "",
+            instanceTag: workspace.macInstanceTag
+        )
     }
 }

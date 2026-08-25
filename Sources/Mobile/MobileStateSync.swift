@@ -238,6 +238,7 @@ final class MobileStateSyncHost {
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
             terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace),
             simulators: simulators
         )
     }

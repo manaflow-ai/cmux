@@ -1,6 +1,23 @@
 public import CMUXMobileCore
 public import Foundation
 
+private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
+    (1 ... 255).contains(value.utf8.count)
+        && value.utf8.allSatisfy {
+            (48 ... 57).contains($0)
+                || (65 ... 90).contains($0)
+                || (97 ... 122).contains($0)
+                || [45, 46, 58, 95].contains($0)
+        }
+}
+
+private func cmxIsSafeBrokerHeaderValue(_ value: String) -> Bool {
+    (1 ... 16 * 1_024).contains(value.utf8.count)
+        && !value.unicodeScalars.contains(
+            where: { $0.value < 0x20 || $0.value == 0x7f }
+        )
+}
+
 /// One access + refresh credential pair captured from a single session snapshot.
 ///
 /// Assembling a request from one snapshot prevents pairing a stale access token
@@ -269,12 +286,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
+    private let clientNamespace: String
+    private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
     private let discoveryScope: CmxConnectivityDiscoveryScope?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
@@ -282,6 +303,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
+            clientNamespace: clientNamespace,
+            bindingAuthorization: bindingAuthorization,
             discoveryScope: discoveryScope,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
@@ -293,18 +316,26 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
-        guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
+        guard Self.isAllowedBaseURL(baseURL),
+              cmxIsSafeClientNamespace(clientNamespace),
+              bindingAuthorization?.clientNamespace == nil
+                || bindingAuthorization?.clientNamespace == clientNamespace,
+              requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
         self.baseURL = baseURL
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
+        self.clientNamespace = clientNamespace
+        self.bindingAuthorization = bindingAuthorization
         self.discoveryScope = discoveryScope
         switch backpressureMode {
         case .automatic:
@@ -320,6 +351,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             accountID: CmxIrohBrokerBackpressureGate.directClientScope,
             operation: operation
         )
+    }
+
+    /// Reports whether this client retains a signed binding request proof.
+    public func hasBindingAuthorization() async -> Bool {
+        bindingAuthorization != nil
+    }
+
+    /// Returns the binding ID represented by the retained request proof.
+    public func bindingAuthorizationID() async -> String? {
+        bindingAuthorization?.bindingID
     }
 
     public func issueChallenge(
@@ -346,7 +387,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
-        try await withBackpressure(operation: .registration) {
+        let response: CmxIrohRegistrationResponse = try await withBackpressure(
+            operation: .registration
+        ) {
             let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
                 path: "api/devices/iroh/challenge",
                 method: "POST",
@@ -355,8 +398,15 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             let request = try signer.sign(prepared: prepared, challenge: challenge)
             return try await self.registerUngated(request)
         }
+        bindingAuthorization = CmxIrohBindingRequestAuthorization(
+            bindingID: response.binding.bindingID,
+            clientNamespace: clientNamespace,
+            signer: signer
+        )
+        return response
     }
 
+    /// Discovers account bindings visible to this client's exact build namespace.
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await withBackpressure(operation: .discovery) {
             if self.discoveryScope != nil {
@@ -488,11 +538,38 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    /// Revokes the caller's own binding.
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
             method: "DELETE",
             body: BindingRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    /// Revokes an older binding owned by this app namespace and physical device.
+    public func revokeStale(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: CmxIrohStaleBindingRevocationRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    /// Revokes one same-build Mac through the explicit account-management path.
+    public func forgetMac(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: CmxIrohMacForgetRequest(bindingId: bindingID),
             operation: .revocation
         )
         guard response.revoked, response.lanRendezvousRotated else {
@@ -792,7 +869,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     ) async throws -> Response {
         let accessToken = credentials.accessToken
         let refreshToken = credentials.refreshToken
-        guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
+        guard cmxIsSafeBrokerHeaderValue(accessToken),
+              cmxIsSafeBrokerHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
         let pathURL = baseURL.appendingPathComponent(path)
@@ -811,6 +889,31 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        if let bindingAuthorization,
+           path != "api/devices/iroh/challenge",
+           path != "api/devices/iroh/register" {
+            let timestamp = Int64(Date().timeIntervalSince1970)
+            let signature = try bindingAuthorization.signer.signBrokerRequest(
+                bindingID: bindingAuthorization.bindingID,
+                method: method,
+                path: path,
+                timestamp: timestamp,
+                body: body ?? Data()
+            )
+            request.setValue(
+                bindingAuthorization.bindingID,
+                forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID"
+            )
+            request.setValue(
+                String(timestamp),
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+            )
+            request.setValue(
+                signature,
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
@@ -867,11 +970,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         if scheme == "https" { return true }
         return scheme == "http" && ["127.0.0.1", "::1", "localhost"].contains(host)
-    }
-
-    private static func isSafeHeaderValue(_ value: String) -> Bool {
-        (1 ... 16 * 1_024).contains(value.utf8.count)
-            && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {
