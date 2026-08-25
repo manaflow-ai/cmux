@@ -301,11 +301,13 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .ticketOnly)
         #expect(payload["attach_url"] == nil)
-        #expect((payload["routes"] as? [[String: Any]])?.count == 2)
+        // `ticket_only` is the authenticated full-ticket contract consumed by
+        // current RPC clients; its token and route set must remain lossless.
+        #expect((payload["routes"] as? [[String: Any]])?.count == routes.count)
         #expect(
             (payload["routes"] as? [[String: Any]])?.contains {
                 $0["kind"] as? String == CmxAttachTransportKind.lan.rawValue
-            } == false
+            } == true
         )
     }
 
