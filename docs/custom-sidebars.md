@@ -120,7 +120,12 @@ Rules of the runtime:
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
-  chevron that turns instead of swapping glyphs) `.onTap(fn)`. Any of them (except
+  chevron that turns instead of swapping glyphs) `.fadeOnHover(width)` (while
+  the hover-tracking ancestor is hovered, the trailing `width` points fade to
+  transparent - lets a floating close button sit over full-width text)
+  `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
+  default 1.5, an overflowing title scrolls out and back; layout never
+  changes) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row

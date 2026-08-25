@@ -102,13 +102,20 @@ private struct SceneNodeContent: View {
         case "hstack":
             HStack(alignment: dslVAlignment(node.string("alignment")), spacing: spacing) { children }
         case "zstack":
-            ZStack { children }
+            ZStack(alignment: dslAlignment(node.string("alignment"))) { children }
         case "lazyVStack":
             LazyVStack(alignment: dslHAlignment(node.string("alignment") ?? "leading"), spacing: spacing) { children }
         case "group":
             children
         case "text":
-            Text(node.string("text") ?? "")
+            if node.props["marquee"] != nil {
+                SceneMarqueeText(
+                    text: node.string("text") ?? "",
+                    delay: node.double("marquee") ?? 1.5
+                )
+            } else {
+                Text(node.string("text") ?? "")
+            }
         case "image":
             Image(systemName: node.string("systemName") ?? "questionmark.square.dashed")
         case "button":
@@ -199,6 +206,7 @@ private struct SceneNodeContent: View {
             .modifier(SceneTextStyle(node: node))
             .modifier(OptionalForeground(color: resolvedColor))
             .modifier(SceneTextLimits(node: node))
+            .modifier(SceneTrailingFade(node: node))
             .modifier(SceneBoxStyle(node: node))
             // A truncating Text and a Spacer are both "flexible" to HStack
             // layout, which would split the width between them and truncate
@@ -505,5 +513,118 @@ private struct SceneBoxStyle: ViewModifier {
         guard let prop = node.props[key] else { return nil }
         if prop.stringValue == "infinity" { return .infinity }
         return prop.doubleValue.map { CGFloat($0) }
+    }
+}
+
+/// `.fadeOnHover(width)`: while the hover-tracking ancestor is hovered, the
+/// content's trailing edge fades to transparent over the last `width` points.
+/// This lets a floating close button sit OVER full-width row content (the
+/// text dissolves under it) instead of reserving a permanent layout slot.
+private struct SceneTrailingFade: ViewModifier {
+    let node: SceneNode
+    @Environment(\.sceneHovered) private var hovered
+
+    func body(content: Content) -> some View {
+        if let width = node.double("fadeOnHover") {
+            content.mask {
+                // Full-opacity rectangle plus a trailing fade strip; the
+                // strip collapses to zero width at rest, so the mask is a
+                // no-op until hover, and the 0.12s ease matches the hover
+                // wash.
+                HStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(
+                        colors: [.black, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: hovered ? CGFloat(width) : 0)
+                }
+                .animation(.easeOut(duration: 0.12), value: hovered)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// `.marquee(delay?)` text: renders exactly like a plain truncating title at
+/// rest. When the hover-tracking ancestor stays hovered for `delay` seconds
+/// (default 1.5) AND the text actually overflows its slot, the full text
+/// scrolls horizontally (linear, out and back) until the hover ends.
+///
+/// The truncating text OWNS layout the whole time - the scrolling clone
+/// overlays it inside the same clipped bounds - so activating the marquee
+/// never changes row geometry. The delay runs through a cancellable
+/// `.task(id:)` sleep: un-hovering cancels it, per the no-asyncAfter rule.
+private struct SceneMarqueeText: View {
+    let text: String
+    let delay: Double
+    @Environment(\.sceneHovered) private var hovered
+    @State private var visibleWidth: CGFloat = 0
+    @State private var fullWidth: CGFloat = 0
+    @State private var scrolling = false
+    @State private var phase: CGFloat = 0
+
+    private var overflow: CGFloat { max(0, fullWidth - visibleWidth) }
+
+    var body: some View {
+        Text(text)
+            .opacity(scrolling && overflow > 1 ? 0 : 1)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { visibleWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, w in visibleWidth = w }
+                }
+            )
+            .overlay(alignment: .leading) {
+                if scrolling {
+                    Text(text)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { fullWidth = geo.size.width }
+                                    .onChange(of: geo.size.width) { _, w in fullWidth = w }
+                            }
+                        )
+                        .offset(x: -phase * overflow)
+                        .opacity(overflow > 1 ? 1 : 0)
+                }
+            }
+            .clipped()
+            .task(id: hovered) {
+                guard hovered else {
+                    stopScroll()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                scrolling = true
+            }
+            .onChange(of: scrolling) { _, _ in updateScrollAnimation() }
+            .onChange(of: overflow) { _, _ in updateScrollAnimation() }
+    }
+
+    /// ~30pt/s out-and-back, with a short dwell before departure. Runs only
+    /// once the clone has been measured (overflow known).
+    private func updateScrollAnimation() {
+        guard scrolling, overflow > 1 else {
+            stopScroll()
+            return
+        }
+        let duration = max(0.5, Double(overflow) / 30.0)
+        withAnimation(.linear(duration: duration).delay(0.4).repeatForever(autoreverses: true)) {
+            phase = 1
+        }
+    }
+
+    private func stopScroll() {
+        scrolling = false
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { phase = 0 }
     }
 }
