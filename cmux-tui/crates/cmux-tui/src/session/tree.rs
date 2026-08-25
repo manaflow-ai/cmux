@@ -96,8 +96,15 @@ impl TreeView {
         for workspace in &mut self.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
+                    let active_surface = pane.tabs.get(pane.active_tab).map(|tab| tab.surface);
                     pane.tabs.retain(|tab| surfaces.contains(&tab.surface));
-                    pane.active_tab = pane.active_tab.min(pane.tabs.len().saturating_sub(1));
+                    if pane.tabs.is_empty() {
+                        pane.active_tab = 0;
+                    } else if let Some(active_surface) = active_surface.filter(|id| surfaces.contains(id)) {
+                        pane.active_tab = pane.tabs.iter().position(|tab| tab.surface == active_surface).unwrap_or(0);
+                    } else {
+                        pane.active_tab = pane.active_tab.min(pane.tabs.len() - 1);
+                    }
                 }
             }
         }
@@ -668,6 +675,29 @@ mod tests {
         let pane = &tree.workspaces[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
         assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn retain_surfaces_preserves_active_surface_when_tabs_before_it_are_removed() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{"id": 1, "screens": [{"id": 2, "layout": {"type":"leaf", "pane":3}, "panes": [{"id":3, "active_tab":1, "tabs":[{"surface":7},{"surface":8},{"surface":9}]}]}]}]
+        }));
+        tree.retain_surfaces(&HashSet::from([8, 9]));
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8, 9]);
+        assert_eq!(pane.active_surface(), Some(8));
+    }
+
+    #[test]
+    fn retain_surfaces_handles_all_tabs_removed() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{"id": 1, "screens": [{"id": 2, "layout": {"type":"leaf", "pane":3}, "panes": [{"id":3, "active_tab":1, "tabs":[{"surface":7},{"surface":8}]}]}]}]
+        }));
+        tree.retain_surfaces(&HashSet::new());
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert!(pane.tabs.is_empty());
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active_surface(), None);
     }
 
     #[test]

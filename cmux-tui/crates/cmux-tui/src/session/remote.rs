@@ -3377,8 +3377,12 @@ impl RemoteSession {
         // A tree snapshot can race a detach or overflow event. The surface
         // catalog is authoritative for what can be rendered, so filter the
         // snapshot while holding one catalog snapshot before publishing it.
-        let attached_surface_ids = self.surfaces.lock().unwrap().keys().copied().collect();
         let mut tree = tree;
+        // Keep the catalog lock through filtering and cache publication. This
+        // makes the tree and attached-surface set one coherent revision from
+        // the renderer's point of view, so a detach cannot land between them.
+        let surfaces_guard = self.surfaces.lock().unwrap();
+        let attached_surface_ids = surfaces_guard.keys().copied().collect();
         tree.retain_surfaces(&attached_surface_ids);
         let live_surface_ids = tree
             .workspaces
@@ -3403,11 +3407,12 @@ impl RemoteSession {
             cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
+        let surfaces = surfaces_guard.values().cloned().collect::<Vec<_>>();
+        drop(surfaces_guard);
         let browser_sources = browser_sources_from_tree(&tree);
         *self.browser_sources.lock().unwrap() = browser_sources.clone();
-        let surfaces = self.surfaces.lock().unwrap().clone();
-        for (id, surface) in surfaces {
-            surface.update_browser_source(browser_sources.get(&id).copied());
+        for surface in surfaces {
+            surface.update_browser_source(browser_sources.get(&surface.id).copied());
         }
         Ok(tree)
     }
