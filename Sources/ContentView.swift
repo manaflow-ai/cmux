@@ -11579,7 +11579,6 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
-            armSidebarProcessExitWatchersForCurrentPanels()
             if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
                 var panelIdsWithoutCurrentWorkspace = Set<UUID>()
                 for (workspaceId, panelIds) in panelIdsByWorkspaceId {

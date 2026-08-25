@@ -91,7 +91,7 @@ final class SharedLiveAgentIndex {
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var sidebarProcessExitWatchers: [Int: SidebarProcessExitWatcher] = [:]
-    private var pendingSidebarLivenessPanelIDs = Set<UUID>()
+    private var pendingSidebarLivenessPanelIDs: [UUID: UUID] = [:]
     private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
@@ -489,11 +489,21 @@ final class SharedLiveAgentIndex {
         guard sidebarLivenessRefreshTask == nil,
               refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
-            pendingSidebarLivenessPanelIDs.formUnion(panelIDs)
+            for panelID in panelIDs {
+                if let workspaceID = currentWorkspaceIDByPanelID[panelID] {
+                    pendingSidebarLivenessPanelIDs[panelID] = workspaceID
+                } else {
+                    pendingSidebarLivenessPanelIDs[panelID] = nil
+                }
+            }
             return
         }
         guard !panelIDs.isEmpty else { return }
-        synchronizeSidebarProcessExitWatchers(index: cachedIndex, panelIDs: panelIDs)
+        synchronizeSidebarProcessExitWatchers(
+            index: cachedIndex,
+            panelIDs: panelIDs,
+            workspaceIDByPanelID: currentWorkspaceIDByPanelID
+        )
         let now = dateProvider()
         if !force, let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
@@ -544,12 +554,12 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
-            let pendingPanelIDs = self.pendingSidebarLivenessPanelIDs
+            let pendingWorkspaceIDs = self.pendingSidebarLivenessPanelIDs
             self.pendingSidebarLivenessPanelIDs.removeAll()
-            if !pendingPanelIDs.isEmpty {
+            if !pendingWorkspaceIDs.isEmpty {
                 self.refreshCachedProcessLivenessForSidebar(
-                    panelIDs: pendingPanelIDs,
-                    currentWorkspaceIDByPanelID: [:],
+                    panelIDs: Set(pendingWorkspaceIDs.keys),
+                    currentWorkspaceIDByPanelID: pendingWorkspaceIDs,
                     force: true
                 )
             }
@@ -604,13 +614,15 @@ final class SharedLiveAgentIndex {
         guard let index else { return }
         synchronizeSidebarProcessExitWatchers(
             index: index,
-            panelIDs: panelIDs
+            panelIDs: panelIDs,
+            workspaceIDByPanelID: workspaceIDByPanelID
         )
     }
 
     private func synchronizeSidebarProcessExitWatchers(
         index: RestorableAgentSessionIndex,
-        panelIDs: Set<UUID>
+        panelIDs: Set<UUID>,
+        workspaceIDByPanelID: [UUID: UUID]
     ) {
         var panelKeysByPID: [Int: Set<RestorableAgentSessionIndex.PanelKey>] = [:]
         for (panelKey, entry) in index.forkValidationEntries()
