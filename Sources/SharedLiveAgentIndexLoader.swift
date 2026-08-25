@@ -62,11 +62,18 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAtProvider(),
             processArgumentsProvider: processArgumentsProvider
         )
+        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
+            processSnapshot.agentHibernationProcessScope(
+                panelProcessIDs: detected.processIDs,
+                agentProcessIDs: detected.agentProcessIDs
+            )
+        }
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
+            hibernationProcessScopes: hibernationProcessScopes,
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
