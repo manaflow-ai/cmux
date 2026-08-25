@@ -13923,16 +13923,16 @@ class TerminalController {
             .replacingOccurrences(of: "\\t", with: "\t")
     }
 
-    /// Maps a terminal panel's text-send result to the shared hop outcome and
-    /// runs the legacy on-success forceRefresh (main actor).
+    /// Maps a canonical socket target's text-send result to the shared hop
+    /// outcome and runs the legacy on-success forceRefresh (main actor).
     private static func v1TextSendOutcome(
-        _ terminalPanel: TerminalPanel,
+        _ target: ControlTerminalSocketTarget,
         text: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendInputResult(text) {
+        switch target.sendInputResult(text) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            target.forceRefresh(reason: refreshReason)
             return .sent
         case .queued:
             return .sent
@@ -13945,16 +13945,16 @@ class TerminalController {
         }
     }
 
-    /// Maps a terminal panel's named-key send result to the shared hop
-    /// outcome and runs the legacy on-success forceRefresh (main actor).
+    /// Maps a canonical socket target's named-key send result to the shared
+    /// hop outcome and runs the legacy on-success forceRefresh (main actor).
     private static func v1KeySendOutcome(
-        _ terminalPanel: TerminalPanel,
+        _ target: ControlTerminalSocketTarget,
         keyName: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendNamedKeyResult(keyName) {
+        switch target.sendNamedKeyResult(keyName) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            target.forceRefresh(reason: refreshReason)
             return .sent
         case .queued:
             return .sent
@@ -13983,11 +13983,12 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
+                  let owned = tab.focusedTerminalInputTarget(),
+                  let target = tab.controlSocketTerminalTarget(for: owned) else {
                 return .noFocusedTerminal
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                target,
                 text: unescaped,
                 refreshReason: "terminalController.sendInput"
             )
@@ -14034,11 +14035,12 @@ class TerminalController {
             guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return .workspaceNotFound
             }
-            guard let terminalPanel = self.sendableWorkspaceTerminalPanel(in: tab) else {
+            guard let terminalPanel = self.sendableWorkspaceTerminalPanel(in: tab),
+                  let target = tab.controlSocketTerminalTarget(for: terminalPanel.id) else {
                 return .noSelectedTerminalInWorkspace
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                target,
                 text: unescaped,
                 refreshReason: "terminalController.sendWorkspace"
             )
@@ -14120,11 +14122,14 @@ class TerminalController {
         let outcome: V1SendHopOutcome = v2MainSync {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let target, let unescaped else { return .parseError }
-            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+            guard let socketTarget = self.controlSocketTerminalTarget(
+                fromLegacySurfaceArgument: target,
+                tabManager: tabManager
+            ) else {
                 return .surfaceNotFound
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                socketTarget,
                 text: unescaped,
                 refreshReason: "terminalController.sendSurface"
             )
@@ -14152,11 +14157,12 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
+                  let owned = tab.focusedTerminalInputTarget(),
+                  let target = tab.controlSocketTerminalTarget(for: owned) else {
                 return .noFocusedTerminal
             }
             return Self.v1KeySendOutcome(
-                terminalPanel,
+                target,
                 keyName: keyName,
                 refreshReason: "terminalController.sendKey"
             )
@@ -14188,11 +14194,14 @@ class TerminalController {
         let outcome: V1SendHopOutcome = v2MainSync {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let target, let keyName else { return .parseError }
-            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+            guard let socketTarget = self.controlSocketTerminalTarget(
+                fromLegacySurfaceArgument: target,
+                tabManager: tabManager
+            ) else {
                 return .surfaceNotFound
             }
             return Self.v1KeySendOutcome(
-                terminalPanel,
+                socketTarget,
                 keyName: keyName,
                 refreshReason: "terminalController.sendKeyToSurface"
             )

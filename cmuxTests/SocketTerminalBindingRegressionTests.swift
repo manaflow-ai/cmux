@@ -106,6 +106,58 @@ struct SocketTerminalBindingRegressionTests {
         }
     }
 
+    @Test func liveReplacementRebindsLegacySocketInput() async throws {
+        try await withAppContext { workspace in
+            let originalPanel = try #require(
+                workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+            )
+            let replacement = TerminalSurface(
+                id: originalPanel.id,
+                tabId: workspace.id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                initialCommand: "/bin/cat"
+            )
+            defer {
+                replacement.teardownSurface()
+                GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            }
+
+            try await waitForLiveSurface(replacement)
+            let markers = [
+                "legacy-send-\(UUID().uuidString)",
+                "legacy-send-surface-\(UUID().uuidString)",
+                "legacy-send-workspace-\(UUID().uuidString)",
+            ]
+            let textCommands = [
+                "send \(markers[0])",
+                "send_surface \(originalPanel.id.uuidString) \(markers[1])",
+                "send_workspace \(workspace.id.uuidString) \(markers[2])",
+            ]
+            for command in textCommands {
+                #expect(
+                    await v1SocketCommandOnWorker(command) == "OK",
+                    "Legacy socket command failed: \(command)"
+                )
+            }
+
+            let keyCommands = [
+                "send_key enter",
+                "send_key_surface \(originalPanel.id.uuidString) enter",
+            ]
+            for command in keyCommands {
+                #expect(
+                    await v1SocketCommandOnWorker(command) == "OK",
+                    "Legacy socket key command failed: \(command)"
+                )
+            }
+
+            for marker in markers {
+                try await waitForText(marker, in: replacement)
+            }
+        }
+    }
+
     private func waitForLiveSurface(_ surface: TerminalSurface) async throws {
         guard !surface.hasLiveSurface else { return }
         let previousOnRuntimeReady = surface.onRuntimeReady
@@ -173,6 +225,15 @@ struct SocketTerminalBindingRegressionTests {
             }
         }
         return try decodeEnvelope(raw)
+    }
+
+    private func v1SocketCommandOnWorker(_ command: String) async -> String {
+        let controller = TerminalController.shared
+        return await withCheckedContinuation { continuation in
+            Self.socketWorker.async {
+                continuation.resume(returning: controller.handleSocketLine(command))
+            }
+        }
     }
 
     private func decodeEnvelope(_ raw: String) throws -> [String: Any] {

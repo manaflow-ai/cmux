@@ -118,6 +118,37 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
         _ placement: TerminalSurfaceFocusPlacement
     )
 
+    /// Re-records the canonical registration's placement for callers that
+    /// only have a stable surface id.
+    ///
+    /// This compatibility requirement preserves the pre-lifecycle protocol
+    /// surface. New code should prefer the exact-registration overload above
+    /// so an outgoing duplicate-id model cannot update its replacement.
+    func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    )
+
     /// All live registered surfaces, ordered by id for stable iteration.
     func allSurfaces() -> [any TerminalSurfacing]
+}
+
+public extension TerminalSurfaceRegistering {
+    /// Bridges the exact-registration update to the legacy id-only method so
+    /// existing conformers remain source-compatible during the migration.
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        updateFocusPlacement(id: surface.id, placement)
+    }
+
+    /// Bridges the legacy id-only placement update to the exact registration.
+    func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        guard let surface = surface(id: id) else { return }
+        updateFocusPlacement(for: surface, placement)
+    }
 }

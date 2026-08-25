@@ -108,6 +108,39 @@ extension Workspace {
 }
 
 @MainActor
+extension TerminalController {
+    /// Resolves a legacy v1 surface argument to the canonical socket target.
+    ///
+    /// The v1 protocol accepts either a UUID or an ordered panel index and
+    /// projects remote-tmux containers to their active pane. Keeping that
+    /// topology resolution here lets every socket input verb share the same
+    /// registry-backed rebinding path.
+    func controlSocketTerminalTarget(
+        fromLegacySurfaceArgument argument: String,
+        tabManager: TabManager
+    ) -> ControlTerminalSocketTarget? {
+        guard let selectedID = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == selectedID }) else {
+            return nil
+        }
+
+        let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+        let panelID: UUID
+        if let uuid = UUID(uuidString: trimmed) {
+            panelID = uuid
+        } else if let index = Int(trimmed), index >= 0 {
+            let panels = orderedPanels(in: workspace)
+            guard index < panels.count else { return nil }
+            panelID = panels[index].id
+        } else {
+            return nil
+        }
+
+        return workspace.controlSocketTerminalInputTarget(for: panelID)
+    }
+}
+
+@MainActor
 extension DockSplitStore {
     /// Resolves a structurally owned Dock terminal against the live registry.
     func controlSocketTerminalTarget(for surfaceID: UUID) -> ControlTerminalSocketTarget? {
