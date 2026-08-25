@@ -797,7 +797,7 @@ mod tests {
     /// Test-only stand-in for a direct pipe reader. The bounded queue models
     /// the byte pump, while the mutex is the single parser owner.
     struct PipeBytePump {
-        tx: mpsc::SyncSender<Vec<u8>>,
+        tx: Option<mpsc::SyncSender<Vec<u8>>>,
         rx: mpsc::Receiver<Vec<u8>>,
         decoder: Arc<Mutex<FrameDecoder>>,
     }
@@ -805,7 +805,15 @@ mod tests {
     impl PipeBytePump {
         fn new(capacity: usize) -> Self {
             let (tx, rx) = mpsc::sync_channel(capacity);
-            Self { tx, rx, decoder: Arc::new(Mutex::new(FrameDecoder::new(MAX_FRAME_PAYLOAD))) }
+            Self {
+                tx: Some(tx),
+                rx,
+                decoder: Arc::new(Mutex::new(FrameDecoder::new(MAX_FRAME_PAYLOAD))),
+            }
+        }
+
+        fn sender(&self) -> &mpsc::SyncSender<Vec<u8>> {
+            self.tx.as_ref().expect("sender already closed")
         }
 
         fn parse_next(&self) -> Result<Option<Vec<Frame>>, ProtocolError> {
@@ -873,23 +881,23 @@ mod tests {
         let mut frame = Frame::new(MessageKind::Output, b"\x1b[31mCafe ".to_vec());
         frame.payload.extend_from_slice("é\x1b[0m".as_bytes());
         let encoded = encode_frame(&frame).unwrap();
-        let pump = PipeBytePump::new(3);
-        pump.tx.send(encoded[..3].to_vec()).unwrap();
-        pump.tx.send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
-        pump.tx.send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
+        let mut pump = PipeBytePump::new(3);
+        pump.sender().send(encoded[..3].to_vec()).unwrap();
+        pump.sender().send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
+        pump.sender().send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
 
         assert!(pump.parse_next().unwrap().unwrap().is_empty());
         assert!(pump.parse_next().unwrap().unwrap().is_empty());
         assert_eq!(pump.parse_next().unwrap().unwrap(), vec![frame]);
-        drop(pump.tx);
+        drop(pump.tx.take());
         assert_eq!(pump.parse_next().unwrap(), None);
     }
 
     #[test]
     fn direct_pipe_pump_queue_is_bounded_and_parser_access_is_serialized() {
         let pump = PipeBytePump::new(1);
-        pump.tx.try_send(vec![1]).unwrap();
-        assert!(pump.tx.try_send(vec![2]).is_err());
+        pump.sender().try_send(vec![1]).unwrap();
+        assert!(pump.sender().try_send(vec![2]).is_err());
 
         let decoder = Arc::clone(&pump.decoder);
         let first = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());
