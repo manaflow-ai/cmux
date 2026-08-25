@@ -43,7 +43,7 @@ struct ArtifactSidebarRowView: View {
         }
         .onDrag {
             guard let projectRoot = snapshot.projectRoot,
-                  let validatedURL = ArtifactSidebarFileAccess().validatedFileURL(
+                  let provider = ArtifactSidebarFileAccess().dragItemProvider(
                       for: snapshot.fileURL,
                       artifactRoot: projectRoot.appendingPathComponent(
                           ".cmux",
@@ -52,7 +52,7 @@ struct ArtifactSidebarRowView: View {
                   ) else {
                 return NSItemProvider()
             }
-            return NSItemProvider(object: validatedURL as NSURL)
+            return provider
         }
         .accessibilityIdentifier("ArtifactSidebarRow.\(snapshot.id)")
     }

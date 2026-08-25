@@ -161,6 +161,42 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(try String(contentsOf: asyncTemporary, encoding: .utf8) == "authorized")
     }
 
+    @Test("Concurrent descriptor previews keep independent offsets and stay bounded")
+    func concurrentDescriptorPreviewsStayBounded() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-preview-quota-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("artifact.txt", isDirectory: false)
+        try "authorized".write(to: source, atomically: true, encoding: .utf8)
+        let opened = try #require(
+            ArtifactSidebarFileAccess().openedFile(for: source, artifactRoot: root)
+        )
+
+        var previews: [URL] = []
+        await withTaskGroup(of: URL?.self) { group in
+            for _ in 0..<300 {
+                group.addTask {
+                    await opened.makeTemporaryPreviewURLAsync(maximumBytes: 32)
+                }
+            }
+            for await preview in group {
+                if let preview { previews.append(preview) }
+            }
+        }
+        defer {
+            for preview in previews {
+                try? FileManager.default.removeItem(at: preview)
+            }
+        }
+
+        #expect(!previews.isEmpty)
+        #expect(previews.count <= 256)
+        for preview in previews {
+            #expect(try String(contentsOf: preview, encoding: .utf8) == "authorized")
+        }
+    }
+
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
     @MainActor
     func configuresAnIsolatedWebView() {
