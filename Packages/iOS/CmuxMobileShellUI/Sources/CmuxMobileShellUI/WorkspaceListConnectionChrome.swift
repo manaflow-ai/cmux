@@ -77,5 +77,12 @@ enum WorkspaceListConnectionChrome: Equatable {
     /// healthy-connection affordance: while reauth, restore, or degraded chrome
     /// is on screen, an update suggestion would compete with recovery (and
     /// could describe a Mac we are no longer talking to).
-    var showsMacUpdateHintIndicator: Bool { self == .none }
+    var showsMacUpdateHintIndicator: Bool {
+        switch self {
+        case .none, .statusLine(.activeTransport):
+            return true
+        default:
+            return false
+        }
+    }
 }

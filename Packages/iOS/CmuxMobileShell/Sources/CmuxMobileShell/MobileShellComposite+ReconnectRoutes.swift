@@ -114,6 +114,14 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Projects the most recent pinned-mode failure into the shared connection
+    /// error surface used by startup restore and settings-driven reconnects.
+    func presentTransportModeErrorIfNeeded() {
+        guard let error = lastTransportModeError else { return }
+        connectionError = error.mobileMessage
+        connectionErrorGuidance = error.mobileGuidance
+    }
+
     /// Captures a pinned-mode selection error before the legacy non-throwing
     /// reconnect helper returns an empty candidate list.
     func captureTransportModeErrorIfNeeded(

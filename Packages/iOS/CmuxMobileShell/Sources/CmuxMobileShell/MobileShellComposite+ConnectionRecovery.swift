@@ -767,6 +767,7 @@ extension MobileShellComposite {
                 macDisplayName: name,
                 transportMode: resolvedMethod.transportMode
             )
+            presentTransportModeErrorIfNeeded()
             return .failed(.unsupportedRoute)
         }
         var pinnedRoutes = Self.storedReconnectRoutes(
@@ -793,6 +794,7 @@ extension MobileShellComposite {
                 macDisplayName: name,
                 transportMode: resolvedMethod.transportMode
             )
+            presentTransportModeErrorIfNeeded()
             return .failed(.unsupportedRoute)
         }
 
@@ -1052,11 +1054,22 @@ extension MobileShellComposite {
             return
         }
         let previousActive = pairedMacs.first { $0.isActive }
+        let storedPairing = pairedMacsForIdentityMatching.first {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: device.deviceId,
+                instanceTag: instance.tag
+            )
+        }
         let connectedRoute = (await connectStoredMacOutcome(
             name: device.displayName ?? device.deviceId,
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
+            legacyTailscaleRoutes: storedPairing?.legacyTailscaleRoutes ?? [],
+            knownPairing: storedPairing,
             recordsPairingAttempt: true
         )).didConnect
         guard connectedRoute else {

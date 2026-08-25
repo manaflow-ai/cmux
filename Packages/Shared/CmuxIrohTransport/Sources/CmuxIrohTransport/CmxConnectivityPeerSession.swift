@@ -270,17 +270,11 @@ actor CmxConnectivityPeerSession {
             if let installed = activeConnection {
                 if let activeRequest,
                    !Self.sameTransportPolicy(activeRequest, request) {
-                    guard controlOwner == nil else {
-                        throw CmxConnectivityEngineError.superseded
-                    }
-                    await installed.session.close()
-                    await removeActiveConnection(
-                        matching: installed.id,
-                        releasesControlOwner: false,
-                        reason: .runtimeReconfigured,
-                        failure: .none
-                    )
-                    continue redial
+                    // This completion is older than the already-installed
+                    // policy. Retire only its stale candidate; never displace
+                    // the newer active session (or roll the mode backward).
+                    await connected.close()
+                    throw CmxConnectivityEngineError.superseded
                 }
                 if installed.id == pending.id {
                     return installed.session
@@ -309,17 +303,8 @@ actor CmxConnectivityPeerSession {
             if let installed = activeConnection {
                 if let activeRequest,
                    !Self.sameTransportPolicy(activeRequest, request) {
-                    guard controlOwner == nil else {
-                        throw CmxConnectivityEngineError.superseded
-                    }
-                    await installed.session.close()
-                    await removeActiveConnection(
-                        matching: installed.id,
-                        releasesControlOwner: false,
-                        reason: .runtimeReconfigured,
-                        failure: .none
-                    )
-                    continue redial
+                    await connected.close()
+                    throw CmxConnectivityEngineError.superseded
                 }
                 if installed.id == pending.id {
                     return installed.session
