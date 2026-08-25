@@ -1953,7 +1953,18 @@ final class ClaudeHookSessionStore {
         if let active = state.activeSessionsBySurface[record.surfaceId] {
             guard active.sessionId == sessionId else { return false }
         } else if let active = state.activeSessionsByWorkspace[record.workspaceId] {
-            guard active.sessionId == sessionId else { return false }
+            guard active.sessionId == sessionId else {
+                // Legacy stores may predate per-surface active slots. Preserve
+                // a valid sibling-pane continuation when the workspace slot's
+                // record proves that it belongs to a different surface, while
+                // staying fail-closed if that proof is unavailable.
+                guard let activeRecord = state.sessions[active.sessionId],
+                      let activeSurfaceId = normalizeOptional(activeRecord.surfaceId),
+                      let recordSurfaceId = normalizeOptional(record.surfaceId),
+                      activeSurfaceId != recordSurfaceId else {
+                    return false
+                }
+            }
         }
 
         let targetMatchesRecord = record.workspaceId == targetWorkspaceId
@@ -33279,12 +33290,21 @@ export default CMUXSessionRestore;
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
                ) {
+                let autoNamingTranscriptPath: String? = {
+                    let recorded = normalizedHookValue(input.transcriptPath ?? autoNamingSession?.transcriptPath)
+                    guard recorded == nil,
+                          autoNameProbe["workspace_user_owned"] as? Bool == true,
+                          autoNamingSource(for: def) == .codexRollout else {
+                        return recorded
+                    }
+                    return findCodexTranscriptPath(sessionId: sessionId, env: env)
+                }()
                 let autoNamingProgress: Int? = autoNameProbe["workspace_user_owned"] as? Bool == true
                     ? autoNamingProgressMetric(
                         for: def,
                         session: autoNamingSession,
                         sessionId: sessionId,
-                        transcriptPath: input.transcriptPath ?? autoNamingSession?.transcriptPath,
+                        transcriptPath: autoNamingTranscriptPath,
                         cwd: cwd,
                         env: env
                     )
@@ -33299,7 +33319,7 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        transcriptPath: normalizedHookValue(input.transcriptPath ?? autoNamingSession?.transcriptPath),
+                        transcriptPath: autoNamingTranscriptPath,
                         cwd: cwd,
                         env: env,
                         telemetry: telemetry

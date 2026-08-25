@@ -4195,7 +4195,6 @@ class TerminalController {
             }()
             if workspace.effectiveCustomTitleSource == .user ||
                (expectedWorkspaceTitle != nil &&
-                workspace.effectiveCustomTitleSource == .auto &&
                 workspace.customTitle != expectedWorkspaceTitle) ||
                remotePanelOwnershipBlocked {
                 // Manual ownership, a newer sibling-session auto-title, or an
