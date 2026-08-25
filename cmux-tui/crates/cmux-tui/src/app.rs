@@ -41780,6 +41780,9 @@ mod tests {
         let mux = Mux::new("workspace-sidebar-preview-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let workspace_tree = Session::Local(mux.clone()).tree();
+        let first_workspace = workspace_tree.workspaces[0].id;
+        let second_workspace = workspace_tree.workspaces[1].id;
         mux.select_workspace(Some(0), None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_view = SidebarView::Workspaces;
@@ -41796,7 +41799,7 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(
             app.workspace_preview,
-            Some(WorkspacePreview { origin: first.id, target: second.id })
+            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
         );
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
 
@@ -41825,6 +41828,9 @@ mod tests {
         let mux = Mux::new("workspace-sidebar-hover-preview-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let workspace_tree = Session::Local(mux.clone()).tree();
+        let first_workspace = workspace_tree.workspaces[0].id;
+        let second_workspace = workspace_tree.workspaces[1].id;
         mux.select_workspace(Some(0), None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_view = SidebarView::Workspaces;
@@ -41851,7 +41857,7 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(
             app.workspace_preview,
-            Some(WorkspacePreview { origin: first.id, target: second.id })
+            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
         );
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
