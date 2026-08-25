@@ -22,6 +22,9 @@ final class MainWindowLifecycleCoordinator {
     private var windowlessRecoveryResumeIndexesBindings:
         [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     @ObservationIgnored
+    private var windowlessRecoveryTTYDeviceBindings:
+        [SurfaceResumeBindingIndex.PanelKey: Int64]?
+    @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
 
     init(
@@ -60,6 +63,21 @@ final class MainWindowLifecycleCoordinator {
         return await task.value
     }
 
+    /// Captures the global TTY map once, then merges route-local additions.
+    func windowlessRecoveryTTYDeviceBindings(
+        allBindingsProvider: @MainActor () -> [SurfaceResumeBindingIndex.PanelKey: Int64],
+        routeBindings: [SurfaceResumeBindingIndex.PanelKey: Int64]
+    ) -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
+        if windowlessRecoveryTTYDeviceBindings == nil {
+            windowlessRecoveryTTYDeviceBindings = allBindingsProvider()
+        }
+        for (key, device) in routeBindings where
+            windowlessRecoveryTTYDeviceBindings?[key] == nil {
+            windowlessRecoveryTTYDeviceBindings?[key] = device
+        }
+        return windowlessRecoveryTTYDeviceBindings ?? [:]
+    }
+
     private func runWindowlessRecoveryResumeIndexesLoad(
         loader: @escaping @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
@@ -79,6 +97,7 @@ final class MainWindowLifecycleCoordinator {
                 continue
             }
             windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+            windowlessRecoveryTTYDeviceBindings = nil
             windowlessRecoveryResumeIndexesTask = nil
             return indexes
         }
@@ -87,6 +106,7 @@ final class MainWindowLifecycleCoordinator {
             // The bounded retry exhausted without cancellation. Drop the
             // completed task so a later orphan can start a fresh generation.
             windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+            windowlessRecoveryTTYDeviceBindings = nil
             windowlessRecoveryResumeIndexesTask = nil
         }
         return nil
@@ -103,14 +123,17 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesTask?.cancel()
         windowlessRecoveryResumeIndexesTask = nil
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+        windowlessRecoveryTTYDeviceBindings = nil
     }
 
-    /// Indicates whether a windowless route is within the bounded orphan set.
-    /// Persistence projection accounts for eligible registered windows separately.
-    func shouldFreezeWindowlessRoute(windowId: UUID) -> Bool {
+    /// Indicates whether a windowless route is within the caller's bounded orphan set.
+    func shouldFreezeWindowlessRoute(
+        windowId: UUID,
+        availablePersistenceSlots: Int
+    ) -> Bool {
         guard orphanedRoute(windowId: windowId)?.window == nil else { return false }
         return orphanedRoutes()
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            .prefix(max(0, availablePersistenceSlots))
             .contains { $0.windowId == windowId }
     }
 

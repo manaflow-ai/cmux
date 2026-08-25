@@ -112,6 +112,58 @@ extension AppDelegate {
         return windowsByWindowId
     }
 
+    private func currentSurfaceTTYDeviceBindings(
+        for route: RecoverableMainWindowRoute
+    ) -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
+        guard let manager = route.tabManager else { return [:] }
+        var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        for workspace in manager.tabs {
+            for (panelID, panel) in workspace.panels {
+                guard let terminal = panel as? TerminalPanel else { continue }
+                let device = workspace.surfaceTTYDevices[panelID]
+                    ?? terminal.surface.controllingTTYDeviceIdentifier
+                guard let device, device > 0 else { continue }
+                bindings[
+                    SurfaceResumeBindingIndex.PanelKey(
+                        workspaceId: workspace.id,
+                        panelId: panelID
+                    )
+                ] = device
+            }
+        }
+        return bindings
+    }
+
+    private func availableWindowlessPersistenceSlots() -> Int {
+        let eligibleRegisteredCount = mainWindowLifecycleCoordinator.registeredContexts.reduce(
+            into: 0
+        ) { count, context in
+            let route = MainWindowPersistenceRouteSnapshot.live(
+                registeredMainWindowRouteSnapshot(for: context)
+            )
+            if route.isEligibleForSessionPersistence {
+                count += 1
+            }
+        }
+        return max(
+            0,
+            SessionPersistencePolicy.maxWindowsPerSnapshot - eligibleRegisteredCount
+        )
+    }
+
+    /// Tears down a windowless route that cannot participate in persistence.
+    func retireWindowlessRecoverableMainWindowRoute(_ route: RecoverableMainWindowRoute) {
+        guard route.window == nil else { return }
+        if let manager = route.tabManager {
+            tearDownWindowlessMainWindowRouteResources(
+                windowId: route.windowId,
+                manager: manager
+            )
+        }
+        route.markForTeardown()
+        mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
+    }
+
     /// Converts any live orphan whose AppKit window disappeared later into the
     /// same bounded value form used by the production windowless-prune path.
     private func freezeWindowlessRecoverableMainWindowRoutes(
@@ -212,7 +264,7 @@ extension AppDelegate {
     private func scheduleWindowlessRecoverableMainWindowRouteFreeze(
         _ route: RecoverableMainWindowRoute
     ) {
-        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+        let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
         Task { @MainActor [weak self, weak route] in
             guard let self, let route,
                   self.mainWindowLifecycleCoordinator.orphanedRoute(
@@ -221,7 +273,8 @@ extension AppDelegate {
                   route.window == nil,
                   self.windowForMainWindowId(route.windowId) == nil,
                   self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
-                      windowId: route.windowId
+                      windowId: route.windowId,
+                      availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
                   ) else {
                 return
             }
@@ -229,6 +282,11 @@ extension AppDelegate {
                 self.mainWindowLifecycleCoordinator
                     .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
             }
+            let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
+                .windowlessRecoveryTTYDeviceBindings(
+                    allBindingsProvider: { self.currentSurfaceTTYDeviceBindings() },
+                    routeBindings: routeTTYDeviceBindings
+                )
             let resumeIndexes = await self.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
@@ -362,44 +420,44 @@ extension AppDelegate {
         includeScrollback: Bool
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
-        let registeredRouteCount = mainWindowLifecycleCoordinator.registeredContexts.reduce(
-            into: 0
-        ) { count, context in
-            let route = MainWindowPersistenceRouteSnapshot.live(
-                registeredMainWindowRouteSnapshot(for: context)
-            )
-            if route.isEligibleForSessionPersistence {
-                count += 1
+        let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
+        var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
+        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+            guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
+                for: route,
+                resolvedWindow: windowsByWindowId[route.windowId]
+            ) else {
+                continue
             }
+            guard snapshot.isEligibleForSessionPersistence else {
+                retireWindowlessRecoverableMainWindowRoute(route)
+                continue
+            }
+            guard candidateOrphanedRoutes.count < maximumRecoverableRoutes else {
+                continue
+            }
+            candidateOrphanedRoutes.append(route)
         }
-        let maximumRecoverableRoutes = max(
-            0,
-            SessionPersistencePolicy.maxWindowsPerSnapshot - registeredRouteCount
-        )
-        let candidateOrphanedRoutes = mainWindowLifecycleCoordinator
-            .orphanedRoutes()
-            .filter { route in
-                guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
-                    for: route,
-                    resolvedWindow: windowsByWindowId[route.windowId]
-                ) else {
-                    return false
-                }
-                return snapshot.isEligibleForSessionPersistence
-            }
-            .prefix(maximumRecoverableRoutes)
         let restorableAgentIndexForFreeze = includeScrollback
             ? suppliedRestorableAgentIndex
                 ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             : suppliedRestorableAgentIndex ?? .empty
         _ = freezeWindowlessRecoverableMainWindowRoutes(
-            Array(candidateOrphanedRoutes),
+            candidateOrphanedRoutes,
             windowsByWindowId: windowsByWindowId,
             restorableAgentIndex: restorableAgentIndexForFreeze,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex,
             includeScrollback: includeScrollback
         )
         let orphanedRoutes = mainWindowLifecycleCoordinator.orphanedRoutes()
+            .compactMap { route in
+                recoverableMainWindowPersistenceRouteSnapshot(
+                    for: route,
+                    resolvedWindow: windowsByWindowId[route.windowId]
+                )
+            }
+            .filter(\.isEligibleForSessionPersistence)
+            .prefix(maximumRecoverableRoutes)
         var seenWindowIds: Set<UUID> = []
         var snapshots: [MainWindowPersistenceRouteSnapshot] = []
         for context in mainWindowLifecycleCoordinator.registeredContexts {
@@ -410,11 +468,8 @@ extension AppDelegate {
             guard seenWindowIds.insert(snapshot.windowId).inserted else { continue }
             snapshots.append(.live(snapshot))
         }
-        for route in orphanedRoutes {
-            guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
-                for: route,
-                resolvedWindow: windowsByWindowId[route.windowId]
-            ), seenWindowIds.insert(snapshot.windowId).inserted else {
+        for snapshot in orphanedRoutes {
+            guard seenWindowIds.insert(snapshot.windowId).inserted else {
                 continue
             }
             snapshots.append(snapshot)

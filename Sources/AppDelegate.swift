@@ -3777,15 +3777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               route.window == nil else {
             return
         }
-        if let manager = route.tabManager,
-           route.frozenWindowSnapshot == nil {
-            tearDownWindowlessMainWindowRouteResources(
-                windowId: windowId,
-                manager: manager
-            )
-        }
-        route.markForTeardown()
-        mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: windowId)
+        retireWindowlessRecoverableMainWindowRoute(route)
     }
 
     @discardableResult
