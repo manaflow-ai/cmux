@@ -16,7 +16,8 @@ extension HostSettingsActions {
         return Self.computersSnapshot(
             computers: directory.computers,
             isSignedIn: HiveComputersService.shared.isSignedIn,
-            lastRefreshFailed: directory.lastRefreshFailed
+            lastRefreshFailed: directory.lastRefreshFailed,
+            viewerTransportAvailable: HiveComputersService.shared.viewerTransportAvailable
         )
     }
 
@@ -31,7 +32,8 @@ extension HostSettingsActions {
                     continuation.yield(Self.computersSnapshot(
                         computers: computers,
                         isSignedIn: HiveComputersService.shared.isSignedIn,
-                        lastRefreshFailed: directory.lastRefreshFailed
+                        lastRefreshFailed: directory.lastRefreshFailed,
+                        viewerTransportAvailable: HiveComputersService.shared.viewerTransportAvailable
                     ))
                 }
                 continuation.finish()
@@ -79,6 +81,7 @@ extension HostSettingsActions {
     /// The listener is brought up first so the registration carries dialable
     /// routes for the claiming Mac to persist.
     func mintComputerPairingCode() async -> ComputersPairingCodeMintResult {
+        guard HiveComputersService.shared.viewerTransportAvailable else { return .failed }
         guard let coordinator = AppDelegate.shared?.auth?.coordinator else { return .failed }
         await coordinator.awaitBootstrapped()
         guard coordinator.isAuthenticated else { return .signedOut }
@@ -106,12 +109,14 @@ extension HostSettingsActions {
     static func computersSnapshot(
         computers: [HiveComputer],
         isSignedIn: Bool,
-        lastRefreshFailed: Bool
+        lastRefreshFailed: Bool,
+        viewerTransportAvailable: Bool = true
     ) -> ComputersSettingsSnapshot {
         ComputersSettingsSnapshot(
             isSignedIn: isSignedIn,
             computers: computers.map(Self.computerRow),
-            lastRefreshFailed: lastRefreshFailed
+            lastRefreshFailed: lastRefreshFailed,
+            viewerTransportAvailable: viewerTransportAvailable
         )
     }
 

@@ -128,6 +128,63 @@ private func makeDirectory(
     }
 
     @MainActor
+    @Test func scopedUpdatesFollowOnlyTheirDeviceAndSignalRemoval() async throws {
+        let (store, cleanup) = try makeTempStore()
+        defer { cleanup() }
+        let target = RegistryDevice(
+            deviceId: "target-mac",
+            platform: "mac",
+            displayName: "Target",
+            lastSeenAt: Date(timeIntervalSince1970: 900),
+            instances: []
+        )
+        let other = RegistryDevice(
+            deviceId: "other-mac",
+            platform: "mac",
+            displayName: "Other",
+            lastSeenAt: Date(timeIntervalSince1970: 800),
+            instances: []
+        )
+        let replacement = RegistryDevice(
+            deviceId: "other-mac",
+            platform: "mac",
+            displayName: "Other renamed",
+            lastSeenAt: Date(timeIntervalSince1970: 1_000),
+            instances: []
+        )
+        let directory = HiveComputerDirectory(
+            registry: SequencedRegistry([
+                .ok([target, other]),
+                .ok([replacement]),
+            ]),
+            pairedStore: store,
+            presence: nil,
+            ownDeviceID: "self-device",
+            scopeProvider: { HiveAccountScope(stackUserID: "user-1", teamID: "team-1") },
+            linkDecoder: HivePairingLinkDecoder(allowsLoopbackRoutes: false),
+            now: { Date(timeIntervalSince1970: 1_000) },
+            presenceRetryDelay: { _ in }
+        )
+
+        await directory.refresh()
+        var targetIterator = directory.updates(for: "TARGET-MAC").makeAsyncIterator()
+        var otherIterator = directory.updates(for: "other-mac").makeAsyncIterator()
+        let initialTargetEvent = try #require(await targetIterator.next())
+        let initialTarget = try #require(initialTargetEvent)
+        let initialOtherEvent = try #require(await otherIterator.next())
+        let initialOther = try #require(initialOtherEvent)
+        #expect(initialTarget.deviceID == "target-mac")
+        #expect(initialOther.deviceID == "other-mac")
+
+        await directory.refresh()
+        let removedTarget = try #require(await targetIterator.next())
+        #expect(removedTarget == nil)
+        let updatedOtherEvent = try #require(await otherIterator.next())
+        let updatedOther = try #require(updatedOtherEvent)
+        #expect(updatedOther.displayName == "Other renamed")
+    }
+
+    @MainActor
     @Test func pairFromRegistryPersistsBestRoutes() async throws {
         let (store, cleanup) = try makeTempStore()
         defer { cleanup() }

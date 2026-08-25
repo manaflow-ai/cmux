@@ -66,11 +66,13 @@ public struct ComputersSection: View {
                     ))
                     SettingsCardDivider()
                 }
-                pairingCodeRow
-                pairResultCaption
-                SettingsCardDivider()
-                pairThisMacRow
-                mintResultCaption
+                if model.current?.viewerTransportAvailable != false {
+                    pairingCodeRow
+                    pairResultCaption
+                    SettingsCardDivider()
+                    pairThisMacRow
+                    mintResultCaption
+                }
                 SettingsCardDivider()
                 presentationRow
             }

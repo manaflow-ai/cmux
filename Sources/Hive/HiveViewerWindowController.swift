@@ -96,11 +96,11 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
         }
         return Task { @MainActor [weak self] in
             var currentSession = session
-            for await computers in directory.updates() {
+            for await computer in directory.updates(for: deviceID) {
                 guard let self,
                       let entry = self.viewersByDeviceID[deviceID],
                       entry.session === currentSession else { return }
-                guard let computer = computers.first(where: { $0.deviceID == deviceID }) else {
+                guard let computer else {
                     await self.close(deviceID: deviceID)
                     return
                 }

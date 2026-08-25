@@ -73,16 +73,20 @@ public struct ComputersSettingsSnapshot: Sendable, Equatable {
     /// Whether the most recent registry refresh failed (rows may be stale or
     /// local-only).
     public let lastRefreshFailed: Bool
+    /// Whether the current host build exposes a usable viewer transport.
+    public let viewerTransportAvailable: Bool
 
     /// Creates a snapshot.
     public init(
         isSignedIn: Bool,
         computers: [ComputersSettingsComputer],
-        lastRefreshFailed: Bool = false
+        lastRefreshFailed: Bool = false,
+        viewerTransportAvailable: Bool = true
     ) {
         self.isSignedIn = isSignedIn
         self.computers = computers
         self.lastRefreshFailed = lastRefreshFailed
+        self.viewerTransportAvailable = viewerTransportAvailable
     }
 }
 

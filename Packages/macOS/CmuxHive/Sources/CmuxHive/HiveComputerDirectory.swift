@@ -45,6 +45,8 @@ public final class HiveComputerDirectory {
     @ObservationIgnored private var loadedScope: HiveAccountScope?
     @ObservationIgnored private var scopeGeneration = 0
     @ObservationIgnored private var listeners: [UUID: AsyncStream<[HiveComputer]>.Continuation] = [:]
+    @ObservationIgnored private var deviceListeners:
+        [String: [UUID: AsyncStream<HiveComputer?>.Continuation]] = [:]
     @ObservationIgnored private var presenceTask: Task<Void, Never>?
     @ObservationIgnored private var presenceGeneration = 0
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -112,9 +114,47 @@ public final class HiveComputerDirectory {
         return stream
     }
 
+    /// A device-scoped stream for route/presence changes affecting one
+    /// computer. Unlike ``updates()``, it never allocates or broadcasts the
+    /// full team snapshot to a mirror/window listener.
+    ///
+    /// - Parameter deviceID: The registry device id to observe.
+    /// - Returns: The current row, then only that row's changes; `nil` means
+    ///   the device disappeared from the current account scope.
+    public func updates(for deviceID: String) -> AsyncStream<HiveComputer?> {
+        let id = UUID()
+        let key = deviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let (stream, continuation) = AsyncStream<HiveComputer?>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        deviceListeners[key, default: [:]][id] = continuation
+        continuation.yield(computers.first {
+            $0.deviceID.caseInsensitiveCompare(deviceID) == .orderedSame
+        })
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.removeDeviceListener(id: id, deviceID: key)
+            }
+        }
+        startPresenceIfNeeded()
+        return stream
+    }
+
     private func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
-        if listeners.isEmpty {
+        stopPresenceIfUnused()
+    }
+
+    private func removeDeviceListener(id: UUID, deviceID: String) {
+        deviceListeners[deviceID]?.removeValue(forKey: id)
+        if deviceListeners[deviceID]?.isEmpty == true {
+            deviceListeners.removeValue(forKey: deviceID)
+        }
+        stopPresenceIfUnused()
+    }
+
+    private func stopPresenceIfUnused() {
+        if listeners.isEmpty && deviceListeners.isEmpty {
             presenceGeneration &+= 1
             presenceTask?.cancel()
             presenceTask = nil
@@ -509,7 +549,10 @@ public final class HiveComputerDirectory {
     }
 
     private func rebuild(affectedDeviceIDs: Set<String>? = nil) {
+        let previousComputers = computers
+        let changedIDs: Set<String>
         if let affectedDeviceIDs {
+            changedIDs = affectedDeviceIDs
             for deviceID in affectedDeviceIDs {
                 if let oldIndex = computers.firstIndex(where: { $0.deviceID == deviceID }) {
                     computers.remove(at: oldIndex)
@@ -526,14 +569,30 @@ public final class HiveComputerDirectory {
                 computers.insert(row, at: insertionIndex)
             }
         } else {
+            changedIDs = Set(
+                previousComputers.map(\.deviceID)
+                    + registryDevices.map(\.deviceId)
+                    + pairedRecords.map(\.macDeviceID)
+            )
             computers = rowBuilder.makeRows(
                 registry: registryDevices,
                 paired: pairedRecords,
                 presence: presenceMap
             )
         }
-        for (_, continuation) in listeners {
-            continuation.yield(computers)
+        if previousComputers != computers {
+            for (_, continuation) in listeners {
+                continuation.yield(computers)
+            }
+        }
+        for deviceID in changedIDs {
+            let row = computers.first {
+                $0.deviceID.caseInsensitiveCompare(deviceID) == .orderedSame
+            }
+            let key = deviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            deviceListeners[key]?.values.forEach { continuation in
+                continuation.yield(row)
+            }
         }
     }
 

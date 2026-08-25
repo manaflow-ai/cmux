@@ -213,14 +213,14 @@ final class HiveComputerMirrorController {
         }
         if let directory = HiveComputersService.shared.directory {
             mirror.routeTask = Task { @MainActor [weak self, weak mirror, weak tabManager] in
-                for await computers in directory.updates() {
+                for await computer in directory.updates(for: deviceID) {
                     guard let self, let mirror, let tabManager else { return }
                     let key = MirrorKey(
                         deviceID: deviceID,
                         tabManagerID: ObjectIdentifier(tabManager)
                     )
                     guard self.mirrorsByKey[key] === mirror else { return }
-                    guard let computer = computers.first(where: { $0.deviceID == deviceID }) else {
+                    guard let computer else {
                         await self.detach(deviceID: deviceID, from: tabManager)
                         return
                     }
