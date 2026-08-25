@@ -3318,7 +3318,10 @@ def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str
         )
 
 
-def test_codex_permission_request_is_actionable(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_stays_native_telemetry(
+    cli_path: str,
+    root: Path,
+) -> None:
     socket_path = root / "cmux.sock"
     payload = {
         "session_id": "codex-session",
@@ -3335,17 +3338,26 @@ def test_codex_permission_request_is_actionable(cli_path: str, root: Path) -> No
         payload,
         {"kind": "permission", "mode": "once"},
     )
-    assert_permission_output(stdout, "allow")
-    assert_codex_allow_has_no_persistent_fields(stdout)
+    if stdout != {}:
+        raise AssertionError(
+            "Codex's native reviewer must not receive a competing Feed decision: "
+            f"{stdout!r}"
+        )
     params = frame["params"]
-    if not isinstance(params.get("wait_timeout_seconds"), (int, float)) or params["wait_timeout_seconds"] <= 0:
-        raise AssertionError(f"Codex PermissionRequest should wait for Feed reply: {frame!r}")
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(
+            "Codex PermissionRequest should remain non-blocking telemetry: "
+            f"{frame!r}"
+        )
     event = params["event"]
-    if event.get("hook_event_name") != "PermissionRequest" or event.get("_source") != "codex":
+    if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
 
 
-def test_codex_permission_decisions_render_supported_hook_output(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_modes_never_render_feed_decisions(
+    cli_path: str,
+    root: Path,
+) -> None:
     payload = {
         "session_id": "codex-session",
         "turn_id": "turn-persistent",
@@ -3356,15 +3368,20 @@ def test_codex_permission_decisions_render_supported_hook_output(cli_path: str, 
     }
 
     for mode in ["once", "always", "all", "bypass", "deny"]:
-        stdout, _ = run_feed_hook(
+        stdout, frame = run_feed_hook(
             cli_path,
             root / f"cmux-{mode}.sock",
             payload,
             {"kind": "permission", "mode": mode},
         )
-        assert_permission_output(stdout, "deny" if mode == "deny" else "allow")
-        if mode != "deny":
-            assert_codex_allow_has_no_persistent_fields(stdout)
+        if stdout != {}:
+            raise AssertionError(
+                f"Codex native reviewer mode {mode!r} rendered a Feed decision: {stdout!r}"
+            )
+        if frame["params"].get("wait_timeout_seconds") != 0:
+            raise AssertionError(
+                f"Codex native reviewer mode {mode!r} blocked on Feed: {frame!r}"
+            )
 
 
 def test_cursor_native_approval_observer_surfaces_only_real_prompt(
@@ -5918,8 +5935,8 @@ def main() -> int:
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
-            test_codex_permission_request_is_actionable(cli_path, root)
-            test_codex_permission_decisions_render_supported_hook_output(cli_path, root)
+            test_codex_permission_request_stays_native_telemetry(cli_path, root)
+            test_codex_permission_request_modes_never_render_feed_decisions(cli_path, root)
             test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 cli_path,
                 root,
