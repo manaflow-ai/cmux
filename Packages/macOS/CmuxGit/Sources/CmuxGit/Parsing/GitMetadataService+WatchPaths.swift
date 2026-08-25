@@ -87,7 +87,10 @@ extension GitMetadataService {
         var seen: Set<String> = []
         for path in candidatePaths {
             let normalized = nativeStandardizedPath(path)
-            guard let watchRoot = existingWatchRoot(for: normalized),
+            guard let watchRoot = existingWatchRoot(
+                for: normalized,
+                repository: repository
+            ),
                   seen.insert(watchRoot).inserted else {
                 continue
             }
@@ -117,7 +120,12 @@ extension GitMetadataService {
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-        ] + gitConfigURLs(repository: repository).map(\.path)
+        ] + gitConfigURLs(repository: repository).flatMap { configURL in
+            [
+                configURL.path,
+                configURL.resolvingSymlinksInPath().path
+            ]
+        }
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
@@ -146,19 +154,45 @@ extension GitMetadataService {
         return result.sorted()
     }
 
-    /// Returns an existing path to watch, falling back to the nearest existing
+    /// Returns an existing path to watch, falling back to a bounded existing
     /// parent when a declared config/include path has not been created yet.
-    private nonisolated static func existingWatchRoot(for path: String) -> String? {
+    private nonisolated static func existingWatchRoot(
+        for path: String,
+        repository: ResolvedGitRepository
+    ) -> String? {
         var candidate = URL(fileURLWithPath: path).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+            return nativeStandardizedPath(candidate.path)
+        }
         while true {
-            var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
-                return nativeStandardizedPath(candidate.path)
+                let normalized = nativeStandardizedPath(candidate.path)
+                guard normalized != "/" else { return nil }
+                let repositoryRoots = [
+                    repository.workTreeRoot,
+                    repository.gitDirectory,
+                    repository.commonDirectory
+                ].map(nativeStandardizedPath)
+                let home = nativeStandardizedPath(
+                    FileManager.default.homeDirectoryForCurrentUser.path
+                )
+                let isInsideRepository = repositoryRoots.contains {
+                    isSameOrInside(normalized, root: $0)
+                }
+                let isInsideHomeSubdirectory = normalized != home
+                    && isSameOrInside(normalized, root: home)
+                guard isInsideRepository || isInsideHomeSubdirectory else { return nil }
+                return normalized
             }
             let parent = candidate.deletingLastPathComponent()
             guard parent.path != candidate.path else { return nil }
             candidate = parent
         }
+    }
+
+    private nonisolated static func isSameOrInside(_ path: String, root: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path

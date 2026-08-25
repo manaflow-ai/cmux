@@ -141,6 +141,41 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.containsGitMetadataChange(paths: [missingPath]))
     }
 
+    @Test func missingExternalConfigIncludeNeverWatchesFilesystemRoot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = /no-such-cmux-config-(UUID().uuidString)/future-remotes.inc
+        """)
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(!descriptor.watchedPaths.contains("/"))
+    }
+
+    @Test func symlinkedConfigWatchesResolvedTarget() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let targetURL = fixture.root.appendingPathComponent("shared-config")
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        try "[remote \"origin\"]\n\turl = https://github.com/owner/repo.git\n"
+            .write(to: targetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: configURL.path,
+            withDestinationPath: targetURL.path
+        )
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(descriptor.watchedPaths.contains(targetURL.standardizedFileURL.path))
+        #expect(descriptor.gitMetadataPaths.contains(targetURL.standardizedFileURL.path))
+    }
+
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
