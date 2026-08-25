@@ -178,6 +178,12 @@ public actor ChromiumBrowserSession {
             )
             let child = Process()
             let chromiumArguments = ChromiumLaunchArguments(configuration: configuration).values
+            // Create the diagnostics reader before any transport resources so
+            // a descriptor setup failure cannot strand a partially-created
+            // pipe launch.
+            let diagnosticPipe = Pipe()
+            let diagnostics = try ChromiumProcessDiagnostics(pipe: diagnosticPipe)
+            child.standardError = diagnosticPipe
             let pipeLaunch: ChromiumCDPPipeLaunch?
             switch debuggingTransport {
             case .pipe:
@@ -198,9 +204,6 @@ public actor ChromiumBrowserSession {
             // Chromium's diagnostics are always drained so child output can
             // never back-pressure the renderer. In TCP mode its authoritative
             // readiness line also signals that the loopback listener is bound.
-            let diagnosticPipe = Pipe()
-            let diagnostics = try ChromiumProcessDiagnostics(pipe: diagnosticPipe)
-            child.standardError = diagnosticPipe
             child.terminationHandler = { [weak self] process in
                 Task { await self?.childTerminated(process: process, status: process.terminationStatus) }
             }

@@ -29,7 +29,12 @@ extension TerminalController {
                     if let name, cookie["name"] as? String != name { return false }
                     if let domain,
                        let cookieDomain = cookie["domain"] as? String,
-                       !cookieDomain.localizedCaseInsensitiveContains(domain) { return false }
+                       cookieDomain.range(
+                           of: domain,
+                           options: .caseInsensitive,
+                           range: nil,
+                           locale: Locale(identifier: "en_US_POSIX")
+                       ) == nil { return false }
                     if let path, cookie["path"] as? String != path { return false }
                     return true
                 }

@@ -33,6 +33,41 @@ extension BrowserPanel {
         )
     }
 
+    private func startChromiumAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        targetURL: URL?,
+        reload: Bool = false,
+        recordTypedNavigation: Bool = false
+    ) {
+        automationNavigationCoordinator.startExternalNavigation(ticket) { [weak self] in
+            guard let self else { throw CancellationError() }
+            self.shouldRenderWebView = true
+            self.startChromiumIfNeeded()
+            if recordTypedNavigation, let targetURL {
+                self.historyStore.recordTypedNavigation(url: targetURL)
+            }
+            if let cef = self.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
+                if reload {
+                    try await cef.reload()
+                } else if let targetURL {
+                    try await cef.navigate(to: targetURL)
+                }
+                try await cef.waitForLoadCompletion()
+                return
+            }
+            guard let session = self.chromiumSessionForAutomation else {
+                throw CDPError.notConnected
+            }
+            let revision = await session.currentNavigationRevision()
+            if reload {
+                try await self.browserEngineController.adapter.reload()
+            } else if let targetURL {
+                try await self.browserEngineController.adapter.navigate(to: targetURL)
+            }
+            try await session.waitForNavigation(to: nil, after: revision)
+        }
+    }
+
     func beginAutomationNavigation(
         to targetURL: URL,
         recordTypedNavigation: Bool
@@ -43,45 +78,29 @@ extension BrowserPanel {
                 targetURL: targetURL,
                 allowsSameDocumentCompletion: true
             )
-            if let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
-                Task { @MainActor [weak self] in
+            if shouldBlockInsecureHTTPNavigation(to: targetURL) {
+                presentInsecureHTTPAlert(
+                    for: URLRequest(url: targetURL),
+                    intent: .currentTab,
+                    recordTypedNavigation: recordTypedNavigation
+                ) { [weak self] resolution in
                     guard let self else { return }
-                    do {
-                        shouldRenderWebView = true
-                        startChromiumIfNeeded()
-                        try await cef.navigate(to: targetURL)
-                        await cef.waitForLoadCompletion()
-                        automationNavigationCoordinator.finishExternally(ticket, with: .committed)
-                    } catch {
-                        automationNavigationCoordinator.finishExternally(
+                    if case .proceededInCurrentTab = resolution {
+                        self.startChromiumAutomationNavigation(
                             ticket,
-                            with: .failed(error.localizedDescription)
+                            targetURL: targetURL,
+                            recordTypedNavigation: recordTypedNavigation
                         )
+                    } else {
+                        self.automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
                     }
                 }
-                return ticket
-            }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    shouldRenderWebView = true
-                    startChromiumIfNeeded()
-                    guard let session = chromiumSessionForAutomation else {
-                        throw CDPError.notConnected
-                    }
-                    let revision = await session.currentNavigationRevision()
-                    try await browserEngineController.adapter.navigate(to: targetURL)
-                    // A successful CDP command only means Chromium accepted
-                    // the request. Wait for the page target's frame/load
-                    // events before resolving the shared automation ticket.
-                    try await session.waitForNavigation(to: nil, after: revision)
-                    automationNavigationCoordinator.finishExternally(ticket, with: .committed)
-                } catch {
-                    automationNavigationCoordinator.finishExternally(
-                        ticket,
-                        with: .failed(error.localizedDescription)
-                    )
-                }
+            } else {
+                startChromiumAutomationNavigation(
+                    ticket,
+                    targetURL: targetURL,
+                    recordTypedNavigation: recordTypedNavigation
+                )
             }
             return ticket
         }
@@ -113,41 +132,7 @@ extension BrowserPanel {
                 instanceID: webViewInstanceID,
                 targetURL: targetURL
             )
-            if let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        startChromiumIfNeeded()
-                        try await cef.reload()
-                        await cef.waitForLoadCompletion()
-                        automationNavigationCoordinator.finishExternally(ticket, with: .committed)
-                    } catch {
-                        automationNavigationCoordinator.finishExternally(
-                            ticket,
-                            with: .failed(error.localizedDescription)
-                        )
-                    }
-                }
-                return (ticket, targetURL)
-            }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    startChromiumIfNeeded()
-                    guard let session = chromiumSessionForAutomation else {
-                        throw CDPError.notConnected
-                    }
-                    let revision = await session.currentNavigationRevision()
-                    try await browserEngineController.adapter.reload()
-                    try await session.waitForNavigation(to: nil, after: revision)
-                    automationNavigationCoordinator.finishExternally(ticket, with: .committed)
-                } catch {
-                    automationNavigationCoordinator.finishExternally(
-                        ticket,
-                        with: .failed(error.localizedDescription)
-                    )
-                }
-            }
+            startChromiumAutomationNavigation(ticket, targetURL: targetURL, reload: true)
             return (ticket, targetURL)
         }
         let ticket = automationNavigationCoordinator.begin(
@@ -254,7 +239,31 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
-        guard !isChromiumBacked else { return .responsive }
+        if isChromiumBacked {
+            guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
+            do {
+                // A bounded Runtime.evaluate is the Chromium liveness probe;
+                // an unverified target must never be reported as healthy.
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask { @MainActor [weak self] in
+                        guard let self else { throw CancellationError() }
+                        _ = try await self.browserEngineController.adapter.evaluateJavaScript(
+                            "true",
+                            awaitPromise: false
+                        )
+                    }
+                    group.addTask {
+                        try await ContinuousClock().sleep(for: .seconds(2))
+                        throw ChromiumBrowserDiagnostic.commandTimedOut
+                    }
+                    defer { group.cancelAll() }
+                    _ = try await group.next()
+                }
+                return .responsive
+            } catch {
+                return .cancelled
+            }
+        }
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
         guard canRecoverFromAutomationTimeout else { return .responsive }
         let observedWebViewInstanceID = webViewInstanceID

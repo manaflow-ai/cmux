@@ -14,7 +14,11 @@ extension TerminalController {
                     isStyle: false
                 ) {
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "document_script", error: error),
+                        data: nil
+                    )
                 case .success(let scriptsCount):
                     switch v2RunBrowserJavaScript(
                         ctx.webView,
@@ -24,6 +28,11 @@ extension TerminalController {
                         timeout: 10.0
                     ) {
                     case .failure(let message):
+                        v2RemoveChromiumDocumentScript(
+                            browserPanel: ctx.browserPanel,
+                            source: script,
+                            isStyle: false
+                        )
                         return .err(code: "js_error", message: message, data: nil)
                     case .success:
                         return .ok(v2BrowserPanelFields(ctx, adding: ["scripts": scriptsCount]))
@@ -76,7 +85,11 @@ extension TerminalController {
                     isStyle: true
                 ) {
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "document_style", error: error),
+                        data: nil
+                    )
                 case .success(let stylesCount):
                     switch v2RunBrowserJavaScript(
                         ctx.webView,
@@ -86,6 +99,11 @@ extension TerminalController {
                         timeout: 10.0
                     ) {
                     case .failure(let message):
+                        v2RemoveChromiumDocumentScript(
+                            browserPanel: ctx.browserPanel,
+                            source: source,
+                            isStyle: true
+                        )
                         return .err(code: "js_error", message: message, data: nil)
                     case .success:
                         return .ok(v2BrowserPanelFields(ctx, adding: ["styles": stylesCount]))

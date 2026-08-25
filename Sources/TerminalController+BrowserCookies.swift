@@ -100,7 +100,11 @@ extension TerminalController {
                 case .success(let cookies):
                     return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies]))
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "cookie_read", error: error),
+                        data: nil
+                    )
                 }
             }
             let store = v2MainSync {
@@ -154,7 +158,11 @@ extension TerminalController {
                 case .success(let count):
                     return .ok(v2BrowserPanelFields(ctx, adding: ["set": count]))
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "cookie_write", error: error),
+                        data: nil
+                    )
                 }
             }
             let cookieContext = v2MainSync {
@@ -185,10 +193,13 @@ extension TerminalController {
             let name = v2String(params, "name")
             let domain = v2String(params, "domain")
             let path = v2String(params, "path")
+            let clearAll = params["all"] == nil && name == nil && domain == nil && path == nil
+                ? true
+                : v2Bool(params, "all") == true
             if v2MainSync({ ctx.browserPanel.isChromiumBacked }) {
                 switch v2ClearChromiumCookies(
                     browserPanel: ctx.browserPanel,
-                    all: v2Bool(params, "all") == true,
+                    all: clearAll,
                     name: name,
                     domain: domain,
                     path: path
@@ -196,7 +207,11 @@ extension TerminalController {
                 case .success(let count):
                     return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": count]))
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "cookie_clear", error: error),
+                        data: nil
+                    )
                 }
             }
             let store = v2MainSync {
@@ -206,7 +221,6 @@ extension TerminalController {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            let clearAll = params["all"] == nil && name == nil && domain == nil && path == nil
             let targets = cookies.filter { cookie in
                 if clearAll { return true }
                 if let name, cookie.name != name { return false }

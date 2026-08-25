@@ -102,22 +102,22 @@
     "browser.chromium.runtime.downloadFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime download failed: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムのダウンロードに失敗しました: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to download Chromium. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumをダウンロードできません。もう一度お試しください。" } }
       }
     },
     "browser.chromium.runtime.checksumMismatch": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime checksum mismatch (expected %@, got %@)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムのチェックサムが一致しません（期待値 %@、実際 %@）" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium download verification failed. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumのダウンロードを検証できません。もう一度お試しください。" } }
       }
     },
     "browser.chromium.runtime.extractionFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime extraction failed: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムの展開に失敗しました: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to install Chromium. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumをインストールできません。もう一度お試しください。" } }
       }
     },
     "browser.chromium.storage.applicationSupportUnavailable": {
@@ -130,15 +130,15 @@
     "browser.engine.error.invalid": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--engine requires webkit or chromium" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--engineにはwebkitまたはchromiumを指定してください" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Choose WebKit or Chromium for the browser engine." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザエンジンとしてWebKitまたはChromiumを選択してください" } }
       }
     },
     "browser.engine.error.browserOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--engine is only supported when creating a browser pane or surface" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--engineはブラウザペインまたはサーフェスの作成時のみ指定できます" } }
+        "en": { "stringUnit": { "state": "translated", "value": "A browser engine can only be selected when creating a browser pane or surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです" } }
       }
     },
     "browser.chromium.automation.noJavaScriptValue": {

@@ -36,7 +36,10 @@ final class BrowserPaneEngineController {
             // frame streaming. The child-process streamed engine remains the
             // fallback when the CEF framework is not embedded in this build.
             if CEFRuntimeBootstrap.isRuntimeAvailable {
-                adapter = CEFBrowserPaneEngineAdapter(profileID: profileID)
+                adapter = CEFBrowserPaneEngineAdapter(
+                    profileID: profileID,
+                    remoteDebuggingPort: remoteDebuggingPort
+                )
             } else {
                 adapter = ChromiumBrowserPaneEngineAdapter(
                     profileID: profileID,
@@ -75,6 +78,7 @@ final class BrowserPaneEngineController {
             oldCEF.stop()
             let replacement = CEFBrowserPaneEngineAdapter(
                 profileID: profileID,
+                remoteDebuggingPort: remoteDebuggingPort,
                 documentScripts: documentScripts
             )
             replacement.onSnapshot = chromiumSnapshotHandler

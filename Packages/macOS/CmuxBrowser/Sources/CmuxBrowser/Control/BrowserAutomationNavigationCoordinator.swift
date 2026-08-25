@@ -19,6 +19,8 @@ public final class BrowserAutomationNavigationCoordinator {
     private var allowsSameDocumentCompletion = false
     private var downloadPolicyNavigationID: ObjectIdentifier?
     private var pendingReplacementNavigationID: ObjectIdentifier?
+    private var externalNavigationTask: Task<Void, Never>?
+    private var externalNavigationTicket: BrowserAutomationNavigationTicket?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -41,6 +43,7 @@ public final class BrowserAutomationNavigationCoordinator {
     /// Starts observing a WebView instance and supersedes a transaction from an older instance.
     public func bind(to instanceID: UUID) {
         guard observedInstanceID != instanceID else { return }
+        cancelExternalNavigation()
         if let activeTicket {
             finish(activeTicket, with: .superseded)
         }
@@ -60,6 +63,7 @@ public final class BrowserAutomationNavigationCoordinator {
         targetURL: URL? = nil,
         allowsSameDocumentCompletion: Bool = false
     ) -> BrowserAutomationNavigationTicket {
+        cancelExternalNavigation()
         if let activeTicket {
             finish(activeTicket, with: .superseded)
         }
@@ -76,6 +80,51 @@ public final class BrowserAutomationNavigationCoordinator {
         downloadPolicyNavigationID = nil
         pendingReplacementNavigationID = nil
         return ticket
+    }
+
+    /// Runs an engine-owned navigation under the same bounded ticket deadline
+    /// used by WebKit delegate navigations.
+    ///
+    /// The operation is retained and cancelled when the panel closes, a newer
+    /// navigation supersedes it, or the caller's wait reaches its deadline.
+    /// This prevents a stalled CDP target from leaving an unowned task behind.
+    ///
+    /// - Parameters:
+    ///   - ticket: The active external-navigation ticket.
+    ///   - operation: The engine operation and its terminal load wait.
+    public func startExternalNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        operation: @escaping @MainActor () async throws -> Void
+    ) {
+        guard activeTicket == ticket else { return }
+        cancelExternalNavigation()
+        externalNavigationTicket = ticket
+        externalNavigationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.runExternalNavigationWithDeadline(operation)
+                self.finish(ticket, with: .committed)
+            } catch is BrowserAutomationNavigationTimeout {
+                self.finish(ticket, with: .timedOut)
+            } catch let error as ChromiumBrowserDiagnostic where error == .navigationTimedOut {
+                _ = error
+                self.finish(ticket, with: .timedOut)
+            } catch is CancellationError {
+                self.finish(ticket, with: .cancelled)
+            } catch {
+                self.finish(ticket, with: .failed("Browser operation failed"))
+            }
+        }
+    }
+
+    /// Cancels a retained engine operation after its caller has stopped waiting.
+    public func cancelExternalNavigation(
+        _ ticket: BrowserAutomationNavigationTicket? = nil
+    ) {
+        guard ticket == nil || externalNavigationTicket == ticket else { return }
+        externalNavigationTask?.cancel()
+        externalNavigationTask = nil
+        externalNavigationTicket = nil
     }
 
     /// Associates the load call's returned navigation identity with its transaction.
@@ -338,11 +387,31 @@ public final class BrowserAutomationNavigationCoordinator {
         }
 
         ticket.transaction.discardTerminalOutcome()
+        if outcome == .timedOut || outcome == .cancelled || Task.isCancelled {
+            cancelExternalNavigation(ticket)
+        }
         if activeTicket == ticket {
             finish(ticket, with: Task.isCancelled ? .cancelled : outcome)
             ticket.transaction.discardTerminalOutcome()
         }
         return Task.isCancelled ? .cancelled : outcome
+    }
+
+    private func runExternalNavigationWithDeadline(
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask { [navigationTimeout, sleep] in
+                try await sleep(navigationTimeout)
+                try Task.checkCancellation()
+                throw BrowserAutomationNavigationTimeout()
+            }
+            defer { group.cancelAll() }
+            _ = try await group.next()
+        }
     }
 
     private func finishMatching(
@@ -364,6 +433,11 @@ public final class BrowserAutomationNavigationCoordinator {
         with outcome: BrowserAutomationNavigationOutcome
     ) {
         guard activeTicket == ticket else { return }
+        if externalNavigationTicket == ticket {
+            externalNavigationTask?.cancel()
+            externalNavigationTask = nil
+            externalNavigationTicket = nil
+        }
         activeTicket = nil
         activeNavigationID = nil
         activeTargetURL = nil

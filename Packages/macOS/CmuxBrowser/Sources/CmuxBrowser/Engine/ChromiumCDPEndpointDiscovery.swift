@@ -58,25 +58,7 @@ struct ChromiumCDPEndpointDiscovery: Sendable {
         )
     }
 
-    // Internal behavioral seams let the package test the same URL/port policy
-    // used by live discovery without opening a real listener.
-    static func validateForTesting(
-        _ response: URLResponse,
-        requestedURL: URL,
-        port: Int
-    ) throws {
-        try validate(response, requestedURL: requestedURL, port: port)
-    }
-
-    static func validateWebSocketForTesting(
-        _ url: URL,
-        port: Int,
-        kind: ChromiumCDPWebSocketKind
-    ) throws {
-        _ = try validateWebSocket(url, port: port, kind: kind)
-    }
-
-    private static func validate(
+    static func validate(
         _ response: URLResponse,
         requestedURL: URL,
         port: Int
@@ -89,7 +71,7 @@ struct ChromiumCDPEndpointDiscovery: Sendable {
         }
     }
 
-    private static func validateWebSocket(
+    static func validateWebSocket(
         _ url: URL,
         port: Int,
         kind: ChromiumCDPWebSocketKind

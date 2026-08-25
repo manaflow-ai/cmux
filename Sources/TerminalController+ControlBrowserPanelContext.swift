@@ -11,6 +11,19 @@ import WebKit
 /// the selected-workspace panel reach, byte-faithful to the legacy bodies
 /// (which always targeted the active TabManager's selected workspace).
 extension TerminalController: ControlBrowserPanelContext {
+    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings {
+        ControlBrowserEngineStrings(
+            invalidOption: String(
+                localized: "browser.engine.error.invalid",
+                defaultValue: "Choose WebKit or Chromium for the browser engine."
+            ),
+            browserOnly: String(
+                localized: "browser.engine.error.browserOnly",
+                defaultValue: "A browser engine can only be selected when creating a browser pane or surface."
+            )
+        )
+    }
+
     /// The selected workspace's browser panel for a v1 panel id (the shared
     /// guard head of the legacy bodies).
     private func browserPanelV1Panel(panelID: UUID) -> BrowserPanel? {

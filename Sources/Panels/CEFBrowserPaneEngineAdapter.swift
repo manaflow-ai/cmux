@@ -20,13 +20,17 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     var onContentFocused: (() -> Void)?
 
     private let profileID: UUID
+    private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
     private var startDeferralTask: Task<Void, Never>?
+    private var bootstrapTask: Task<Void, Never>?
+    private var documentScriptRemovalTask: Task<Void, Never>?
+    private var colorSchemeTask: Task<Void, Never>?
     private var hasStarted = false
     private var pendingInitialURL: URL?
-    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
+    private var readyContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var isReady = false
 
     // Mirrored navigation state for snapshot synthesis.
@@ -47,14 +51,24 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     init(
         profileID: UUID,
+        remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
         documentScripts: [(source: String, isStyle: Bool)] = []
     ) {
         self.profileID = profileID
+        self.remoteDebuggingPort = remoteDebuggingPort
         initScriptSources = documentScripts.filter { !$0.isStyle }.map(\.source)
         styleScriptSources = documentScripts.filter(\.isStyle).map(\.source)
         hostView.onFocus = { [weak self] in
             self?.onContentFocused?()
         }
+    }
+
+    deinit {
+        startDeferralTask?.cancel()
+        bootstrapTask?.cancel()
+        documentScriptRemovalTask?.cancel()
+        colorSchemeTask?.cancel()
+        browser?.close()
     }
 
     func start(initialURL: URL?) {
@@ -75,6 +89,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             hasStarted = false
             return
         }
+        if remoteDebuggingPort.isExternallyAttachable {
+            remoteDebuggingEndpoint = BrowserCDPEndpoint(port: remoteDebuggingPort.rawValue)
+        }
         // The default profile uses CEF's global request context: command-line
         // extensions (--load-extension) only attach there, matching Chrome's
         // per-profile extension model. Named profiles get isolated contexts.
@@ -86,6 +103,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             url: initialURL ?? URL(string: "about:blank")!,
             cachePath: cachePath
         ) else {
+            remoteDebuggingEndpoint = nil
             publishFailure("Chromium (CEF) browser creation failed")
             hasStarted = false
             return
@@ -104,12 +122,20 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func stop() {
         startDeferralTask?.cancel()
         startDeferralTask = nil
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = nil
+        colorSchemeTask?.cancel()
+        colorSchemeTask = nil
         eventTask?.cancel()
         eventTask = nil
+        cancelReadyWaiters()
         hostView.detach()
         browser?.close()
         browser = nil
         devTools = nil
+        remoteDebuggingEndpoint = nil
         hasStarted = false
         isReady = false
         publishSnapshot(state: .stopped)
@@ -136,7 +162,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     /// state. A navigation that finished before observation began (cached
     /// pages commit in milliseconds) is covered by the grace window: idle
     /// with no load observed for a short period counts as settled.
-    func waitForLoadCompletion(timeout: TimeInterval = 15) async {
+    func waitForLoadCompletion(timeout: TimeInterval = 15) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(timeout)
         let quietGraceDeadline = clock.now + .milliseconds(1500)
@@ -147,8 +173,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             } else if sawLoading || clock.now >= quietGraceDeadline {
                 return
             }
-            try? await clock.sleep(for: .milliseconds(50))
+            try await clock.sleep(for: .milliseconds(50))
         }
+        throw ChromiumBrowserDiagnostic.navigationTimedOut
     }
 
     func goBack() async throws {
@@ -219,13 +246,28 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func ready() async throws {
         guard browser != nil else { throw CDPError.notConnected }
         if isReady { return }
-        await withCheckedContinuation { continuation in
-            if isReady {
-                continuation.resume()
-            } else {
-                readyContinuations.append(continuation)
+        let waiterID = UUID()
+        try await withTaskCancellationHandler(
+            operation: {
+                try await withCheckedThrowingContinuation { continuation in
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else if isReady {
+                        continuation.resume(returning: ())
+                    } else {
+                        readyContinuations[waiterID] = continuation
+                    }
+                }
+            },
+            onCancel: {
+                Task { @MainActor [weak self] in
+                    guard let continuation = self?.readyContinuations.removeValue(forKey: waiterID) else {
+                        return
+                    }
+                    continuation.resume(throwing: CancellationError())
+                }
             }
-        }
+        )
     }
 
     func registerDocumentScript(_ source: String, isStyle: Bool) async throws -> Int {
@@ -268,13 +310,34 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         initScriptIdentifiers.removeAll()
         styleScriptIdentifiers.removeAll()
         guard !identifiers.isEmpty else { return }
-        Task { [weak self] in
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = Task { [weak self] in
             for identifier in identifiers {
                 _ = try? await self?.sendCommand(
                     method: "Page.removeScriptToEvaluateOnNewDocument",
                     parameters: .object(["identifier": .string(identifier)])
                 )
             }
+        }
+    }
+
+    func removeDocumentScript(_ source: String, isStyle: Bool) {
+        documentScriptGeneration &+= 1
+        let identifier: String?
+        if isStyle {
+            styleScriptSources.removeAll { $0 == source }
+            identifier = styleScriptIdentifiers.removeValue(forKey: source)
+        } else {
+            initScriptSources.removeAll { $0 == source }
+            identifier = initScriptIdentifiers.removeValue(forKey: source)
+        }
+        guard let identifier else { return }
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = Task { [weak self] in
+            _ = try? await self?.sendCommand(
+                method: "Page.removeScriptToEvaluateOnNewDocument",
+                parameters: .object(["identifier": .string(identifier)])
+            )
         }
     }
 
@@ -290,7 +353,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     func setEmulatedColorScheme(_ scheme: String?) {
         emulatedColorScheme = scheme
-        Task { [weak self] in
+        colorSchemeTask?.cancel()
+        colorSchemeTask = Task { [weak self] in
             try? await self?.applyStoredColorScheme()
         }
     }
@@ -305,10 +369,11 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                 hostView.attach(cefWindow: cefWindow)
             }
             publishSnapshot(state: .running(nil))
-            let waiters = readyContinuations
-            readyContinuations = []
-            for waiter in waiters { waiter.resume() }
-            Task { [weak self] in
+            let waiters = readyContinuations.values
+            readyContinuations.removeAll()
+            for waiter in waiters { waiter.resume(returning: ()) }
+            bootstrapTask?.cancel()
+            bootstrapTask = Task { [weak self] in
                 try? await self?.installStoredDocumentScripts()
                 try? await self?.applyStoredColorScheme()
             }
@@ -326,10 +391,19 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             publishSnapshot(state: .running(nil))
         case .closed:
             isReady = false
+            bootstrapTask?.cancel()
+            bootstrapTask = nil
+            documentScriptRemovalTask?.cancel()
+            documentScriptRemovalTask = nil
+            colorSchemeTask?.cancel()
+            colorSchemeTask = nil
+            remoteDebuggingEndpoint = nil
             hostView.detach()
-            let waiters = readyContinuations
-            readyContinuations = []
-            for waiter in waiters { waiter.resume() }
+            let waiters = readyContinuations.values
+            readyContinuations.removeAll()
+            for waiter in waiters {
+                waiter.resume(throwing: CDPError.notConnected)
+            }
             publishSnapshot(state: .stopped)
         }
     }
@@ -339,7 +413,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             state: state,
             currentURL: currentURL,
             title: title,
-            externallyVisibleEndpoint: nil,
+            externallyVisibleEndpoint: remoteDebuggingEndpoint,
             canGoBack: canGoBack,
             canGoForward: canGoForward,
             isLoading: isLoading,
@@ -350,6 +424,14 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     private func publishFailure(_ message: String) {
         onSnapshot?(ChromiumSessionSnapshot(state: .failed(message)))
+    }
+
+    private func cancelReadyWaiters() {
+        let waiters = readyContinuations.values
+        readyContinuations.removeAll()
+        for waiter in waiters {
+            waiter.resume(throwing: CancellationError())
+        }
     }
 
     private func installStoredDocumentScripts() async throws {

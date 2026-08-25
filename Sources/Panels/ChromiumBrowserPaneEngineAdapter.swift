@@ -25,6 +25,8 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var styleScriptIdentifiers: [String: String] = [:]
     private var documentScriptGeneration: UInt64 = 0
     private var emulatedColorScheme: String?
+    private var documentScriptRemovalTask: Task<Void, Never>?
+    private var colorSchemeTask: Task<Void, Never>?
     private(set) var remoteDebuggingEndpoint: BrowserCDPEndpoint?
 
     var contentView: NSView? { hostView }
@@ -69,8 +71,8 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     deinit {
         startupTask?.cancel()
-        let session = self.session
-        Task { await session.stopAndWait() }
+        documentScriptRemovalTask?.cancel()
+        colorSchemeTask?.cancel()
     }
 
     func start(initialURL: URL?) {
@@ -120,6 +122,10 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func beginStop() -> Task<Void, Never> {
         startupTask?.cancel()
         startupTask = nil
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = nil
+        colorSchemeTask?.cancel()
+        colorSchemeTask = nil
         hostView.stop()
         if let stopTask {
             remoteDebuggingEndpoint = nil
@@ -222,7 +228,8 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         // the protocol removals asynchronously. Errors are intentionally
         // ignored: a stopped/replaced target has already discarded its hooks.
         let session = self.session
-        Task {
+        documentScriptRemovalTask?.cancel()
+        documentScriptRemovalTask = Task {
             for identifier in identifiers {
                 _ = try? await session.sendCommand(
                     method: "Page.removeScriptToEvaluateOnNewDocument",
@@ -232,12 +239,34 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         }
     }
 
+    func removeDocumentScript(_ source: String, isStyle: Bool) {
+        documentScriptGeneration &+= 1
+        let identifier: String?
+        if isStyle {
+            styleScriptSources.removeAll { $0 == source }
+            identifier = styleScriptIdentifiers.removeValue(forKey: source)
+        } else {
+            initScriptSources.removeAll { $0 == source }
+            identifier = initScriptIdentifiers.removeValue(forKey: source)
+        }
+        guard let identifier else { return }
+        documentScriptRemovalTask?.cancel()
+        let session = self.session
+        documentScriptRemovalTask = Task {
+            _ = try? await session.sendCommand(
+                method: "Page.removeScriptToEvaluateOnNewDocument",
+                parameters: .object(["identifier": .string(identifier)])
+            )
+        }
+    }
+
     /// Applies the browser theme through CDP instead of mutating the inert
     /// compatibility WKWebView. `nil` clears Chromium's emulation and lets the
     /// managed runtime use its normal system preference.
     func setEmulatedColorScheme(_ scheme: String?) {
         emulatedColorScheme = scheme
-        Task { [weak self] in
+        colorSchemeTask?.cancel()
+        colorSchemeTask = Task { [weak self] in
             guard let self else { return }
             do {
                 await startupTask?.value

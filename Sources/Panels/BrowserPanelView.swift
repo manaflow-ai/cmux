@@ -1878,7 +1878,7 @@ struct BrowserPanelView: View {
         if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == panel.id {
             return true
         }
-        let fieldWindow = (panel.isChromiumBacked ? panel.chromiumContentView?.window : panel.webView.window)
+        let fieldWindow = panel.browserContentWindow
             ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
            field.currentEditor() != nil {
@@ -1951,14 +1951,14 @@ struct BrowserPanelView: View {
         // Navigation-triggered omnibar blur can still be unwinding when Cmd+F opens
         // the browser find bar. Once find is visible, any delayed omnibar-exit
         // handoff must not reclaim first responder for WebKit.
-        (panel.isChromiumBacked ? panel.chromiumContentView?.window === window : panel.webView.window === window) &&
+        panel.browserContentWindow === window &&
             isPanelFocusedInModel() &&
             panel.searchState == nil
     }
 
 #if DEBUG
     private func browserFocusWindow() -> NSWindow? {
-        (panel.isChromiumBacked ? panel.chromiumContentView?.window : panel.webView.window)
+        panel.browserContentWindow
             ?? NSApp.keyWindow ?? NSApp.mainWindow
     }
 
@@ -2002,7 +2002,7 @@ struct BrowserPanelView: View {
     private func isCommandPaletteVisibleForPanelWindow() -> Bool {
         guard let app = AppDelegate.shared else { return false }
 
-        let contentWindow = (panel.isChromiumBacked ? panel.chromiumContentView?.window : panel.webView.window)
+        let contentWindow = panel.browserContentWindow
         if let window = contentWindow, app.isCommandPaletteVisible(for: window) {
             return true
         }
@@ -2025,7 +2025,7 @@ struct BrowserPanelView: View {
 
     private func commandPaletteVisibilityNotificationMatchesPanelWindow(_ notification: Notification) -> Bool {
         if let notificationWindow = notification.object as? NSWindow,
-           (panel.isChromiumBacked ? panel.chromiumContentView?.window : panel.webView.window) === notificationWindow {
+           panel.browserContentWindow === notificationWindow {
             return true
         }
 

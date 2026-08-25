@@ -13,6 +13,9 @@ public import CmuxBrowser
 /// coordinator runs there too.
 @MainActor
 public protocol ControlBrowserPanelContext: AnyObject {
+    /// Returns browser-engine validation text resolved by the app bundle.
+    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings
+
     /// Whether the active `TabManager` is wired (the legacy
     /// `guard let tabManager` head of every browser v1 body).
     func controlBrowserPanelTabManagerAvailable() -> Bool

@@ -1405,7 +1405,8 @@ class TerminalController {
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
-             "browser.addinitscript", "browser.addscript", "browser.addstyle":
+             "browser.addinitscript", "browser.addscript", "browser.addstyle",
+             "browser.viewport.set":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -8408,7 +8409,7 @@ class TerminalController {
             case .failure(let error):
                 return .err(
                     code: "capture_failed",
-                    message: error.localizedDescription,
+                    message: v2ChromiumFailureMessage(operation: "screenshot", error: error),
                     data: nil
                 )
             }
@@ -8741,7 +8742,11 @@ class TerminalController {
                 browserPanel: chromiumPanel,
                 operation: chromiumOperation
             ) {
-                return .err(code: "navigation_failed", message: error.localizedDescription, data: nil)
+                return .err(
+                    code: "navigation_failed",
+                    message: v2ChromiumFailureMessage(operation: "navigation", error: error),
+                    data: nil
+                )
             }
         }
         // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
@@ -8794,7 +8799,7 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "engine": browserPanel?.engineKind.rawValue ?? BrowserEngineKind.webkit.rawValue,
+            "engine": v2OrNull(browserPanel?.engineKind.rawValue),
             "cdp_endpoint": v2OrNull(browserPanel?.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString)
         ]
         for (key, value) in extra { payload[key] = value }
@@ -9787,6 +9792,7 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.viewport.set": return v2BrowserViewportSet(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -10752,7 +10758,11 @@ class TerminalController {
                 case .success(let chromiumCookies):
                     cookies = chromiumCookies
                 case .failure(let error):
-                    return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                    return .err(
+                        code: "cdp_error",
+                        message: v2ChromiumFailureMessage(operation: "cookie_read", error: error),
+                        data: nil
+                    )
                 }
             } else {
                 let store = v2MainSync {
@@ -10836,7 +10846,11 @@ class TerminalController {
                     case .success:
                         break
                     case .failure(let error):
-                        return .err(code: "cdp_error", message: error.localizedDescription, data: nil)
+                        return .err(
+                            code: "cdp_error",
+                            message: v2ChromiumFailureMessage(operation: "cookie_write", error: error),
+                            data: nil
+                        )
                     }
                 } else {
                     for row in cookieRows {

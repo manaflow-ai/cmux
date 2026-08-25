@@ -459,4 +459,23 @@ struct BrowserAutomationNavigationCoordinatorTests {
 
         #expect(await coordinator.wait(for: ticket) == .superseded)
     }
+
+    @Test("External Chromium navigation is bounded and cancelled after timeout")
+    func externalNavigationTimeoutCancelsOperation() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(1),
+            sleep: { _ in }
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(ticket) {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            throw CancellationError()
+        }
+
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
+    }
 }

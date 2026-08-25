@@ -20,6 +20,19 @@ struct ChromiumEngineTests {
         #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: true) == .webkit)
     }
 
+    @Test("Legacy engine preference is migrated into the current key")
+    func legacyEnginePreferenceMigrates() {
+        let suiteName = "ChromiumEngineTests.legacyEngine"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("chromium", forKey: "browser.engine")
+
+        let store = BrowserEngineSettingsStore(defaults: defaults)
+        #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: false) == .chromium)
+        #expect(defaults.string(forKey: BrowserEngineSettingsStore.defaultEngineKey) == "chromium")
+    }
+
     @Test("Extension directories are validated and passed to Chromium exactly")
     func extensionDirectoryArguments() throws {
         let fileManager = FileManager.default
@@ -96,6 +109,9 @@ struct ChromiumEngineTests {
                 "--remote-debugging-pipe",
                 "--remote-allow-origins=*",
                 "--user-data-dir", "/Users/other/Library/Application Support/Google/Chrome",
+                "-remote-debugging-port=9223",
+                "-user-data-dir=/Users/other/Library/Application Support/Google/Chrome",
+                "-remote-debugging-pipe",
                 "--disable-gpu",
             ]
         )
@@ -182,7 +198,7 @@ struct ChromiumEngineTests {
             httpVersion: nil,
             headerFields: nil
         ))
-        try ChromiumCDPEndpointDiscovery.validateForTesting(
+        try ChromiumCDPEndpointDiscovery.validate(
             validResponse,
             requestedURL: URL(string: "http://127.0.0.1:9222/json/list")!,
             port: 9222
@@ -195,32 +211,32 @@ struct ChromiumEngineTests {
             headerFields: nil
         ))
         #expect(throws: CDPError.self) {
-            try ChromiumCDPEndpointDiscovery.validateForTesting(
+            try ChromiumCDPEndpointDiscovery.validate(
                 redirectedResponse,
                 requestedURL: URL(string: "http://127.0.0.1:9222/json/list")!,
                 port: 9223
             )
         }
         #expect(throws: CDPError.self) {
-            try ChromiumCDPEndpointDiscovery.validateWebSocketForTesting(
+            try ChromiumCDPEndpointDiscovery.validateWebSocket(
                 URL(string: "ws://192.168.1.5:9222/devtools/page/1")!,
                 port: 9222,
                 kind: .page
             )
         }
         #expect(throws: CDPError.self) {
-            try ChromiumCDPEndpointDiscovery.validateWebSocketForTesting(
+            try ChromiumCDPEndpointDiscovery.validateWebSocket(
                 URL(string: "wss://127.0.0.1:9222/devtools/page/1")!,
                 port: 9222,
                 kind: .page
             )
         }
-        try ChromiumCDPEndpointDiscovery.validateWebSocketForTesting(
+        try ChromiumCDPEndpointDiscovery.validateWebSocket(
             URL(string: "ws://127.0.0.1:9222/devtools/page/target-id")!,
             port: 9222,
             kind: .page
         )
-        try ChromiumCDPEndpointDiscovery.validateWebSocketForTesting(
+        try ChromiumCDPEndpointDiscovery.validateWebSocket(
             URL(string: "ws://127.0.0.1:9222/devtools/browser/browser-id")!,
             port: 9222,
             kind: .browser
@@ -234,7 +250,7 @@ struct ChromiumEngineTests {
             "ws://127.0.0.1:9222/devtools/page/target-id?token=unexpected",
         ] {
             #expect(throws: CDPError.self) {
-                try ChromiumCDPEndpointDiscovery.validateWebSocketForTesting(
+                try ChromiumCDPEndpointDiscovery.validateWebSocket(
                     URL(string: invalidURL)!,
                     port: 9222,
                     kind: .page

@@ -25,6 +25,7 @@ private func withBrowserDiscardRestoreRetryPolicyEnabled(_ body: (UserDefaults) 
 @MainActor
 private func makeDiscardRestoreRetryBlockerSnapshot() -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+        isChromiumBacked: false,
         isClosing: false,
         isVisibleInUI: false,
         shouldRenderWebView: true,

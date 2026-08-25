@@ -126,7 +126,7 @@ public final class CEFBrowser {
     /// immediately instead of waiting for an event that already happened.
     public func events() -> AsyncStream<Event> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             if isClosed {
                 continuation.finish()
                 return

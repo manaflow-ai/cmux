@@ -13,22 +13,6 @@ struct ChromiumOwnedStorage: Sendable {
     let applicationSupportURLProvider: @Sendable () -> URL?
     let bundleIdentifierProvider: @Sendable () -> String
 
-    /// Creates a resolver with injectable filesystem providers.
-    ///
-    /// - Parameters:
-    ///   - fileManager: Filesystem implementation used for directory creation.
-    ///   - applicationSupportURLProvider: cmux application-support root.
-    ///   - bundleIdentifierProvider: Bundle namespace component.
-    init(
-        fileManager: FileManager,
-        applicationSupportURLProvider: @escaping @Sendable () -> URL?,
-        bundleIdentifierProvider: @escaping @Sendable () -> String
-    ) {
-        self.fileManager = fileManager
-        self.applicationSupportURLProvider = applicationSupportURLProvider
-        self.bundleIdentifierProvider = bundleIdentifierProvider
-    }
-
     /// Returns cmux's namespaced application-support directory.
     func applicationDirectory() throws -> URL {
         guard let supportURL = applicationSupportURLProvider() else {

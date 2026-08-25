@@ -8,6 +8,32 @@ import Foundation
 /// connection remain fully asynchronous and out of process. No Chromium
 /// operation is ever awaited while the main actor is blocked.
 extension TerminalController {
+    /// Converts raw Chromium transport failures into stable socket copy while
+    /// retaining the diagnostic in the DEBUG event log for dogfood.
+    nonisolated func v2ChromiumFailureMessage(
+        operation: String,
+        error: any Error
+    ) -> String {
+#if DEBUG
+        cmuxDebugLog("browser.chromium.\(operation).failed error=\(String(describing: error))")
+#endif
+        return String(
+            localized: "cli.browser.error.operationFailed",
+            defaultValue: "Browser operation failed"
+        )
+    }
+
+    nonisolated func v2RemoveChromiumDocumentScript(
+        browserPanel: BrowserPanel,
+        source: String,
+        isStyle: Bool
+    ) {
+        v2MainSync {
+            (browserPanel.browserEngineController.adapter as? (any ChromiumEngineAdapting))?
+                .removeDocumentScript(source, isStyle: isStyle)
+        }
+    }
+
     private enum ChromiumAutomationResult: Sendable {
         case completed
         case screenshot(Data)
@@ -66,7 +92,7 @@ extension TerminalController {
         case .success:
             return .failure(ChromiumBrowserDiagnostic.noJavaScriptValue.message)
         case .failure(let error):
-            return .failure(error.localizedDescription)
+            return .failure(v2ChromiumFailureMessage(operation: "evaluate", error: error))
         case .timedOut:
             return .failure(ChromiumBrowserDiagnostic.javascriptTimedOut.message)
         }

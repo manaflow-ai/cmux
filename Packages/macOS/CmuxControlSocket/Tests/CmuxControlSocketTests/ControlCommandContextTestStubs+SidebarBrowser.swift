@@ -8,6 +8,10 @@ import CmuxBrowser
 // `ControlCommandContextTestStubs.swift`).
 
 extension ControlBrowserPanelContext {
+    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings {
+        ControlBrowserEngineStrings(invalidOption: "invalid engine", browserOnly: "browser only")
+    }
+
     func controlBrowserPanelTabManagerAvailable() -> Bool { false }
     func controlBrowserPanelAvailabilityEnabled() -> Bool { false }
     func controlBrowserPanelOpenURLExternally(_ url: URL) -> Bool { false }

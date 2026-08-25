@@ -15,6 +15,8 @@ protocol ChromiumEngineAdapting: AnyObject {
     func clearDocumentScripts()
     /// Registers a document-start script; returns its 1-based ordinal.
     func registerDocumentScript(_ source: String, isStyle: Bool) async throws -> Int
+    /// Removes one document-start script after a failed immediate evaluation.
+    func removeDocumentScript(_ source: String, isStyle: Bool)
     /// Returns stored document scripts for replay into a replacement engine.
     func documentScriptDefinitions() -> [(source: String, isStyle: Bool)]
     /// Cancels the active page load.

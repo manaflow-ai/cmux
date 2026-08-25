@@ -29,27 +29,24 @@ enum ChromiumRuntimeArtifactError: Error, Equatable, Sendable, CustomStringConve
                 defaultValue: "The Chromium runtime archive is invalid",
                 bundle: .module
             )
-        case .downloadFailed(let message):
-            let format = String(
+        case .downloadFailed:
+            return String(
                 localized: "browser.chromium.runtime.downloadFailed",
-                defaultValue: "Chromium runtime download failed: %@",
+                defaultValue: "Unable to download Chromium. Try again.",
                 bundle: .module
             )
-            return String.localizedStringWithFormat(format, message)
-        case .checksumMismatch(let expected, let actual):
-            let format = String(
+        case .checksumMismatch:
+            return String(
                 localized: "browser.chromium.runtime.checksumMismatch",
-                defaultValue: "Chromium runtime checksum mismatch (expected %@, got %@)",
+                defaultValue: "Chromium download verification failed. Try again.",
                 bundle: .module
             )
-            return String.localizedStringWithFormat(format, expected, actual)
-        case .extractionFailed(let message):
-            let format = String(
+        case .extractionFailed:
+            return String(
                 localized: "browser.chromium.runtime.extractionFailed",
-                defaultValue: "Chromium runtime extraction failed: %@",
+                defaultValue: "Unable to install Chromium. Try again.",
                 bundle: .module
             )
-            return String.localizedStringWithFormat(format, message)
         }
     }
 

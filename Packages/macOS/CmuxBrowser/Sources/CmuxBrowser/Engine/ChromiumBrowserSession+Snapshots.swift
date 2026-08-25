@@ -6,7 +6,7 @@ extension ChromiumBrowserSession {
     /// - Returns: A stream that ends when its consumer cancels.
     public func snapshots() -> StateStream {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             stateContinuations[id] = continuation
             continuation.yield(snapshot())
             continuation.onTermination = { [weak self] _ in

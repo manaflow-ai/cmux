@@ -12,6 +12,8 @@ import Foundation
 final class ChromiumBrowserHostView: NSView {
     private let imageView = NSImageView(frame: .zero)
     private weak var session: ChromiumBrowserSession?
+    private let inputQueue: ChromiumInputEventQueue
+    private let keyMapping = ChromiumKeyMapping()
     private var frameTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var viewportTask: Task<Void, Never>?
@@ -29,6 +31,7 @@ final class ChromiumBrowserHostView: NSView {
 
     init(session: ChromiumBrowserSession) {
         self.session = session
+        self.inputQueue = ChromiumInputEventQueue(session: session)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -38,6 +41,9 @@ final class ChromiumBrowserHostView: NSView {
         imageView.layer?.backgroundColor = NSColor.clear.cgColor
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
+        inputQueue.onFailure = { [weak self] error in
+            self?.onInputFailure?(error)
+        }
     }
 
     @available(*, unavailable)
@@ -49,6 +55,7 @@ final class ChromiumBrowserHostView: NSView {
         frameTask?.cancel()
         stateTask?.cancel()
         viewportTask?.cancel()
+        inputQueue.cancel()
     }
 
     /// Fully decompresses one screencast frame into a bitmap-backed image.
@@ -228,28 +235,20 @@ final class ChromiumBrowserHostView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard let session else { return }
         let point = convert(event.locationInWindow, from: nil)
         let x = Double(point.x)
         let y = Double(bounds.height - point.y)
         let deltaX = Double(event.scrollingDeltaX)
         let deltaY = Double(-event.scrollingDeltaY)
-        Task { [weak self, weak session] in
-            guard let session else { return }
-            do {
-                try await session.dispatchMouse(
-                    type: "mouseWheel",
-                    x: x,
-                    y: y,
-                    button: "none",
-                    clickCount: 1,
-                    deltaX: deltaX,
-                    deltaY: deltaY
-                )
-            } catch {
-                await MainActor.run { self?.onInputFailure?(error) }
-            }
-        }
+        inputQueue.enqueue(.mouse(
+            type: "mouseWheel",
+            x: x,
+            y: y,
+            button: "none",
+            clickCount: 1,
+            deltaX: deltaX,
+            deltaY: deltaY
+        ))
     }
 
     override func keyDown(with event: NSEvent) {
@@ -266,26 +265,20 @@ final class ChromiumBrowserHostView: NSView {
         button: String? = nil,
         clickCount: Int? = nil
     ) {
-        guard let session else { return }
         let point = convert(event.locationInWindow, from: nil)
         let x = Double(point.x)
         let y = Double(bounds.height - point.y)
         let resolvedButton = button ?? (event.buttonNumber == 2 ? "middle" : "left")
         let count = clickCount ?? max(1, event.clickCount)
-        Task { [weak self, weak session] in
-            guard let session else { return }
-            do {
-                try await session.dispatchMouse(
-                    type: type,
-                    x: x,
-                    y: y,
-                    button: resolvedButton,
-                    clickCount: count
-                )
-            } catch {
-                await MainActor.run { self?.onInputFailure?(error) }
-            }
-        }
+        inputQueue.enqueue(.mouse(
+            type: type,
+            x: x,
+            y: y,
+            button: resolvedButton,
+            clickCount: count,
+            deltaX: 0,
+            deltaY: 0
+        ))
     }
 
     private func focusForPointerInput() {
@@ -297,21 +290,14 @@ final class ChromiumBrowserHostView: NSView {
     }
 
     private func sendKey(_ event: NSEvent, type: String) {
-        guard let session else { return }
-        let mapping = ChromiumKeyMapping.map(event)
-        Task { [weak self, weak session] in
-            guard let session else { return }
-            do {
-                try await session.dispatchKey(
-                    type: type,
-                    key: mapping.key,
-                    code: mapping.code,
-                    text: type == "keyDown" ? mapping.text : nil,
-                    modifiers: mapping.modifiers
-                )
-            } catch {
-                await MainActor.run { self?.onInputFailure?(error) }
-            }
-        }
+        let mapping = keyMapping.map(event)
+        inputQueue.enqueue(.key(
+            type: type,
+            key: mapping.key,
+            code: mapping.code,
+            text: type == "keyDown" ? mapping.text : nil,
+            modifiers: mapping.modifiers,
+            windowsVirtualKeyCode: mapping.windowsVirtualKeyCode
+        ))
     }
 }

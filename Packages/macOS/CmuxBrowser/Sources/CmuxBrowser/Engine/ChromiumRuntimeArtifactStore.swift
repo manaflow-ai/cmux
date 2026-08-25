@@ -20,7 +20,7 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         executableOverrideProvider: @escaping @Sendable () -> URL?,
         storage: ChromiumOwnedStorage
     ) {
-        self.fileManager = storage.fileManager
+        self.fileManager = fileManager
         self.urlSession = urlSession
         self.storage = storage
         self.executableOverrideProvider = executableOverrideProvider
@@ -65,8 +65,10 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             throw ChromiumRuntimeArtifactError.executableNotFound
         }
         let (archiveURL, response) = try await urlSession.download(from: artifact.downloadURL)
-        if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
-            throw ChromiumRuntimeArtifactError.downloadFailed("HTTP \(response.statusCode)")
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw ChromiumRuntimeArtifactError.downloadFailed("HTTP \(status)")
         }
         if let expected = artifact.sha256?.lowercased(), !expected.isEmpty {
             let actual = Self.sha256(for: archiveURL)
@@ -106,7 +108,10 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             .deletingLastPathComponent()
             .appendingPathComponent(".install-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: installStaging) }
-        try fileManager.copyItem(at: extractedRoot, to: installStaging)
+        if extractedRoot.standardizedFileURL.path == staging.standardizedFileURL.path {
+            try? fileManager.removeItem(at: staging.appendingPathComponent(".archive-entries"))
+        }
+        try fileManager.moveItem(at: extractedRoot, to: installStaging)
         let relativeExecutablePath = executable.path
             .replacingOccurrences(of: extractedRoot.path + "/", with: "")
         if fileManager.fileExists(atPath: installDirectory.path) {
@@ -127,9 +132,7 @@ struct ChromiumRuntimeArtifactStore: Sendable {
                 if let existing = try? Self.findExecutable(in: installDirectory, fileManager: fileManager) {
                     return existing
                 }
-                throw ChromiumRuntimeArtifactError.extractionFailed(
-                    "Could not quarantine incomplete runtime: \(error.localizedDescription)"
-                )
+                throw ChromiumRuntimeArtifactError.extractionFailed("quarantine failed")
             }
         }
         do {
@@ -141,7 +144,7 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             if let existing = installedExecutable(for: artifact) {
                 return existing
             }
-            throw ChromiumRuntimeArtifactError.extractionFailed(error.localizedDescription)
+            throw ChromiumRuntimeArtifactError.extractionFailed("install failed")
         }
         let installedExecutable = installDirectory.appendingPathComponent(
             relativeExecutablePath,
@@ -184,13 +187,7 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             }
             unzip.terminationHandler = { process in
                 guard process.terminationStatus == 0 else {
-                    let message = String(
-                        data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
-                        encoding: .utf8
-                    ) ?? "unzip failed"
-                    finish(.failure(ChromiumRuntimeArtifactError.extractionFailed(
-                        message.trimmingCharacters(in: .whitespacesAndNewlines)
-                    )))
+                    finish(.failure(ChromiumRuntimeArtifactError.extractionFailed("unzip failed")))
                     return
                 }
                 finish(.success(()))
@@ -198,7 +195,7 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             do {
                 try unzip.run()
             } catch {
-                finish(.failure(ChromiumRuntimeArtifactError.extractionFailed(error.localizedDescription)))
+                finish(.failure(ChromiumRuntimeArtifactError.extractionFailed("unzip could not start")))
             }
         }
     }
@@ -363,6 +360,15 @@ struct ChromiumRuntimeArtifactStore: Sendable {
 
     private static func sha256(for url: URL) -> String {
         guard let bytes = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { return "" }
-        return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: bytes)
+            .map { String($0, radix: 16).leftPadded(toLength: 2, with: "0") }
+            .joined()
+    }
+}
+
+private extension String {
+    func leftPadded(toLength length: Int, with character: Character) -> String {
+        guard count < length else { return self }
+        return String(repeating: character, count: length - count) + self
     }
 }

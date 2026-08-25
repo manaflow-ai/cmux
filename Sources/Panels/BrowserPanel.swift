@@ -3423,8 +3423,12 @@ final class BrowserPanel: Panel, ObservableObject {
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         let browserEngineSettings = BrowserEngineSettingsStore(defaults: .standard)
-        let resolvedEngine = engine ?? browserEngineSettings.defaultEngineValue(
+        let requestedEngine = engine ?? browserEngineSettings.defaultEngineValue(
             systemDefaultBrowserIsChromium: SystemDefaultBrowserDetector.isChromiumFamily()
+        )
+        let resolvedEngine = Self.effectiveBrowserEngine(
+            requested: requestedEngine,
+            isRemoteWorkspace: isRemoteWorkspace
         )
         self.engineKind = resolvedEngine
         self.chromiumStorageID = chromiumStorageID ?? UUID()
@@ -5594,7 +5598,7 @@ final class BrowserPanel: Panel, ObservableObject {
         resolveBrowserNavigableURL(input)
     }
 
-    private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
+    func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }

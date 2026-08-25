@@ -173,7 +173,7 @@ extension ControlCommandCoordinator {
                 url = urlRaw.flatMap { URL(string: $0) }
             } else if partStr.hasPrefix("--engine=") {
                 guard let parsed = BrowserEngineKind.parse(String(partStr.dropFirst("--engine=".count))) else {
-                    return "ERROR: \(BrowserEngineKind.invalidOptionMessage)"
+                    return "ERROR: \(browserEngineStrings().invalidOption)"
                 }
                 engine = parsed
             }
@@ -181,7 +181,7 @@ extension ControlCommandCoordinator {
         if let engineIndex = parts.firstIndex(of: "--engine") {
             guard engineIndex + 1 < parts.count,
                   let parsed = BrowserEngineKind.parse(String(parts[engineIndex + 1])) else {
-                return "ERROR: \(BrowserEngineKind.invalidOptionMessage)"
+                return "ERROR: \(browserEngineStrings().invalidOption)"
             }
             engine = parsed
         }
@@ -190,7 +190,7 @@ extension ControlCommandCoordinator {
             return "ERROR: Invalid direction. Use left, right, up, or down."
         }
         if engine != nil && !isBrowser {
-            return "ERROR: \(BrowserEngineKind.browserOnlyOptionMessage)"
+            return "ERROR: \(browserEngineStrings().browserOnly)"
         }
         if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
@@ -243,7 +243,7 @@ extension ControlCommandCoordinator {
                 url = urlRaw.flatMap { URL(string: $0) }
             } else if partStr.hasPrefix("--engine=") {
                 guard let parsed = BrowserEngineKind.parse(String(partStr.dropFirst("--engine=".count))) else {
-                    return "ERROR: \(BrowserEngineKind.invalidOptionMessage)"
+                    return "ERROR: \(browserEngineStrings().invalidOption)"
                 }
                 engine = parsed
             }
@@ -251,12 +251,12 @@ extension ControlCommandCoordinator {
         if let engineIndex = parts.firstIndex(of: "--engine") {
             guard engineIndex + 1 < parts.count,
                   let parsed = BrowserEngineKind.parse(String(parts[engineIndex + 1])) else {
-                return "ERROR: \(BrowserEngineKind.invalidOptionMessage)"
+                return "ERROR: \(browserEngineStrings().invalidOption)"
             }
             engine = parsed
         }
         if engine != nil && !isBrowser {
-            return "ERROR: \(BrowserEngineKind.browserOnlyOptionMessage)"
+            return "ERROR: \(browserEngineStrings().browserOnly)"
         }
         if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)

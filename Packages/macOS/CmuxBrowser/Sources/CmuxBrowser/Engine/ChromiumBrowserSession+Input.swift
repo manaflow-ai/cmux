@@ -131,19 +131,23 @@ extension ChromiumBrowserSession {
     ///   - code: DOM physical-key code.
     ///   - text: Optional text produced by a key-down event.
     ///   - modifiers: CDP modifier bitmask.
+    ///   - windowsVirtualKeyCode: Chromium virtual key code used for legacy
+    ///     `KeyboardEvent.keyCode` and `which` values.
     /// - Throws: A CDP transport or command error.
     public func dispatchKey(
         type: String,
         key: String,
         code: String,
         text: String? = nil,
-        modifiers: Int = 0
+        modifiers: Int = 0,
+        windowsVirtualKeyCode: Int = 0
     ) async throws {
         var parameters: [String: CDPValue] = [
             "type": .string(type),
             "key": .string(key),
             "code": .string(code),
             "modifiers": .number(Double(max(0, modifiers))),
+            "windowsVirtualKeyCode": .number(Double(max(0, windowsVirtualKeyCode))),
         ]
         if let text {
             parameters["text"] = .string(text)

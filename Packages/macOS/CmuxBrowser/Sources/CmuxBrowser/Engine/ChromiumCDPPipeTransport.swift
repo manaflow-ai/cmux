@@ -13,6 +13,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     private let commandDescriptor: Int32
     private let messageStream: AsyncStream<Result<Data, CDPError>>
     private let messageContinuation: AsyncStream<Result<Data, CDPError>>.Continuation
+    private let responseReadSource: ChromiumPipeReadSource
     private var pendingWrites: [PendingWrite] = []
     private var activeWrite: PendingWrite?
     private var isClosed = false
@@ -30,17 +31,38 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
         self.messageStream = pair.stream
         self.messageContinuation = pair.continuation
 
-        // Chromium's response descriptor has no async-native Foundation API.
-        // A detached task owns the raw descriptor and closes it after EOF.
-        Task.detached {
-            Self.readMessages(
+        let readBuffer = ChromiumPipeReadBuffer(
+            delimiter: 0,
+            maximumPendingBytes: Self.maximumMessageBytes
+        )
+        do {
+            self.responseReadSource = try ChromiumPipeReadSource(
                 descriptor: responseDescriptor,
-                continuation: pair.continuation
-            )
+                label: "com.cmux.chromium.cdp-pipe-reader"
+            ) {
+                readBuffer.read(
+                    from: responseDescriptor,
+                    onMessage: { message in
+                        pair.continuation.yield(.success(message))
+                    },
+                    onEnd: { hasPartialMessage, errorCode in
+                        if hasPartialMessage {
+                            pair.continuation.yield(.failure(.malformedMessage))
+                        } else if let errorCode {
+                            pair.continuation.yield(.failure(Self.posixError(errorCode)))
+                        }
+                        pair.continuation.finish()
+                    }
+                )
+            }
+        } catch {
+            Darwin.close(commandDescriptor)
+            throw error
         }
     }
 
     deinit {
+        responseReadSource.cancel()
         if !commandDescriptorIsClosed {
             Darwin.close(commandDescriptor)
         }
@@ -66,6 +88,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        responseReadSource.cancel()
         let queued = pendingWrites
         pendingWrites.removeAll()
         for write in queued {
@@ -114,44 +137,6 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
         guard isClosed, activeWrite == nil, !commandDescriptorIsClosed else { return }
         Darwin.close(commandDescriptor)
         commandDescriptorIsClosed = true
-    }
-
-    /// Performs only blocking POSIX reads against a raw, Sendable descriptor.
-    private static func readMessages(
-        descriptor: Int32,
-        continuation: AsyncStream<Result<Data, CDPError>>.Continuation
-    ) {
-        defer {
-            Darwin.close(descriptor)
-            continuation.finish()
-        }
-        var pending = Data()
-        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
-
-        while true {
-            let count = buffer.withUnsafeMutableBytes { bytes in
-                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
-            }
-            if count > 0 {
-                pending.append(contentsOf: buffer.prefix(count))
-                while let delimiter = pending.firstIndex(of: 0) {
-                    continuation.yield(.success(Data(pending[..<delimiter])))
-                    pending.removeSubrange(...delimiter)
-                }
-                if pending.count > maximumMessageBytes {
-                    continuation.yield(.failure(.malformedMessage))
-                    return
-                }
-                continue
-            }
-            if count < 0, errno == EINTR { continue }
-            if count < 0 {
-                continuation.yield(.failure(posixError(errno)))
-            } else if !pending.isEmpty {
-                continuation.yield(.failure(.malformedMessage))
-            }
-            return
-        }
     }
 
     /// Performs only blocking POSIX writes against the dedicated raw descriptor.

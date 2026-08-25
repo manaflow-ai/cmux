@@ -93,13 +93,13 @@ extension ControlCommandCoordinator {
             if token == "--engine" {
                 guard index + 1 < tokens.count,
                       let parsed = BrowserEngineKind.parse(tokens[index + 1]) else {
-                    return (nil, "", "ERROR: \(BrowserEngineKind.invalidOptionMessage)")
+                    return (nil, "", "ERROR: \(browserEngineStrings().invalidOption)")
                 }
                 engine = parsed
                 index += 2
             } else if token.hasPrefix("--engine=") {
                 guard let parsed = BrowserEngineKind.parse(String(token.dropFirst("--engine=".count))) else {
-                    return (nil, "", "ERROR: \(BrowserEngineKind.invalidOptionMessage)")
+                    return (nil, "", "ERROR: \(browserEngineStrings().invalidOption)")
                 }
                 engine = parsed
                 index += 1

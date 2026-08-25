@@ -4,6 +4,16 @@ import Foundation
 
 @MainActor
 extension BrowserPanel {
+    /// CEF currently has no per-workspace proxy/request-context seam. Keep
+    /// remote panes on WebKit until those isolation guarantees exist instead
+    /// of silently sending remote traffic directly or sharing local cookies.
+    static func effectiveBrowserEngine(
+        requested: BrowserEngineKind,
+        isRemoteWorkspace: Bool
+    ) -> BrowserEngineKind {
+        requested == .chromium && isRemoteWorkspace ? .webkit : requested
+    }
+
     func makeBrowserEngineController() -> BrowserPaneEngineController {
         let controller = BrowserPaneEngineController(
             kind: engineKind,
@@ -29,6 +39,11 @@ extension BrowserPanel {
     var chromiumContentView: NSView? {
         guard isChromiumBacked else { return nil }
         return browserEngineController.contentView
+    }
+
+    /// Returns the window currently hosting the selected browser engine.
+    var browserContentWindow: NSWindow? {
+        isChromiumBacked ? chromiumContentView?.window : webView.window
     }
 
     var chromiumCDPEndpoint: BrowserCDPEndpoint? {
@@ -83,11 +98,13 @@ extension BrowserPanel {
             isLoading = false
             canGoBack = false
             canGoForward = false
-            let format = String(
+            #if DEBUG
+            cmuxDebugLog("browser.chromium.start.failed error=\(message)")
+            #endif
+            pageTitle = String(
                 localized: "browser.chromium.error.title",
-                defaultValue: "Chromium unavailable: %@"
+                defaultValue: "Chromium unavailable"
             )
-            pageTitle = String.localizedStringWithFormat(format, message)
         case .stopped:
             isLoading = false
             canGoBack = false
@@ -110,7 +127,16 @@ extension BrowserPanel {
             shouldRenderWebView = shouldRender
             refreshWebViewLifecycleState()
             if shouldRender {
-                startChromiumIfNeeded(initialURL: initialURL)
+                let initialRequest = request ?? URLRequest(url: initialURL)
+                if shouldBlockInsecureHTTPNavigation(to: initialURL) {
+                    presentInsecureHTTPAlert(
+                        for: initialRequest,
+                        intent: .currentTab,
+                        recordTypedNavigation: false
+                    )
+                } else {
+                    startChromiumIfNeeded(initialURL: initialURL)
+                }
             }
         }
         return true

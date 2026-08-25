@@ -75,18 +75,27 @@ extension TerminalController {
             width: targetWidth,
             height: targetHeight
         ) {
-            return .err(code: "timeout", message: error.localizedDescription, data: nil)
+            return .err(
+                code: "timeout",
+                message: v2ChromiumFailureMessage(operation: "viewport", error: error),
+                data: nil
+            )
         }
 
-        let layout = BrowserViewportLayout(
+        guard let layout = BrowserViewportLayout(
             containerBounds: CGRect(origin: .zero, size: nativeSize),
             viewport: requestedViewport,
             pageZoom: 1
-        ) ?? BrowserViewportLayout(
-            containerBounds: CGRect(origin: .zero, size: nativeSize),
-            viewport: nil,
-            pageZoom: 1
-        )!
+        ) else {
+            return .err(
+                code: "internal_error",
+                message: String(
+                    localized: "browser.viewport.error.layoutUnavailable",
+                    defaultValue: "Browser viewport layout is unavailable"
+                ),
+                data: nil
+            )
+        }
         v2MainSync {
             resolvedPanel.viewportModel.setViewport(requestedViewport)
         }

@@ -9,6 +9,10 @@ public struct BrowserEngineSettingsStore: Sendable {
     /// The `UserDefaults` key for the engine used by newly created panes.
     public static let defaultEngineKey = "browser.defaultEngine"
 
+    /// The key used by the first Chromium-engine prototype. Read once during
+    /// migration so an existing opt-in survives the key rename.
+    private static let legacyDefaultEngineKey = "browser.engine"
+
     /// The `UserDefaults` key for the optional loopback CDP listener.
     public static let remoteDebuggingPortKey = "browser.remoteDebuggingPort"
 
@@ -38,11 +42,17 @@ public struct BrowserEngineSettingsStore: Sendable {
     ///
     /// - Returns: The persisted choice, falling back to `.auto`.
     public func defaultEngineChoice() -> BrowserEngineDefaultChoice {
-        guard let rawValue = defaults.string(forKey: Self.defaultEngineKey),
-              !rawValue.isEmpty else {
+        if let rawValue = defaults.string(forKey: Self.defaultEngineKey),
+           !rawValue.isEmpty {
+            return BrowserEngineDefaultChoice(persistedRawValue: rawValue)
+        }
+        guard let legacyValue = defaults.string(forKey: Self.legacyDefaultEngineKey),
+              !legacyValue.isEmpty else {
             return Self.defaultEngineChoice
         }
-        return BrowserEngineDefaultChoice(persistedRawValue: rawValue)
+        let choice = BrowserEngineDefaultChoice(persistedRawValue: legacyValue)
+        defaults.set(choice.rawValue, forKey: Self.defaultEngineKey)
+        return choice
     }
 
     /// Resolves the concrete engine for a newly created browser pane.

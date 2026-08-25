@@ -34410,6 +34410,13 @@
         }
       }
     },
+    "browser.viewport.error.layoutUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser viewport layout is unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのビューポートレイアウトを利用できません" } }
+      }
+    },
     "browser.viewport.error.elementFullscreen": {
       "extractionState": "manual",
       "localizations": {
@@ -35229,13 +35236,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--engine requires webkit or chromium"
+            "value": "Choose WebKit or Chromium for the browser engine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--engine には webkit または chromium が必要です"
+            "value": "ブラウザエンジンとしてWebKitまたはChromiumを選択してください"
           }
         }
       }
@@ -35246,13 +35253,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--engine is only supported when creating a browser pane or surface"
+            "value": "A browser engine can only be selected when creating a browser pane or surface."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--engine はブラウザペインまたはサーフェスの作成時のみ使用できます"
+            "value": "ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです"
           }
         }
       }
@@ -169298,22 +169305,22 @@
     "browser.chromium.error.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Chromium unavailable: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumを利用できません: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumを利用できません" } }
       }
     },
     "browser.engine.error.invalid": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--engine requires webkit or chromium" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--engineにはwebkitまたはchromiumを指定してください" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Choose WebKit or Chromium for the browser engine." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザエンジンとしてWebKitまたはChromiumを選択してください" } }
       }
     },
     "browser.engine.error.browserOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--engine is only supported when creating a browser pane or surface" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--engineはブラウザペインまたはサーフェスの作成時のみ指定できます" } }
+        "en": { "stringUnit": { "state": "translated", "value": "A browser engine can only be selected when creating a browser pane or surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです" } }
       }
     },
     "browser.chromium.automation.noJavaScriptValue": {
