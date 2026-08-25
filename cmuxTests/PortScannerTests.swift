@@ -126,6 +126,33 @@ struct PortScannerOwnershipScopeEvidenceTests {
 
         #expect(completeness[workspaceID]?[4200] == .complete)
     }
+
+    @Test("Unrelated incomplete lsof evidence does not pin a dropped owner")
+    func unrelatedIncompleteLsofDoesNotPinDroppedOwner() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in listener },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [Int(listener.pid): [4200]],
+            globallyComplete: false,
+            incompletePIDs: [999]
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            currentProcessIdentitiesByKey: [:],
+            processScopeCompletenessByKey: [workspaceID: .complete],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
+    }
 }
 
 @Suite("Port scanner process capture")

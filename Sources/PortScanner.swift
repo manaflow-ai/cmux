@@ -356,7 +356,9 @@ final class PortScanner: @unchecked Sendable {
                     agentProcessIdentitiesByWorkspace: [:],
                     agentRevisions: agentRevisions,
                     panelCompletenessByKey: panelCompletenessByKey,
+                    panelProcessScopeCompletenessByKey: panelCompletenessByKey,
                     agentCompletenessByWorkspace: agentCompletenessBeforeLsof,
+                    agentProcessScopeCompletenessByWorkspace: agentCompletenessBeforeLsof,
                     panelLsofEvidence: panelLsofEvidence,
                     agentLsofEvidence: agentLsofEvidence,
                     inspectedPIDs: [],
@@ -446,14 +448,21 @@ final class PortScanner: @unchecked Sendable {
             lsofScan: lsofScan,
             workspaceIds: workspaceIds
         )
-        let agentCompletenessByWorkspace = combineAgentCompleteness(
+        let agentProcessScopeCompletenessByWorkspace = combineAgentCompleteness(
             agentCompletenessBeforeLsof,
-            combineAgentCompleteness(
-                finalizedAgentPIDs.completenessByWorkspace,
-                lsofAgentCompleteness,
-                workspaceIds: workspaceIds
-            ),
+            finalizedAgentPIDs.completenessByWorkspace,
             workspaceIds: workspaceIds
+        )
+        let agentCompletenessByWorkspace = combineAgentCompleteness(
+            agentProcessScopeCompletenessByWorkspace,
+            lsofAgentCompleteness,
+            workspaceIds: workspaceIds
+        )
+        let panelProcessScopeEvidence = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: capturedPanelPIDs.incompletePIDs
+                .union(revalidatedPanelPIDs.incompletePIDs)
         )
         let panelLsofEvidence = PortLsofScanResult(
             values: lsofScan.values,
@@ -461,6 +470,15 @@ final class PortScanner: @unchecked Sendable {
             incompletePIDs: lsofScan.incompletePIDs
                 .union(capturedPanelPIDs.incompletePIDs)
                 .union(revalidatedPanelPIDs.incompletePIDs)
+        )
+        let panelProcessScopeCompletenessByKey = Self.panelCompletenessByKey(
+            panelTTYs: panelSnapshot,
+            pidToTTY: pidToTTY,
+            psCompleteness: Self.combinedCompleteness(
+                psScan.completeness,
+                refreshedPanelProcessScan.completeness
+            ),
+            lsofScan: panelProcessScopeEvidence
         )
         let panelCompletenessByKey = Self.panelCompletenessByKey(
             panelTTYs: panelSnapshot,
@@ -485,7 +503,9 @@ final class PortScanner: @unchecked Sendable {
                 agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
                 agentRevisions: agentRevisions,
                 panelCompletenessByKey: panelCompletenessByKey,
+                panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
                 agentCompletenessByWorkspace: agentCompletenessByWorkspace,
+                agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
                 panelLsofEvidence: panelLsofEvidence,
                 agentLsofEvidence: lsofScan,
                 inspectedPIDs: allPids,
@@ -507,7 +527,9 @@ final class PortScanner: @unchecked Sendable {
         agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         panelCompletenessByKey: [PanelKey: PortScanCompleteness],
+        panelProcessScopeCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        agentProcessScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
         panelLsofEvidence: PortLsofScanResult,
         agentLsofEvidence: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
@@ -526,7 +548,9 @@ final class PortScanner: @unchecked Sendable {
             agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
             agentRevisions: agentRevisions,
             panelCompletenessByKey: panelCompletenessByKey,
+            panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
             agentCompletenessByWorkspace: agentCompletenessByWorkspace,
+            agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
             panelLsofEvidence: panelLsofEvidence,
             agentLsofEvidence: agentLsofEvidence,
             inspectedPIDs: inspectedPIDs,
@@ -720,13 +744,14 @@ final class PortScanner: @unchecked Sendable {
                 lsofScan: lsofScan,
                 workspaceIds: request.workspaceIds
             )
-            let completenessByWorkspace = self.combineAgentCompleteness(
+            let processScopeCompletenessByWorkspace = self.combineAgentCompleteness(
                 agentCompletenessBeforeLsof,
-                self.combineAgentCompleteness(
-                    finalizedAgentPIDs.completenessByWorkspace,
-                    lsofCompletenessByWorkspace,
-                    workspaceIds: request.workspaceIds
-                ),
+                finalizedAgentPIDs.completenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
+            let completenessByWorkspace = self.combineAgentCompleteness(
+                processScopeCompletenessByWorkspace,
+                lsofCompletenessByWorkspace,
                 workspaceIds: request.workspaceIds
             )
 
@@ -737,7 +762,7 @@ final class PortScanner: @unchecked Sendable {
                     observedOwnersByWorkspace: agentPortOwnersSnapshot,
                     currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
                     completenessByWorkspace: completenessByWorkspace,
-                    processScopeCompletenessByWorkspace: completenessByWorkspace,
+                    processScopeCompletenessByWorkspace: processScopeCompletenessByWorkspace,
                     lsofScan: lsofScan,
                     inspectedPIDs: Set(capturedAgentPIDs.ownershipByPID.keys)
                 )
@@ -787,7 +812,9 @@ final class PortScanner: @unchecked Sendable {
         agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
         agentRevisions: [UUID: UInt64],
         panelCompletenessByKey: [PanelKey: PortScanCompleteness],
+        panelProcessScopeCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        agentProcessScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
         panelLsofEvidence: PortLsofScanResult,
         agentLsofEvidence: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
@@ -803,7 +830,7 @@ final class PortScanner: @unchecked Sendable {
                 previousOwnersByKey: self.panelPortOwnersByKey,
                 observedOwnersByKey: panelPortOwnersByKey,
                 currentProcessIdentitiesByKey: panelProcessIdentitiesByKey,
-                processScopeCompletenessByKey: panelCompletenessByKey,
+                processScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
                 scannedKeys: Set(scannedPorts.keys),
                 lsofScan: panelLsofEvidence,
                 inspectedPIDs: inspectedPIDs
@@ -839,7 +866,7 @@ final class PortScanner: @unchecked Sendable {
             currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
             agentRevisions: agentRevisions,
             completenessByWorkspace: agentCompletenessByWorkspace,
-            processScopeCompletenessByWorkspace: agentCompletenessByWorkspace,
+            processScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
             lsofScan: agentLsofEvidence,
             inspectedPIDs: inspectedPIDs,
             requestID: requestID
