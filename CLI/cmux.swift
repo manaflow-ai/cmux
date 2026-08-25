@@ -1857,6 +1857,132 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Updates a compact continuation only when the identity observed before
+    /// routing is still the owner of its pane. Compact hooks may arrive after a
+    /// replacement session has taken the pane, so this compare-and-set keeps a
+    /// stale event from rewriting the session's persisted workspace, surface,
+    /// or process identity before the visible-mutation guard runs.
+    @discardableResult
+    func upsertCompactSessionIfCurrent(
+        sessionId: String,
+        expectedRecord: ClaudeHookSessionRecord?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        targetIsAuthoritative: Bool
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
+            return false
+        }
+        return try withLockedState { state in
+            let existing = state.sessions[normalizedSessionId]
+            if let expectedRecord {
+                guard let existing,
+                      existing.updatedAt == expectedRecord.updatedAt,
+                      existing.workspaceId == expectedRecord.workspaceId,
+                      existing.surfaceId == expectedRecord.surfaceId,
+                      compactSessionStillOwnsTarget(
+                          state: state,
+                          record: existing,
+                          targetWorkspaceId: normalizedWorkspaceId,
+                          targetSurfaceId: normalizedSurfaceId,
+                          targetIsAuthoritative: targetIsAuthoritative
+                      ) else {
+                    return false
+                }
+            } else {
+                guard targetIsAuthoritative,
+                      compactTargetIsAvailable(
+                          state: state,
+                          sessionId: normalizedSessionId,
+                          workspaceId: normalizedWorkspaceId,
+                          surfaceId: normalizedSurfaceId
+                      ) else {
+                    return false
+                }
+            }
+
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: false,
+                agentLifecycle: .unknown,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            state.sessions[normalizedSessionId] = record
+            return true
+        }
+    }
+
+    private func compactSessionStillOwnsTarget(
+        state: ClaudeHookSessionStoreFile,
+        record: ClaudeHookSessionRecord,
+        targetWorkspaceId: String,
+        targetSurfaceId: String,
+        targetIsAuthoritative: Bool
+    ) -> Bool {
+        let sessionId = record.sessionId
+        if let active = state.activeSessionsBySurface[record.surfaceId] {
+            guard active.sessionId == sessionId else { return false }
+        } else if let active = state.activeSessionsByWorkspace[record.workspaceId] {
+            guard active.sessionId == sessionId else { return false }
+        }
+
+        let targetMatchesRecord = record.workspaceId == targetWorkspaceId
+            && record.surfaceId == targetSurfaceId
+        guard !targetMatchesRecord else { return true }
+        guard targetIsAuthoritative else { return false }
+        if let active = state.activeSessionsBySurface[targetSurfaceId] {
+            return active.sessionId == sessionId
+        }
+        if let active = state.activeSessionsByWorkspace[targetWorkspaceId] {
+            return active.sessionId == sessionId
+        }
+        return false
+    }
+
+    private func compactTargetIsAvailable(
+        state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) -> Bool {
+        if let active = state.activeSessionsBySurface[surfaceId], active.sessionId != sessionId {
+            return false
+        }
+        if let active = state.activeSessionsByWorkspace[workspaceId],
+           active.sessionId != sessionId,
+           state.activeSessionsBySurface[surfaceId]?.sessionId != sessionId {
+            return false
+        }
+        return true
+    }
+
     func canReplaceActiveSession(
         sessionId: String?,
         workspaceId: String,
@@ -25738,19 +25864,22 @@ struct CMUXCLI {
                 // the persisted pane address while visible delivery remains
                 // fail-closed below.
                 if let sessionId = parsedInput.sessionId, canPersistSessionIdentity {
-                    _ = try? sessionStore.upsert(
+                    let accepted = (try? sessionStore.upsertCompactSessionIfCurrent(
                         sessionId: sessionId,
+                        expectedRecord: compactSession,
                         workspaceId: sessionRecordWorkspaceId,
                         surfaceId: sessionRecordSurfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         pid: claudePid,
                         launchCommand: launchCommand,
-                        isRestorable: false,
-                        agentLifecycle: .unknown,
-                        markActive: false,
-                        turnId: parsedInput.turnId
-                    )
+                        targetIsAuthoritative: resolvedSurface.isAuthoritative
+                    )) == true
+                    guard accepted else {
+                        telemetry.breadcrumb("claude-hook.session-start.compact-stale")
+                        printClaudeHookAck()
+                        return
+                    }
                 }
                 runClaudeCompactAutoNameHook(
                     parsedInput: parsedInput,
@@ -33131,29 +33260,48 @@ export default CMUXSessionRestore;
                 }
             }
 
+            let autoNamingSession = sessionId.isEmpty
+                ? mapped
+                : ((try? store.lookup(sessionId: sessionId)) ?? mapped)
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
             // disabled feature or a manual workspace without prior auto-name
-            // state spawns nothing extra on turn end. A stored title keeps the
-            // reconciliation path available for an independently auto-owned
-            // panel. The detached process re-probes to honor a mid-pass toggle.
+            // state spawns nothing extra on turn end. Manual workspaces only
+            // fork when a compact obligation, in-flight claim, or transcript/
+            // message high-water change needs reconciliation. The detached
+            // process re-probes to honor a mid-pass toggle.
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
-               ),
-               shouldSpawnDetachedAgentAutoName(probe: autoNameProbe, session: mapped) {
-                spawnDetachedAgentAutoName(
-                    def: def,
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
-                    cwd: cwd,
-                    env: env,
-                    telemetry: telemetry
-                )
+               ) {
+                let autoNamingProgress: Int? = autoNameProbe["workspace_user_owned"] as? Bool == true
+                    ? autoNamingProgressMetric(
+                        for: def,
+                        session: autoNamingSession,
+                        sessionId: sessionId,
+                        transcriptPath: input.transcriptPath ?? autoNamingSession?.transcriptPath,
+                        cwd: cwd,
+                        env: env
+                    )
+                    : nil
+                if shouldSpawnDetachedAgentAutoName(
+                    probe: autoNameProbe,
+                    session: autoNamingSession,
+                    currentProgress: autoNamingProgress
+                ) {
+                    spawnDetachedAgentAutoName(
+                        def: def,
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        transcriptPath: normalizedHookValue(input.transcriptPath ?? autoNamingSession?.transcriptPath),
+                        cwd: cwd,
+                        env: env,
+                        telemetry: telemetry
+                    )
+                }
             }
 
         case .approvalResponse:

@@ -36,11 +36,61 @@ extension CMUXCLI {
     /// and independently auto-owned panel repair.
     func shouldSpawnDetachedAgentAutoName(
         probe: [String: Any],
-        session: ClaudeHookSessionRecord?
+        session: ClaudeHookSessionRecord?,
+        currentProgress: Int? = nil
     ) -> Bool {
         guard probe["enabled"] as? Bool == true else { return false }
         guard probe["workspace_user_owned"] as? Bool == true else { return true }
-        return hasReplayableAutoNamingState(session)
+        guard hasReplayableAutoNamingState(session) else { return false }
+        if session?.autoNameTitleReconciliationGeneration != nil
+            || session?.autoNameInFlightAt != nil {
+            return true
+        }
+        guard let currentProgress, let session else { return false }
+        let observedProgress = max(
+            session.autoNameLastLineCount ?? 0,
+            max(session.autoNameLastObservedLineCount ?? 0, session.autoNameInFlightObservedLineCount ?? 0)
+        )
+        return currentProgress != observedProgress
+    }
+
+    /// Returns the monotonic progress unit used by the detached naming pass.
+    /// Hook-message agents use the persisted message sequence; file-backed
+    /// agents use a cheap file-size/line metric so a settled manual workspace
+    /// does not fork a process on every Stop hook.
+    func autoNamingProgressMetric(
+        for def: AgentHookDef,
+        session: ClaudeHookSessionRecord?,
+        sessionId: String,
+        transcriptPath: String?,
+        cwd: String?,
+        env: [String: String]
+    ) -> Int? {
+        guard let source = autoNamingSource(for: def) else { return nil }
+        switch source {
+        case .hookMessageCache:
+            guard let session else { return nil }
+            return AutoNamingEngine().hookMessageLineEquivalentCount(
+                session.autoNameRecentMessages ?? [],
+                totalMessageCount: session.autoNameMessageSequence
+            )
+        case .codexRollout:
+            guard let path = normalizedHookValue(transcriptPath),
+                  FileManager.default.fileExists(atPath: NSString(string: path).expandingTildeInPath)
+            else { return nil }
+            return textFileGrowthMetric(path: path, fallbackLineCount: 0)
+        case .grokHistory:
+            guard let sessionDirectory = grokSessionDirectory(
+                cwd: normalizedHookValue(cwd) ?? session?.cwd,
+                sessionId: sessionId,
+                env: env
+            ) else { return nil }
+            let historyPath = sessionDirectory
+                .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+                .path
+            guard FileManager.default.fileExists(atPath: historyPath) else { return nil }
+            return textFileGrowthMetric(path: historyPath, fallbackLineCount: 0)
+        }
     }
 
     func autoNamingMessages(
