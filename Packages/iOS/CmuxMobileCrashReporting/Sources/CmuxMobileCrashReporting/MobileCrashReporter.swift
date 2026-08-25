@@ -191,7 +191,11 @@ public struct MobileCrashReporter {
         }
     }
 
-    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+    // The dedicated cmux-ios Sentry project. The macOS app reports to
+    // cmuxterm-macos; keeping the platforms in separate projects gives iOS its
+    // own rate limits, alerts, and dSYM store instead of sharing the macOS
+    // project's.
+    private static let dsn = "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520"
     private static let debugCrashArgument = "--cmux-test-crash"
     private static let testEnvironmentKeys = [
         "XCTestConfigurationFilePath",
