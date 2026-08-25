@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Validated immutable provider-owned topology snapshot.
 ///
 /// The snapshot deliberately contains no cmux workspace, Bonsplit pane,
