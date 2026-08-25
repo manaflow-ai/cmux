@@ -1257,9 +1257,31 @@ private extension FeedCoordinator {
         body: String,
         effects: TerminalNotificationPolicyEffects
     ) {
-        guard isAwaitingDecision(requestId: requestId),
-              effects.desktop || effects.sound || effects.command
-        else { return }
+        guard isAwaitingDecision(requestId: requestId) else { return }
+
+        // Feed owns the actionable desktop banner, so mirror the same
+        // unresolved decision directly into the phone queue instead of adding
+        // a second Mac TerminalNotification entry. Local policy effects only
+        // control desktop/sound/command feedback; an explicit phone opt-in is
+        // handled by PhonePushClient's own forwarding gate.
+        if !title.isEmpty || !body.isEmpty {
+            let phoneRequest = FeedPhonePushRequest(
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                workspaceId: event.workspaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                surfaceId: event.surfaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                retargetsToLiveSurfaceOwner: true,
+                replyShape: TerminalNotificationReplyShape.none.rawValue
+            )
+            _ = phonePushForwarder.forward(phoneRequest)
+        }
+
+        guard effects.desktop || effects.sound || effects.command else { return }
 
         if !effects.desktop {
             runFallbackEffectsIfStillAwaiting(
