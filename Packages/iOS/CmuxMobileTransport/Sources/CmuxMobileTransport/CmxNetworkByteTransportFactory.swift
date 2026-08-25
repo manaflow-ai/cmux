@@ -1,6 +1,11 @@
 public import CMUXMobileCore
 
-/// Builds Network.framework TCP transports for host/port routes.
+/// Builds Network.framework TCP transports for dialable host/port routes.
+///
+/// Advertised `.lan` routes are status/bootstrap metadata only. LAN Only uses
+/// the authenticated Iroh peer path, so this factory deliberately omits raw
+/// LAN TCP from `supportedKinds` and cannot accidentally advertise a route it
+/// will reject at the request boundary.
 public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
     public var supportedKinds: [CmxAttachTransportKind]
     public var maximumReceiveLength: Int
@@ -8,23 +13,23 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
 
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.lan, .tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
-        self.supportedKinds = supportedKinds
+        self.supportedKinds = supportedKinds.filter { $0 != .lan }
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         tailscaleRouteAuthority = CmxSystemTailscaleRouteAuthority()
     }
 
     init(
-        supportedKinds: [CmxAttachTransportKind] = [.lan, .tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
         tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
     ) {
-        self.supportedKinds = supportedKinds
+        self.supportedKinds = supportedKinds.filter { $0 != .lan }
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         self.tailscaleRouteAuthority = tailscaleRouteAuthority

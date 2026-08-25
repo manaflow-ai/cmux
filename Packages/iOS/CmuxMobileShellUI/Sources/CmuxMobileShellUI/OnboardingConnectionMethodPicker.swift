@@ -24,7 +24,7 @@ struct OnboardingConnectionMethodPicker: View {
                     defaultValue: "Use the normal authenticated route selection."
                 ),
                 systemImage: "bolt.fill",
-                accessibilityIdentifier: "MobileOnboardingConnectionMethodAuto"
+                accessibilityIdentifier: "MobileOnboardingConnectionMethodAutomatic"
             )
             optionCard(
                 .lan,

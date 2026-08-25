@@ -45,7 +45,11 @@ extension MobileShellComposite {
         let previous = activeTransportPath
         guard previous != path else { return }
         activeTransportPath = path
-        let policy = CmxTransportModePolicy(selectedTransportMode)
+        // The client captures the policy at physical-dial creation. Foreground
+        // identity can still be mid-promotion when the first path observation
+        // arrives, so never validate a pooled client's path against mutable
+        // shell selection.
+        let policy = CmxTransportModePolicy(client.transportMode)
         let pathIsAllowed = path == .unavailable || policy.allows(path: path)
         if pathIsAllowed, previous != .unavailable, path != .unavailable {
             Task { @MainActor [weak self, client] in
@@ -69,7 +73,7 @@ extension MobileShellComposite {
         // the client immediately; the normal recovery owner may retry only
         // routes that satisfy the same pinned mode.
         let error = CmxTransportModeError.routeClassMismatch(
-            expected: selectedTransportMode.pinnedClass ?? .iroh,
+            expected: client.transportMode.pinnedClass ?? .iroh,
             actual: path.transportClass ?? .iroh
         )
         connectionError = error.mobileMessage

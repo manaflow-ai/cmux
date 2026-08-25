@@ -44,12 +44,13 @@ extension MobileShellComposite {
     func shouldRecoverForegroundForDefaultMethodChange(
         liveTransportMode: CmxTransportMode?,
         newDefaultTransportMode: CmxTransportMode,
-        hasExplicitPairingOverride: Bool
+        hasExplicitPairingOverride: Bool,
+        hasRecoveryTarget: Bool
     ) -> Bool {
-        guard !hasExplicitPairingOverride,
-              let liveTransportMode else {
+        guard !hasExplicitPairingOverride else {
             return false
         }
+        guard let liveTransportMode else { return hasRecoveryTarget }
         return liveTransportMode != newDefaultTransportMode
     }
 
@@ -91,9 +92,14 @@ extension MobileShellComposite {
         // Only replace the foreground session when this exact pairing owns it.
         // A secondary Computer's setting must not interrupt the user's active
         // terminal; its next pool reconciliation will use the persisted mode.
-        let affectsForeground = cmxCanonicalDeviceID(foregroundMacDeviceID ?? "")
+        let foregroundTargetDeviceID = foregroundMacDeviceID
+            ?? recoveryTargetMacDeviceID
+        let foregroundTargetInstanceTag = foregroundMacDeviceID != nil
+            ? activeMacInstanceTag
+            : recoveryTargetInstanceTag
+        let affectsForeground = cmxCanonicalDeviceID(foregroundTargetDeviceID ?? "")
             == canonical
-            && (instanceTag == nil || activeMacInstanceTag == targetInstanceTag)
+            && (instanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
         if affectsForeground {
             recoverMobileConnection(trigger: .connectionMethodChanged)
         } else {
@@ -121,9 +127,14 @@ extension MobileShellComposite {
         )
         await loadPairedMacs()
         if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
-            let affectsForeground = cmxCanonicalDeviceID(foregroundMacDeviceID ?? "")
+            let foregroundTargetDeviceID = foregroundMacDeviceID
+                ?? recoveryTargetMacDeviceID
+            let foregroundTargetInstanceTag = foregroundMacDeviceID != nil
+                ? activeMacInstanceTag
+                : recoveryTargetInstanceTag
+            let affectsForeground = cmxCanonicalDeviceID(foregroundTargetDeviceID ?? "")
                 == canonical
-                && (targetInstanceTag == nil || activeMacInstanceTag == targetInstanceTag)
+                && (targetInstanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
             if affectsForeground {
                 recoverMobileConnection(trigger: .connectionMethodChanged)
             } else {
@@ -210,7 +221,9 @@ extension MobileShellComposite {
                 if self.shouldRecoverForegroundForDefaultMethodChange(
                     liveTransportMode: self.remoteClient?.transportMode,
                     newDefaultTransportMode: method.transportMode,
-                    hasExplicitPairingOverride: self.foregroundHasExplicitConnectionMethodOverride
+                    hasExplicitPairingOverride: self.foregroundHasExplicitConnectionMethodOverride,
+                    hasRecoveryTarget: self.foregroundMacDeviceID != nil
+                        || self.recoveryTargetMacDeviceID != nil
                 ) {
                     self.recoverMobileConnection(trigger: .connectionMethodChanged)
                 }

@@ -61,9 +61,9 @@ struct cmuxApp: App {
         // attach to an in-runner mock host; release device builds keep only
         // real transports.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .lan, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.lan, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
