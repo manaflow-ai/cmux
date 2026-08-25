@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 
 pub(crate) type StreamItemValidator = fn(&StreamItem) -> Result<()>;
 
+const CANCELLATION_READY: u8 = 0;
+const CANCELLATION_SENDING: u8 = 1;
+const CANCELLATION_RETIRED: u8 = 2;
+
 pub(crate) struct StreamParts {
     pub(crate) id: StreamId,
     pub(crate) attachment_lease: Option<String>,
@@ -34,8 +38,7 @@ struct CancellationInner {
     writer: Mutex<UnixStream>,
     cancel_params: Params,
     max_request_bytes: usize,
-    /// 0 means unsent, 1 means a sender owns the write, and 2 means sent.
-    canceled: AtomicU8,
+    cancel_state: AtomicU8,
 }
 
 /// Thread-safe cancellation handle for an owned resource stream.
@@ -58,7 +61,16 @@ impl StreamCancellation {
     }
 
     fn send(&self) -> Result<bool> {
-        if self.inner.canceled.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err()
+        if self
+            .inner
+            .cancel_state
+            .compare_exchange(
+                CANCELLATION_READY,
+                CANCELLATION_SENDING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
         {
             return Ok(false);
         }
@@ -70,19 +82,13 @@ impl StreamCancellation {
             "operation": ops::STREAM_CANCEL,
             "params": self.inner.cancel_params.clone().into_value(),
         });
-        match self.write_envelope(&envelope, "stream cancel") {
-            Ok(()) => {
-                self.inner.canceled.store(2, Ordering::Release);
-                Ok(true)
-            }
-            Err(error) => {
-                // A failed write did not send the request. Allow a later
-                // caller to retry, while concurrent callers observe the
-                // in-flight sender and do not duplicate the request.
-                self.inner.canceled.store(0, Ordering::Release);
-                Err(error)
-            }
-        }
+        let result = self.write_envelope(&envelope, "stream cancel");
+        // A write error closes the shared transport. It can also follow a
+        // partial write, so another attempt could append a duplicate request
+        // to an indeterminate frame. Pre-write errors close the transport too,
+        // so every claimed send attempt is terminal.
+        self.inner.cancel_state.store(CANCELLATION_RETIRED, Ordering::Release);
+        result.map(|()| true)
     }
 
     fn write_envelope(&self, envelope: &Value, context: &str) -> Result<()> {
@@ -153,7 +159,7 @@ impl ResourceStream {
                 writer: Mutex::new(parts.writer),
                 cancel_params: parts.cancel_params,
                 max_request_bytes: parts.max_request_bytes,
-                canceled: AtomicU8::new(0),
+                cancel_state: AtomicU8::new(CANCELLATION_READY),
             }),
         };
         let mut stream = Self {
@@ -725,7 +731,7 @@ mod tests {
                 writer: Mutex::new(client),
                 cancel_params: Params::new().string("padding", "x".repeat(REQUEST_BYTES)),
                 max_request_bytes: REQUEST_BYTES * 2,
-                canceled: AtomicU8::new(0),
+                cancel_state: AtomicU8::new(CANCELLATION_READY),
             }),
         };
         let reader = std::thread::spawn(move || {
