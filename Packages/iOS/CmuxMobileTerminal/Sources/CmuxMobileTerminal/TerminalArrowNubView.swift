@@ -32,6 +32,16 @@ final class TerminalArrowNubView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "terminal.inputAccessory.arrowPad"
+        accessibilityLabel = String(
+            localized: "mobile.terminal.arrowPad.label",
+            defaultValue: "Arrow pad"
+        )
+        accessibilityHint = String(
+            localized: "mobile.terminal.arrowPad.hint",
+            defaultValue: "Drag in a direction to send arrow keys."
+        )
         backgroundColor = UIColor.white.withAlphaComponent(0.16)
         layer.cornerRadius = nubSize / 2
 

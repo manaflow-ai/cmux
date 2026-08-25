@@ -10232,6 +10232,23 @@
         }
       }
     },
+    "mobile.terminal.arrowPad.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag in a direction to send arrow keys."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向にドラッグして矢印キーを送信します。"
+          }
+        }
+      }
+    },
     "mobile.terminal.inputPlaceholder": {
       "extractionState": "manual",
       "localizations": {
