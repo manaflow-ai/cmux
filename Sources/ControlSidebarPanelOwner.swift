@@ -365,17 +365,6 @@ enum ControlSidebarPanelOwner {
         }
     }
 
-    @discardableResult
-    func clearAgentLifecycle(key: String, panelId: UUID?) -> Bool {
-        switch self {
-        case .workspace(let workspace):
-            return workspace.clearAgentLifecycle(key: key, panelId: panelId)
-        case .dock(let dock):
-            guard let panelId else { return false }
-            return dock.clearAgentLifecycle(key: key, panelId: panelId)
-        }
-    }
-
     func clearAgentPID(
         key: String,
         panelId: UUID?,
