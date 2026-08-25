@@ -7,33 +7,37 @@ import UIKit
 
 /// UIKit root that owns terminal clipping, dock placement, and keyboard motion.
 ///
-/// The terminal grid never resizes for the keyboard (see
-/// `TerminalLetterboxGeometry.terminalContainerSize`): the render always has
-/// its full keyboard-down height, and this host pins its bottom edge with ONE
-/// constraint —
+/// Dock-following spine (from the keyboard-pinning rebuild, #10518): ONE
+/// geometry authority — UIKit's keyboard frame notifications, on every OS
+/// version — seats the dock-bottom constraint, `keyboardDidChangeFrame`
+/// corrects a seat whose final frame disagrees with the `will` payload, and
+/// ``MobileKeyboardFrameTracker`` (a process-wide screen-space keyboard
+/// record) recovers transitions this host missed while detached (workspace
+/// switches), including visibility, so a reattached toolbar toggle is never
+/// stale. `UIKeyboardLayoutGuide` is deliberately not used: it misses
+/// detached transitions, lies at the screen bottom on iOS 27, and forms a
+/// second animation authority racing the notification-driven motion.
+///
+/// Terminal presentation (this PR): the grid never resizes for the keyboard
+/// (see `TerminalLetterboxGeometry.terminalContainerSize`); the full-height
+/// render pins with ONE constraint —
 ///
 ///     renderWrapper.bottom == dock.top + steadyBottomChromeReservation + slack
 ///
 /// where `slack` is the blank-space absorption (`keyboardAbsorptionSlack`):
-/// while the content bottom fits above the composer bar, the blank rows below
-/// it absorb the keyboard and the terminal stays top-pinned; as content grows
-/// the render transitions continuously into the full bottom-pin.
-///
-/// ONE animation authority: keyboard notifications retarget the dock-bottom
-/// constant and the slack constant together and run a single animated layout
-/// pass with the keyboard's own curve. `UIKeyboardLayoutGuide` deliberately
-/// does NOT seat the dock: the guide animates inside UIKit's own transaction,
-/// and pairing it with a notification-driven slack retarget produced two
-/// racing timelines — the render visibly travelled on keyboard toggles even
-/// when the two changes cancel exactly (top-pinned short content). With both
-/// constants in one pass, a full-slack toggle does not move the wrapper's
-/// frame at all. The guide remains attached as a PASSIVE SENSOR: its settled
-/// frame self-heals the keyboard model after transitions missed while
-/// detached (workspace switches). iOS 27 can seat the guide at the screen
-/// bottom while the keyboard is visible, so the sensor is disabled there.
+/// while the content bottom fits above the composer bar, blank rows absorb
+/// the keyboard and the terminal stays top-pinned; as content grows the
+/// render transitions continuously into the full bottom-pin. Both constants
+/// retarget in one animated pass per keyboard leg, so a full-slack toggle
+/// does not change the wrapper's frame at all. There is no settle-fold and no
+/// presentation rebasing: with no grid renegotiation there is nothing to
+/// mask, which is also why the rebuild-revert path selection collapsed to a
+/// single presentation (the legacy transform and the rebuilt fold both
+/// existed to hide the resize round-trip).
 @MainActor
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
+    private let keyboardFrameTracker: MobileKeyboardFrameTracker
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
     /// dock.bottom == host.bottom + c; the sole dock seat authority.
@@ -43,39 +47,38 @@ public final class GhosttySurfaceHostView: UIView {
     /// Points of the keyboard intrusion currently absorbed by blank rows
     /// below the terminal content (see `syncPresentationReservation`).
     private var appliedAbsorptionSlack: CGFloat = 0
-    /// True while a notification-driven keyboard leg is animating. The
-    /// keyboard-guide SENSOR must not publish mid-flight guide frames into
-    /// the model then (it lags the notification and re-poisons the settled
-    /// target — the "content dips, then heals" glitch), and the layout /
+    /// True while a notification-driven keyboard leg is animating. Layout and
     /// display-link paths must not retarget the constants the leg owns.
     private var keyboardTransitionActive = false
     private var keyboardTransitionGeneration: UInt64 = 0
-    /// Set at window attach and consumed by the first laid-out pass: the
-    /// guide's frame is not resolved yet inside `didMoveToWindow`, so an
-    /// immediate read there reported keyboard-hidden even when a keyboard was
-    /// up across the reattach. A real keyboard notification clears it first
-    /// when one arrives (notifications are authoritative while attached).
-    private var pendingAttachSensorHeal = false
-    /// Forces the passive `keyboardLayoutGuide` to RESOLVE: an unconstrained
-    /// layout guide never updates its `layoutFrame`, which silently turned
-    /// the sensor into a stale-model echo. Hidden, zero-sized, and nothing
-    /// else depends on it, so it cannot become a second animation authority.
-    private let keyboardGuideResolutionProbe = UIView()
-    /// Whether the settled keyboard layout guide may self-heal the keyboard
-    /// model (false on iOS 27, where the guide can lie at the screen bottom).
-    private let usesKeyboardGuideSensor: Bool = {
-        #if DEBUG
-        if UITestConfig.forceIOS27KeyboardDockWorkaround { return false }
-        #endif
-        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion != 27
-    }()
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
 
-    public init(surfaceView: GhosttySurfaceView) {
+    /// Creates the host that owns terminal clipping, dock placement, and
+    /// keyboard motion for one mounted surface.
+    ///
+    /// - Parameters:
+    ///   - surfaceView: The terminal surface this host clips and docks.
+    ///   - keyboardFrameTracker: The app-lifetime screen-space keyboard
+    ///     record used to recover transitions this host missed while detached.
+    ///   - keyboardDockRebuildRevertEnabled: Accepted for call-site
+    ///     compatibility with the rebuild-revert kill switch shipped in
+    ///     #10518. The keyboard-invariant grid removed the resize both of
+    ///     that switch's presentations existed to mask, so one presentation
+    ///     path remains and the value is not consulted.
+    ///   - defaults: Accepted for call-site compatibility; not consulted.
+    public init(
+        surfaceView: GhosttySurfaceView,
+        keyboardFrameTracker: MobileKeyboardFrameTracker,
+        keyboardDockRebuildRevertEnabled: Bool = false,
+        defaults: UserDefaults = .standard
+    ) {
         self.surfaceView = surfaceView
+        self.keyboardFrameTracker = keyboardFrameTracker
         super.init(frame: surfaceView.frame)
+        _ = keyboardDockRebuildRevertEnabled
+        _ = defaults
 
         backgroundColor = surfaceView.backgroundColor
         clipsToBounds = false
@@ -92,24 +95,6 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
-        if usesKeyboardGuideSensor {
-            // Sensor only — the dock does not constrain to the guide.
-            // Configured so its layoutFrame tracks the keyboard the way the
-            // dock semantics do, with a hidden zero-sized probe riding its
-            // top edge so UIKit actually resolves the guide's frame.
-            keyboardLayoutGuide.followsUndockedKeyboard = true
-            keyboardLayoutGuide.usesBottomSafeArea = true
-            keyboardGuideResolutionProbe.isHidden = true
-            keyboardGuideResolutionProbe.isUserInteractionEnabled = false
-            keyboardGuideResolutionProbe.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(keyboardGuideResolutionProbe)
-            NSLayoutConstraint.activate([
-                keyboardGuideResolutionProbe.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
-                keyboardGuideResolutionProbe.leadingAnchor.constraint(equalTo: leadingAnchor),
-                keyboardGuideResolutionProbe.widthAnchor.constraint(equalToConstant: 0),
-                keyboardGuideResolutionProbe.heightAnchor.constraint(equalToConstant: 0),
-            ])
-        }
 
         presentationBottomConstraint = terminalPresentationView.bottomAnchor.constraint(
             equalTo: surfaceView.hostedBottomDockTopAnchor
@@ -136,6 +121,12 @@ public final class GhosttySurfaceHostView: UIView {
             self,
             selector: #selector(keyboardWillChangeFrame(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardDidChangeFrame(_:)),
+            name: UIResponder.keyboardDidChangeFrameNotification,
             object: nil
         )
     }
@@ -165,11 +156,11 @@ public final class GhosttySurfaceHostView: UIView {
         }
         keyboardTransitionGeneration &+= 1
         keyboardTransitionActive = false
-        // Self-heal happens on the first LAID-OUT pass after attach (see
-        // `layoutSubviews`): the guide's frame is not resolved yet here, so
-        // reading it now would report keyboard-hidden even when a keyboard
-        // stayed up across the reattach.
-        pendingAttachSensorHeal = usesKeyboardGuideSensor
+        // Recover any keyboard transition that happened while detached: the
+        // tracker records keyboard frames process-wide, so a workspace switch
+        // that detached this host mid-transition cannot wedge the dock — or
+        // the toolbar's keyboard-toggle state — at a stale seat.
+        healKeyboardModelFromTracker()
         seatDockWithoutAnimation()
     }
 
@@ -178,22 +169,13 @@ public final class GhosttySurfaceHostView: UIView {
         // A keyboard leg owns both constants until its animation completes;
         // layout passes inside the leg must not reseat them.
         guard !keyboardTransitionActive else { return }
-        if pendingAttachSensorHeal, bounds.height > 0 {
-            // Attach-window self-heal for transitions missed while detached
-            // (workspace switches): the now-resolved settled guide is the
-            // keyboard's live seat, and the VISIBILITY heals too — the model
-            // lives on the persistent surface, so a dismissal that happened
-            // while this host was detached leaves it stuck at "visible" and
-            // the toolbar's keyboard toggle opens a fresh workspace in the
-            // wrong state. Bounded to the attach window so it can never
-            // front-run a mid-session keyboard notification.
-            pendingAttachSensorHeal = false
-            let overlap = keyboardLayoutGuideOverlap
-            surfaceView.setHostedKeyboardState(
-                height: overlap,
-                isVisible: overlap > 0.5
-            )
-        }
+        // Re-derive the seat from the tracker whenever this host is laid out
+        // OUTSIDE a keyboard transition. A keyboard notification can arrive
+        // while the host still has pre-layout bounds (a scene whose chrome is
+        // settling); the overlap captured then goes stale the moment the
+        // host's own frame changes, and no further keyboard event would ever
+        // correct the seat.
+        healKeyboardModelFromTracker()
         syncPresentationReservation()
         let reservation = surfaceView.hostedBottomReservation(
             keyboardHeight: surfaceView.hostedKeyboardHeight,
@@ -210,11 +192,58 @@ public final class GhosttySurfaceHostView: UIView {
         seatDockWithoutAnimation()
     }
 
+    /// Folds the tracker's process-wide keyboard record into the surface
+    /// model (height AND visibility) when it disagrees. The tracker hears the
+    /// same notifications this host does, in the same synchronous post, so an
+    /// attached toggle is always leg-owned before any layout pass runs — this
+    /// only corrects state from transitions the host missed while detached or
+    /// captured against stale bounds.
+    private func healKeyboardModelFromTracker() {
+        guard let overlap = keyboardFrameTracker.currentOverlap(in: self) else { return }
+        surfaceView.setHostedKeyboardState(
+            height: max(0, overlap),
+            isVisible: keyboardFrameTracker.currentVisibility(in: self)
+        )
+    }
+
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
-        pendingAttachSensorHeal = false
+        beginKeyboardLeg(
+            targetHeight: max(0, transition.overlap(in: self)),
+            targetIsVisible: transition.isVisible(in: self),
+            transition: transition
+        )
+    }
+
+    /// Corrects the seat when the keyboard's final frame disagrees with the
+    /// last `will` payload (UIKit re-seats a keyboard whose layout changed
+    /// mid-presentation, e.g. an autocorrect bar toggling with the responder).
+    ///
+    /// A `did` that AGREES with the current model is ignored entirely: acting
+    /// on it would replace an in-flight leg with a zero-duration relayout and
+    /// snap the dock (the historical re-open glitch). Disagreements run the
+    /// normal leg with a short curve because `did` payloads carry no
+    /// animation duration of their own.
+    @objc private func keyboardDidChangeFrame(_ notification: Notification) {
+        guard window != nil,
+              let transition = MobileKeyboardTransition(notification: notification) else { return }
         let targetHeight = max(0, transition.overlap(in: self))
+        guard abs(targetHeight - surfaceView.hostedKeyboardHeight) > 0.5 else { return }
+        beginKeyboardLeg(
+            targetHeight: targetHeight,
+            targetIsVisible: transition.isVisible(in: self),
+            transition: transition,
+            durationOverride: transition.duration > 0 ? nil : 0.2
+        )
+    }
+
+    private func beginKeyboardLeg(
+        targetHeight: CGFloat,
+        targetIsVisible: Bool,
+        transition: MobileKeyboardTransition,
+        durationOverride: TimeInterval? = nil
+    ) {
         if targetHeight > 0 {
             // Refresh the blank-band measurement immediately: content written
             // or cleared just before this raise (with no output since) must
@@ -225,7 +254,7 @@ public final class GhosttySurfaceHostView: UIView {
         }
         surfaceView.setHostedKeyboardState(
             height: targetHeight,
-            isVisible: transition.isVisible(in: self)
+            isVisible: targetIsVisible
         )
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
@@ -254,7 +283,7 @@ public final class GhosttySurfaceHostView: UIView {
             + "presC=\(Int(presentationBottomConstraint.constant)) dockC=\(Int(dockBottomConstraint.constant)) "
             + "wrapY=\(Int(terminalPresentationView.frame.minY))"
         )
-        transition.animate { [weak self] in
+        transition.animate(durationOverride: durationOverride) { [weak self] in
             self?.layoutIfNeeded()
         } completion: { [weak self] _ in
             guard let self, self.keyboardTransitionGeneration == generation else { return }
@@ -344,16 +373,6 @@ public final class GhosttySurfaceHostView: UIView {
             viewInset: safeAreaInsets.bottom,
             windowInset: window?.safeAreaInsets.bottom ?? 0
         )
-    }
-
-    private var keyboardLayoutGuideOverlap: CGFloat {
-        guard bounds.height > 0 else { return 0 }
-        let guideFrame = keyboardLayoutGuide.layoutFrame
-        guard abs(guideFrame.maxY - bounds.maxY) <= 1 else {
-            return surfaceView.hostedKeyboardHeight
-        }
-        let occupancy = max(0, bounds.maxY - guideFrame.minY)
-        return occupancy > resolvedBottomSafeAreaInset + 0.5 ? occupancy : 0
     }
 
     func updateTerminalBackground(_ color: UIColor) {

@@ -428,7 +428,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom edge through the composer to its keyboard-driven dock edge, so
         // bottom-pinning the controls keeps them glued to the system keyboard edge.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
@@ -703,8 +703,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
         // `toolbarView` persistently at the bottom so it survives keyboard
         // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // without its own accessory (the docked bar rides above it on the
+        // host's notification-driven keyboard edge).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),
