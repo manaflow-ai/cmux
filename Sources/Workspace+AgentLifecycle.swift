@@ -713,6 +713,12 @@ extension Workspace {
                 }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
             } else if let binding = currentResumeBinding ?? restore.resumeBinding {
+                if restore.restoresRemoteWorkspaceTerminalSnapshot {
+                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
+                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                        continue
+                    }
+                }
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
                     binding,
                     autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(

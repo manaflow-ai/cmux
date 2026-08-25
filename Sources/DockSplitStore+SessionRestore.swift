@@ -457,6 +457,7 @@ extension DockSplitStore {
                     restorableAgent: restorableAgent,
                     resumeBinding: resumeBinding,
                     restoresRemoteWorkspaceTerminalSnapshot: false,
+                    remoteResumeContext: resumeBinding?.launchFlavor.remoteContext,
                     workingDirectory: workingDirectory,
                     resumeWorkingDirectory: resumeSessionWorkingDirectory
                 )

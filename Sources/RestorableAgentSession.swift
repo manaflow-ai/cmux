@@ -3078,6 +3078,8 @@ struct DeferredAgentResumeRestore: Sendable {
     let restorableAgent: SessionRestorableAgentSnapshot?
     let resumeBinding: SurfaceResumeBindingSnapshot?
     let restoresRemoteWorkspaceTerminalSnapshot: Bool
+    /// The persistent-SSH owner captured for deferred admission, if any.
+    let remoteResumeContext: SurfaceResumeRemoteContext? = nil
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
 }

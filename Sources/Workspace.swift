@@ -1944,6 +1944,7 @@ extension Workspace {
                         restorableAgent: restorableAgent,
                         resumeBinding: resumeBinding,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
+                        remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
                         resumeWorkingDirectory: resumeSessionWorkingDirectory
                     )

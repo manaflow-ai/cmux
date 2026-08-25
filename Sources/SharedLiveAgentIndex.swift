@@ -508,6 +508,7 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
+                    guard !Task.isCancelled else { return nil }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
@@ -539,6 +540,7 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
+                    guard !Task.isCancelled else { return nil }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
