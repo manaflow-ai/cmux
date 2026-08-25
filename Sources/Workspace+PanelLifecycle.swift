@@ -245,6 +245,16 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        if !isRemoteWorkspace {
+            for (key, pid) in agentPIDs {
+                if let panelID = agentPIDPanelIdsByKey[key] {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                        pid: Int(pid),
+                        panelID: panelID
+                    )
+                }
+            }
+        }
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()

@@ -95,6 +95,7 @@ final class SharedLiveAgentIndex {
     private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
+    private var sidebarActivePanelIDs = Set<UUID>()
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -597,6 +598,7 @@ final class SharedLiveAgentIndex {
     /// Arms one kernel-backed exit source per active local agent PID.
     /// Process exit is the primary path for crash-without-hook liveness updates.
     func armSidebarProcessExitWatchers(panelIDs: Set<UUID>) {
+        sidebarActivePanelIDs.formUnion(panelIDs)
         guard let index else { return }
         synchronizeSidebarProcessExitWatchers(
             index: index,
@@ -631,7 +633,7 @@ final class SharedLiveAgentIndex {
             sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
         }
         guard let identity = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
-            sidebarAgentProcessDidExit(pid, expectedIdentity: nil)
+            sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
             return
         }
         if let existing = sidebarProcessExitWatchers[pid] {
@@ -641,7 +643,7 @@ final class SharedLiveAgentIndex {
         }
         let source = DispatchSource.makeProcessSource(
             identifier: pid_t(pid),
-            eventMask: .exit,
+            eventMask: [.exit, .exec],
             queue: watchQueue
         )
         source.setEventHandler { [weak self] in
@@ -1370,6 +1372,12 @@ final class SharedLiveAgentIndex {
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
         lastSidebarLivenessRefreshAt = loadedAt
+        if !sidebarActivePanelIDs.isEmpty {
+            synchronizeSidebarProcessExitWatchers(
+                index: newIndex,
+                panelIDs: sidebarActivePanelIDs
+            )
+        }
     }
 
     private func applyPendingForkValidations(
