@@ -29,8 +29,8 @@ struct SidebarWorkspaceRowActions {
     let createEmptyGroup: () -> Void
     let createGroup: ([UUID]) -> Void
     /// Optional for older test/action fixtures that do not expose divider menus.
-    let insertDividerAbove: ([UUID]) -> Void = { _ in }
-    let insertDividerBelow: ([UUID]) -> Void = { _ in }
+    var insertDividerAbove: ([UUID]) -> Void = { _ in }
+    var insertDividerBelow: ([UUID]) -> Void = { _ in }
     let addTargetsToGroup: ([UUID], UUID) -> Void
     let removeTargetsFromGroup: ([UUID]) -> Void
     let reconnectTargets: ([UUID]) -> Void

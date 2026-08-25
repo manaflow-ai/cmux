@@ -29,7 +29,7 @@ struct SidebarWorkspaceTableActions {
     let createWorkspaceAtEnd: () -> Void
     let createEmptyWorkspaceGroup: () -> Void
     /// Defaults keep non-sidebar test fixtures source-compatible.
-    let createDivider: () -> Void = {}
+    var createDivider: () -> Void = {}
     let beginWorkspaceDrag: (UUID) -> Void
     let movingWorkspaceCount: ((UUID) -> Int)?
     let endWorkspaceDrag: () -> Void

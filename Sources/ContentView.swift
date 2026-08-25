@@ -11994,7 +11994,7 @@ struct VerticalTabsSidebar: View, Equatable {
         private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        SidebarWorkspaceTableActions(
+        var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12022,9 +12022,6 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             createEmptyWorkspaceGroup: {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
-            },
-            createDivider: {
-                _ = tabManager.workspaces.insertSidebarDividerAtEnd()
             },
             beginWorkspaceDrag: { workspaceId in
                 dragState.beginDragging(tabId: workspaceId)
@@ -12131,6 +12128,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 dragState.setDropIndicator(indicator)
             }
         )
+        actions.createDivider = {
+            _ = tabManager.workspaces.insertSidebarDividerAtEnd()
+        }
+        return actions
 
     }
 
@@ -14538,7 +14539,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
         )
-        return SidebarWorkspaceRowActions(
+        var actions = SidebarWorkspaceRowActions(
             select: { modifiers in
                 guard let tab = workspace() else { return }
                 selectWorkspaceRow(tab, index: index, modifiers: modifiers)
@@ -14635,20 +14636,6 @@ struct VerticalTabsSidebar: View, Equatable {
             createGroup: { workspaceIds in
                 guard !workspaceIds.isEmpty else { return }
                 tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
-            },
-            insertDividerAbove: { workspaceIds in
-                guard workspaceIds.count == 1,
-                      let topLevelId = workspaceIds.first.flatMap({
-                          tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
-                      }) else { return }
-                _ = tabManager.workspaces.insertSidebarDivider(before: topLevelId)
-            },
-            insertDividerBelow: { workspaceIds in
-                guard workspaceIds.count == 1,
-                      let topLevelId = workspaceIds.first.flatMap({
-                          tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
-                      }) else { return }
-                _ = tabManager.workspaces.insertSidebarDivider(after: topLevelId)
             },
             addTargetsToGroup: { workspaceIds, groupId in
                 for workspaceId in workspaceIds {
@@ -14784,6 +14771,21 @@ struct VerticalTabsSidebar: View, Equatable {
                 pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
+        actions.insertDividerAbove = { workspaceIds in
+            guard workspaceIds.count == 1,
+                  let topLevelId = workspaceIds.first.flatMap({
+                      tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
+                  }) else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(before: topLevelId)
+        }
+        actions.insertDividerBelow = { workspaceIds in
+            guard workspaceIds.count == 1,
+                  let topLevelId = workspaceIds.first.flatMap({
+                      tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
+                  }) else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(after: topLevelId)
+        }
+        return actions
         }
     }
 
