@@ -28,6 +28,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let holdsSubmissionInPreparation: Bool
     private let advertisesTaskAttachments: Bool
     private let startsWithStagedAttachments: Bool
+    /// Drafts never auto-load, so seeded-draft previews resume explicitly.
+    private let seededDraftID: UUID?
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -59,31 +61,53 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
+        // Drafts load only when explicitly resumed, so seeded-draft previews
+        // remember the seeded id and launch the composer with .resume(id).
+        var seededDraftID: UUID?
         if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
-            templateStore.setComposerDraft(MobileTaskComposerDraft(
-                prompt: Self.longPrompt,
-                templateID: templateStore.listTemplates().first?.id,
-                macDeviceID: Self.previewMac.macDeviceID,
-                macInstanceTag: Self.previewMac.instanceTag,
-                directory: "~",
-                didEditDirectory: false
-            ))
+            let seeded = MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: Self.longPrompt,
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false
+                )
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
         }
         if environment["CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT"] == "1" {
-            templateStore.setComposerDraft(MobileTaskComposerDraft(
-                prompt: "Retry the persisted model",
-                modelID: "persisted-agent-model",
-                templateID: templateStore.listTemplates().first?.id,
-                macDeviceID: Self.previewMac.macDeviceID,
-                macInstanceTag: Self.previewMac.instanceTag,
-                directory: "~",
-                didEditDirectory: false,
-                operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
-            ))
+            let seeded = MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: "Retry the persisted model",
+                    modelID: "persisted-agent-model",
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false,
+                    operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
+                )
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
         }
+        self.seededDraftID = seededDraftID
         if presentsOpenDirectory {
             templateStore.setLastDirectory(
                 "/Users/ui/previous-task",
+                macDeviceID: Self.previewMac.macDeviceID
+            )
+        }
+        if presentsDirectoryScrollStress {
+            // Gives the long-listing fixture one remembered directory so the
+            // chips bar renders above the scrolling rows.
+            templateStore.setLastDirectory(
+                "/Users/ui/folder-00",
                 macDeviceID: Self.previewMac.macDeviceID
             )
         }
@@ -159,12 +183,25 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                 }
             }
-            .taskComposerPresentation(isPresented: $isPresented) {
+            .taskComposerPresentation(isPresented: $isPresented) { launch, switchDraft in
                 if presentsTemplateForm {
                     TaskTemplateFormView(template: nil, onSave: { _ in })
                 } else if presentsDirectoryPicker {
                     TaskComposerDirectoryPickerView(
-                        candidates: [],
+                        candidates: [
+                            MobileTaskDirectoryCandidate(
+                                path: "/Users/ui/recent-alpha",
+                                source: .recentSuccessful,
+                                context: nil,
+                                lastUsedAt: Date(timeIntervalSince1970: 2_000)
+                            ),
+                            MobileTaskDirectoryCandidate(
+                                path: "/Users/ui/recent-beta",
+                                source: .recentSuccessful,
+                                context: nil,
+                                lastUsedAt: Date(timeIntervalSince1970: 1_000)
+                            ),
+                        ],
                         selectedPath: selectedDirectory ?? "~",
                         select: { selectedDirectory = $0 },
                         searchMac: Self.searchPreviewDirectories,
@@ -173,6 +210,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 } else {
                     TaskComposerSheet(
                         store: store,
+                        launchIntent: seededDraftID.map(TaskComposerLaunchIntent.resume)
+                            ?? launch.intent,
+                        onSwitchDraft: switchDraft,
                         availableMachines: [
                             Self.previewMac,
                             Self.stablePreviewMac,
@@ -190,7 +230,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                 operationID: spec.operationID?.uuidString ?? "<nil>",
                                 prompt: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>"
                             ))
-                            draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
+                            draftWasPersistedAtSubmit =
+                                store.taskTemplateStore?.composerDrafts().isEmpty == false
                             if holdsSubmissionInPreparation {
                                 do {
                                     try await Task.sleep(for: .seconds(30))

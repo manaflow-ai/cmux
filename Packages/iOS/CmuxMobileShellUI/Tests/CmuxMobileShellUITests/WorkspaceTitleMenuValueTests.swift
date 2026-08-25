@@ -8,7 +8,7 @@ import Testing
             labelToken: .standard(title: "Workspace", subtitle: "Terminal")
         )
         let browser = menuValue(
-            labelToken: .browser(title: "Workspace")
+            labelToken: .standard(title: "Workspace", subtitle: "GitHub - cmux")
         )
         #expect(menuValue(labelToken: standard.labelToken) == standard)
         #expect(browser != standard)
@@ -38,6 +38,7 @@ import Testing
             measuredTrailingItemsWidth: 0,
             measuredTrailingItemCount: 0,
             trailingItemCount: 0,
+            hadTrailingCollapse: false,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,
