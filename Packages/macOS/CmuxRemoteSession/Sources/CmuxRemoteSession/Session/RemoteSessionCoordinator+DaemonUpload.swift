@@ -94,7 +94,6 @@ extension RemoteSessionCoordinator {
         watchdog_pid=
         temp_path=\(quotedRemoteTempPath)
         pid_path=\(quotedRemoteTempPIDPath)
-        printf '%s\\n' "$$" > "$pid_path"
         trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; exit 1' HUP INT TERM
         # POSIX shells give an asynchronous command /dev/null for stdin unless
         # the parent explicitly preserves the descriptor first. Without this
@@ -104,6 +103,11 @@ extension RemoteSessionCoordinator {
         # Keep the shell PID marker. Scoped recovery can signal this owner,
         # and its trap then stops both the reader and watchdog children.
         set -C
+        # Create the owner marker atomically after noclobber is enabled.
+        if ! printf '%s\\n' "$$" > "$pid_path"; then
+          printf '%s\\n' 'cmux daemon upload could not create a unique owner marker' >&2
+          exit 76
+        fi
         # Open the payload once with noclobber, then write through the
         # descriptor. This refuses a pre-existing payload symlink or file.
         if ! exec 4> "$temp_path"; then
@@ -396,13 +400,10 @@ extension RemoteSessionCoordinator {
             let quotedCurrentTemporaryPath = currentTemporaryPath.shellSingleQuoted
             let quotedCurrentPIDPath = "\(currentTemporaryPath).pid".shellSingleQuoted
             currentCleanup = """
-            if [ -r \(quotedCurrentPIDPath) ]; then
-              cmux_current_pid="$(cat \(quotedCurrentPIDPath) 2>/dev/null || true)"
-              case "$cmux_current_pid" in
-                ''|0|1|*[!0-9]*) ;;
-                *) [ "$cmux_current_pid" = "$$" ] || kill "$cmux_current_pid" 2>/dev/null || true ;;
-              esac
-            fi
+            # A numeric PID is not a process identity. It can be reused by an
+            # unrelated process between reading the marker and signaling it.
+            # Never signal from a marker; the upload owner's trap handles its
+            # own children, while recovery only removes its files.
             rm -f -- \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)
             """
         } else {

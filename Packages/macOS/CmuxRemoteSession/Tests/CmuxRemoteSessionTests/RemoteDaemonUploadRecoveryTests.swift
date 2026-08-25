@@ -210,6 +210,7 @@ extension RemoteDaemonUploadTests {
         #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
         #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
         #expect(cleanupRequest.arguments.last?.contains("kill -0") == true)
+        #expect(cleanupRequest.arguments.last?.contains("kill \"$cmux_current_pid\"") == false)
         #expect(cleanupRequest.arguments.last?.contains("rm -f -- \(remotePath).tmp-*") == false)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
         #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
@@ -346,8 +347,7 @@ extension RemoteDaemonUploadTests {
             currentTemporaryPath: currentPath
         )
         #expect(try Self.runShell(currentCleanup) == 0)
-        currentWriter.waitUntilExit()
-        #expect(!currentWriter.isRunning)
+        #expect(currentWriter.isRunning)
         #expect(!fileManager.fileExists(atPath: currentPath))
         #expect(!fileManager.fileExists(atPath: currentPIDPath))
         #expect(otherWriter.isRunning)
