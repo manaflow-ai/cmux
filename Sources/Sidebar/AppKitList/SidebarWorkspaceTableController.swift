@@ -614,16 +614,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         do {
             let table = containerView.tableView
             let spacing = table.intercellSpacing.height
-            let liveWidth = currentColumnWidth()
-            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
+            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = effectivePumpHeightOverride(
-                    for: rows[row].id,
-                    liveWidth: liveWidth,
-                    settledWidth: probeWidth
-                )
+                let served = effectivePumpHeightOverride(for: rows[row].id)
                     ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
                     ?? rows[row].estimatedHeight
                 let actual = table.rect(ofRow: row).height - spacing
@@ -799,18 +794,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        let liveWidth = currentColumnWidth()
-        let settledWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
-        if let override = effectivePumpHeightOverride(
-            for: configuration.id,
-            liveWidth: liveWidth,
-            settledWidth: settledWidth
-        ) {
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+        if let override = effectivePumpHeightOverride(for: configuration.id) {
             return override
         }
         return rowHeightCache.height(
             for: configuration,
-            columnWidth: settledWidth
+            columnWidth: columnWidth
         ) ?? configuration.estimatedHeight
     }
 
@@ -1741,19 +1731,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func effectivePumpHeightOverride(
-        for rowId: SidebarWorkspaceRenderItemID,
-        liveWidth: CGFloat,
-        settledWidth: CGFloat
+        for rowId: SidebarWorkspaceRenderItemID
     ) -> CGFloat? {
         guard let override = pumpHeightOverrides[rowId] else { return nil }
-        if override.columnWidth == liveWidth || override.columnWidth == settledWidth {
-            return override.height
-        }
-        // Between live viewport ticks, the override is the height currently
-        // installed in AppKit even if the divider has already crossed back
-        // over the settled width. The settle pass below replaces or removes
-        // it before this flag is cleared.
-        return hasLiveMeasuredRows ? override.height : nil
+        // The override is the height currently installed in AppKit. Keep it
+        // through every transient width until a live/settled pass replaces or
+        // removes it; the stored width is used by those cleanup paths.
+        return override.height
     }
 
     /// Re-measures visible pump-painted cells during a non-authoritative width
