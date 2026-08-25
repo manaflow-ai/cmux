@@ -643,8 +643,14 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Inject remote tmux `%output` into the terminal parser. If the Ghostty
-    /// runtime is not live yet, buffer a bounded tail and flush it on creation.
+    /// Inject remote output (tmux `%output`, tui pipe-io bytes) into the
+    /// terminal parser. If the Ghostty runtime is not live yet, buffer a
+    /// bounded tail and flush it on creation.
+    ///
+    /// The native parse call can block on libghostty's renderer/IO futex,
+    /// so it never runs here on the main actor: chunks are enqueued on the
+    /// surface's serial `remoteOutputFeed` (order preserved) and the
+    /// surface's native free drains that queue before freeing.
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
@@ -656,8 +662,7 @@ extension TerminalSurface {
             return
         }
         flushPendingRemoteOutput(to: surface)
-        writeProcessOutputData(data, to: surface)
-        ghostty_surface_refresh(surface)
+        remoteOutputFeed.enqueue(surface: surface, data: data)
     }
 
     @MainActor
@@ -665,7 +670,7 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        writeProcessOutputData(buffered, to: surface)
+        remoteOutputFeed.enqueue(surface: surface, data: buffered)
     }
 
     static func readText(

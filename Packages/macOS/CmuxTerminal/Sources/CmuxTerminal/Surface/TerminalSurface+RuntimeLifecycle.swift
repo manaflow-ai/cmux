@@ -326,6 +326,7 @@ extension TerminalSurface {
         }
 #endif
 
+        let remoteOutputFeed = remoteOutputFeed
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
@@ -333,7 +334,11 @@ extension TerminalSurface {
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            freeSurface: { surface in
+                remoteOutputFeed.drainAndClose()
+                ghostty_surface_free(surface)
+            }
         )
     }
 
@@ -425,6 +430,7 @@ extension TerminalSurface {
         }
 #endif
 
+        let remoteOutputFeed = remoteOutputFeed
         agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
@@ -434,7 +440,11 @@ extension TerminalSurface {
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
             executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: teardownReservation
+            isolatedHibernationReservation: teardownReservation,
+            freeSurface: { surface in
+                remoteOutputFeed.drainAndClose()
+                ghostty_surface_free(surface)
+            }
         )
         return true
     }
