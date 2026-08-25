@@ -399,6 +399,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "tabBarWrap",
+                settingsKey: "app.tabBarWrap",
+                title: {
+                    String(localized: "settings.app.tabBarWrap", defaultValue: "Wrap Tabs into Multiple Rows")
+                },
+                sectionTitle: app,
+                keywords: ["app.tabBarWrap", "tab", "tabs", "bar", "wrap", "rows", "overflow", "scroll"],
+                defaultValue: AppCatalogSection().tabBarWrap.defaultValue,
+                defaultsKey: AppCatalogSection().tabBarWrap.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "renameSelectsExistingName",
                 settingsKey: "app.renameSelectsExistingName",
                 title: {

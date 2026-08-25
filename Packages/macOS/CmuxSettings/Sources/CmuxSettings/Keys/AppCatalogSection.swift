@@ -107,6 +107,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: GlobalFontMagnification.percentKey
     )
 
+    /// Whether overflowing pane tabs flow into additional visible rows.
+    public let tabBarWrap = DefaultsKey<Bool>(
+        id: "app.tabBarWrap",
+        defaultValue: false,
+        userDefaultsKey: "app.tabBarWrap"
+    )
+
     public let iMessageMode = DefaultsKey<Bool>(
         id: "app.iMessageMode",
         defaultValue: false,

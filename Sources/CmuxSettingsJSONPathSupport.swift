@@ -168,6 +168,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "tabBarWrap",
+            defaultsKey: app.tabBarWrap.userDefaultsKey
+        ),
+        .init(
             jsonKey: "renameSelectsExistingName",
             defaultsKey: app.renameSelectsExistingName.userDefaultsKey
         ),
@@ -423,6 +427,7 @@ extension CmuxSettingsFileStore {
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
         "app.hideTabCloseButton",
+        "app.tabBarWrap",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",

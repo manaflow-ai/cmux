@@ -27,6 +27,21 @@ struct FocusHistoryScopeTests {
         )
     }
 
+    @Test func settingsFileMetadataSupportsTabBarWrap() throws {
+        let catalog = SettingCatalog().app
+        let mapping = try #require(
+            AppSettingsFileMapping.booleanSettings.first { $0.jsonKey == "tabBarWrap" }
+        )
+
+        #expect(mapping.defaultsKey == catalog.tabBarWrap.userDefaultsKey)
+        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("app.tabBarWrap"))
+        #expect(
+            CmuxSettingsFileStore.defaultTemplate().contains(
+                #"//     "tabBarWrap" : false,"#
+            )
+        )
+    }
+
     private func withPaneHistoryManager(_ body: (TabManager) throws -> Void) throws {
         let suiteName = "FocusHistoryScopeTests.paneHistory.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

@@ -14,7 +14,7 @@ import SwiftUI
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
-/// Command Palette Searches All Surfaces.
+/// Command Palette Searches All Surfaces, and Wrap Tabs into Multiple Rows.
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
@@ -37,6 +37,7 @@ public struct AppSection: View {
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
+    @State private var tabBarWrap: DefaultsValueModel<Bool>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
@@ -91,6 +92,7 @@ public struct AppSection: View {
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
+        _tabBarWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.tabBarWrap))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
@@ -140,7 +142,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, tabBarWrap, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -385,6 +387,24 @@ public struct AppSection: View {
                     percent: globalFontMagnification.current,
                     onChange: setGlobalFontMagnification
                 )
+            }
+            SettingsCardDivider()
+
+            // Wrap overflowing pane tabs into additional rows
+            SettingsCardRow(
+                configurationReview: .json("app.tabBarWrap"),
+                String(localized: "settings.app.tabBarWrap", defaultValue: "Wrap Tabs into Multiple Rows"),
+                subtitle: tabBarWrap.current
+                    ? String(localized: "settings.app.tabBarWrap.subtitleOn", defaultValue: "Show every tab in as many rows as needed. Native drag-reordering is unavailable while wrapping is enabled.")
+                    : String(localized: "settings.app.tabBarWrap.subtitleOff", defaultValue: "Keep one horizontal row and scroll when tabs overflow.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { tabBarWrap.current },
+                    set: { tabBarWrap.set($0) }
+                ))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTabBarWrapToggle")
             }
             SettingsCardDivider()
 
