@@ -931,13 +931,9 @@ impl Inner {
         {
             return;
         }
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        match attachments.get(pty_id) {
-            Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
-            _ => return,
+        if !self.remove_attachment_if_current(pty_id, generation, &control) {
+            return;
         }
-        attachments.remove(pty_id);
-        drop(attachments);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -964,6 +960,28 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
         }
+    }
+
+    /// Remove and close an attachment only if the callback still belongs to
+    /// the current generation. The identity check and removal share one lock,
+    /// so replacement cannot slip between them.
+    fn remove_attachment_if_current(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        control: &Weak<dyn PtyControl>,
+    ) -> bool {
+        let Some(control) = control.upgrade() else { return false };
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let matches = attachments.get(pty_id).is_some_and(|attachment| {
+            attachment.generation == generation
+                && !attachment.closing.load(Ordering::SeqCst)
+                && Arc::ptr_eq(&attachment.control, &control)
+        });
+        if matches {
+            attachments.remove(pty_id);
+        }
+        matches
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
@@ -1902,7 +1920,15 @@ impl Inner {
         let stream_for_exit = Arc::clone(&stream);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                relay.close(&pty_id_for_exit);
+                if relay.remove_attachment_if_current(
+                    &pty_id_for_exit,
+                    generation,
+                    &control_identity,
+                ) {
+                    if let Some(control) = control_identity.upgrade() {
+                        control.kill();
+                    }
+                }
                 send_pty_error(
                     &context_for_exit,
                     &pty_id_for_exit,
