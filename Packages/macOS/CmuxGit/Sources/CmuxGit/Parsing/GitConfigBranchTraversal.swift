@@ -12,16 +12,19 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private let repository: ResolvedGitRepository
     private let branchContext: GitConfigBranchContext
     private let configReader: GitConfigFileReader
+    private let maximumFileByteCount: Int
 
     /// Creates a traversal for one repository and resolved branch context.
     init(
         repository: ResolvedGitRepository,
         branchContext: GitConfigBranchContext,
-        configReader: GitConfigFileReader = GitConfigFileReader()
+        configReader: GitConfigFileReader = GitConfigFileReader(),
+        maximumFileByteCount: Int = GitConfigFileReader.defaultMaximumByteCount
     ) {
         self.repository = repository
         self.branchContext = branchContext
         self.configReader = configReader
+        self.maximumFileByteCount = max(0, maximumFileByteCount)
     }
 
     /// Returns every reachable config file in Git's include order.
@@ -41,7 +44,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns the configured reference backend discovered during one bounded pass.
     func referenceStorageName() -> String? {
         let result = traverse()
-        if result.referenceStorageName == nil, result.encounteredOversizedFile {
+        if !result.isComplete {
             return "unknown"
         }
         return result.referenceStorageName
@@ -51,7 +54,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         configURLs: [URL],
         referenceStorageName: String?,
         referenceStoragePaths: [String],
-        encounteredOversizedFile: Bool
+        encounteredOversizedFile: Bool,
+        isComplete: Bool
     ) {
         var urls: [URL] = []
         var storageName: String?
@@ -62,7 +66,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             remainingPathCount: Self.maximumIncludedFileCount,
             remainingFileCount: Self.maximumIncludedFileCount,
             remainingByteCount: Self.maximumTotalConfigByteCount,
-            reader: configReader
+            reader: configReader,
+            maximumFileByteCount: maximumFileByteCount
         )
         var encounteredOversizedFile = false
 
@@ -84,7 +89,13 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 maximumCount: budget.remainingPathCount
             ))
         }
-        return (urls, storageName, storagePaths, encounteredOversizedFile || budget.didEncounterOversizedFile)
+        return (
+            urls,
+            storageName,
+            storagePaths,
+            encounteredOversizedFile || budget.didEncounterOversizedFile,
+            !budget.didExhaustBudget
+        )
     }
 
     private func referenceStorageInfo(
@@ -107,12 +118,11 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             }
             guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
             let value = GitMetadataService.gitConfigUnquotedValue(parts[1])
-            let lowercasedValue = value.lowercased()
-            guard let separator = lowercasedValue.firstIndex(of: ":") else {
-                name = lowercasedValue
+            guard let separator = value.firstIndex(of: ":") else {
+                name = value.lowercased()
                 continue
             }
-            name = String(lowercasedValue[..<separator])
+            name = String(value[..<separator]).lowercased()
             var payload = String(value[value.index(after: separator)...])
             while payload.hasPrefix("/") && !payload.hasPrefix("//") {
                 payload.removeFirst()
@@ -125,7 +135,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             let path = if payload.hasPrefix("/") {
                 URL(fileURLWithPath: payload).standardizedFileURL.path
             } else {
-                URL(fileURLWithPath: repository.commonDirectory)
+                URL(fileURLWithPath: repository.gitDirectory)
                     .appendingPathComponent(payload)
                     .standardizedFileURL.path
             }
@@ -153,7 +163,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             remainingPathCount: Self.maximumIncludedFileCount,
             remainingFileCount: Self.maximumIncludedFileCount,
             remainingByteCount: Self.maximumTotalConfigByteCount,
-            reader: configReader
+            reader: configReader,
+            maximumFileByteCount: maximumFileByteCount
         )
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             appendRemoteVLines(

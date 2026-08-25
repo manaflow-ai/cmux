@@ -6,26 +6,39 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     var remainingFileCount: Int
     var remainingByteCount: Int
     var didEncounterOversizedFile = false
+    var didExhaustBudget = false
     let reader: GitConfigFileReader
+    let maximumFileByteCount: Int
 
     mutating func reservePath() -> Bool {
-        guard remainingPathCount > 0 else { return false }
+        guard remainingPathCount > 0 else {
+            didExhaustBudget = true
+            return false
+        }
         remainingPathCount -= 1
         return true
     }
 
     mutating func read(at url: URL) -> String? {
-        guard remainingFileCount > 0, remainingByteCount > 0 else { return nil }
+        guard remainingFileCount > 0, remainingByteCount > 0 else {
+            didExhaustBudget = true
+            return nil
+        }
         remainingFileCount -= 1
-        switch reader.read(at: url, maximumByteCount: remainingByteCount) {
+        switch reader.read(
+            at: url,
+            maximumByteCount: min(remainingByteCount, maximumFileByteCount)
+        ) {
         case .contents(let contents, consumedByteCount: byteCount):
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return contents
         case .oversized(let byteCount):
             didEncounterOversizedFile = true
+            didExhaustBudget = true
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
         case .unavailable(let byteCount):
+            didExhaustBudget = true
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
         }

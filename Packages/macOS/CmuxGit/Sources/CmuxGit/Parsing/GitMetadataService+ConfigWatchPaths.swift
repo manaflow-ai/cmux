@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -6,12 +7,15 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration
     ) async -> [String: [String]] {
+        let deadline = DispatchTime.now()
+            + max(5, safetyConfiguration.gitStatusWallTime * 8)
         let result = await collectBranchAwareConfigPaths(
             repository: repository,
             depth: 0,
             safetyConfiguration: safetyConfiguration,
             visitedRoots: [],
-            remainingRepositoryCount: 64
+            remainingRepositoryCount: 32,
+            deadline: deadline
         )
         return result.paths
     }
@@ -21,10 +25,12 @@ extension GitMetadataService {
         depth: Int,
         safetyConfiguration: GitMetadataSafetyConfiguration,
         visitedRoots: Set<String>,
-        remainingRepositoryCount: Int
+        remainingRepositoryCount: Int,
+        deadline: DispatchTime
     ) async -> (paths: [String: [String]], visitedRoots: Set<String>, remainingRepositoryCount: Int) {
         guard !visitedRoots.contains(repository.workTreeRoot),
-              remainingRepositoryCount > 0 else {
+              remainingRepositoryCount > 0,
+              DispatchTime.now() < deadline else {
             return ([:], visitedRoots, remainingRepositoryCount)
         }
         var visitedRoots = visitedRoots
@@ -33,6 +39,9 @@ extension GitMetadataService {
         var pathsByRepository: [String: [String]] = [:]
 
         let branchContext = await gitReferenceBranchContext(repository: repository)
+        guard DispatchTime.now() < deadline else {
+            return (pathsByRepository, visitedRoots, remainingRepositoryCount)
+        }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext
@@ -67,7 +76,8 @@ extension GitMetadataService {
                 depth: depth + 1,
                 safetyConfiguration: safetyConfiguration,
                 visitedRoots: visitedRoots,
-                remainingRepositoryCount: remainingRepositoryCount
+                remainingRepositoryCount: remainingRepositoryCount,
+                deadline: deadline
             )
             visitedRoots = childResult.visitedRoots
             remainingRepositoryCount = childResult.remainingRepositoryCount
