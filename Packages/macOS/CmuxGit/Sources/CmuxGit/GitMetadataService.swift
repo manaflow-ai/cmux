@@ -112,12 +112,18 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        async let references = gitReferenceSnapshot(repository: repository)
-        let trackedChanges = await gitTrackedChangesSnapshot(
+        let initialReferences = await gitReferenceSnapshot(repository: repository)
+        var trackedChanges = await gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
-        let resolvedReferences = await references
+        // HEAD and index updates are separate filesystem operations. Re-read
+        // HEAD after the index scan and discard a generation-cached result when
+        // the checkout moved during this observation window.
+        let resolvedReferences = await gitReferenceSnapshot(repository: repository)
+        if resolvedReferences.headSignature != initialReferences.headSignature {
+            trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
+        }
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: resolvedReferences.branchName,

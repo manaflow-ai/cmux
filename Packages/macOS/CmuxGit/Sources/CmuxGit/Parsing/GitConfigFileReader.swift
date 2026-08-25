@@ -44,6 +44,13 @@ nonisolated struct GitConfigFileReader: Sendable {
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             return .unavailable(consumedByteCount: 0)
         }
+        var filesystem = statfs()
+        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
+              (filesystem.f_flags & Int64(MNT_LOCAL)) != 0 else {
+            // A regular file on a remote filesystem can block in `read` despite
+            // O_NONBLOCK. Fail closed so callers retain their wall-time bound.
+            return .unavailable(consumedByteCount: 0)
+        }
 
         let chunkByteCount = 64 * 1_024
         var data = Data()
