@@ -978,7 +978,7 @@ mod tests {
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() == -1 {
-                    return Err(std::io::Error::last_os_error());
+                    return Err(io::Error::last_os_error());
                 }
                 Ok(())
             });

@@ -37443,7 +37443,7 @@ mod tests {
         app.focus = FocusTarget::MachineRail;
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            Value::String("x".to_string()),
+            serde_json::Value::String("x".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
@@ -37459,7 +37459,7 @@ mod tests {
         app.sync_layout((100, 16));
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            Value::String("j".to_string()),
+            serde_json::Value::String("j".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
