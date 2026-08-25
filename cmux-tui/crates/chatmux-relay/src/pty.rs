@@ -324,10 +324,6 @@ struct ViewerDelivery {
 }
 
 impl ViewerDelivery {
-    fn new(on_data: DataSink, on_exit: ExitSink) -> Arc<ViewerDelivery> {
-        Self::with_overflow(on_data, on_exit, Arc::new(|| {}))
-    }
-
     fn with_overflow(
         on_data: DataSink,
         on_exit: ExitSink,
@@ -382,10 +378,8 @@ impl ViewerDelivery {
         if let Some(banner) = banner {
             overflowed |= !Self::enqueue_data(&mut state, banner);
         }
-        if !overflowed {
-            if let Some(replay) = replay {
-                overflowed |= !Self::enqueue_data(&mut state, replay);
-            }
+        if !overflowed && let Some(replay) = replay {
+            overflowed |= !Self::enqueue_data(&mut state, replay);
         }
         overflowed
     }
@@ -965,7 +959,7 @@ impl Inner {
             let gate = Arc::clone(&gate);
             Arc::new(move |chunk: Bytes| {
                 let _guard = gate.lock().expect("attachment gate");
-                inner.emit_output(&pty_id, generation, &chunk, &context, &control)
+                inner.emit_output(&pty_id, generation, &chunk, &context, &control);
             }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
@@ -976,7 +970,7 @@ impl Inner {
             let gate = Arc::clone(&gate);
             Arc::new(move |code: i64| {
                 let _guard = gate.lock().expect("attachment gate");
-                inner.emit_exit(&pty_id, generation, code, &context, &control)
+                inner.emit_exit(&pty_id, generation, code, &context, &control);
             }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (generation, gate, on_data, on_exit)
@@ -1144,7 +1138,7 @@ impl Inner {
         let matches = attachments.get(pty_id).is_some_and(|attachment| {
             attachment.generation == generation
                 && !attachment.closing.load(Ordering::SeqCst)
-                && Arc::ptr_eq(&attachment.control, &control)
+                && Arc::ptr_eq(&attachment.control, control)
         });
         if matches {
             attachments.remove(pty_id);
@@ -1580,10 +1574,11 @@ impl Inner {
                             delivery: Arc::clone(&start_delivery),
                         });
                     }
-                    if !inner.alive && !seed_overflowed {
-                        if let Some(code) = inner.exit_code {
-                            let _ = start_delivery.finish(code);
-                        }
+                    if !inner.alive
+                        && !seed_overflowed
+                        && let Some(code) = inner.exit_code
+                    {
+                        let _ = start_delivery.finish(code);
                     }
                     (true, seed_overflowed)
                 }
@@ -2489,7 +2484,7 @@ mod tests {
             callback_seen.lock().expect("viewer callback lock").push(format!("exit:{code}"));
         });
 
-        let delivery = ViewerDelivery::new(on_data, on_exit);
+        let delivery = ViewerDelivery::with_overflow(on_data, on_exit, TestArc::new(|| {}));
         delivery.seed(Some(Bytes::from_static(b"banner")), Some(Bytes::from_static(b"buffered")));
 
         let worker_delivery = TestArc::clone(&delivery);
