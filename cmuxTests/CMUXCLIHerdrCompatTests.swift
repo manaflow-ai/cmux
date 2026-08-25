@@ -16,7 +16,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
         let fakeHerdr = tempDirectory.appendingPathComponent("herdr")
-        try "#!/bin/sh\nprintf '%s\\n' \"$*\"\nexit \"${HERDR_TEST_EXIT:-0}\"\n".write(
+        let environmentMarker = tempDirectory.appendingPathComponent("herdr-environment")
+        try """
+        #!/bin/sh
+        {
+          printf 'socket_password=%s\\n' "${CMUX_SOCKET_PASSWORD-}"
+          printf 'socket_path=%s\\n' "${CMUX_SOCKET_PATH-}"
+          printf 'daemon_socket=%s\\n' "${CMUXD_SOCKET-}"
+        } > "$HERDR_ENVIRONMENT_MARKER"
+        printf '%s\\n' "$*"
+        exit "${HERDR_TEST_EXIT:-0}"
+        """.write(
             to: fakeHerdr,
             atomically: true,
             encoding: .utf8
@@ -28,6 +38,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             home: tempDirectory
         )
         environment["HERDR_TEST_EXIT"] = "23"
+        environment["HERDR_ENVIRONMENT_MARKER"] = environmentMarker.path
+        environment["CMUX_SOCKET_PASSWORD"] = "should-not-cross-process-boundary"
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-sensitive.sock"
+        environment["CMUXD_SOCKET"] = "/tmp/cmuxd-sensitive.sock"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["--json", "__herdr-compat", "status", "server"],
@@ -37,6 +51,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 23, result.stdout)
         XCTAssertEqual(result.stdout, "status server --json\n")
+        let childEnvironment = try String(contentsOf: environmentMarker, encoding: .utf8)
+        XCTAssertEqual(
+            childEnvironment,
+            "socket_password=\nsocket_path=\ndaemon_socket=\n",
+            result.diagnostics
+        )
     }
 
     @Test func testHerdrCompatAliasesAndUnknownCommand() throws {
@@ -203,6 +223,44 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(result.stdout, "status\n", result.diagnostics)
+    }
+
+    @Test func testHerdrCompatRejectsMissingParentBeforeDotDotNormalization() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-herdr-malformed-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let marker = root.appendingPathComponent("provider-launched", isDirectory: false)
+        let fakeHerdr = root.appendingPathComponent("herdr", isDirectory: false)
+        try "#!/bin/sh\ntouch \"$HERDR_TEST_MARKER\"\n".write(
+            to: fakeHerdr,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
+
+        var environment = herdrCompatEnvironment(
+            searchPath: "missing-directory/..",
+            home: root
+        )
+        environment["HERDR_TEST_MARKER"] = marker.path
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__herdr-compat", "status"],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 127, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains("Couldn't start the required command"),
+            result.diagnostics
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), result.diagnostics)
     }
 
     @Test func testHerdrCompatDiagnosticsUseSuppliedPATHAndRemainProviderNeutral() throws {
