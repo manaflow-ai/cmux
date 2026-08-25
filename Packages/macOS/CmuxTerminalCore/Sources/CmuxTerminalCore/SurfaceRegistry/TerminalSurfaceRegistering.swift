@@ -143,12 +143,15 @@ public extension TerminalSurfaceRegistering {
         updateFocusPlacement(id: surface.id, placement)
     }
 
-    /// Bridges the legacy id-only placement update to the exact registration.
+    /// Provides a safe fallback for a new conformer that has not adopted the
+    /// legacy id-only update yet. Existing conformers that implement this
+    /// requirement keep their behavior, while an incomplete conformer no-ops
+    /// instead of recursively dispatching between the two defaults.
     func updateFocusPlacement(
         id: UUID,
         _ placement: TerminalSurfaceFocusPlacement
     ) {
-        guard let surface = surface(id: id) else { return }
-        updateFocusPlacement(for: surface, placement)
+        _ = id
+        _ = placement
     }
 }
