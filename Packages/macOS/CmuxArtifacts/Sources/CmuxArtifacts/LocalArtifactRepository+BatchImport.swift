@@ -11,6 +11,7 @@ extension LocalArtifactRepository {
     ) async -> [ArtifactImportAttempt] {
         guard !candidates.isEmpty else { return [] }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
+        let sourcePathResolver = ArtifactPathResolver(fileManager: fileManager)
         do {
             try prepareForMutation(paths: paths)
         } catch let error as ArtifactStoreError {
@@ -74,7 +75,8 @@ extension LocalArtifactRepository {
                     paths: paths,
                     configuration: configuration,
                     maximumBytes: remainingBytes,
-                    stagedURL: stagedURL
+                    stagedURL: stagedURL,
+                    expectedCanonicalPath: sourcePathResolver.canonicalPath(source)
                 )
                 stagedBytes += snapshot.size
                 preparedByIndex[index] = PreparedArtifactImport(

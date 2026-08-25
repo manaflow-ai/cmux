@@ -160,7 +160,7 @@ struct ArtifactPathResolver: Sendable {
         return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
     }
 
-    private func canonicalPath(_ url: URL) -> String {
+    func canonicalPath(_ url: URL) -> String {
         let standardized = url.standardizedFileURL
         for ancestor in ArtifactAncestorDirectories(startingAt: standardized) {
             guard fileManager.fileExists(atPath: ancestor.path) else { continue }

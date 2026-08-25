@@ -117,6 +117,9 @@ final class AgentChatTranscriptService {
     /// artifact capture. Mobile-owned tailers are demand-driven and are not
     /// counted against this cap.
     static let maxArtifactOnlyTailers = 32
+    /// Quiet period used to coalesce transcript prose batches before parsing
+    /// the full bounded transcript for automatic capture.
+    static let artifactCaptureDebounceDelay: Duration = .milliseconds(350)
     nonisolated private static let proseStreamingSnapshotMaxRows = 240
 
     let registry: AgentChatSessionRegistry
@@ -135,7 +138,12 @@ final class AgentChatTranscriptService {
     var tailers: [String: AgentChatTranscriptTailer] = [:]
     var tailerOwnership: [String: AgentChatTranscriptTailerOwnership] = [:]
     var artifactTailerLastUse: [String: UInt64] = [:]
+    var artifactCaptureDebounceTasks: [String: (
+        token: UUID,
+        task: Task<Void, Never>
+    )] = [:]
     private var artifactTailerUseCounter: UInt64 = 0
+    private let artifactCaptureDebounceClock: any Clock<Duration>
     private var eventSubscriptionObserver: NSObjectProtocol?
     let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -189,6 +197,7 @@ final class AgentChatTranscriptService {
         artifactGalleryRowCountCache: ChatArtifactGalleryRowCountCache = ChatArtifactGalleryRowCountCache(maximumAge: 2),
         artifactCaptureCoordinator: AgentArtifactCaptureCoordinator? = nil,
         isAutomaticArtifactCaptureEnabled: @escaping @MainActor @Sendable () -> Bool = { true },
+        artifactCaptureDebounceClock: any Clock<Duration> = ContinuousClock(),
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
         fallbackResolutionTimeout: Duration = .seconds(3)
@@ -202,6 +211,7 @@ final class AgentChatTranscriptService {
         self.artifactGalleryRowCountCache = artifactGalleryRowCountCache
         self.artifactCaptureCoordinator = artifactCaptureCoordinator
         self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
+        self.artifactCaptureDebounceClock = artifactCaptureDebounceClock
         self.automaticArtifactCaptureWasEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
         self.now = now
         self.fallbackResolutionCoordinator = AgentChatFallbackTranscriptResolutionCoordinator(
@@ -656,7 +666,7 @@ final class AgentChatTranscriptService {
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
             if let completedRecord = registry.record(sessionID: sessionID) {
-                scheduleArtifactCapture(for: completedRecord)
+                scheduleDebouncedArtifactCapture(for: completedRecord)
             }
         }
     }
@@ -782,6 +792,8 @@ final class AgentChatTranscriptService {
             if let eventSubscriptionObserver {
                 NotificationCenter.default.removeObserver(eventSubscriptionObserver)
             }
+            artifactCaptureDebounceTasks.values.forEach { $0.task.cancel() }
+            artifactCaptureDebounceTasks.removeAll()
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
         }

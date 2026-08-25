@@ -11,7 +11,8 @@ struct ArtifactSourceSnapshotter {
         paths: ArtifactStorePaths,
         configuration: ArtifactCaptureConfiguration,
         maximumBytes: Int64?,
-        stagedURL: URL
+        stagedURL: URL,
+        expectedCanonicalPath: String? = nil
     ) throws -> ArtifactSourceSnapshot {
         try Task.checkCancellation()
         let normalizedConfiguration = configuration.normalized
@@ -41,6 +42,14 @@ struct ArtifactSourceSnapshotter {
         guard fstat(sourceDescriptor, &sourceStatus) == 0,
               (sourceStatus.st_mode & S_IFMT) == S_IFREG else {
             throw ArtifactStoreError.sourceNotRegularFile(source.path)
+        }
+        if let expectedCanonicalPath {
+            let resolver = ArtifactPathResolver(fileManager: fileManager)
+            guard let openedPath = openedPath(for: sourceDescriptor),
+                  resolver.canonicalPath(URL(fileURLWithPath: openedPath))
+                    == expectedCanonicalPath else {
+                throw ArtifactStoreError.pathOutsideStore(source.path)
+            }
         }
         guard sourceStatus.st_size <= limit else {
             throw ArtifactStoreError.fileTooLarge(actual: sourceStatus.st_size, limit: limit)
@@ -92,5 +101,19 @@ struct ArtifactSourceSnapshotter {
         guard values.isSymbolicLink != true else {
             throw ArtifactStoreError.pathOutsideStore(url.path)
         }
+    }
+
+    /// Returns the kernel-resolved path for an already-open descriptor.
+    ///
+    /// Validating the descriptor after O_NOFOLLOW closes the parent symlink
+    /// TOCTOU window: a swapped directory can no longer redirect the bytes we
+    /// stage without producing a different resolved path.
+    private func openedPath(for descriptor: Int32) -> String? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        }
+        guard result == 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
     }
 }

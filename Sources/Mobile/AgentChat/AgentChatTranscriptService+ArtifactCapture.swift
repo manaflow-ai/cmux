@@ -38,6 +38,8 @@ extension AgentChatTranscriptService {
         let captureTasks = artifactCaptureTasks.values.compactMap(\.task)
         artifactCaptureTasks.removeAll()
         captureTasks.forEach { $0.cancel() }
+        artifactCaptureDebounceTasks.values.forEach { $0.task.cancel() }
+        artifactCaptureDebounceTasks.removeAll()
         reconcileTranscriptTailerOwnership()
     }
 
@@ -115,6 +117,7 @@ extension AgentChatTranscriptService {
 
     /// Captures one authoritative transcript generation after an agent turn.
     func scheduleArtifactCapture(for record: AgentChatSessionRecord) {
+        cancelDebouncedArtifactCapture(sessionID: record.sessionID)
         guard let artifactCaptureCoordinator, isAutomaticArtifactCaptureEnabled() else { return }
         let resolver = self.resolver
         let artifactIndex = self.artifactIndex
@@ -148,6 +151,48 @@ extension AgentChatTranscriptService {
                 contentionRetryAttempt: 0
             )
         }
+    }
+
+    /// Coalesces streamed prose batches until the transcript has been quiet.
+    ///
+    /// Transcript tailers emit each streamed prose line independently, but a
+    /// full artifact-index snapshot is bounded by bytes rather than lines.
+    /// Waiting for a short quiet period keeps sustained output from repeatedly
+    /// reparsing the same large transcript while still capturing turns that do
+    /// not produce a Stop hook.
+    func scheduleDebouncedArtifactCapture(for record: AgentChatSessionRecord) {
+        guard artifactCaptureCoordinator != nil,
+              isAutomaticArtifactCaptureEnabled() else {
+            return
+        }
+        let sessionID = record.sessionID
+        artifactCaptureDebounceTasks[sessionID]?.task.cancel()
+        let token = UUID()
+        let clock = artifactCaptureDebounceClock
+        let task = Task { [weak self] in
+            do {
+                try await clock.sleep(for: Self.artifactCaptureDebounceDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            guard self.artifactCaptureDebounceTasks[sessionID]?.token == token else {
+                return
+            }
+            self.artifactCaptureDebounceTasks.removeValue(forKey: sessionID)
+            guard let currentRecord = self.registry.record(sessionID: sessionID),
+                  currentRecord.state != .ended,
+                  self.isAutomaticArtifactCaptureEnabled() else {
+                return
+            }
+            self.scheduleArtifactCapture(for: currentRecord)
+        }
+        artifactCaptureDebounceTasks[sessionID] = (token: token, task: task)
+    }
+
+    /// Cancels a pending prose debounce when an immediate lifecycle event wins.
+    func cancelDebouncedArtifactCapture(sessionID: String) {
+        artifactCaptureDebounceTasks.removeValue(forKey: sessionID)?.task.cancel()
     }
 
     /// Reuses an already-indexed gallery snapshot without parsing the transcript again.
@@ -263,6 +308,7 @@ extension AgentChatTranscriptService {
 
     /// Cancels obsolete work and serializes coordinator cleanup before session reuse.
     func removeArtifactCaptureSession(sessionID: String) {
+        cancelDebouncedArtifactCapture(sessionID: sessionID)
         artifactCaptureTasks.removeValue(forKey: sessionID)?.task?.cancel()
         guard let artifactCaptureCoordinator else { return }
         replaceArtifactCaptureTask(sessionID: sessionID) {
