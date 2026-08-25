@@ -74,6 +74,17 @@ extension SidebarWorkspaceDetailDefaults {
         )
     }
 
+    /// Whether listening-port discovery may run at all. The ports detail is the
+    /// only thing that displays the result, so when it is hidden the scans have
+    /// nothing to populate. Mirrors the sidebar's own precedence, where
+    /// `sidebar.hideAllDetails` wins over `sidebar.showPorts` (issue #6123).
+    static func portScanningEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let sidebar = SidebarCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let details = SidebarWorkspaceDetailSettings(defaults: defaults)
+        return details.showPorts && !settings.value(for: sidebar.hideAllDetails)
+    }
+
     static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
         gitMetadataActivity(defaults: defaults).performsActivePolling
     }

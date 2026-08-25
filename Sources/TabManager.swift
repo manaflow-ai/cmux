@@ -752,16 +752,17 @@ class TabManager: ObservableObject {
     /// the `UserDefaults.didChangeNotification` firehose to actual transitions.
     private var lastRemotePortScanningEnabled: Bool?
 
-    /// Propagates the sidebar ports-visibility settings to every live remote
-    /// session so that disabling `sidebar.showPorts` (or enabling
-    /// `sidebar.hideAllDetails`) actually stops the backend ssh port-scan loop,
-    /// not just the sidebar display (issue #6123). New remote workspaces pick
-    /// up the current value at creation, so this only needs to react to a
-    /// change for already-connected sessions.
+    /// Propagates the sidebar ports-visibility settings to the local scanner and
+    /// to every live remote session, so that disabling `sidebar.showPorts` (or
+    /// enabling `sidebar.hideAllDetails`) actually stops the scans, not just the
+    /// sidebar display (issue #6123). New remote workspaces pick up the current
+    /// value at creation, so this only needs to react to a change for
+    /// already-connected sessions.
     private func refreshRemotePortScanningEnablement() {
         let enabled = Workspace.remotePortScanningEnabledFromSettings()
         guard enabled != lastRemotePortScanningEnabled else { return }
         lastRemotePortScanningEnabled = enabled
+        PortScanner.shared.setScanningEnabled(enabled)
         for tab in tabs where tab.isRemoteWorkspace {
             tab.applyRemotePortScanningEnabled(enabled)
         }

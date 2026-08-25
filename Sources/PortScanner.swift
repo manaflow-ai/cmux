@@ -30,6 +30,7 @@ final class PortScanner: @unchecked Sendable {
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
     let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
+    let listeningPortsProvider: @Sendable (pid_t) -> ListeningPortLookupResult
     @MainActor let ttySessionIdentityProvider: @MainActor @Sendable (String) -> TerminalTTYSessionIdentity?
 
     private var ttyNames: [PanelKey: String] = [:]
@@ -49,6 +50,9 @@ final class PortScanner: @unchecked Sendable {
     var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
     var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
+    /// Mirrors the sidebar ports-visibility settings. Nothing displays or
+    /// reports ports while they are hidden, so no scan needs to run.
+    private var scanningEnabled = SidebarWorkspaceDetailDefaults.portScanningEnabled()
     let publicationState = PortScanPublicationState()
     var publicationBuffer = PortScanPublicationBuffer()
 
@@ -83,6 +87,9 @@ final class PortScanner: @unchecked Sendable {
         processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
             PIDPresence.current(pid: $0)
         },
+        listeningPortsProvider: @escaping @Sendable (pid_t) -> ListeningPortLookupResult = {
+            ListeningPortLookup.ports(pid: $0)
+        },
         ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
             TerminalTTYSessionIdentity(ttyName: $0)
         }
@@ -90,6 +97,7 @@ final class PortScanner: @unchecked Sendable {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
+        self.listeningPortsProvider = listeningPortsProvider
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
@@ -144,6 +152,7 @@ final class PortScanner: @unchecked Sendable {
 
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
+            guard scanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -189,6 +198,23 @@ final class PortScanner: @unchecked Sendable {
         queue.async { [self] in
             guard trackedAgentScanningPaused != paused else { return }
             trackedAgentScanningPaused = paused
+            updateAgentScanTimerLocked()
+        }
+    }
+
+    /// Turns local scanning on and off with the sidebar ports detail, the way
+    /// remote scanning already follows it (issue #6123).
+    func setScanningEnabled(_ enabled: Bool) {
+        queue.async { [self] in
+            guard scanningEnabled != enabled else { return }
+            scanningEnabled = enabled
+            if !enabled {
+                pendingKicks.removeAll()
+                scansRemainingForPendingKicks = 0
+                coalesceTimer?.cancel()
+                coalesceTimer = nil
+                burstActive = false
+            }
             updateAgentScanTimerLocked()
         }
     }
@@ -314,7 +340,7 @@ final class PortScanner: @unchecked Sendable {
         let allPids = Set(capturedPanelPIDs.identitiesByPID.keys).union(agentOwnershipBeforeLsof.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
-            let panelLsofEvidence = PortLsofScanResult(
+            let panelLsofEvidence = PortListenerScanResult(
                 values: [:],
                 globallyComplete: true,
                 incompletePIDs: capturedPanelPIDs.incompletePIDs
@@ -343,7 +369,7 @@ final class PortScanner: @unchecked Sendable {
 
         // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let lsofScan = await runLsof(pidsCsv: pidsCsv)
+        let lsofScan = scanListeningPorts(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
         async let finalizedAgentPIDTask = finalizeAgentPIDOwnership(
             rootsByWorkspace: agentRootsByWorkspace,
@@ -400,7 +426,7 @@ final class PortScanner: @unchecked Sendable {
             ),
             workspaceIds: workspaceIds
         )
-        let panelLsofEvidence = PortLsofScanResult(
+        let panelLsofEvidence = PortListenerScanResult(
             values: lsofScan.values,
             globallyComplete: lsofScan.globallyComplete,
             incompletePIDs: lsofScan.incompletePIDs
@@ -498,7 +524,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func updateAgentScanTimerLocked() {
-        guard !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
+        guard scanningEnabled, !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
             agentScanTimer?.cancel()
             agentScanTimer = nil
             return
@@ -543,7 +569,7 @@ final class PortScanner: @unchecked Sendable {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64]
     ) {
-        guard !workspaceIds.isEmpty else { return }
+        guard scanningEnabled, !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
             rootInput: AgentPortScanRootInput(rootsByWorkspace: agentRootsByWorkspace),
@@ -589,7 +615,7 @@ final class PortScanner: @unchecked Sendable {
                 .sorted()
                 .map(String.init)
                 .joined(separator: ",")
-            let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
+            let lsofScan = self.scanListeningPorts(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
             let finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
                 rootsByWorkspace: agentRootsByWorkspace,
