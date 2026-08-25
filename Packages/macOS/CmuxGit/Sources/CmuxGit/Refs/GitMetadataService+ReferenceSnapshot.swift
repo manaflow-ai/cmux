@@ -1,6 +1,13 @@
 import Foundation
 
 extension GitMetadataService {
+    /// Resolves the full reference snapshot for watcher/config consumers.
+    nonisolated func gitReferenceSnapshotForConfig(
+        repository: ResolvedGitRepository
+    ) async -> GitReferenceSnapshot {
+        await gitReferenceSnapshot(repository: repository)
+    }
+
     /// Resolves the branch context for config traversal on the blocking-I/O lane.
     nonisolated func gitReferenceBranchContext(
         repository: ResolvedGitRepository

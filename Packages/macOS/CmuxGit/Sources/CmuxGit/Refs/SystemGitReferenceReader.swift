@@ -165,7 +165,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return GitReferenceSnapshot(
                 checkedOutBranch: .branch(branch),
                 headSignature: "ref: \(stableReference.symbolicReference)\n\(stableReference.currentCommit ?? "")",
-                currentCommit: stableReference.currentCommit
+                currentCommit: stableReference.currentCommit,
+                storageWatchPaths: storageWatchPaths(
+                    repository: repository,
+                    runner: runner,
+                    deadline: deadline
+                )
             )
         }
 
@@ -193,8 +198,40 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         return GitReferenceSnapshot(
             checkedOutBranch: checkedOutBranch,
             headSignature: headSignature,
-            currentCommit: currentCommit
+            currentCommit: currentCommit,
+            storageWatchPaths: storageWatchPaths(
+                repository: repository,
+                runner: runner,
+                deadline: deadline
+            )
         )
+    }
+
+    /// Resolves bounded Git path hints for custom reference storage.
+    private func storageWatchPaths(
+        repository: ResolvedGitRepository,
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
+    ) -> [String] {
+        var paths: [String] = []
+        for name in ["reftable", "refs", "packed-refs"] {
+            guard let value = output(
+                arguments: ["rev-parse", "--git-path", name],
+                repository: repository,
+                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+                runner: runner,
+                deadline: deadline
+            ) else { continue }
+            let path = value.hasPrefix("/")
+                ? URL(fileURLWithPath: value).standardizedFileURL.path
+                : URL(fileURLWithPath: repository.gitDirectory)
+                    .appendingPathComponent(value)
+                    .standardizedFileURL.path
+            paths.append(name == "reftable"
+                ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
+                : path)
+        }
+        return paths
     }
 
     /// Resolves a branch ref and verifies that HEAD still names it afterward.

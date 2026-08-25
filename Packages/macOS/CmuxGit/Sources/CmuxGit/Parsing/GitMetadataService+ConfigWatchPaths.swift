@@ -47,14 +47,15 @@ extension GitMetadataService {
         var pathsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
 
-        let branchContext = await gitReferenceBranchContext(repository: repository)
+        let references = await gitReferenceSnapshotForConfig(repository: repository)
+        let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
             return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
         }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext
-        ).watchPaths()
+        ).watchPaths() + references.storageWatchPaths
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         guard let header = Self.gitIndexHeaderSummary(indexPath: indexPath),

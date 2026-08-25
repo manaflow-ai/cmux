@@ -16,4 +16,7 @@ nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
         guard case .branch(let branch) = checkedOutBranch else { return nil }
         return branch
     }
+
+    /// Additional bounded storage paths Git reports for watcher invalidation.
+    let storageWatchPaths: [String] = []
 }
