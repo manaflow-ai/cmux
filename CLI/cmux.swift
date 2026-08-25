@@ -3076,6 +3076,11 @@ final class SocketClient {
 
         while true {
             let line = try readStreamLine(deadline: deadline)
+            // The server may reject a stream before the JSON protocol starts.
+            // Surface its plain-text error instead of handing it to the frame decoder.
+            if line.hasPrefix("ERROR:") {
+                throw CLIError(message: line)
+            }
             try onLine(line)
         }
     }
