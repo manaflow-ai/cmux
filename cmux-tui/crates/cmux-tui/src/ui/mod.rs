@@ -167,9 +167,30 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 }
 
 fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
-    let Some((name, phase)) =
-        app.machine_transition().map(|(name, phase)| (name.to_string(), phase))
-    else {
+    let Some((name, status_text)) = app.machine_transition().map(|view| {
+        // Precedence for the interstitial's second line: a hard failure,
+        // then a deliberately-asleep hint, then the provider's live progress
+        // message, then a status-aware default ("waking" beats a generic
+        // "connecting" for a sleeping or stopped machine being resumed).
+        let asleep = matches!(
+            view.status,
+            crate::machine::MachineStatus::Sleeping | crate::machine::MachineStatus::Stopped
+        );
+        let status_text = if view.phase == MachineConnectionPhase::Failed {
+            catalog().sidebar.unavailable.to_string()
+        } else if view.phase == MachineConnectionPhase::Disconnected && asleep {
+            // Deliberately asleep, nothing in flight: the next keystroke or
+            // click wakes it.
+            catalog().sidebar.sleeping_wake_hint.to_string()
+        } else if let Some(progress) = view.progress {
+            progress.to_string()
+        } else if asleep {
+            catalog().sidebar.waking.to_string()
+        } else {
+            catalog().sidebar.connecting.to_string()
+        };
+        (view.name.to_string(), status_text)
+    }) else {
         return false;
     };
     let area = app.content_area;
@@ -183,12 +204,7 @@ fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
             || rect.y >= area.y.saturating_add(area.height)
             || area.y >= rect.y.saturating_add(rect.height)
     });
-    let status = match phase {
-        MachineConnectionPhase::Failed => catalog().sidebar.unavailable,
-        MachineConnectionPhase::Disconnected
-        | MachineConnectionPhase::Connecting
-        | MachineConnectionPhase::Ready => catalog().sidebar.connecting,
-    };
+    let status = status_text.as_str();
     let style = Style::default().fg(app.chrome.sidebar_dim_fg);
     let title_style =
         Style::default().fg(app.chrome.sidebar_selected_fg).add_modifier(Modifier::BOLD);

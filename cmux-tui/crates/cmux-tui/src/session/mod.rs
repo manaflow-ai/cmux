@@ -7,15 +7,17 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+mod cursor_provenance;
 mod remote;
 pub(crate) mod tree;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
@@ -31,7 +33,7 @@ use ghostty_vt::{
     KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
 };
 use serde::Deserialize;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -41,6 +43,21 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
+
+pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
+    let Some(capabilities) = value.get("capabilities") else {
+        return Ok(HashSet::new());
+    };
+    let Some(capabilities) = capabilities.as_array() else {
+        return Err("capabilities must be an array of strings");
+    };
+    capabilities
+        .iter()
+        .map(|capability| {
+            capability.as_str().map(str::to_owned).ok_or("capabilities must be an array of strings")
+        })
+        .collect()
+}
 
 pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
     mux.update_surface_options(|options| {
@@ -53,6 +70,22 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
 pub enum Session {
     Local(Arc<Mux>),
     Remote(Arc<RemoteSession>),
+}
+
+/// Stable frontend boundary for session reads.
+///
+/// This is deliberately small: mutations and transport recovery remain on
+/// `Session` until their command and acknowledgement semantics are migrated.
+/// Agent metadata is exposed through this boundary while the normal tree read
+/// remains on `Session::tree`.
+pub(crate) trait SessionPort: Send + Sync {
+    fn agents(&self) -> Vec<AgentInfo>;
+}
+
+impl SessionPort for Session {
+    fn agents(&self) -> Vec<AgentInfo> {
+        self.agents_impl()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,7 +103,7 @@ impl CreationReceipt {
 #[derive(Clone)]
 pub(crate) struct AmbiguousCreation {
     remote: Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 }
 
@@ -99,7 +132,7 @@ impl AmbiguousCreation {
 
 fn request_receipted_creation(
     remote: &Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 ) -> anyhow::Result<SurfaceId> {
     match remote.request(request.clone()) {
@@ -336,7 +369,7 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 }
 
 /// Attach optional cols/rows fields to a remote command.
-fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
+fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
         cmd["cols"] = json!(cols);
         cmd["rows"] = json!(rows);
@@ -344,7 +377,7 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
-fn creation_fields(size: Option<(u16, u16)>) -> Map<String, serde_json::Value> {
+fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
     let mut fields = Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
@@ -368,10 +401,10 @@ fn creation_selector_fallbacks(
     }
 }
 
-fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
+fn response_surface(result: &Value, created: &str) -> anyhow::Result<SurfaceId> {
     result
         .get("surface")
-        .and_then(serde_json::Value::as_u64)
+        .and_then(Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("remote {created} creation omitted its surface"))
 }
 
@@ -402,7 +435,92 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
+/// A client's focused pane and tab. Reported to the mux as memory only: a
+/// later attach adopts it (the same client through its own record, any other
+/// client through the session's last reported focus), and future follow-along
+/// clients can subscribe to it. Reports never move the live shared focus, so
+/// clients that are already attached stay where they are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ClientFocus {
+    pub(crate) pane: PaneId,
+    pub(crate) tab: usize,
+}
+
 impl Session {
+    /// Best-effort focus report: the client already navigated optimistically,
+    /// so failures are ignored and remote sends are never awaited. On the
+    /// local path and on a `client-focus-v1` server the report only writes
+    /// memory: the session's last reported focus (the adoption default for a
+    /// later attach) and, with a client id, this client's own record for its
+    /// reconnection. It never moves the live shared focus, so other attached
+    /// clients keep their own view. Only a remote server without the
+    /// capability degrades to `focus-pane` plus `select-tab`, which does move
+    /// the shared focus.
+    pub(crate) fn report_focus(
+        &self,
+        previous: Option<ClientFocus>,
+        focus: ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
+        let tab_changed = previous != Some(focus);
+        if !pane_changed && !tab_changed {
+            return;
+        }
+        match self {
+            Session::Local(mux) => {
+                mux.record_session_focus(focus.pane, Some(focus.tab));
+                if let Some(client_id) = client_id {
+                    mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
+                }
+            }
+            Session::Remote(remote) => {
+                let combined =
+                    client_id.filter(|_| remote.supports_capability(CLIENT_FOCUS_CAPABILITY));
+                if let Some(client_id) = combined {
+                    let _ = remote.notify(json!({
+                        "cmd": "report-focus",
+                        "client_id": client_id,
+                        "pane": focus.pane,
+                        "tab": focus.tab,
+                    }));
+                    return;
+                }
+                if pane_changed {
+                    let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
+                }
+                if tab_changed {
+                    let _ = remote.notify(
+                        json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
+                    );
+                }
+            }
+        }
+    }
+
+    /// This client's remembered focus on this session, falling back to the
+    /// session's last reported focus from any client, if the server has
+    /// either and its pane is still alive. The remote server applies the
+    /// same fallback inside the `client-focus` command.
+    pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
+        match self {
+            Session::Local(mux) => mux
+                .client_focus(client_id)
+                .or_else(|| mux.session_focus())
+                .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
+                    return None;
+                }
+                let value =
+                    remote.request(json!({"cmd": "client-focus", "client_id": client_id})).ok()?;
+                let pane: PaneId = serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
+                Some(ClientFocus { pane, tab })
+            }
+        }
+    }
+
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
             Session::Local(mux) => mux.allocate_in_process_resize_owner(),
@@ -502,6 +620,17 @@ impl Session {
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
+        }
+    }
+
+    /// Whether this session's transport can still serve requests. A remote
+    /// session whose reader hit EOF (VM paused, stream ended, network died)
+    /// flips its shutdown flag; a warm connection pool must not hand such a
+    /// corpse back to a switch.
+    pub fn is_alive(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => !remote.is_shut_down(),
         }
     }
 
@@ -739,12 +868,9 @@ impl Session {
                         retry_after_ms: None,
                     };
                 };
-                let requested_surface_id = data
-                    .get("surface")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|id| id as SurfaceId);
-                let mut error =
-                    data.get("error").and_then(serde_json::Value::as_str).map(str::to_string);
+                let requested_surface_id =
+                    data.get("surface").and_then(Value::as_u64).map(|id| id as SurfaceId);
+                let mut error = data.get("error").and_then(Value::as_str).map(str::to_string);
                 let surface_id = match requested_surface_id {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
@@ -774,7 +900,7 @@ impl Session {
                 SidebarPluginSurface {
                     surface_id,
                     error,
-                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                    retry_after_ms: data.get("retry_after_ms").and_then(Value::as_u64),
                 }
             }
         }
@@ -793,6 +919,10 @@ impl Session {
     }
 
     pub fn agents(&self) -> Vec<AgentInfo> {
+        <Self as SessionPort>::agents(self)
+    }
+
+    fn agents_impl(&self) -> Vec<AgentInfo> {
         match self {
             Session::Local(mux) => mux
                 .list_agents(None, None)
@@ -1095,11 +1225,10 @@ impl Session {
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
             Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
-                    |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
-                )
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "process-info", "surface": surface}))
+                .ok()
+                .and_then(|data| data.get("cwd").and_then(Value::as_str).map(str::to_owned)),
         }
     }
 
@@ -1169,7 +1298,7 @@ impl Session {
                 ))?;
                 result
                     .get("surface")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .ok_or_else(|| anyhow::anyhow!("remote browser creation omitted its surface"))
             }
         }
@@ -1905,8 +2034,28 @@ impl Session {
 }
 
 impl SurfaceHandle {
+    #[cfg(test)]
+    pub(crate) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        if let SurfaceHandle::Remote(surface, _) = self {
+            surface.test_scan_cursor_provenance(bytes);
+        }
+    }
+
     pub fn is_remote(&self) -> bool {
         matches!(self, SurfaceHandle::Remote(_, _))
+    }
+
+    /// Whether the terminal application authored its cursor style (DECSCUSR)
+    /// rather than inheriting a session or frontend default. A scoped attach
+    /// client mirrors the cursor to the host terminal only when this is true.
+    /// Local surfaces render inside a full TUI that owns the host cursor, so
+    /// they always report true.
+    pub fn cursor_style_authored(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(_, _) => true,
+            SurfaceHandle::Remote(surface, _) => surface.cursor_style_authored(),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
     }
 
     pub fn kind(&self) -> SurfaceKind {
@@ -2001,7 +2150,7 @@ impl SurfaceHandle {
                         return Err(error);
                     }
                 };
-                match response.get("outcome").and_then(serde_json::Value::as_str) {
+                match response.get("outcome").and_then(Value::as_str) {
                     Some("superseded") => {
                         report(None);
                         return Ok(false);
@@ -2017,14 +2166,13 @@ impl SurfaceHandle {
                         anyhow::bail!("unknown resize outcome {other}");
                     }
                 }
-                let accepted =
-                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                let accepted = response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
                 surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
+                response.get("reservation_id").and_then(Value::as_u64).or(Some(0))
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 report(None);
@@ -2683,6 +2831,15 @@ fn test_remote_session_with_view_attachment_leases() -> Session {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_unleased_view_surface(
+    surface_id: SurfaceId,
+) -> (Session, SurfaceHandle) {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    let handle = SurfaceHandle::Remote(surface, session.clone());
+    (Session::Remote(session), handle)
+}
+
+#[cfg(test)]
 fn test_remote_surface_with_missing_attachment_lease(surface_id: SurfaceId) -> SurfaceHandle {
     let (session, surface) = remote::test_unleased_view_surface(surface_id);
     SurfaceHandle::Remote(surface, session)
@@ -2768,9 +2925,9 @@ mod tests {
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
-        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
-        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_session_with_view_attachment_leases,
+        Session, SessionPort, is_remote_surface_unavailable, normalize_remote_layout_undo_error,
+        resize_action, test_remote_rejected_error_with_code,
+        test_remote_rejected_error_with_message, test_remote_session_with_view_attachment_leases,
         test_remote_surface_with_missing_attachment_lease, test_remote_transport_error,
     };
 
@@ -2873,6 +3030,15 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
+    }
+
+    #[test]
+    fn session_port_agents_matches_existing_agent_read() {
+        let session =
+            Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
+        let direct = session.agents_impl();
+        let port: &dyn SessionPort = &session;
+        assert_eq!(port.agents(), direct);
     }
 
     #[test]

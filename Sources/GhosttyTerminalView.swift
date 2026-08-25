@@ -3703,23 +3703,70 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
+        let hasPending = _pendingScrollbar != nil
         _pendingScrollbar = nil
         _scrollbarLock.unlock()
 
-        guard let pending else { return }
-        scrollbar = pending
+        guard hasPending else { return }
+        // Callback payloads are coalesced and can predate main-thread input.
+        // Treat them as invalidation signals when the runtime is available so
+        // a delayed packet can never move the viewport to obsolete geometry.
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // No runtime means the callback has no trustworthy row-space
+            // identity. Drop it rather than moving AppKit to stale geometry.
+            return
+        }
+        publishScrollbarUpdate(authoritativeScrollbar)
+    }
+
+    private func authoritativeScrollbarSnapshot() -> GhosttyScrollbar? {
+        var value = ghostty_surface_scrollbar_s()
+        guard readAuthoritativeScrollbar(&value) else { return nil }
+        return GhosttyScrollbar(
+            total: value.total,
+            offset: value.offset,
+            len: value.len
+        )
+    }
+
+    private func publishScrollbarUpdate(
+        _ value: GhosttyScrollbar,
+        isAuthoritativeWheelResponse: Bool = false
+    ) {
+        scrollbar = value
         if keyboardCopyModeActive, let surface {
             reconcileKeyboardCopyModeViewport(surface: surface)
+        }
+        var userInfo: [AnyHashable: Any] = [GhosttyNotificationKey.scrollbar: value]
+        if isAuthoritativeWheelResponse {
+            userInfo[GhosttyNotificationKey.isAuthoritativeWheelResponse] = true
         }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: userInfo
         )
     }
 
-    func flushPendingScrollbarIfAvailable() -> Bool {
+    private func postWheelScroll(
+        requiresAuthoritativeResponse: Bool,
+        authoritativeResponseUnavailable: Bool = false
+    ) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if requiresAuthoritativeResponse {
+            userInfo[GhosttyNotificationKey.requiresAuthoritativeWheelResponse] = true
+        }
+        if authoritativeResponseUnavailable {
+            userInfo[GhosttyNotificationKey.authoritativeWheelResponseUnavailable] = true
+        }
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: self,
+            userInfo: userInfo.isEmpty ? nil : userInfo
+        )
+    }
+
+    private func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()
@@ -3727,6 +3774,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPending else { return false }
         flushPendingScrollbar()
         return true
+    }
+
+    private func discardPendingScrollbar() {
+        _scrollbarLock.lock()
+        _pendingScrollbar = nil
+        _scrollbarLock.unlock()
     }
 
     func enqueueRenderedFrameUpdate(
@@ -7663,8 +7716,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
-        guard let surface = surface else { return }
+        guard let surface else {
+            // Detached views used by previews and tests have no runtime
+            // snapshot. Preserve the bounded first-packet fallback for them.
+            postWheelScroll(requiresAuthoritativeResponse: true)
+            if let authoritativeScrollbar = authoritativeScrollbarSnapshot() {
+                // The synchronous snapshot supersedes any callback payload
+                // that was queued before this wheel event.
+                discardPendingScrollbar()
+                publishScrollbarUpdate(
+                    authoritativeScrollbar,
+                    isAuthoritativeWheelResponse: true
+                )
+                return
+            }
+            _ = flushPendingScrollbarIfAvailable()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        postWheelScroll(requiresAuthoritativeResponse: true)
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
@@ -7709,7 +7782,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             y,
             ghostty_input_scroll_mods_t(mods)
         )
+
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // Surface teardown can race input delivery. Cancel the pending
+            // request and discard queued geometry; publishing stale geometry
+            // here would move the viewport to an obsolete row space.
+            discardPendingScrollbar()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        publishScrollbarUpdate(
+            authoritativeScrollbar,
+            isAuthoritativeWheelResponse: true
+        )
     }
+
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
@@ -8387,10 +8477,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var notificationScrollRestoreState = NotificationScrollRestoreState()
-    /// Tracks scrollback review so auto-scroll does not fight the user's position.
-    var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    var allowExplicitScrollbarSync = false
+    /// Single source of truth for terminal follow/review intent. Layout and
+    /// document reflow may move AppKit bounds transiently, but they never write
+    /// this state; only user scroll gestures, explicit restores, and
+    /// authoritative Ghostty scrollbar packets do.
+    private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8622,7 +8713,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
-        scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
@@ -8851,7 +8941,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            // Final scroll position check to update userScrolledAwayFromBottom state
+            // Final user-gesture check to settle follow/review intent.
             self?.handleLiveScroll()
         })
 
@@ -8898,11 +8988,27 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
-            queue: .main
-        ) { [weak self] _ in
+            // Every producer is ``GhosttyNSView.scrollWheel`` on the main
+            // thread. Do not enqueue this arm operation: the following
+            // authoritative snapshot must observe the new intent.
+            queue: nil
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
-                self?.pendingExplicitWheelScroll = true
-                self?.cancelPendingNotificationScrollRestoreForUserInput()
+                guard let self else { return }
+                if notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
+                    as? Bool == true {
+                    self.scrollbackViewportIntent = self.scrollbackViewportIntent
+                        .cancellingExplicitScrollbarSync()
+                    self.cancelPendingNotificationScrollRestoreForUserInput()
+                    return
+                }
+                let requiresAuthoritativeResponse =
+                    notification.userInfo?[GhosttyNotificationKey.requiresAuthoritativeWheelResponse]
+                    as? Bool == true
+                self.beginExplicitScrollbarSync(
+                    requiresAuthoritativeResponse: requiresAuthoritativeResponse
+                )
+                self.cancelPendingNotificationScrollRestoreForUserInput()
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -9071,7 +9177,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
-    private func synchronizeGeometryAndContent() -> Bool {
+    private func synchronizeGeometryAndContent(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) -> Bool {
+        let preservedReviewOriginY = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -9137,7 +9250,10 @@ final class GhosttySurfaceScrollView: NSView {
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: forceViewportSync,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
@@ -11677,37 +11793,51 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView() {
+    private func synchronizeScrollView(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) {
         var didChangeGeometry = false
+        let originToPreserve = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
             documentView.frame.size.height = targetDocumentHeight
             didChangeGeometry = true
         }
 
+        // A non-flipped clip view can be clamped to its live bottom when its
+        // document or viewport height changes. Restore the pre-layout pixel
+        // anchor while reviewing scrollback or waiting for a wheel response;
+        // an authoritative Ghostty packet will replace it below.
+        if forceViewportSync != true,
+           scrollbackViewportIntent.preservesViewportDuringPendingSync,
+           let originToPreserve {
+            let maxOriginY = max(
+                0,
+                documentView.frame.height - scrollView.contentView.bounds.height
+            )
+            let preservedOrigin = CGPoint(
+                x: 0,
+                y: min(max(originToPreserve, 0), maxOriginY)
+            )
+            let currentOrigin = scrollView.contentView.bounds.origin
+            if !pointApproximatelyEqual(currentOrigin, preservedOrigin) {
+                scrollView.contentView.scroll(to: preservedOrigin)
+                didChangeGeometry = true
+            }
+        }
+
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                let offsetY = CGFloat(scrollbar.rowsBelowViewport) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                let shouldAutoScroll = forceViewportSync ??
+                    scrollbackViewportIntent.allowsPassiveScrollbarSync
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -11717,7 +11847,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
         }
 
-        allowExplicitScrollbarSync = false
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11726,22 +11855,50 @@ final class GhosttySurfaceScrollView: NSView {
     private func handleScrollChange() {
         synchronizeSurfaceView()
     }
+
+    private func beginExplicitScrollbarSync(
+        requiresAuthoritativeResponse: Bool = false
+    ) {
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .beginningExplicitScrollbarSync(
+                requiresAuthoritativeResponse: requiresAuthoritativeResponse
+            )
+    }
+
+    /// Applies a direct viewport restore as one intent transition so a later
+    /// passive bottom packet cannot overwrite a restored scrollback position.
+    @discardableResult
+    func prepareExplicitViewportRestore(
+        isAtBottom: Bool
+    ) -> TerminalScrollbackViewportIntent {
+        let previousIntent = scrollbackViewportIntent
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .resolvingExplicitViewportRestore(isAtBottom: isAtBottom)
+        return previousIntent
+    }
+
+    func rollbackExplicitViewportRestore(
+        to previousIntent: TerminalScrollbackViewportIntent
+    ) {
+        scrollbackViewportIntent = previousIntent
+    }
+
     private func handleLiveScroll() {
         cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        let topBasedScrollOffset = max(
+            documentHeight - visibleRect.origin.y - visibleRect.height,
+            0
+        )
+        scrollbackViewportIntent = scrollbackViewportIntent.applyingUserScroll(
+            distanceFromBottom: Double(max(visibleRect.origin.y, 0)),
+            bottomThreshold: Double(Self.scrollToBottomThreshold)
+        )
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
+        let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
         lastSentRow = row
@@ -11750,20 +11907,37 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
+        let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
+            ? max(scrollView.contentView.bounds.origin.y, 0)
+            : nil
+        let cellHeight = surfaceView.cellSize.height
+        let targetDistanceFromBottom = cellHeight > 0
+            ? Double(scrollbar.rowsBelowViewport) * Double(cellHeight)
+            : nil
+        let syncDecision = scrollbackViewportIntent.applyingScrollbar(
+            scrollbar,
+            targetDistanceFromBottom: targetDistanceFromBottom,
+            bottomThreshold: Double(Self.scrollToBottomThreshold),
+            isAuthoritativeWheelResponse:
+                notification.userInfo?[GhosttyNotificationKey.isAuthoritativeWheelResponse]
+                    as? Bool == true
+        )
+        scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
-        }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
-            _ = synchronizeGeometryAndContent()
+            _ = synchronizeGeometryAndContent(
+                forceViewportSync: syncDecision.shouldSynchronizeViewport,
+                preservedReviewOriginY: preservedReviewOriginY
+            )
             restorePendingNotificationScrollPositionAfterScrollbarUpdate()
             return
         }
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: syncDecision.shouldSynchronizeViewport,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
@@ -11772,14 +11946,13 @@ final class GhosttySurfaceScrollView: NSView {
         let shouldShowScrollBar = shouldShowTerminalScrollBar()
         let didChange =
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
-            scrollView.autohidesScrollers != false ||
-            scrollView.scrollerStyle != .overlay
+            scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Mirror upstream Ghostty: keep overlay scrollers even when the
-        // system preference is legacy so terminal content never sits beneath a
-        // permanently reserved scrollbar gutter.
+        // Keep the scroller visible whenever terminal scrollback exists. The
+        // scroller style itself is intentionally left to AppKit, which follows
+        // the user's Appearance > Show scroll bars preference and updates this
+        // scroll view when NSScroller.preferredScrollerStyle changes.
         scrollView.autohidesScrollers = false
-        scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
         return didChange
     }
@@ -11795,8 +11968,25 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
+        // scroller preference. Update the hosted surface/document frames through
+        // the same narrow path instead of running the full pane reconciliation,
+        // which can perturb split-layout overlays during a system preference
+        // change.
         scrollView.tile()
+        synchronizeTerminalGeometryAfterScrollerStyleChange()
+    }
+
+    private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.contentView.bounds.size
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 

@@ -17,8 +17,16 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
 
-    private func lifecycleLine(_ snapshot: [String], value: String) -> String? {
-        snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
+    private func journalEvent(
+        _ snapshot: [String],
+        kind: String,
+        pendingWork: Bool? = nil
+    ) -> AgentJournalAppendCapture? {
+        AgentJournalAppendCapture.captures(in: snapshot).first { capture in
+            capture.kind == kind
+                && capture.agentKey == "claude_code"
+                && (pendingWork == nil || capture.pendingWork == pendingWork)
+        }
     }
 
     private func runStopHook(
@@ -80,11 +88,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(statusLine(snapshot, value: "Running") != nil,
                 "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
         #expect(statusLine(snapshot, value: "Idle") == nil)
-        // And the hibernation lifecycle must stay non-idle so the planner can't
-        // SIGTERM the live background task.
-        #expect(lifecycleLine(snapshot, value: "running") != nil,
-                "Pending stop must publish a running lifecycle; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") == nil)
+        // And the journaled turn boundary must carry pending_work=true so the
+        // reduced lifecycle stays running (non-hibernatable) while the
+        // background task is live.
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: true) != nil,
+                "Pending stop must journal a pending turn completion; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) == nil)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -96,11 +105,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
-        // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
+        // Truly-idle turn end keeps the "Idle" pill and journals a
+        // non-pending turn completion (which reduces to the hibernatable
+        // idle lifecycle).
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
-                "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) != nil,
+                "Truly-idle stop must journal a non-pending turn completion; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {
@@ -348,6 +359,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         // banner is suppressed app-side and the pane is still Running.
         #expect(statusLine(snapshot, value: "Needs input") == nil,
                 "Pending idle_prompt must not set a Needs input pill; saw \(snapshot)")
+        // And the journal must record it as an observation, never as a
+        // needs-input question, so the reduced lifecycle stays running.
+        #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
+                "Pending idle_prompt must not journal a needs-input question; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.state.changed") != nil,
+                "Pending idle_prompt must still journal an observation; saw \(snapshot)")
     }
 
     @Test func idlePromptAfterIdleStopNotifiesWithoutFlippingToNeedsInput() throws {
@@ -390,14 +407,16 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
         // The ~60s idle nag asks nothing — the agent is just sitting at its
-        // prompt — so it must not undo the Stop hook's Idle pill/lifecycle and
-        // paint the pane as blocked. Only a permission prompt, plan approval, or
-        // question may do that.
+        // prompt — so it must not undo the Stop hook's idle state and paint the
+        // pane as blocked. Only a permission prompt, plan approval, or question
+        // may do that. The journal records the nag as an explicit "ready"
+        // assertion rather than a question the agent never posed.
         #expect(statusLine(snapshot, value: "Needs input") == nil,
                 "Idle idle_prompt must not set the Needs input pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
-                "Idle idle_prompt must not set the needsInput lifecycle; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
-                "The preceding Stop must have settled the pane as idle; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
+                "Idle idle_prompt must not journal a question; saw \(snapshot)")
+        let readyAssertion = journalEvent(snapshot, kind: "agent.state.changed")
+        #expect(readyAssertion?.declaredPhase == "idle",
+                "Idle idle_prompt must assert the ready phase; saw \(snapshot)")
     }
 }

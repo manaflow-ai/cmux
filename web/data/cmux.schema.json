@@ -1469,6 +1469,22 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "urlAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "descriptionKey": "schemaDescriptions.browser.urlAllowlist",
+          "default": [
+            "localhost",
+            "*.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
+          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
@@ -1638,6 +1654,7 @@
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
+              "switchRightSidebarToMachines",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

@@ -31,6 +31,11 @@ jobs:
   build:
     permissions:
       contents: read
+      # The reusable package workflow declares an optional attestation job.
+      # Grant its permission ceiling even though this R2 lane disables npm
+      # package attestations.
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       # Raw R2 artifacts are not npm releases and must never claim that an
@@ -86,9 +91,36 @@ jobs:
               f for f in os.listdir(".")
               if f.startswith(sys.argv[2]) and not f.endswith(".txt")
           )
+          def runtime_for(filename):
+              """Describe the runtime of this exact published binary.
+
+              Linux compatibility-name copies still contain the musl-linked
+              binary, so infer libc from the build artifact set rather than
+              the target name alone.
+              """
+              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removesuffix(".exe")
+              if "apple-darwin" in target:
+                  return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
+              if "windows" in target:
+                  return {"os": "windows", "architecture": "x86_64", "libc": "none"}
+              return {
+                  "os": "linux",
+                  "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
+                  "libc": "musl",
+              }
+
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.now(timezone.utc).isoformat(),
+              # Keep distribution metadata next to the digest map. Consumers
+              # can reject an artifact whose runtime contract they cannot
+              # satisfy without guessing from the filename.
+              "license": "MIT",
+              # Runtime constraints are per binary. Some GNU target-named
+              # files are compatibility-name copies of musl-linked binaries.
+              # `libc` is explicit for every runtime. `none` marks platforms
+              # where a C library does not constrain compatibility.
+              "runtimeByBinary": {f: runtime_for(f) for f in files},
               "binaries": {
                   f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in files
               },
@@ -154,9 +186,23 @@ jobs:
 
           root = pathlib.Path(sys.argv[2])
           files = sorted(path for path in root.glob("cmux-mux-*") if path.is_file())
+          def runtime_for(filename):
+              target = filename.removeprefix("cmux-mux-").removeprefix("hook-").removesuffix(".exe")
+              if "apple-darwin" in target:
+                  return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
+              if "windows" in target:
+                  return {"os": "windows", "architecture": "x86_64", "libc": "none"}
+              return {
+                  "os": "linux",
+                  "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
+                  "libc": "musl",
+              }
+
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.now(timezone.utc).isoformat(),
+              "license": "MIT",
+              "runtimeByBinary": {path.name: runtime_for(path.name) for path in files},
               "binaries": {
                   path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
               },

@@ -109,6 +109,43 @@ function resolveBillingContext(
   };
 }
 
+/**
+ * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
+ * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
+ */
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 32768];
+
+/** Largest machine a plan may create. Env-overridable per plan. */
+export function maxMemoryMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
+  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  if (normalized === "free") {
+    return positiveInteger(env.CMUX_VM_FREE_MAX_MEMORY_MB ?? "4096", "CMUX_VM_FREE_MAX_MEMORY_MB");
+  }
+  return positiveInteger(env.CMUX_VM_PAID_MAX_MEMORY_MB ?? "32768", "CMUX_VM_PAID_MAX_MEMORY_MB");
+}
+
+/** Size a plan gets when it doesn't ask for one; never above the plan's max. */
+export function defaultMemoryMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const specific = env[`CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`];
+  const raw = specific?.trim()
+    ? positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`)
+    : normalized === "free"
+      ? positiveInteger(env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? "4096", "CMUX_VM_FREE_DEFAULT_MEMORY_MB")
+      : positiveInteger(env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? "8192", "CMUX_VM_PAID_DEFAULT_MEMORY_MB");
+  return Math.min(raw, maxMemoryMbForPlan(planId, env));
+}
+
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
@@ -166,10 +203,12 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
 
   if (planId === "free") {
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    // Free users get two machines before the create path becomes the upgrade prompt
+    // (vmActiveLimitExceededResponse renders the paywall variant for unpaid plans).
+    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "3", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
-  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "10", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "15", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
 }
 
 function normalizedPlanId(planId: string): string {

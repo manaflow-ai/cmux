@@ -35,6 +35,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var supportsServerPushEvents: Bool
     public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
     public var terminalLaneProvider: MobileTerminalLaneProvider?
+    public var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
     public var artifactLaneProvider: MobileArtifactLaneProvider?
 
     /// Builds the production access-token provider over an injected
@@ -145,7 +146,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -160,6 +162,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
     }
 
     public init(
@@ -174,7 +177,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -188,6 +192,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
         self.now = now
     }
 }

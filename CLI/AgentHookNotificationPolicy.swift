@@ -132,14 +132,15 @@ enum AgentHookNotificationClassifier {
                 notifyCategory: .idleReminder
             )
         }
-        let body = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.needsAttention", defaultValue: "%@ needs your attention"),
-            displayName
-        )
+        // No usable message and no matching cue: nothing is fabricated. The
+        // empty body tells callers to reuse a stored summary or skip the
+        // banner, and the nil status makes no lifecycle claim — the old
+        // "%@ needs your attention" needs-input fallback is deliberately
+        // gone (semantic journal events carry state now).
         return AgentHookNotificationSummary(
             subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-            body: body,
-            status: .needsInput,
+            body: "",
+            status: nil,
             isFallback: true,
             notifyCategory: .idleReminder
         )

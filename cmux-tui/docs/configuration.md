@@ -1,6 +1,19 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown keys in the typed sections make the raw config invalid, so the TUI logs an error and falls back to defaults.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
+
+## Executable fields and transport rules
+
+These fields are argv arrays. They are executed directly, without shell parsing or interpolation; include the shell explicitly when a shell is needed.
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| `commands[].run` | non-empty string array | User command program and arguments; empty arguments are preserved |
+| `status_bar.left[].run`, `status_bar.right[].run` | non-empty string array | Periodic status command; the last non-empty stdout line is displayed |
+| `sidebar.plugin.command` | non-empty string array | Sidebar plugin program and arguments, hosted in a PTY |
+| `machine_provider.command` | non-empty string array | Dynamic provider program and arguments; no shell |
+
+Transport choices are mutually exclusive. A machine uses either `transport: "unix"` with `socket`, or `transport: "ssh"` with `host` and its SSH options. A dynamic provider uses one of `machine_provider.command` or `machine_provider.cloud.enabled`; do not combine provider transports with each other, static `machines`, `attach`, server listener or socket flags, `--headless`, or `--term`. Invalid combinations disable that provider configuration rather than merging transports.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
@@ -11,6 +24,7 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
+| `theme.chrome` | `"auto"`, `"light"`, or `"dark"` | `"auto"` | Selects the chrome palette; `auto` follows the terminal/system appearance |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
 | `theme.sidebar_active_bg` | color | `236` | Background for the active workspace rows |
@@ -52,7 +66,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
 
-Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons directly under the view header instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
@@ -120,7 +134,7 @@ The machine rail is optional. Its position comes from a `sidebar.views` entry wh
 | `machine_sidebar.create_sources` | array | `[]` | Prototype-only native creation choices; no provider command is executed |
 | `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
 
-Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new machine` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
+Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new vm` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
 
 Try the tracked prototype configuration with:
 
@@ -209,7 +223,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 }
 ```
 
-`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ Connect machine` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ ssh host` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
 
 The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
 
@@ -370,6 +384,7 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
 Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
@@ -430,13 +445,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     }
   ],
   "browser": {
-    "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "mode": "headful",
-    "cdp_url": "http://127.0.0.1:9222",
-    "discover": false,
-    "discover_ports": [9222, 9223],
-    "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false,
+    "cdp_url": null,
     "max_capture_megapixels": 2.0,
     "capture_scale": null
   },
@@ -480,3 +489,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   }
 }
 ```
+
+## Client log
+
+The client appends every user-visible warning (bottom-bar status messages, provider notices, toasts) and its own stderr diagnostics to a rolling log so problems seen in the TUI can be diagnosed after the session. While the TUI owns the terminal, process stderr (including panics) is routed into the same file instead of corrupting the raw-mode screen, and is restored on exit. Each launch writes one startup line with the build commit so log stretches are attributable.
+
+The file lives at the cmux-tui state root: `~/Library/Application Support/cmux-tui/client.log` on macOS, `$XDG_STATE_HOME/cmux-tui/client.log` (or `~/.local/state/cmux-tui/client.log`) on Linux, `%LOCALAPPDATA%\cmux-tui\client.log` on Windows. `CMUX_TUI_LOG_FILE` overrides the path. The active file rolls to `client.log.1` at 2 MiB and one rollover is kept, so the log never grows past roughly 4 MiB. Several cmux-tui processes may share the file: writes and rotation take an exclusive advisory lock, rotation by one process is followed by the others, and the size cap counts every writer.

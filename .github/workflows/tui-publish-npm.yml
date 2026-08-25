@@ -142,6 +142,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -180,6 +181,43 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ inputs.version }}" \
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/tags/$RELEASE_TAG"
+          done
+
+      # cmux-relay and its platform packages are validated and attested above
+      # as part of the artifact contract, but they are NOT published here: the
+      # relay's npm dist-tags move only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml), so a routine TUI release can never take over
+      # cmux-relay@latest from the shipping relay.
       - name: Publish platform packages
         run: |
           set -euo pipefail
@@ -188,6 +226,7 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
@@ -200,6 +239,7 @@ jobs:
           - cmux-tui-darwin-x64
           - cmux-tui-linux-x64
           - cmux-tui-linux-arm64
+          - cmux-tui-win32-x64
 
           Trusted publisher settings for each package:
           - Repository: manaflow-ai/cmux

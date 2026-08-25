@@ -1,9 +1,116 @@
 import CmuxCore
+import CryptoKit
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
 extension RemoteDaemonUploadTests {
+    @Test("Background upload reader consumes the SSH stdin stream")
+    func backgroundUploadReaderConsumesSSHStdin() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-stdin-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let remoteDirectory = root.appendingPathComponent("remote", isDirectory: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let localBinary = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let payload = Data(repeating: 0x5A, count: 128 * 1024)
+        try payload.write(to: localBinary)
+
+        let runner = RecordingProcessRunner { request in
+            // The upload request is the only request with file-backed stdin.
+            // Keep the fake endpoint focused on capturing the generated remote
+            // command; the command itself is executed below with real stdin.
+            if request.stdinFile != nil {
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            }
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .finalize:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .cleanup, .upload, .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: "remote/cmuxd-remote",
+            absolutePath: remoteDirectory.appendingPathComponent("cmuxd-remote").path
+        )
+
+        try coordinator.queue.sync {
+            try coordinator.uploadRemoteDaemonBinaryLocked(
+                localBinary: localBinary,
+                location: location
+            )
+        }
+
+        let uploadRequest = try #require(
+            runner.requests.first { $0.stdinFile == localBinary }
+        )
+        let uploadCommand = try #require(uploadRequest.arguments.last)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", uploadCommand]
+        let inputHandle = try FileHandle(forReadingFrom: localBinary)
+        process.standardInput = inputHandle
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try? inputHandle.close()
+
+        #expect(process.terminationStatus == 0)
+        let temporaryFiles = try fileManager.contentsOfDirectory(
+            at: remoteDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.contains(".tmp-") }
+        let temporaryFile = try #require(temporaryFiles.first)
+        #expect(temporaryFiles.count == 1)
+        #expect(try Data(contentsOf: temporaryFile) == payload)
+        #expect(
+            !fileManager.fileExists(atPath: "\(temporaryFile.path).pid"),
+            "The upload writer marker must be removed after the stream closes"
+        )
+    }
+
+    @Test("Finalize script promotes only a byte-and-hash-matching payload")
+    func finalizeScriptIsFailClosed() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-finalize-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let tempURL = root.appendingPathComponent("cmuxd-remote.tmp", isDirectory: false)
+        let finalURL = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let payload = Data("healthy remote daemon".utf8)
+        try payload.write(to: tempURL)
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let script = RemoteSessionCoordinator.remoteDaemonFinalizeScript(
+            remoteTempPath: tempURL.path,
+            remotePath: finalURL.path,
+            expectedByteCount: Int64(payload.count),
+            expectedSHA256: hash
+        )
+
+        let success = try Self.runShell(script)
+        #expect(success == 0)
+        #expect(fileManager.fileExists(atPath: finalURL.path))
+        #expect(!fileManager.fileExists(atPath: tempURL.path))
+        #expect(try Data(contentsOf: finalURL) == payload)
+
+        try Data("truncated".utf8).write(to: tempURL)
+        let mismatch = try Self.runShell(script)
+        #expect(mismatch == 74)
+        #expect(fileManager.fileExists(atPath: tempURL.path))
+    }
+
     @Test("Bootstrap uploads bypass wedged ControlMasters and scale their deadline with payload size")
     func uploadUsesStandaloneTransportAndScaledDeadline() throws {
         let fileManager = FileManager.default
@@ -41,7 +148,7 @@ extension RemoteDaemonUploadTests {
         #expect(largeUpload.timeout > smallUpload.timeout)
     }
 
-    @Test("Upload timeout exposes the process detail and cleans remote temporary files directly")
+    @Test("Upload timeout reports a safe error and cleans remote temporary files directly")
     func uploadTimeoutSurfacesDetailAndCleansRemoteTemporaryFiles() throws {
         let fileManager = FileManager.default
         let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
@@ -87,7 +194,7 @@ extension RemoteDaemonUploadTests {
             }
             Issue.record("Expected the timed-out upload to fail")
         } catch {
-            #expect(error.localizedDescription.contains("ssh timed out after 222s"))
+            #expect(error.localizedDescription == "failed to upload remote daemon")
         }
 
         let requests = runner.requests
@@ -100,6 +207,8 @@ extension RemoteDaemonUploadTests {
         )
         #expect(uploadRequest.arguments.last?.contains("trap") == true)
         #expect(uploadRequest.arguments.last?.contains("kill") == true)
+        #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
+        #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
         #expect(cleanupRequest.arguments.last?.contains(".tmp-*") == true)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
         #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
@@ -206,7 +315,7 @@ extension RemoteDaemonUploadTests {
         if command.contains("mkdir -p ") {
             return .createDirectory
         }
-        if command.contains("cat > ") {
+        if command.contains("cat > ") || command.contains("cat <&3 > ") {
             return .upload
         }
         if command.contains("chmod 755 "), command.contains("mv ") {
@@ -230,5 +339,17 @@ extension RemoteDaemonUploadTests {
             stdout: "",
             stderr: "unexpected request: \(request.executable) \(request.arguments.last ?? "<missing>")"
         )
+    }
+
+    private static func runShell(_ script: String) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }

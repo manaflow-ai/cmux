@@ -59,8 +59,7 @@ extension WorkspaceDetailView {
             selectedTerminalArtifact = TerminalArtifactSelection(
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,
-                path: path,
-                session: chosenChatSession
+                path: path
             )
         },
         onVisibleArtifactCountChanged: { count in

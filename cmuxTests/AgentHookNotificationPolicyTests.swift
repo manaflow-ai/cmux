@@ -47,14 +47,17 @@ struct AgentHookNotificationPolicyTests {
         #expect(arbitrary.status == nil)
         #expect(arbitrary.notifyCategory == .idleReminder)
 
+        // An empty, cue-less message fabricates nothing: no needs-input
+        // claim and no body (callers reuse a stored summary or skip the
+        // banner). The old "%@ needs your attention" fallback is gone.
         let emptyFallback = AgentHookNotificationClassifier.classify(
             displayName: "Grok",
             signal: "",
             message: "",
             isFallback: true
         )
-        #expect(emptyFallback.status == .needsInput)
-        #expect(emptyFallback.notifyCategory == .idleReminder)
+        #expect(emptyFallback.status == nil)
+        #expect(emptyFallback.body.isEmpty)
         #expect(emptyFallback.isFallback == true)
     }
 

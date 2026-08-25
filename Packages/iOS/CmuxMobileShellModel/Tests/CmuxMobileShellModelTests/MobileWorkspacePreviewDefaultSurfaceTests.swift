@@ -10,9 +10,16 @@ struct MobileWorkspacePreviewDefaultSurfaceTests {
     private func surface(
         id: MobileSurfacePreview.ID,
         kind: MobileSurfacePreview.Kind,
-        todo: MobileTodoSnapshot? = nil
+        todo: MobileTodoSnapshot? = nil,
+        isFocused: Bool = false
     ) -> MobileSurfacePreview {
-        MobileSurfacePreview(id: id, kind: kind, title: "Surface", todo: todo)
+        MobileSurfacePreview(
+            id: id,
+            kind: kind,
+            title: "Surface",
+            todo: todo,
+            isFocused: isFocused
+        )
     }
 
     private func workspace(
@@ -50,6 +57,12 @@ struct MobileWorkspacePreviewDefaultSurfaceTests {
         let browserSurface = surface(id: "surface-browser", kind: .browser)
         let workspace = workspace(terminals: [], surfaces: [browserSurface, todoSurface])
         #expect(workspace.selectedMacSurface(id: nil) == browserSurface)
+    }
+
+    @Test func fallbackPrefersTheFocusedNonTerminalSurfaceOverSpatialOrder() {
+        let focusedSurface = surface(id: "surface-focused", kind: .browser, isFocused: true)
+        let workspace = workspace(terminals: [], surfaces: [todoSurface, focusedSurface])
+        #expect(workspace.selectedMacSurface(id: nil) == focusedSurface)
     }
 
     @Test func staleSelectionFallsBackWhenTerminalless() {

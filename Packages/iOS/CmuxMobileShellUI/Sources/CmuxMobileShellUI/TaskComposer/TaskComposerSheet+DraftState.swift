@@ -57,12 +57,15 @@ extension TaskComposerSheet {
         directory = Self.suggestedDirectory(
             template: selectedTemplate,
             macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
             templateStore: store.taskTemplateStore,
             openDirectory: Self.preferredOpenDirectory(
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 macDeviceID: selectedMacDeviceID,
-                connectedMacDeviceID: store.connectedMacDeviceID
+                connectedMacDeviceID: store.connectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag,
+                connectedMacInstanceTag: store.connectedMacInstanceTag
             )
         )
     }

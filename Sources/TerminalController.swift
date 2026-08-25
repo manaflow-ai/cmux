@@ -178,6 +178,19 @@ class TerminalController {
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
+    /// Bounded async connection admission. The pool owns task lifetimes; an
+    /// admitted connection owns its descriptor until its async handler exits.
+    private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
+        maximumConcurrentJobs: 32,
+        maximumPendingJobs: 64
+    )
+    /// Latest main-actor-published read results. Socket workers consult this
+    /// mirror synchronously before falling back to a live command path.
+    nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()
+    /// Coalesced main-actor publication task for topology/read snapshots.
+    var socketReadSnapshotRefreshTask: Task<Void, Never>? = nil
+    /// Topology notifications that invalidate the published read mirror.
+    private var socketReadSnapshotObservers: [NSObjectProtocol] = []
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
     // the nonisolated seam witness controlSidebarScheduleScopedShellState
@@ -423,7 +436,8 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
-        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
+        self.panelArtifactAuthorizationStore =
+            panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
@@ -447,6 +461,26 @@ class TerminalController {
         )
         self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
+        // Managed Cloud VM daemon endpoints go stale when the machine's preview rotates
+        // (sandbox recreation, preview re-creation). Before each proxy retry, re-mint the
+        // endpoint through the backend so the broker never redials a dead URL forever.
+        (remoteProxyBroker as? RemoteProxyBroker)?.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID else { return nil }
+            guard let attach = try? await VMClient.shared.openAttach(id: vmID, requireDaemon: true),
+                  case .websocket(let endpoint) = attach,
+                  let daemon = endpoint.daemon else {
+                return nil
+            }
+            return configuration.withDaemonWebSocketEndpoint(
+                WorkspaceRemoteWebSocketDaemonEndpoint(
+                    url: daemon.url,
+                    headers: daemon.headers,
+                    token: daemon.token,
+                    sessionId: daemon.sessionId,
+                    expiresAtUnix: daemon.expiresAtUnix
+                )
+            )
+        }
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
@@ -484,10 +518,9 @@ class TerminalController {
             )
         )
         self.socketServer = socketServer
-        // Single consumer of the accepted-connection stream, detached so
-        // accepts never funnel through the main actor. Each connection still
-        // gets a dedicated thread: command bodies block (main-thread sync
-        // hops, semaphore waits), so never the cooperative pool.
+        // Single consumer of the accepted-connection stream. Accepted
+        // descriptors are admitted to the bounded async pool; the listener
+        // itself never creates one detached NSThread per client.
         self.socketConnectionsTask = Task.detached {
             for await connection in socketServer.connections {
                 guard let controller = serverEventTarget.controller else {
@@ -504,6 +537,23 @@ class TerminalController {
         }
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
+        socketReadSnapshotObservers = [
+            Notification.Name.mainWindowContextsDidChange,
+            Notification.Name.workspaceOrderDidChange,
+            Notification.Name.workspacePaneGeometryDidChange,
+            Notification.Name.workspaceTitleDidChange,
+            Notification.Name.workspaceCurrentDirectoryDidChange,
+        ].map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleSocketReadSnapshotRefresh()
+                }
+            }
+        }
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -608,11 +658,11 @@ class TerminalController {
         return body()
     }
 
-    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+    nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
         Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
     }
 
-    private nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
+    nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
         if stack.isEmpty {
             Thread.current.threadDictionary.removeObject(forKey: socketCommandFocusAllowanceStackKey)
         } else {
@@ -620,7 +670,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
@@ -999,6 +1049,7 @@ class TerminalController {
             self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+        scheduleSocketReadSnapshotRefresh()
     }
 
     func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
@@ -1072,10 +1123,10 @@ class TerminalController {
 
     /// Wire-protocol helpers (parse/encode) shared with the package;
     /// stateless, so single instances serve every thread.
-    private nonisolated static let v2Parser = ControlRequestParser()
-    private nonisolated static let v2Encoder = ControlResponseEncoder()
+    nonisolated static let v2Parser = ControlRequestParser()
+    nonisolated static let v2Encoder = ControlResponseEncoder()
 
-    private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
+    nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
     }
 
@@ -1094,7 +1145,7 @@ class TerminalController {
     /// `surface.report_tty` (cmux-zsh-integration.zsh `_cmux_report_tty_once`)
     /// must see the TTY registration applied before its reply so subsequent
     /// `surface.ports_kick` scans resolve the surface.
-    private nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
+    nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
         "surface.report_pwd",
         "surface.report_git_branch",
         "surface.clear_git_branch",
@@ -1119,7 +1170,7 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1213,7 +1264,7 @@ class TerminalController {
     /// worker lane (the dispatcher falls through to the main hop). `response`
     /// stays optional so future fire-and-forget v1 telemetry can reply with
     /// nothing, matching the v2 lane's contract.
-    private nonisolated func socketWorkerV1ResponseIfHandled(cmd: String, args: String) -> (handled: Bool, response: String?) {
+    nonisolated func socketWorkerV1ResponseIfHandled(cmd: String, args: String) -> (handled: Bool, response: String?) {
         guard ControlCommandExecutionPolicy(forV1Command: cmd).runsOnSocketWorker else {
             return (false, nil)
         }
@@ -1237,6 +1288,12 @@ class TerminalController {
                 return (true, listNotifications())
             case "clear_notifications":
                 return (true, clearNotifications(args))
+            // The v1 agent-journal family: the append commits durably on this
+            // worker thread (the reply is the emitting hook's durable
+            // acknowledgement); reduction and sidebar application run on the
+            // journal center's ordered consumer.
+            case "agent_journal_append":
+                return (true, agentJournalAppend(args))
             // The v1 terminal-read family (tranche C): the Ghostty capture
             // takes one v2MainSync hop, the (possibly multi-MB) formatting
             // runs here on this worker thread. NOT mainThreadCallable — the
@@ -1646,12 +1703,15 @@ class TerminalController {
             close(clientSocket)
             return
         }
-        Thread.detachNewThread { [weak self] in
+        let submission = await socketClientWorkerPool.submit { [weak self] in
             guard let self else {
                 close(clientSocket)
+                if claimedPreauthorizationSlot {
+                    Task { await preauthorizationLimiter.release() }
+                }
                 return
             }
-            self.handleClient(
+            await self.handleClientAsync(
                 clientSocket,
                 peerPid: peerPid,
                 authorizationGeneration: authorizationGeneration,
@@ -1659,18 +1719,29 @@ class TerminalController {
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
+        } onDrop: {
+            if claimedPreauthorizationSlot {
+                Task { await preauthorizationLimiter.release() }
+            }
+            close(clientSocket)
         }
+        guard submission != .rejected else { return }
     }
 
-    private nonisolated func handleClient(
+    private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
-    ) {
-        defer { close(socket) }
+    ) async {
+        // Shut down before close so a DispatchSource callback racing
+        // cancellation observes EOF rather than a recycled descriptor number.
+        defer {
+            shutdown(socket, SHUT_RDWR)
+            close(socket)
+        }
         let pid = peerPid ?? transport.peerProcessID(of: socket)
         let peerHasSameUID = transport.peerHasSameUID(socket)
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
@@ -1681,13 +1752,19 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
-        let lineReader = ControlClientLineReader(
+        let lineReader = ControlClientAsyncLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
             authorizationRevocationSignal: authorizationRevocationSignal
         )
-        while let line = lineReader.nextLine(shouldContinueReading: {
-            socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+        let writer = ControlClientAsyncWriter(socket: socket)
+        let rateLimiter = ControlClientRateLimiter()
+        defer {
+            lineReader.cancel()
+            writer.cancel()
+        }
+        while let line = await lineReader.nextLine(shouldContinueReading: {
+            self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
@@ -1695,7 +1772,7 @@ class TerminalController {
                 authorizationGeneration,
                 passwordAuthorization: &passwordAuthorization
             ) else {
-                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
                 return
             }
             guard let trimmed = authorizedSocketCommand(
@@ -1703,59 +1780,54 @@ class TerminalController {
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
             ) else {
-                _ = writeSocketResponse(
-                    pid == nil ? Self.socketClientVerificationFailedResponse
-                        : Self.socketClientAccessDeniedResponse,
-                    to: socket
+                let response = pid == nil
+                    ? Self.socketClientVerificationFailedResponse
+                    : Self.socketClientAccessDeniedResponse
+                _ = await writer.writeAll(
+                    Data((response + "\n").utf8)
                 )
                 return
             }
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
-                Task { await preauthorizationLimiter.release() }
+                await preauthorizationLimiter.release()
             }
 
-            var shouldCloseSocket = false
-            autoreleasepool {
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(
-                        for: trimmed,
-                        passwordAuthorization: &passwordAuthorization
-                    ) {
-                        if !writeSocketResponse(response, to: socket) {
-                            shouldCloseSocket = true
-                        }
-                        return
-                    }
-                    handleEventsStreamRequest(
-                        trimmed,
-                        socket: socket,
-                        authorizationGeneration: authorizationGeneration,
-                        authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
-                    )
-                    shouldCloseSocket = true
-                    return
+            if isEventsStreamRequest(trimmed) {
+                if let response = authResponseIfNeeded(
+                    for: trimmed,
+                    passwordAuthorization: &passwordAuthorization
+                ) {
+                    guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
+                    continue
                 }
-
-                let result = processSocketLine(
+                // The event-bus subscription has its own bounded slow-consumer
+                // policy. Keep its legacy stream loop isolated to this admitted
+                // connection task; ordinary command traffic remains async.
+                handleEventsStreamRequest(
                     trimmed,
+                    socket: socket,
+                    authorizationGeneration: authorizationGeneration,
+                    authorizationRevocationSignal: authorizationRevocationSignal,
                     passwordAuthorization: passwordAuthorization
                 )
-                passwordAuthorization = result.passwordAuthorization
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    if !didWriteResponse {
-                        shouldCloseSocket = true
-                    }
-                }
+                return
             }
-            if shouldCloseSocket { return }
+
+            let result = await processSocketLineAsync(
+                trimmed,
+                passwordAuthorization: passwordAuthorization,
+                rateLimiter: rateLimiter
+            )
+            passwordAuthorization = result.passwordAuthorization
+            if let response = result.response {
+                guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
+                publishSocketEvents(command: trimmed, response: response)
+            }
         }
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
-            _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+            _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
         }
     }
 
@@ -2125,7 +2197,7 @@ class TerminalController {
         return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
 
-    private func processCommand(_ command: String) -> String {
+    func processCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
 
@@ -2361,7 +2433,7 @@ class TerminalController {
     /// result whose JSON bridging/serialization runs on the socket-worker
     /// thread after the hop, or a response the legacy switch already encoded
     /// on the main actor (see `v2LegacyMainActorResponse`).
-    private enum V2MainHopOutcome {
+    enum V2MainHopOutcome: Sendable {
         case callResult(ControlCallResult)
         case encoded(String)
     }
@@ -2428,7 +2500,7 @@ class TerminalController {
     /// before `controlCommandCoordinator.handle` here must also be added
     /// there, or the tranche-D worker-lane verbs silently fork from the
     /// main lane.
-    private func v2MainActorResponse(
+    func v2MainActorResponse(
         request: ControlRequest,
         id: Any?,
         method: String,
@@ -3209,7 +3281,7 @@ class TerminalController {
         ]
     }
 
-    private nonisolated func processAggregates(
+    nonisolated func processAggregates(
         from processSnapshot: CmuxTopProcessSnapshot,
         totalPIDs: Set<Int>
     ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
@@ -3326,7 +3398,7 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
+    func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -3758,10 +3830,25 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let vmError = error as? VMClientError,
+               Self.isCloudVMAuthenticationError(vmError) {
+                // Keep the auth boundary explicit for every VM verb. The CLI
+                // can then return a stable non-zero auth-required failure
+                // instead of presenting a generic backend error.
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: String(
+                        localized: "socket.cloudVM.authRequired",
+                        defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+                    )
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: error),
+                data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
             return v2Error(
@@ -3769,6 +3856,31 @@ class TerminalController {
                 code: "vm_error",
                 message: "unknown vm error"
             )
+        }
+    }
+
+    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
+    /// can make idempotency decisions structurally instead of parsing the
+    /// formatted display text.
+    private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        guard case let VMClientError.httpStatus(status, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String,
+              !code.isEmpty else {
+            return nil
+        }
+        return ["backend_code": code, "http_status": status]
+    }
+
+    private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
+        switch error {
+        case .notSignedIn:
+            return true
+        case .httpStatus(let status, _):
+            return status == 401
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+            return false
         }
     }
 
@@ -3823,7 +3935,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)
@@ -3832,7 +3944,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
+    nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
         guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
         return .err(
             code: "invalid_params",
@@ -6932,6 +7044,50 @@ class TerminalController {
         return result
     }
 
+    private nonisolated func v2BrowserURLAllowlistFailure(for url: URL) -> V2CallResult? {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        guard !policy.allows(url) else { return nil }
+        return .err(
+            code: "browser_url_blocked",
+            message: String(
+                localized: policy.isManaged
+                    ? "cli.browser.error.urlBlockedByPolicy"
+                    : "cli.browser.error.urlBlockedByUserPolicy",
+                defaultValue: policy.isManaged
+                    ? "Blocked by your organization's browser policy"
+                    : "Blocked by the embedded-browser URL policy"
+            ),
+            data: nil
+        )
+    }
+
+    /// Returns the URL that should be rejected for one browser-automation
+    /// input. Once the browser URL resolver has produced a URL, the raw text
+    /// must not be parsed again: Foundation treats `localhost:3000` as a
+    /// pseudo-scheme even though the browser resolver correctly turns it into
+    /// `http://localhost:3000`.
+    nonisolated static func browserURLAllowlistBlockedURL(
+        rawInput: String,
+        resolvedURL: URL?,
+        policy: BrowserURLAllowlistPolicy
+    ) -> URL? {
+        if let resolvedURL {
+            return policy.allows(resolvedURL) ? nil : resolvedURL
+        }
+        guard let parsedURL = URL(string: rawInput), parsedURL.scheme != nil else {
+            return nil
+        }
+        return policy.allows(parsedURL) ? nil : parsedURL
+    }
+
+    /// Resolves the URL accepted by `browser.tab.new`, including host-like
+    /// inputs such as `localhost:3000` that Foundation otherwise parses as a
+    /// pseudo-scheme.
+    nonisolated static func browserAutomationURL(from rawInput: String) -> URL? {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
+    }
+
     private func v2BrowserOpenSplit(
         params: [String: Any],
         diffViewerRegistration: DiffViewerSessionPreparation
@@ -7036,6 +7192,9 @@ class TerminalController {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let url, let failure = v2BrowserURLAllowlistFailure(for: url) {
+            return failure
         }
         if let error = v2RegisterDiffViewerURLIfNeeded(
             params: params,
@@ -7287,6 +7446,16 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            let resolvedURL = context.browserPanel.resolveSmartNavigation(from: url)?.url
+            if let blockedURL = Self.browserURLAllowlistBlockedURL(
+                rawInput: url,
+                resolvedURL: resolvedURL,
+                policy: BrowserURLAllowlistPolicy(defaults: .standard)
+            ),
+               let failure = v2BrowserURLAllowlistFailure(for: blockedURL) {
+                resolutionError = failure
+                return
+            }
             if let error = v2InstallDiffViewerNavigationPreparationIfNeeded(
                 rawURL: url,
                 preparation: diffViewerNavigation
@@ -10268,17 +10437,121 @@ class TerminalController {
             let store = v2MainSync {
                 ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
+            let clearRequiresScopeMessage = String(
+                localized: "cli.browser.cookies.clearRequiresScope",
+                defaultValue: "browser cookies clear requires exactly one of --all or a cookie scope"
+            )
+            let invalidFilterMessage = String(
+                localized: "cli.browser.cookies.invalidFilter",
+                defaultValue: "browser cookies clear received an invalid cookie filter"
+            )
+            let invalidURLMessage = String(
+                localized: "cli.browser.cookies.invalidURL",
+                defaultValue: "browser cookies clear --url requires a valid URL with a host"
+            )
+            let invalidExpiresMessage = String(
+                localized: "cli.browser.cookies.invalidExpires",
+                defaultValue: "browser cookies clear --expires must be an integer Unix timestamp"
+            )
+            let name = v2String(params, "name")
+            let value = v2String(params, "value")
+            let urlString = v2String(params, "url")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+
+            for key in ["name", "value", "domain", "path"] where
+                v2HasNonNullParam(params, key) && v2String(params, key) == nil {
+                return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": key])
+            }
+
+            if v2HasNonNullParam(params, "url"), urlString == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: invalidURLMessage,
+                    data: ["param": "url"]
+                )
+            }
+            let url: URL?
+            if let urlString {
+                guard let parsedURL = URL(string: urlString), parsedURL.host != nil else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidURLMessage,
+                        data: ["param": "url"]
+                    )
+                }
+                url = parsedURL
+            } else {
+                url = nil
+            }
+
+            let expires: Int?
+            if v2HasNonNullParam(params, "expires") {
+                guard let parsedExpires = v2Int(params, "expires") else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidExpiresMessage,
+                        data: ["param": "expires"]
+                    )
+                }
+                expires = parsedExpires
+            } else {
+                expires = nil
+            }
+
+            let secure: Bool?
+            if v2HasNonNullParam(params, "secure") {
+                guard let parsedSecure = v2Bool(params, "secure") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "secure"])
+                }
+                secure = parsedSecure
+            } else {
+                secure = nil
+            }
+
+            let all: Bool
+            if v2HasNonNullParam(params, "all") {
+                guard let parsedAll = v2Bool(params, "all") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "all"])
+                }
+                all = parsedAll
+            } else {
+                all = false
+            }
+
+            let hasFilter = name != nil || value != nil || url != nil || domain != nil || path != nil ||
+                expires != nil || secure != nil
+            guard all || hasFilter else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+            guard !(all && hasFilter) else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+
             guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            let name = v2String(params, "name")
-            let domain = v2String(params, "domain")
-            let clearAll = params["all"] == nil && name == nil && domain == nil
             let targets = cookies.filter { cookie in
-                if clearAll { return true }
+                if all { return true }
                 if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
+                if let value, cookie.value != value { return false }
+                if let url, !CmuxWebView.cookieMatchesURL(cookie, url: url) { return false }
+                if let domain, !CmuxWebView.cookieDomainMatchesFilter(cookie.domain, filter: domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let expires,
+                   cookie.expiresDate.map({ Int($0.timeIntervalSince1970) }) != expires {
+                    return false
+                }
+                if let secure, cookie.isSecure != secure { return false }
                 return true
             }
 
@@ -10412,9 +10685,18 @@ class TerminalController {
         }
 
         let urlStr = v2String(params, "url")
-        let url = urlStr.flatMap(URL.init(string:))
+        let url = urlStr.flatMap(Self.browserAutomationURL(from:))
         guard BrowserAvailabilitySettings.isEnabled() else {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let urlStr,
+           let blockedURL = Self.browserURLAllowlistBlockedURL(
+               rawInput: urlStr,
+               resolvedURL: url,
+               policy: BrowserURLAllowlistPolicy(defaults: .standard)
+           ),
+           let failure = v2BrowserURLAllowlistFailure(for: blockedURL) {
+            return failure
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
@@ -15630,10 +15912,19 @@ class TerminalController {
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
-            guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
+            if let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) {
+                surfaceId = target.surfaceID
+            } else if !requireTerminal,
+                      workspace.controlSurfaceTarget(for: requestedSurfaceId) != nil {
+                // Non-terminal panel surfaces (markdown, file preview) have no
+                // terminal input target; callers that don't require a terminal
+                // (mobile.panel.artifact.*) resolve the workspace-owned surface
+                // itself. Hidden remote-tmux mirror wrappers still fail closed
+                // inside controlSurfaceTarget.
+                surfaceId = requestedSurfaceId
+            } else {
                 return nil
             }
-            surfaceId = target.surfaceID
         } else if requireTerminal {
             surfaceId = workspace.focusedTerminalInputTarget()?.surfaceID
                 ?? mobileTerminalPanels(in: workspace).first?.id

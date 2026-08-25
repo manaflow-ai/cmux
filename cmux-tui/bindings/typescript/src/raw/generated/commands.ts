@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529. */
+/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
 
 
 import type * as T from "./types.js";
@@ -181,6 +181,16 @@ export interface ClearWindowTitleRequest extends CmuxRequestBase {
   cmd: "clear-window-title";
 }
 export type ClearWindowTitleResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface ClientFocusRequest extends CmuxRequestBase {
+  cmd: "client-focus";
+  "client_id": string;
+}
+export type ClientFocusResult = {
+  "pane": (T.Id) | null;
+  "tab": (bigint) | null;
+};
 
 /** Protocol v5; authority: control. */
 export interface ClosePaneRequest extends CmuxRequestBase {
@@ -663,6 +673,15 @@ export interface ReportAgentRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface ReportFocusRequest extends CmuxRequestBase {
+  cmd: "report-focus";
+  "client_id": string;
+  "pane": T.Id;
+  "tab"?: (bigint) | null;
+}
+export type ReportFocusResult = T.EmptyResult;
+
 /** Protocol v10; authority: frontend. */
 export interface ResizeAttachedViewRequest extends CmuxRequestBase {
   cmd: "resize-attached-view";
@@ -932,6 +951,7 @@ export type CmuxRequest =
   | BrowserWheelGuardedRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
+  | ClientFocusRequest
   | ClosePaneRequest
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
@@ -987,6 +1007,7 @@ export type CmuxRequest =
   | RenameSurfaceRequest
   | RenameWorkspaceRequest
   | ReportAgentRequest
+  | ReportFocusRequest
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
@@ -1153,6 +1174,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "client-focus": {
+    request: ClientFocusRequest;
+    result: ClientFocusResult;
+    authority: "control";
+    since: 12;
+    capability: "client-focus-v1";
     stream: null;
   };
   "close-pane": {
@@ -1593,6 +1622,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "report-focus": {
+    request: ReportFocusRequest;
+    result: ReportFocusResult;
+    authority: "control";
+    since: 12;
+    capability: "client-focus-v1";
     stream: null;
   };
   "resize-attached-view": {

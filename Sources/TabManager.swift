@@ -393,6 +393,8 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
+    /// Deduplicates this manager's final AppKit window-title writes.
+    let windowTitleWriter: WindowTitleWriter
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
     // per-window composition point. It owns the concrete sub-models, hosts
@@ -496,6 +498,7 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
+        windowTitleWriter: WindowTitleWriter? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
             GhosttyWorkingDirectoryResolver(
@@ -525,6 +528,7 @@ class TabManager: ObservableObject {
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
+        self.windowTitleWriter = windowTitleWriter ?? WindowTitleWriter()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.tabDragTransferRegistry = tabDragTransferRegistry
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -3513,7 +3517,9 @@ class TabManager: ObservableObject {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
         }
     }
-    func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() { panelTitleUpdateCoalescer.flushNow() }
+    func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
+        panelTitleUpdateCoalescer.flushNow()
+    }
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
         guard let tab = workspacesById[tabId],
               let terminalPanel = tab.terminalPanel(for: panelId),

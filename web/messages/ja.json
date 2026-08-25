@@ -1816,7 +1816,8 @@
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
           "defaultZoomLevel": "新しく開いたブラウザページに適用されるデフォルトのページズーム倍率（1 = 100%）。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。",
+          "urlAllowlist": "内蔵ブラウザの移動を制限するホストまたはURLパターンです。設定画面ではローカル開発用オリジンを候補として表示します。リストを保存すると任意の制限が有効になり、エントリを削除するとそのURLをブロックします。管理ポリシーがない場合はユーザー値を空にすると無効になります。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
