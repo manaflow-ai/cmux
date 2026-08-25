@@ -11647,15 +11647,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 let sharedIndex = SharedLiveAgentIndex.shared
                 _ = sharedIndex.currentIndexSchedulingRefresh()
                 if sharedIndex.hasCachedProcessLivenessEntries() || sharedIndex.index == nil {
-                    let panelKeys = Set(tabManager.tabs.flatMap { workspace in
-                        workspace.panels.keys.map {
-                            RestorableAgentSessionIndex.PanelKey(
-                                workspaceId: workspace.id,
-                                panelId: $0
-                            )
-                        }
-                    })
-                    sharedIndex.refreshCachedProcessLivenessForSidebar(panelKeys: panelKeys)
+                    let panelIDs = Set(tabManager.tabs.flatMap { $0.panels.keys })
+                    sharedIndex.refreshCachedProcessLivenessForSidebar(panelIDs: panelIDs)
                 }
                 do {
                     try await ContinuousClock().sleep(for: .seconds(10))

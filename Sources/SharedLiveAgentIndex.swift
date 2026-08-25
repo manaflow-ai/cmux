@@ -462,7 +462,7 @@ final class SharedLiveAgentIndex {
     /// so an agent that exits without a hook event cannot remain confidently
     /// running. All process inspection stays off the main actor.
     func refreshCachedProcessLivenessForSidebar(
-        panelKeys: Set<RestorableAgentSessionIndex.PanelKey>
+        panelIDs: Set<UUID>
     ) {
         ensureWatchingHookStoreDirectory()
         guard let cachedIndex = index else {
@@ -472,7 +472,7 @@ final class SharedLiveAgentIndex {
         guard sidebarLivenessRefreshTask == nil,
               refreshTask == nil,
               forkAvailabilityRefreshTask == nil else { return }
-        guard !panelKeys.isEmpty else { return }
+        guard !panelIDs.isEmpty else { return }
         let now = dateProvider()
         if let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
@@ -489,7 +489,7 @@ final class SharedLiveAgentIndex {
                 let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
                 return cachedIndex.revalidatingCachedProcesses(
                     against: processSnapshot,
-                    panelKeys: panelKeys
+                    panelIDs: panelIDs
                 )
             }.value
             guard !Task.isCancelled else {

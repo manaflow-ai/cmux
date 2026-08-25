@@ -1183,7 +1183,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// invocation mode, and explicit session argument still match.
     func revalidatingCachedProcesses(
         against processSnapshot: CmuxTopProcessSnapshot,
-        panelKeys: Set<PanelKey>? = nil,
+        panelIDs: Set<UUID>? = nil,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1197,7 +1197,7 @@ struct RestorableAgentSessionIndex: Sendable {
         revalidatedEntries.reserveCapacity(entriesByPanel.count)
 
         for (key, entry) in entriesByPanel {
-            guard panelKeys == nil || panelKeys?.contains(key) == true else {
+            guard panelIDs == nil || panelIDs?.contains(key.panelId) == true else {
                 revalidatedEntries[key] = entry
                 continue
             }
