@@ -2947,7 +2947,7 @@ class GhosttyApp {
     /// thread, then drops it if the originating runtime has already been
     /// replaced or torn down by the time the main actor consumes it.
     private func enqueueTerminalPointerStyleEvent(
-        _ event: GhosttyPointerStyleIngress.Request.Event,
+        _ event: GhosttyPointerStyleIngressRequest.Event,
         runtimeLifetimeId: UUID,
         surfaceView: GhosttyNSView,
         surfaceId: UUID
@@ -4683,12 +4683,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {
-        pointerStyleIngress?.activate(runtimeLifetimeId: runtimeLifetimeId)
+        pointerStyleIngress?.activate(
+            runtimeLifetimeId: runtimeLifetimeId,
+            surfaceId: terminalSurface?.id ?? UUID()
+        )
         applyTerminalPointerStyle(.runtimeActivated(runtimeLifetimeId))
     }
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
-        pointerStyleIngress?.retire(runtimeLifetimeId: runtimeLifetimeId)
+        pointerStyleIngress?.retire(
+            runtimeLifetimeId: runtimeLifetimeId,
+            surfaceId: terminalSurface?.id ?? UUID()
+        )
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 
