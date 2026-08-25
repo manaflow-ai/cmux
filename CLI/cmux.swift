@@ -223,6 +223,7 @@ final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxEndedSessionIDs = 256
+    private static let maxRetiredClaudeTaskLists = 128
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -317,6 +318,23 @@ final class ClaudeHookSessionStore {
                 turnId: turnId
             )
         }
+    }
+
+    /// Records a teardown boundary when the shared lease cannot be joined.
+    /// The completing task hook observes the tombstone and clears any rows it
+    /// published before this boundary was recorded.
+    func recordClaudeSessionEndBoundary(
+        sessionId: String?,
+        workspaceId: String?,
+        surfaceId: String?,
+        turnId: String?
+    ) throws -> ClaudeHookSessionRecord? {
+        try consume(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            turnId: turnId
+        )
     }
 
     /// Holds one cross-process file lock, bounded when a deadline is present.
@@ -449,6 +467,76 @@ final class ClaudeHookSessionStore {
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
             return true
+        }
+    }
+
+    /// Reports whether SessionEnd has already consumed this session generation.
+    func isClaudeSessionEnded(_ sessionId: String) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return false }
+        return try withLockedState { state in
+            state.endedSessionIDs[normalizedSessionId] != nil
+        }
+    }
+
+    /// Records one task-list owner as retired until a new authoritative binding
+    /// proves that the directory has been reused.
+    func retireClaudeTaskList(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTaskListID.isEmpty else { return }
+        try withLockedState { state in
+            let key = claudeTaskListStorageKey(
+                taskListID: normalizedTaskListID,
+                taskStoreIdentity: taskStoreIdentity
+            )
+            state.retiredClaudeTaskLists[key] = Date().timeIntervalSince1970
+            if state.retiredClaudeTaskLists.count > Self.maxRetiredClaudeTaskLists {
+                let retainedKeys = Set(
+                    state.retiredClaudeTaskLists
+                        .sorted { lhs, rhs in lhs.value > rhs.value }
+                        .prefix(Self.maxRetiredClaudeTaskLists)
+                        .map(\.key)
+                )
+                state.retiredClaudeTaskLists = state.retiredClaudeTaskLists.filter {
+                    retainedKeys.contains($0.key)
+                }
+            }
+        }
+    }
+
+    /// Returns whether a task-list owner is still retired.
+    func isClaudeTaskListRetired(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> Bool {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTaskListID.isEmpty else { return false }
+        let key = claudeTaskListStorageKey(
+            taskListID: normalizedTaskListID,
+            taskStoreIdentity: taskStoreIdentity
+        )
+        return try withLockedState { state in
+            state.retiredClaudeTaskLists[key] != nil
+        }
+    }
+
+    /// Clears a retirement proof after a new authoritative task-list binding.
+    func unretireClaudeTaskList(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTaskListID.isEmpty else { return }
+        try withLockedState { state in
+            state.retiredClaudeTaskLists.removeValue(
+                forKey: claudeTaskListStorageKey(
+                    taskListID: normalizedTaskListID,
+                    taskStoreIdentity: taskStoreIdentity
+                )
+            )
         }
     }
 
@@ -703,6 +791,7 @@ final class ClaudeHookSessionStore {
                 workspaceIDs: normalizedWorkspaceIDs,
                 updatedAt: Date.now.timeIntervalSince1970
             )
+            state.retiredClaudeTaskLists.removeValue(forKey: storageKey)
         }
     }
 
@@ -993,6 +1082,7 @@ final class ClaudeHookSessionStore {
                 workspaceIDs: normalizedWorkspaceIDs,
                 updatedAt: Date.now.timeIntervalSince1970
             )
+            state.retiredClaudeTaskLists.removeValue(forKey: storageKey)
             return normalizedWorkspaceIDs
         }
     }
@@ -2619,6 +2709,9 @@ final class ClaudeHookSessionStore {
             state.endedSessionIDs = state.endedSessionIDs.filter {
                 retainedIDs.contains($0.key)
             }
+        }
+        state.retiredClaudeTaskLists = state.retiredClaudeTaskLists.filter { _, retiredAt in
+            retiredAt >= cutoff
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
@@ -27084,7 +27177,7 @@ struct CMUXCLI {
                     "claude-hook.session-end.task-sync-lock-recovery",
                     data: ["error": String(describing: error)]
                 )
-                consumedSession = try? sessionStore.consume(
+                consumedSession = try? sessionStore.recordClaudeSessionEndBoundary(
                     sessionId: parsedInput.sessionId,
                     workspaceId: liveEndTarget.workspaceId,
                     surfaceId: liveEndTarget.surfaceId,

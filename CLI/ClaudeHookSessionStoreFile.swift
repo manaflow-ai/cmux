@@ -16,6 +16,9 @@ struct ClaudeHookSessionStoreFile: Codable {
     // SessionEnd leaves a short-lived tombstone so an asynchronous task hook
     // cannot recreate a session record after the lifecycle owner consumed it.
     var endedSessionIDs: [String: TimeInterval] = [:]
+    // Retired task-list proofs prevent a deleted team directory from being
+    // re-admitted by the compatibility identity scan.
+    var retiredClaudeTaskLists: [String: TimeInterval] = [:]
     // Automatic-team task identity is list-scoped rather than session-scoped:
     // leader and teammate hooks can run in independent Claude sessions.
     var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
@@ -31,6 +34,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsByWorkspace
         case activeSessionsBySurface
         case endedSessionIDs
+        case retiredClaudeTaskLists
         case claudeTeamTaskBindings
         case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
@@ -57,6 +61,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         endedSessionIDs = try container.decodeIfPresent(
             [String: TimeInterval].self,
             forKey: .endedSessionIDs
+        ) ?? [:]
+        retiredClaudeTaskLists = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .retiredClaudeTaskLists
         ) ?? [:]
         claudeTeamTaskBindings = try container.decodeIfPresent(
             [String: ClaudeHookTeamTaskBindingRecord].self,
@@ -87,6 +95,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !endedSessionIDs.isEmpty {
             try container.encode(endedSessionIDs, forKey: .endedSessionIDs)
+        }
+        if !retiredClaudeTaskLists.isEmpty {
+            try container.encode(retiredClaudeTaskLists, forKey: .retiredClaudeTaskLists)
         }
         if !claudeTeamTaskBindings.isEmpty {
             try container.encode(claudeTeamTaskBindings, forKey: .claudeTeamTaskBindings)
