@@ -14,6 +14,11 @@ final class SidebarAgentElapsedClock {
     @ObservationIgnored
     private let displayCache = SidebarAgentActivityDisplayCache()
 
+    /// Diagnostic demand state for tests and owner introspection. The driver
+    /// remains mounted independently so this value never gates timeline work.
+    @ObservationIgnored
+    var hasTargets: Bool { !targets.isEmpty }
+
     var actions: SidebarAgentElapsedClockActions {
         let cache = displayCache
         return SidebarAgentElapsedClockActions(
