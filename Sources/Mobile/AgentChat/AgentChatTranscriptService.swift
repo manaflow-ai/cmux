@@ -722,7 +722,10 @@ final class AgentChatTranscriptService {
             case .toolUse(let toolUse):
                 return toolUse.artifactMutationAuthorized == true
             case .terminal(let terminal):
-                return !terminal.isRunning && terminal.exitCode == 0
+                guard !terminal.isRunning, terminal.exitCode == 0 else { return false }
+                return !ShellArtifactMutationPathDetector()
+                    .pathsAttributedToSuccessfulCommand(in: terminal.command)
+                    .isEmpty
             case .fileEdit:
                 // File-edit cards are emitted before their sidechain result;
                 // their visible path is only a reference until the result

@@ -1,4 +1,5 @@
 import CmuxArtifacts
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -104,7 +105,15 @@ extension CMUXCLI {
         )
     }
 
-    func openProjectFile(path: String, failureMessage: String) throws {
+    func openProjectFile(
+        path: String,
+        allowedRoot: URL? = nil,
+        failureMessage: String
+    ) throws {
+        if let allowedRoot {
+            try openConfinedProjectFile(path: path, allowedRoot: allowedRoot, failureMessage: failureMessage)
+            return
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = [path]
@@ -115,5 +124,68 @@ extension CMUXCLI {
                 message: ArtifactTerminalTextSanitizer().sanitize(failureMessage)
             )
         }
+    }
+
+    private func openConfinedProjectFile(
+        path: String,
+        allowedRoot: URL,
+        failureMessage: String
+    ) throws {
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        defer { _ = Darwin.close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              let openedPath = openedPath(for: descriptor),
+              isPath(openedPath, inside: allowedRoot) else {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        let childDescriptor = fcntl(descriptor, F_DUPFD, 3)
+        guard childDescriptor >= 0 else {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        let flags = fcntl(childDescriptor, F_GETFD)
+        guard flags >= 0, fcntl(childDescriptor, F_SETFD, flags & ~FD_CLOEXEC) == 0 else {
+            _ = Darwin.close(childDescriptor)
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["/dev/fd/\(childDescriptor)"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            _ = Darwin.close(childDescriptor)
+            throw error
+        }
+        _ = Darwin.close(childDescriptor)
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+    }
+
+    private func openedPath(for descriptor: Int32) -> URL? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        }
+        guard result == 0 else { return nil }
+        return URL(fileURLWithPath: String(
+            decoding: buffer.prefix { $0 != 0 },
+            as: UTF8.self
+        )).resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private func isPath(_ path: URL, inside root: URL) -> Bool {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let path = path.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
     }
 }

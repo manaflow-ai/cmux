@@ -98,6 +98,7 @@ extension CMUXCLI {
                 let note = try await repository.resolveNote(projectRoot: projectRoot, name: name)
                 try openProjectFile(
                     path: note.absolutePath,
+                    allowedRoot: ArtifactStorePaths(projectRoot: projectRoot).filesystemRoot,
                     failureMessage: String(
                         format: String(
                             localized: "cli.note.error.openFailed",
