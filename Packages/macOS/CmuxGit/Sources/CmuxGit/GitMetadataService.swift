@@ -204,12 +204,26 @@ public struct GitMetadataService: Sendable {
             return []
         }
         let branchContext = await gitReferenceBranchContext(repository: repository)
-        guard let output = GitConfigBranchTraversal(
+        let traversal = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext
-        ).remoteVOutput() else {
-            return []
+        )
+        let output: String?
+        if let parsed = traversal.remoteVOutput() {
+            output = parsed
+        } else {
+            let runner = SystemWorkspaceChangesGitRunner()
+            let result = try? runner.run(
+                    arguments: ["remote", "-v"],
+                    in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
+                    maximumOutputByteCount: 1 * 1_024 * 1_024
+            )
+            output = result.flatMap { result in
+                guard result.exitCode == 0, !result.standardOutputWasTruncated else { return nil }
+                return String(data: result.output, encoding: .utf8)
+            }
         }
+        guard let output else { return [] }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 

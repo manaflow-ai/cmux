@@ -157,9 +157,19 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         guard path != "/" else { return false }
         let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
             .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        return roots.contains { root in
+        if roots.contains(where: { root in
             path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }) {
+            return true
         }
+        // External stores are accepted only when their concrete reftable marker
+        // is an existing bounded regular file; broad roots such as `/` cannot
+        // satisfy this check and are never handed to the recursive watcher.
+        let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
+        if case .contents = configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
+            return path.split(separator: "/").count >= 3
+        }
+        return false
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.
