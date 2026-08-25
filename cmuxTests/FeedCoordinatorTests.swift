@@ -775,7 +775,7 @@ struct FeedCoordinatorTests {
         let request = await MainActor.run { phoneForwarder.requests.first }
         #expect(request?.workspaceId == workspaceId)
         #expect(request?.surfaceId == surfaceId)
-        #expect(request?.body == "Decision needed")
+        #expect(request?.body == "Bash needs approval")
 
         await MainActor.run {
             FeedCoordinator.shared.deliverReply(
