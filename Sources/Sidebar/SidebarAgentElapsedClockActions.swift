@@ -7,5 +7,5 @@ struct SidebarAgentElapsedClockActions {
     let identity: ObjectIdentifier
     let register: (any SidebarAgentElapsedClockTarget) -> Void
     let unregister: (any SidebarAgentElapsedClockTarget) -> Void
-    let displayPayload: (SidebarWorkspaceAgentActivity, Date) -> SidebarAgentActivityDisplayPayload
+    let displayPayload: @MainActor (SidebarWorkspaceAgentActivity, Date) -> SidebarAgentActivityDisplayPayload
 }
