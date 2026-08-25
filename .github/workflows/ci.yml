@@ -1109,6 +1109,11 @@ jobs:
             test
 
       - name: Run unit tests
+        env:
+          # Serial app-host execution takes about 18.7 minutes per measured
+          # shard. The wrapper owns one 30-minute execution budget after lock
+          # admission and carries it across all attempts.
+          CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "1800"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -1126,8 +1131,8 @@ jobs:
             # intermittently crash inside XCTest's post-test memory checker or
             # leave native display/WebKit work alive on GitHub macOS runners.
             # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
+            # app-host process can keep xcodebuild alive after the test summary.
+            # The app-host wrapper owns the total deadline and verified cleanup.
             # The app-host wrapper also serializes GUI XCTest ownership per Mac,
             # while still allowing shards on separate Macs to run in parallel.
             scripts/ci/run-in-console-session.sh \
@@ -1139,22 +1144,7 @@ jobs:
               -destination "platform=macOS" \
               "${ONLY_TESTING_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
+              test 2>&1
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
@@ -1169,7 +1159,8 @@ jobs:
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] \
+            && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1180,6 +1171,20 @@ jobs:
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
+          fi
+
+          # A total timeout is always a hard failure, even if xcodebuild printed
+          # a passing or expected-failure summary before it became stuck.
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "App-host unit test total timeout is a hard failure"
+            exit 1
+          fi
+
+          # Cleanup or ownership failures are hard failures even when the
+          # wrapped xcodebuild summary contains only expected test failures.
+          if grep -Fq "CMUX_XCODEBUILD_PROCESS_CLEANUP_FAILED" <<< "$OUTPUT"; then
+            echo "App-host PTY process cleanup is a hard failure"
+            exit 1
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then

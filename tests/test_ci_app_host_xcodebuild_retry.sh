@@ -30,6 +30,11 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    total-timeout)
+      echo "CMUX_XCODEBUILD_TIMEOUT_KIND=total"
+      echo "Total timed out after 1s: fake xcodebuild"
+      exit 124
+      ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
@@ -160,6 +165,77 @@ if [ "$non_isolated_status" -ne 0 ] \
   exit 1
 fi
 
+if [ "$(grep -Fxc -- '-parallel-testing-enabled' "$TMP_DIR/non-isolated-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ] \
+  || [ "$(grep -Fxc 'NO' "$TMP_DIR/non-isolated-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ]; then
+  cat "$TMP_DIR/non-isolated-xcodebuild-args.log"
+  echo "FAIL: app-host tests must disable in-process test parallelization"
+  exit 1
+fi
+
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/parallel-override-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/parallel-override-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/parallel-override-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/parallel-override-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" \
+    -parallel-testing-enabled YES test \
+    >"$TMP_DIR/parallel-override-output.log" 2>&1
+parallel_override_status=$?
+set -e
+
+if [ "$parallel_override_status" -ne 2 ] \
+  || ! grep -Fq \
+    "FAIL: app-host tests require -parallel-testing-enabled NO" \
+    "$TMP_DIR/parallel-override-output.log" \
+  || [ -s "$TMP_DIR/parallel-override-xcodebuild-args.log" ]; then
+  cat "$TMP_DIR/parallel-override-output.log"
+  cat "$TMP_DIR/parallel-override-xcodebuild-args.log" 2>/dev/null || true
+  echo "FAIL: app-host wrapper must reject a parallel execution override"
+  exit 1
+fi
+
+set +e
+/usr/bin/env PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/total-timeout-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/total-timeout-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/total-timeout-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/total-timeout-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=total-timeout \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=3 \
+  CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS=5 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  CFFIXED_USER_HOME="$XCODE_PARENT_FIXED_HOME" \
+  XDG_CONFIG_HOME="$XCODE_PARENT_XDG_CONFIG_HOME" \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/total-timeout-output.log" 2>&1
+total_timeout_status=$?
+set -e
+
+total_timeout_invocations="$(grep -cx 'test' "$TMP_DIR/total-timeout-xcodebuild-args.log" 2>/dev/null || true)"
+if [ "$total_timeout_status" -ne 124 ] \
+  || [ "$total_timeout_invocations" -ne 1 ] \
+  || grep -Fq "Retrying app-host xcodebuild after" "$TMP_DIR/total-timeout-output.log" \
+  || ! grep -Fq "cleaning owned app-host processes" "$TMP_DIR/total-timeout-output.log" \
+  || ! grep -Fq "Total timed out after 1s" "$TMP_DIR/total-timeout-output.log"; then
+  cat "$TMP_DIR/total-timeout-output.log"
+  cat "$TMP_DIR/total-timeout-xcodebuild-args.log" 2>/dev/null || true
+  echo "FAIL: total timeout must fail once without retrying"
+  exit 1
+fi
+
 AMBIENT_XDG_CONFIG_HOME="$TMP_DIR/ambient-xdg"
 mkdir -p "$AMBIENT_XDG_CONFIG_HOME"
 set +e
@@ -257,6 +333,15 @@ timeout_count="$(grep -Fc "Idle timed out after 0.1s" "$TMP_DIR/output.log")"
 if [ "$timeout_count" -ne 2 ]; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: expected two timed-out attempts, got $timeout_count"
+  exit 1
+fi
+
+receipt_cleanup_count="$(grep -Fc \
+  "Cleaning receipt-verified app-host processes before PTY termination" \
+  "$TMP_DIR/output.log")"
+if [ "$receipt_cleanup_count" -ne 2 ]; then
+  cat "$TMP_DIR/output.log"
+  echo "FAIL: each timed-out attempt must clean receipt-owned app hosts before retry"
   exit 1
 fi
 

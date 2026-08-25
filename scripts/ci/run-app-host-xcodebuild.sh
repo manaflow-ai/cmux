@@ -14,8 +14,20 @@ fi
 log_dir="${RUNNER_TEMP:-/tmp}"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
+total_timeout_seconds="${CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS:-}"
+case "$total_timeout_seconds" in
+  '') ;;
+  *[!0-9]*|0*)
+    echo "FAIL: CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS must be a positive integer" >&2
+    exit 2
+    ;;
+  *) ;;
+esac
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
+if [ -n "$total_timeout_seconds" ]; then
+  echo "App-host xcodebuild total timeout: ${total_timeout_seconds}s"
+fi
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
@@ -41,6 +53,14 @@ if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
   export CMUX_APP_HOST_TEST_LOCK_ACTIVE=1
   exec python3 "$(dirname "$0")/app_host_test_lock.py" \
     "$lock_file" "$lock_wait_seconds" "$0" "$@"
+fi
+
+# Keep one elapsed-time execution budget across all xcodebuild attempts. The
+# lock helper owns queue admission separately; after it acquires the lock, this
+# wrapper starts the full budget and carries its remaining time through retries.
+app_host_total_deadline_seconds=""
+if [ -n "$total_timeout_seconds" ]; then
+  app_host_total_deadline_seconds=$((SECONDS + total_timeout_seconds))
 fi
 
 # xcodebuild must retain the console user's real HOME so Xcode and its package
@@ -87,9 +107,46 @@ if [ -n "$app_host_home_input" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"
     "TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"
   )
+  app_host_test_runner_environment+=(
+    "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_CLEANUP_COMMAND=$ci_script_dir/cleanup-owned-app-host-attempt.sh"
+  )
 fi
 
 app_host_xcodebuild_arguments=("$@")
+# One xcodebuild can still run Swift Testing functions concurrently inside its
+# app host. Those functions share AppKit, Ghostty, sockets, and process-global
+# registries, so the per-Mac process lock above is not sufficient. Make serial
+# execution an invariant of this app-host boundary. Reject a conflicting caller
+# value instead of allowing one focused workflow step to reopen the race.
+parallel_testing_seen=0
+parallel_testing_needs_value=0
+for argument in "${app_host_xcodebuild_arguments[@]}"; do
+  if [ "$parallel_testing_needs_value" -eq 1 ]; then
+    if [ "$argument" != "NO" ]; then
+      echo "FAIL: app-host tests require -parallel-testing-enabled NO" >&2
+      exit 2
+    fi
+    parallel_testing_needs_value=0
+    continue
+  fi
+
+  if [ "$argument" = "-parallel-testing-enabled" ]; then
+    if [ "$parallel_testing_seen" -eq 1 ]; then
+      echo "FAIL: app-host tests accept one -parallel-testing-enabled setting" >&2
+      exit 2
+    fi
+    parallel_testing_seen=1
+    parallel_testing_needs_value=1
+  fi
+done
+if [ "$parallel_testing_needs_value" -eq 1 ]; then
+  echo "FAIL: -parallel-testing-enabled requires the value NO" >&2
+  exit 2
+fi
+if [ "$parallel_testing_seen" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=("-parallel-testing-enabled" "NO")
+fi
+
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   # This compiled condition reaches the test bundle through Xcode build
   # settings, independently of the TEST_RUNNER_ runtime environment channel.
@@ -108,6 +165,14 @@ kill_stale_app_host() {
     "$CMUX_VALIDATED_APP_HOST_DERIVED_DATA" \
     "$CMUX_RESOLVED_RUNNER_WORK_ROOT" \
     "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
+}
+
+exit_after_total_timeout() {
+  echo "FAIL: app-host xcodebuild reached its total timeout; cleaning owned app-host processes" >&2
+  if ! kill_stale_app_host; then
+    echo "FAIL: receipt-verified app-host cleanup failed after total timeout" >&2
+  fi
+  exit 124
 }
 
 validate_app_host_config_paths() {
@@ -177,20 +242,39 @@ validate_app_host_config_paths() {
 
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
+  xcodebuild_environment=("${app_host_test_runner_environment[@]}")
   log_path="${log_stem}-attempt-${attempt}.log"
   : >"$log_path"
   # Recover only this run key's prior attempt. A live foreign key fails the
   # complete preflight without signaling any PID, so one runner service cannot
   # terminate another service's healthy app host.
   kill_stale_app_host
+  if [ -n "$app_host_total_deadline_seconds" ]; then
+    total_remaining_seconds=$((app_host_total_deadline_seconds - SECONDS))
+    if [ "$total_remaining_seconds" -le 0 ]; then
+      exit_after_total_timeout
+    fi
+    xcodebuild_environment+=(
+      "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=$total_remaining_seconds"
+    )
+  fi
   set +e
   env \
-    "${app_host_test_runner_environment[@]}" \
+    "${xcodebuild_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild \
       "${app_host_xcodebuild_arguments[@]}"
   status=$?
   set -e
+
+  total_timeout_marker=0
+  if [ "$status" -eq 124 ] \
+    && grep -Fq 'CMUX_XCODEBUILD_TIMEOUT_KIND=total' "$log_path" 2>/dev/null; then
+    total_timeout_marker=1
+  fi
+  if [ "$total_timeout_marker" -eq 1 ]; then
+    exit_after_total_timeout
+  fi
 
   require_config_evidence=0
   if [ "$status" -eq 0 ]; then
