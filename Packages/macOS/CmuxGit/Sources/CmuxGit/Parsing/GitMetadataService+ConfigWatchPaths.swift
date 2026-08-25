@@ -19,7 +19,8 @@ extension GitMetadataService {
         )
         return GitMetadataWatchInputs(
             configPathsByRepository: result.paths,
-            indexSnapshotsByRepository: result.indexSnapshots
+            indexSnapshotsByRepository: result.indexSnapshots,
+            forceWorkTreeRootRepositories: result.forceWorkTreeRoots
         )
     }
 
@@ -33,21 +34,23 @@ extension GitMetadataService {
     ) async -> (
         paths: [String: [String]],
         indexSnapshots: [String: GitIndexSnapshot],
+        forceWorkTreeRoots: Set<String>,
         visitedRoots: Set<String>,
         remainingRepositoryCount: Int
     ) {
         guard !visitedRoots.contains(repository.workTreeRoot),
               remainingRepositoryCount > 0 else {
-            return ([:], [:], visitedRoots, remainingRepositoryCount)
+            return ([:], [:], [], visitedRoots, remainingRepositoryCount)
         }
         guard DispatchTime.now() < deadline else {
-            return ([:], [:], visitedRoots, remainingRepositoryCount)
+            return ([:], [:], [], visitedRoots, remainingRepositoryCount)
         }
         var visitedRoots = visitedRoots
         visitedRoots.insert(repository.workTreeRoot)
         var remainingRepositoryCount = remainingRepositoryCount - 1
         var pathsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
+        var forceWorkTreeRoots: Set<String> = []
 
         let references = await gitReferenceSnapshotForConfig(
             repository: repository,
@@ -56,11 +59,11 @@ extension GitMetadataService {
         guard references.checkedOutBranch != .unreadable else {
             // Keep the root metadata paths so a later HEAD/index/config event
             // can trigger a fresh plan instead of dropping the existing watcher.
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
@@ -69,7 +72,12 @@ extension GitMetadataService {
             deadline: deadline
         ).watchPaths() + references.storageWatchPaths
         guard DispatchTime.now() < deadline else {
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+        }
+
+        if repositoryUsesSHA256ObjectIDs(repository: repository) {
+            forceWorkTreeRoots.insert(repository.workTreeRoot)
+            return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -79,7 +87,7 @@ extension GitMetadataService {
               let indexSnapshot = Self.gitIndexSnapshot(
                   indexURL: URL(fileURLWithPath: indexPath)
               ) else {
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         // Reuse the root parse in the descriptor itself. Child snapshots are
         // only needed to discover their gitlinks and are intentionally released
@@ -93,6 +101,7 @@ extension GitMetadataService {
             return (
                 pathsByRepository,
                 indexSnapshotsByRepository,
+                forceWorkTreeRoots,
                 visitedRoots,
                 remainingRepositoryCount
             )
@@ -123,10 +132,12 @@ extension GitMetadataService {
                 childResult.indexSnapshots,
                 uniquingKeysWith: { _, new in new }
             )
+            forceWorkTreeRoots.formUnion(childResult.forceWorkTreeRoots)
         }
         return (
             pathsByRepository,
             indexSnapshotsByRepository,
+            forceWorkTreeRoots,
             visitedRoots,
             remainingRepositoryCount
         )

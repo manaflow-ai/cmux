@@ -4,4 +4,6 @@ import Foundation
 nonisolated struct GitMetadataWatchInputs: Sendable {
     let configPathsByRepository: [String: [String]]
     let indexSnapshotsByRepository: [String: GitIndexSnapshot]
+    /// Repositories whose index format requires a conservative work-tree root.
+    let forceWorkTreeRootRepositories: Set<String>
 }

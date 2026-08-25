@@ -21,16 +21,42 @@ extension GitMetadataService {
     /// The repository's top-level config files, including a linked worktree's
     /// `config.worktree` when that bounded regular file is present.
     nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        var urls = [
+        let rootURLs = [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ]
-        // `extensions.worktreeConfig` moves per-worktree settings into this
-        // sibling file. Include it when present; the bounded reader rejects
-        // FIFOs and directories before any content is consumed.
+        var urls = rootURLs
+        var worktreeConfigEnabled = false
+        let reader = GitConfigFileReader()
+        for configURL in rootURLs {
+            let result = reader.read(at: configURL, maximumByteCount: 64 * 1_024)
+            if case .oversized = result {
+                worktreeConfigEnabled = true
+                continue
+            }
+            guard case .contents(let contents, consumedByteCount: _) = result else { continue }
+            var inExtensionsSection = false
+            for rawLine in contents.split(whereSeparator: \.isNewline) {
+                let line = gitConfigLineRemovingInlineComment(String(rawLine))
+                    .trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("[") && line.hasSuffix("]") {
+                    inExtensionsSection = line.lowercased() == "[extensions]"
+                    continue
+                }
+                guard inExtensionsSection else { continue }
+                let parts = line.split(separator: "=", maxSplits: 1).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                guard parts.count == 2, parts[0].lowercased() == "worktreeconfig" else { continue }
+                worktreeConfigEnabled = gitConfigUnquotedValue(parts[1]).lowercased() == "true"
+            }
+        }
+        // The bounded reader rejects FIFOs and directories before any content
+        // is consumed.
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
-        if GitConfigFileReader().read(at: worktreeConfigURL, maximumByteCount: 1).isAvailable {
+        if worktreeConfigEnabled,
+           reader.read(at: worktreeConfigURL, maximumByteCount: 1).isAvailable {
             urls.append(worktreeConfigURL)
         }
         return urls

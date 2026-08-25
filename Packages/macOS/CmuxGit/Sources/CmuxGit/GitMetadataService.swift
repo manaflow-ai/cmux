@@ -187,11 +187,17 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             safetyConfiguration: safetyConfiguration
         )
-        return Self.workspaceGitMetadataWatchDescriptor(
+        guard let descriptor = Self.workspaceGitMetadataWatchDescriptor(
             for: directory,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: watchInputs.configPathsByRepository,
             indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository
+        ) else {
+            return nil
+        }
+        return applyingForcedWorkTreeRoots(
+            descriptor,
+            repositories: watchInputs.forceWorkTreeRootRepositories
         )
     }
 
