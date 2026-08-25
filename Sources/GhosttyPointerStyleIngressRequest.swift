@@ -11,4 +11,5 @@ struct GhosttyPointerStyleIngressRequest: @unchecked Sendable {
     let runtimeLifetimeId: UUID
     var sequence: UInt64 = 0
     var focusGeneration: UInt64 = 0
+    var runtimeGeneration: UInt64 = 0
 }
