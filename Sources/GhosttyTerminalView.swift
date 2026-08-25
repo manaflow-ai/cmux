@@ -4725,6 +4725,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
         let retiredRuntimeLifetimeId = runtimeLifetimeId ?? pointerStyleRuntimeLifetimeId
+        let endsCurrentRuntime = runtimeLifetimeId == nil ||
+            pointerStyleRuntimeLifetimeId == runtimeLifetimeId
         if pointerStyleRuntimeLifetimeId == retiredRuntimeLifetimeId {
             pointerStyleRuntimeLifetimeId = nil
         }
@@ -4732,7 +4734,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             runtimeLifetimeId: retiredRuntimeLifetimeId,
             surfaceId: terminalSurface?.id ?? UUID()
         )
-        suppressGhosttyPointerUntilFreshShape = false
+        if endsCurrentRuntime {
+            suppressGhosttyPointerUntilFreshShape = false
+        }
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 
