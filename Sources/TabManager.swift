@@ -1975,6 +1975,25 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Opens a workspace group in a fresh workspace without selecting or
+    /// closing the group's existing anchor.
+    ///
+    /// Group headers are container controls. Keeping their activation here
+    /// makes the creation/selection lifecycle explicit instead of letting a
+    /// sidebar row route a group identity through an anchor workspace id.
+    @discardableResult
+    func activateWorkspaceGroup(
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement? = nil
+    ) -> Workspace? {
+        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return nil }
+        return createWorkspaceInGroup(
+            groupId: groupId,
+            placement: placement,
+            select: true
+        )
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
