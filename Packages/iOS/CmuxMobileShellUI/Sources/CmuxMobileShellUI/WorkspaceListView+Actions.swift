@@ -43,7 +43,7 @@ extension WorkspaceListView {
     }
 
     func invalidateDeferredWorkspaceSelection() {
-        deferredWorkspaceSelectionGeneration &+= 1
+        macSelectionCoordinator.invalidateDeferredWorkspaceSelection()
     }
 
     var requestWorkspaceClose: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
