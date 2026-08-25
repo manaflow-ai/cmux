@@ -241,6 +241,33 @@ final class MainWindowLifecycleCoordinator {
         Array(registeredContextsByLookupKey.values)
     }
 
+    /// Replaces the lookup index while preserving lifecycle records.
+    ///
+    /// AppKit can briefly hand back a window under a different object identity;
+    /// the composition root uses this bounded repair operation to rebuild the
+    /// exact-window index without maintaining a second source of truth.
+    func replaceRegisteredContextLookups(
+        _ contexts: [ObjectIdentifier: AppDelegate.MainWindowContext]
+    ) {
+        registeredContextsByLookupKey = contexts
+    }
+
+    /// Inserts a standalone recoverable route for legacy callers that do not
+    /// have a live ``MainWindowContext`` (for example, a windowless restore
+    /// owner created by a test or a headless lifecycle entrypoint).
+    @discardableResult
+    func rememberStandaloneOrphanedRoute(
+        _ route: RecoverableMainWindowRoute
+    ) -> Bool {
+        guard recordsByWindowId[route.windowId] == nil else { return false }
+        recordsByWindowId[route.windowId] = MainWindowLifecycleRecord(
+            order: issueOrder(),
+            phase: .orphaned(route)
+        )
+        bumpPersistenceTopologyRevision()
+        return true
+    }
+
     func registeredContext(for lookupKey: ObjectIdentifier) -> AppDelegate.MainWindowContext? {
         registeredContextsByLookupKey[lookupKey]
     }

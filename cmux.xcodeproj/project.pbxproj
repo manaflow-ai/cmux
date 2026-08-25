@@ -1683,6 +1683,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */; };
 		9666B0019666B0019666B001 /* RecoverableMainWindowRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */; };
+		C8349011C8349011C8349011 /* RecoverableMainWindowRouteOwnerRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8349012C8349012C8349012 /* RecoverableMainWindowRouteOwnerRegistration.swift */; };
 		9666F3019666F3019666F301 /* RecoverableMainWindowRoutePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F3029666F3029666F302 /* RecoverableMainWindowRoutePayload.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
@@ -4519,6 +4520,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowLifecycleTests.swift; sourceTree = "<group>"; };
 		9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRoute.swift; sourceTree = "<group>"; };
+		C8349012C8349012C8349012 /* RecoverableMainWindowRouteOwnerRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRouteOwnerRegistration.swift; sourceTree = "<group>"; };
 		9666F3029666F3029666F302 /* RecoverableMainWindowRoutePayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRoutePayload.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
@@ -7082,6 +7084,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				895500000000000000000006 /* AppDelegate+WindowFrameRestoration.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
 				2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */,
+				C8349012C8349012C8349012 /* RecoverableMainWindowRouteOwnerRegistration.swift */,
 				9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */,
 				9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */,
 				9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */,
@@ -10145,6 +10148,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				9666B0019666B0019666B001 /* RecoverableMainWindowRoute.swift in Sources */,
+				C8349011C8349011C8349011 /* RecoverableMainWindowRouteOwnerRegistration.swift in Sources */,
 				9666F3019666F3019666F301 /* RecoverableMainWindowRoutePayload.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,

@@ -35,6 +35,13 @@ final class RecoverableMainWindowRoute {
         return frozenWindowDockSnapshot.map { .frozen($0) }
     }
 
+    /// Returns the live Dock owner when one still exists; frozen Dock state is
+    /// intentionally value-only and cannot be used for live routing.
+    var liveWindowDock: DockSplitStore? {
+        guard case .live(let dock)? = windowDock else { return nil }
+        return dock
+    }
+
     /// Indicates whether this live route can occupy a persisted window slot.
     var isEligibleForSessionPersistence: Bool {
         if frozenWindowSnapshot != nil {

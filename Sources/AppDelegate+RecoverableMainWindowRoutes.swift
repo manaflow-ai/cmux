@@ -721,6 +721,48 @@ extension AppDelegate {
         }
     }
 
+    /// Compatibility entrypoint for value-only recoverable route callers.
+    func rememberRecoverableMainWindowRoute(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarSnapshot: SessionSidebarSnapshot,
+        windowDock: DockSplitStore? = nil
+    ) {
+        if let registered = mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) {
+            guard registered.tabManager === tabManager else { return }
+            return
+        }
+        let sidebar = SidebarState(
+            isVisible: sidebarSnapshot.isVisible,
+            persistedWidth: CGFloat(
+                SessionPersistencePolicy.sanitizedSidebarWidth(sidebarSnapshot.width)
+            )
+        )
+        let sidebarSelection = SidebarSelectionState(
+            selection: sidebarSnapshot.selection.sidebarSelection
+        )
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: tabManager,
+            window: window,
+            sidebar: sidebar,
+            sidebarSelection: sidebarSelection,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        guard mainWindowLifecycleCoordinator.rememberStandaloneOrphanedRoute(route) else {
+            windowDock?.retire()
+            return
+        }
+        tabManager.installRecoverableMainWindowRouteOwnerRegistration(
+            RecoverableMainWindowRouteOwnerRegistration(
+                appDelegate: self,
+                route: route
+            )
+        )
+    }
+
     /// Removes a recoverable record only when it still owns the requested
     /// window id. This is used by owner-deinit callbacks and stale close paths.
     func retireRecoverableMainWindowRouteIfCurrent(
@@ -933,7 +975,9 @@ extension AppDelegate {
         }
 
         if let windowId = mainWindowId(from: window),
-           let snapshot = recoverableMainWindowRouteSnapshot(windowId: windowId) {
+           let route = mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId),
+           route.window === window,
+           let snapshot = recoverableMainWindowRouteSnapshot(for: route) {
             return ScriptableMainWindowState(
                 windowId: snapshot.windowId,
                 tabManager: snapshot.tabManager,
@@ -945,7 +989,7 @@ extension AppDelegate {
         guard windowNumber >= 0 else { return nil }
         guard let route = mainWindowLifecycleCoordinator.orphanedRoutes().first(where: { route in
             guard let routeWindow = route.window else { return false }
-            return routeWindow === window || routeWindow.windowNumber == windowNumber
+            return routeWindow === window
         }), let snapshot = recoverableMainWindowRouteSnapshot(for: route),
               let routeWindow = snapshot.window else {
             return nil

@@ -1083,7 +1083,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] {
-        mainWindowLifecycleCoordinator.registeredContextsByLookupKey
+        get { mainWindowLifecycleCoordinator.registeredContextsByLookupKey }
+        set { mainWindowLifecycleCoordinator.replaceRegisteredContextLookups(newValue) }
     }
     private var mainWindowControllers: [MainWindowController] = []
 
@@ -6658,7 +6659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             repaired[ObjectIdentifier(context)] = context
         }
 
-        mainWindowContexts = repaired
+        mainWindowLifecycleCoordinator.replaceRegisteredContextLookups(repaired)
         notifyMainWindowContextsDidChange()
     }
 
