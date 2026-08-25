@@ -674,7 +674,19 @@ final class SharedLiveAgentIndex {
         source.resume()
     }
 
+    /// Removes the complete watcher for an unowned PID.
+    ///
+    /// Unbound runtime records do not contribute a panel mapping, so this
+    /// path only cancels when no panel owners remain for the PID.
+    func disarmSidebarProcessExitWatcher(pid: Int) {
+        guard pid > 0,
+              sidebarProcessPanelIDsByPID[pid]?.isEmpty != false else { return }
+        sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
+        sidebarProcessExitWatchers.removeValue(forKey: pid)?.source.cancel()
+    }
+
     func disarmSidebarProcessExitWatcher(pid: Int, panelID: UUID) {
+        guard pid > 0 else { return }
         guard var panelIDs = sidebarProcessPanelIDsByPID[pid] else { return }
         panelIDs.remove(panelID)
         if panelIDs.isEmpty {

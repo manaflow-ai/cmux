@@ -11642,9 +11642,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             }
             guard isPresented, !Task.isCancelled else { return }
-            let ownerByPanelID = armSidebarProcessExitWatchersForCurrentPanels(
-                renderContext: renderContext
-            )
+            // Re-read ownership after the async load. Restore/move work can
+            // rotate a workspace identity while the task is suspended, so a
+            // map captured before the await is not safe for liveness checks.
+            let ownerByPanelID = armSidebarProcessExitWatchersForCurrentPanels()
             if SharedLiveAgentIndex.shared.hasCachedProcessLivenessEntries() {
                 // A hidden sidebar may have missed a process exit before its
                 // kernel source was armed. Revalidate the cached generations
@@ -12636,6 +12637,18 @@ struct VerticalTabsSidebar: View, Equatable {
         in renderContext: WorkspaceListRenderContext,
         scopedTo panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
     ) -> [UUID: UUID] {
+        sidebarPanelOwnership(
+            in: renderContext.tabs,
+            workspaceByID: renderContext.workspaceById,
+            scopedTo: panelIdsByWorkspaceId
+        )
+    }
+
+    private func sidebarPanelOwnership(
+        in workspaces: [Workspace],
+        workspaceByID: [UUID: Workspace]? = nil,
+        scopedTo panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
+    ) -> [UUID: UUID] {
         guard CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
             effectiveProviderId: effectiveExtensionSidebarProviderId
         ) else { return [:] }
@@ -12648,8 +12661,9 @@ struct VerticalTabsSidebar: View, Equatable {
             // rotated during restore, its lifecycle registration will arm the
             // current owner; resolving that alias here would require an
             // all-sidebar panel scan on every index event.
+            guard let workspaceByID else { return [:] }
             for (workspaceID, panelIDs) in panelIdsByWorkspaceId {
-                guard let workspace = renderContext.workspaceById[workspaceID] else { continue }
+                guard let workspace = workspaceByID[workspaceID] else { continue }
                 for panelID in panelIDs where workspace.panels[panelID] != nil {
                     guard !ambiguousPanelIDs.contains(panelID) else { continue }
                     if let previousOwner = ownerByPanelID[panelID], previousOwner != workspaceID {
@@ -12662,7 +12676,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         } else {
             // Only unscoped/legacy notifications pay the full owner traversal.
-            for workspace in renderContext.tabs {
+            for workspace in workspaces {
                 for panelID in workspace.panels.keys {
                     guard !ambiguousPanelIDs.contains(panelID) else { continue }
                     if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
@@ -12691,6 +12705,13 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext
     ) -> [UUID: UUID] {
         let ownerByPanelID = sidebarPanelOwnership(in: renderContext)
+        armSidebarProcessExitWatchers(for: ownerByPanelID)
+        return ownerByPanelID
+    }
+
+    @discardableResult
+    private func armSidebarProcessExitWatchersForCurrentPanels() -> [UUID: UUID] {
+        let ownerByPanelID = sidebarPanelOwnership(in: tabManager.tabs)
         armSidebarProcessExitWatchers(for: ownerByPanelID)
         return ownerByPanelID
     }

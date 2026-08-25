@@ -165,6 +165,16 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
+    private func hasAgentPIDAssociation(pid: pid_t, panelId: UUID) -> Bool {
+        agentPIDs.contains { key, recordedPID in
+            recordedPID == pid && agentPIDPanelIdsByKey[key] == panelId
+        }
+    }
+
+    private func hasAnyAgentPIDAssociation(pid: pid_t) -> Bool {
+        agentPIDs.values.contains(pid)
+    }
+
     @discardableResult
     private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
@@ -195,11 +205,31 @@ extension Workspace {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
             if !isRemoteWorkspace {
-                SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(
-                    pid: Int(pid),
-                    panelID: panelId,
-                    workspaceID: id
-                )
+                // Drop the old owner before arming the replacement. Keep a
+                // shared PID source alive when another runtime key still
+                // references the same panel/process generation.
+                if let previousPID = previous.pid {
+                    if let previousPanelId = previous.panelId {
+                        if !hasAgentPIDAssociation(pid: previousPID, panelId: previousPanelId) {
+                            SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                                pid: Int(previousPID),
+                                panelID: previousPanelId
+                            )
+                        }
+                    } else if !hasAnyAgentPIDAssociation(pid: previousPID) {
+                        SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(previousPID))
+                    }
+                }
+                // Sidebar process sources are meaningful only once a runtime
+                // has a panel owner. Unbound records wait for the next scoped
+                // index refresh instead of creating an unowned source.
+                if let panelId {
+                    SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(
+                        pid: Int(pid),
+                        panelID: panelId,
+                        workspaceID: id
+                    )
+                }
                 SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
             }
         }
@@ -253,6 +283,8 @@ extension Workspace {
                         pid: Int(pid),
                         panelID: panelID
                     )
+                } else {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(pid))
                 }
             }
         }
@@ -347,11 +379,17 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let ownedPID, let changedPanelId = ownedPanelId ?? panelId, !isRemoteWorkspace {
-            SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
-                pid: Int(ownedPID),
-                panelID: changedPanelId
-            )
+        if let ownedPID, !isRemoteWorkspace {
+            if let ownedPanelId {
+                if !hasAgentPIDAssociation(pid: ownedPID, panelId: ownedPanelId) {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                        pid: Int(ownedPID),
+                        panelID: ownedPanelId
+                    )
+                }
+            } else if !hasAnyAgentPIDAssociation(pid: ownedPID) {
+                SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(ownedPID))
+            }
         }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
