@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
@@ -230,6 +231,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9,
+            style: model.shortcutHintStyle,
+            textColor: model.isAnchorActive
+                ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
+                : model.shortcutHintColorHex.flatMap { NSColor(hex: $0) },
             representedIdentity: model.groupId
         )
 
@@ -674,9 +679,9 @@ final class SidebarHeaderGlyphButton: NSButton {
     }
 }
 
-/// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
-/// the shadow while the inner visual-effect view clips material to the capsule;
-/// putting both on one unclipped layer leaves a square material background.
+/// AppKit rendition of a sidebar shortcut hint. The default pill's outer view
+/// owns the shadow while its inner visual-effect view clips material to the
+/// capsule; bare hints hide that inner view and leave only the label.
 @MainActor
 final class SidebarShortcutHintPillView: NSView {
     private static let horizontalPadding: CGFloat = 4
@@ -686,6 +691,7 @@ final class SidebarShortcutHintPillView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
+    private var style: SidebarShortcutHintStyle = .pill
     private var representedIdentity: UUID?
     private var isRevealed = false
     private var visibilityGeneration: UInt64 = 0
@@ -712,7 +718,9 @@ final class SidebarShortcutHintPillView: NSView {
 
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        materialView.addSubview(label)
+        // Keep the label on the outer view so the material can be hidden for
+        // the bare style without hiding the shortcut text with it.
+        addSubview(label)
         layer?.opacity = 0
         isHidden = true
     }
@@ -725,10 +733,20 @@ final class SidebarShortcutHintPillView: NSView {
         text: String?,
         fontSize: CGFloat,
         emphasis: Double,
+        style: SidebarShortcutHintStyle = .pill,
+        textColor: NSColor? = nil,
         representedIdentity: UUID? = nil
     ) {
         let identityChanged = self.representedIdentity != representedIdentity
         self.representedIdentity = representedIdentity
+        self.style = style
+        materialView.isHidden = style == .bare
+        materialView.layer?.borderWidth = style == .pill ? 0.8 : 0
+        layer?.shadowOpacity = style == .pill ? 1 : 0
+        layer?.shadowColor = style == .pill
+            ? NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
+            : nil
+        needsLayout = true
         guard let text else {
             setRevealed(false, animated: !identityChanged)
             return
@@ -736,15 +754,19 @@ final class SidebarShortcutHintPillView: NSView {
         self.emphasis = emphasis
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
-        label.textColor = .labelColor
-        materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
-        layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
+        label.textColor = style == .bare ? (textColor ?? .labelColor) : .labelColor
+        materialView.layer?.borderColor = style == .pill
+            ? NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
+            : NSColor.clear.cgColor
         setRevealed(true, animated: !identityChanged)
     }
 
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
         let textSize = label.sidebarNaturalCellSize
+        guard style == .pill else {
+            return NSSize(width: ceil(textSize.width), height: ceil(textSize.height) + 4)
+        }
         return NSSize(
             width: ceil(textSize.width) + Self.horizontalPadding * 2,
             height: ceil(textSize.height) + 4
@@ -754,15 +776,19 @@ final class SidebarShortcutHintPillView: NSView {
     override func layout() {
         super.layout()
         let radius = bounds.height / 2
-        materialView.frame = bounds
+        materialView.frame = style == .pill ? bounds : .zero
         materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
-        layer?.shadowPath = CGPath(
-            roundedRect: bounds,
-            cornerWidth: radius,
-            cornerHeight: radius,
-            transform: nil
-        )
+        label.frame = style == .pill
+            ? materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+            : bounds.insetBy(dx: 0, dy: 2)
+        layer?.shadowPath = style == .pill
+            ? CGPath(
+                roundedRect: bounds,
+                cornerWidth: radius,
+                cornerHeight: radius,
+                transform: nil
+            )
+            : nil
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -775,6 +801,11 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         applyImmediateVisibility(false)
         label.stringValue = ""
+        style = .pill
+        materialView.isHidden = false
+        materialView.layer?.borderWidth = 0.8
+        layer?.shadowOpacity = 1
+        layer?.shadowColor = NSColor.black.withAlphaComponent(0.22).cgColor
     }
 
     private func setRevealed(_ revealed: Bool, animated: Bool = true) {

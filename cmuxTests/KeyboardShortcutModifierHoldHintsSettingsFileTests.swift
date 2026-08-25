@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import Testing
 import struct CmuxSettings.NotificationsCatalogSection
@@ -43,6 +44,81 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             #expect(defaults.object(forKey: key) as? Bool == false)
             #expect(!ShortcutHintDebugSettings(defaults: defaults).modifierHoldHintsEnabled)
             #expect(store.override(for: .openBrowser) == StoredShortcut(key: "3", command: true, shift: false, option: false, control: false))
+        }
+    }
+
+    @Test
+    func settingsFileStoreAppliesSidebarShortcutHintAppearance() throws {
+        let defaults = UserDefaults.standard
+        let sidebar = SidebarCatalogSection()
+        try preservingDefaults(keys: [
+            sidebar.shortcutHintStyle.userDefaultsKey,
+            sidebar.shortcutHintColorHex.userDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "sidebar": {
+                "shortcutHintStyle": "bare",
+                "shortcutHintColor": "#286983"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: sidebar.shortcutHintStyle.userDefaultsKey) == "bare")
+            #expect(defaults.string(forKey: sidebar.shortcutHintColorHex.userDefaultsKey) == "#286983")
+            let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
+            #expect(snapshot.shortcutHintStyle == .bare)
+            #expect(snapshot.shortcutHintColorHex == "#286983")
+        }
+    }
+
+    @Test
+    func malformedSidebarShortcutHintAppearanceFallsBackIndependently() throws {
+        let defaults = UserDefaults.standard
+        let sidebar = SidebarCatalogSection()
+        try preservingDefaults(keys: [
+            sidebar.shortcutHintStyle.userDefaultsKey,
+            sidebar.shortcutHintColorHex.userDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("bare", forKey: sidebar.shortcutHintStyle.userDefaultsKey)
+            defaults.set("#112233", forKey: sidebar.shortcutHintColorHex.userDefaultsKey)
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "sidebar": {
+                "shortcutHintStyle": "keycap",
+                "shortcutHintColor": "not-a-color"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: sidebar.shortcutHintStyle.userDefaultsKey) == "bare")
+            #expect(defaults.string(forKey: sidebar.shortcutHintColorHex.userDefaultsKey) == "#112233")
         }
     }
 

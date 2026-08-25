@@ -1123,6 +1123,17 @@
           "default": "leading",
           "description": "Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right)."
         },
+        "shortcutHintStyle": {
+          "type": "string",
+          "enum": ["pill", "bare"],
+          "default": "pill",
+          "description": "Visual treatment for modifier-hold shortcut hints in the workspace sidebar."
+        },
+        "shortcutHintColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Optional color for bare shortcut-hint text on unselected sidebar rows; selected rows use a readable foreground."
+        },
         "showCustomMetadata": {
           "type": "boolean",
           "default": true,

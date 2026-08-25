@@ -31,6 +31,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
+            lhs.shortcutHintStyle == rhs.shortcutHintStyle &&
+            lhs.shortcutHintColorHex == rhs.shortcutHintColorHex &&
             lhs.isPointerHovering == rhs.isPointerHovering &&
             lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
             lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
@@ -64,6 +66,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
+    let shortcutHintStyle: SidebarShortcutHintStyle
+    let shortcutHintColorHex: String?
     let isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
@@ -122,6 +126,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
               let shortcutDigit,
               let shortcutModifierSymbol else { return nil }
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
+    }
+
+    private var shortcutHintTextColor: Color? {
+        guard shortcutHintStyle == .bare else { return nil }
+        if isAnchorActive { return .primary }
+        return shortcutHintColorHex.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) }
     }
 
     private var pinnedGroupTooltip: String {
@@ -295,7 +305,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,
             offsetX: shortcutHintXOffset,
-            offsetY: shortcutHintYOffset
+            offsetY: shortcutHintYOffset,
+            style: shortcutHintStyle,
+            textColor: shortcutHintTextColor
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)

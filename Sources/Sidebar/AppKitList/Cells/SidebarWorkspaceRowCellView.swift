@@ -586,6 +586,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
+            style: model.settings.shortcutHintStyle,
+            textColor: model.settings.shortcutHintStyle == .bare
+                ? (model.isActive
+                    ? palette.selectedForeground(1.0)
+                    : model.settings.shortcutHintColorHex.flatMap { NSColor(hex: $0) })
+                : nil,
             representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor

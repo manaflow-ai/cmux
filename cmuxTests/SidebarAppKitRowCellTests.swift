@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -1912,6 +1913,57 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func bareShortcutHintRemovesCapsuleChromeAndUsesConfiguredTextColor() throws {
+        let pill = SidebarShortcutHintPillView()
+        let configuredColor = try #require(NSColor(hex: "#286983"))
+        pill.configure(
+            text: "⌘1",
+            fontSize: 10,
+            emphasis: 1,
+            style: .bare,
+            textColor: configuredColor
+        )
+        pill.frame = NSRect(x: 0, y: 0, width: 40, height: 18)
+        pill.layoutSubtreeIfNeeded()
+
+        let material = try #require(
+            Self.descendants(of: pill).compactMap { $0 as? NSVisualEffectView }.first
+        )
+        let label = try #require(
+            Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first
+        )
+        #expect(material.isHidden)
+        #expect(material.layer?.borderWidth == 0)
+        #expect(pill.layer?.shadowOpacity == 0)
+        #expect(label.textColor?.hexString() == configuredColor.hexString())
+        #expect(pill.fittingPillSize().width == ceil(label.sidebarNaturalCellSize.width))
+    }
+
+    @Test
+    func selectedBareShortcutHintUsesReadableRowForeground() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let catalog = SettingCatalog()
+        defaults.set(
+            SidebarShortcutHintStyle.bare.rawValue,
+            forKey: catalog.sidebar.shortcutHintStyle.userDefaultsKey
+        )
+        defaults.set("#286983", forKey: catalog.sidebar.shortcutHintColorHex.userDefaultsKey)
+        defaults.set("#286983", forKey: catalog.workspaceColors.selectionColorHex.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = Self.makeModel(isActive: true, settings: settings, shortcutHintText: "⌘1")
+        let cell = Self.configuredCell(model: model)
+        let pill = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first
+        )
+        let label = try #require(
+            Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first
+        )
+
+        let expected = SidebarRowPalette(model: model).selectedForeground(1.0)
+        #expect(label.textColor?.hexString() == expected.hexString())
+    }
+
+    @Test
     func optimisticSelectionPaintsFlippedModelButKeepsAuthoritativeState() {
         let model = Self.makeModel(isActive: false)
         let cell = Self.configuredCell(model: model)
@@ -2088,6 +2140,8 @@ struct SidebarPinnedIndicatorColorTests {
             canMarkAllRead: false,
             canMarkAllUnread: false,
             shortcutHintText: nil,
+            shortcutHintStyle: .pill,
+            shortcutHintColorHex: nil,
             shortcutHintXOffset: 0,
             shortcutHintYOffset: 0,
             fontScale: 1,
