@@ -10341,7 +10341,7 @@ class TerminalController {
         if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
             originURL = url
         } else if let serializedDomain {
-            originURL = v2BrowserCookieOriginURL(for: serializedDomain, secure: secure)
+            originURL = BrowserCookieBuilder().originURL(forHost: serializedDomain, secure: secure)
         } else {
             originURL = fallbackURL
         }
@@ -10368,14 +10368,6 @@ class TerminalController {
         )
     }
 
-    private nonisolated func v2BrowserCookieOriginURL(for domain: String, secure: Bool) -> URL? {
-        var components = URLComponents()
-        components.scheme = secure ? "https" : "http"
-        components.host = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        components.path = "/"
-        return components.url
-    }
-
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let store = v2MainSync {
@@ -10393,6 +10385,9 @@ class TerminalController {
             }
             if let path = v2String(params, "path") {
                 cookies = cookies.filter { $0.path == path }
+            }
+            if let httpOnly = v2Bool(params, "httpOnly") {
+                cookies = cookies.filter { $0.isHTTPOnly == httpOnly }
             }
 
             return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies.map(v2BrowserCookieDict)]))

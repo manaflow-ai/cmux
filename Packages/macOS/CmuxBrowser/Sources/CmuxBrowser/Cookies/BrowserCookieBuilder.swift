@@ -58,6 +58,11 @@ public struct BrowserCookieBuilder: Sendable {
     /// Creates a stateless browser cookie builder.
     public init() {}
 
+    /// Builds the HTTP(S) origin URL used to scope a cookie to a host.
+    public func originURL(forHost host: String, secure: Bool) -> URL? {
+        browserCookieURL(scheme: secure ? "https" : "http", host: host)
+    }
+
     /// Builds a cookie from its browser automation fields.
     ///
     /// - Parameters:
@@ -146,8 +151,8 @@ public struct BrowserCookieBuilder: Sendable {
         return header
     }
 
-    private func responseURL(for cookie: HTTPCookie, originURL: URL?) -> URL? {
-        let candidate = originURL ?? browserCookieURL(scheme: cookie.isSecure ? "https" : "http", host: cookie.domain)
+    private func responseURL(for cookie: HTTPCookie, originURL sourceURL: URL?) -> URL? {
+        let candidate = sourceURL ?? originURL(forHost: cookie.domain, secure: cookie.isSecure)
         guard var components = candidate.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
             return nil
         }
@@ -155,7 +160,7 @@ public struct BrowserCookieBuilder: Sendable {
         guard let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               components.host != nil else {
-            return browserCookieURL(scheme: cookie.isSecure ? "https" : "http", host: cookie.domain)
+            return originURL(forHost: cookie.domain, secure: cookie.isSecure)
         }
         // Foundation rejects a Secure Set-Cookie header parsed against an HTTP
         // URL, even though the cookie itself remains valid for HTTPS requests.

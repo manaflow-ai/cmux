@@ -298,6 +298,18 @@ def main() -> int:
             _must(http_only_row is not None, f"Expected HttpOnly cookie in cookies.get: {got_http_only}")
             _must(bool(http_only_row.get("httpOnly")) is True, f"Expected httpOnly=true in cookies.get: {got_http_only}")
             _must(bool(http_only_row.get("hostOnly")) is True, f"Expected hostOnly=true in cookies.get: {got_http_only}")
+            filtered_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": True},
+            ) or {}
+            filtered_names = {str(row.get("name")) for row in (filtered_http_only.get("cookies") or [])}
+            _must(http_only_name in filtered_names, f"Expected httpOnly filter to retain cookie: {filtered_http_only}")
+            filtered_non_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": False},
+            ) or {}
+            non_http_only_names = {str(row.get("name")) for row in (filtered_non_http_only.get("cookies") or [])}
+            _must(http_only_name not in non_http_only_names, f"Expected httpOnly filter=false to exclude cookie: {filtered_non_http_only}")
             document_cookie = c._call(
                 "browser.eval",
                 {"surface_id": sid, "script": "document.cookie"},

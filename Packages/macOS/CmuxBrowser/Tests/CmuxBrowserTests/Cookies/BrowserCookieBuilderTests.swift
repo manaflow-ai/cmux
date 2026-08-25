@@ -92,7 +92,8 @@ struct BrowserCookieBuilderTests {
     @Test("preserves an expiration while synthesizing the response header")
     func preservesExpiration() throws {
         let originURL = try #require(URL(string: "https://example.test/"))
-        let expiration = Date.now.addingTimeInterval(60 * 60)
+        // Whole-second value: the synthesized `Expires` header has one-second resolution.
+        let expiration = Date(timeIntervalSince1970: 1_800_000_000)
         let cookie = try #require(builder.makeCookie(
             name: "expiring_session",
             value: "secret",
@@ -105,7 +106,7 @@ struct BrowserCookieBuilderTests {
         ))
 
         let actualExpiration = try #require(cookie.expiresDate)
-        #expect(abs(actualExpiration.timeIntervalSince(expiration)) < 2)
+        #expect(actualExpiration.timeIntervalSince1970 == expiration.timeIntervalSince1970)
         #expect(cookie.isHTTPOnly)
     }
 }
