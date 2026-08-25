@@ -239,13 +239,14 @@ final class ShortcutPrefixChordCoordinator {
     ) -> OfferResult {
         let pendingIsLive = router.deadline.map { now < $0 } ?? false
         let pendingBelongsToEventWindow = router.pendingWindowID == eventWindowID
-        let eligibleBindings: [ShortcutPrefixChordBinding]
-        if (pendingIsLive && pendingBelongsToEventWindow)
-            || !router.matchesConfiguredPrefix(stroke) {
-            eligibleBindings = []
-        } else {
-            eligibleBindings = bindings(for: event, owner: owner)
-        }
+        // Build the focus/action table only for a stroke that can arm the
+        // layer. Ordinary terminal keys fail this cheap predicate and stay
+        // allocation-free even while a prefix is configured.
+        let shouldCollectEligibleBindings = router.matchesConfiguredPrefix(stroke)
+            && !(pendingIsLive && pendingBelongsToEventWindow)
+        let eligibleBindings = shouldCollectEligibleBindings
+            ? bindings(for: event, owner: owner)
+            : []
         let handled = router.handleOnce(
             stroke: stroke,
             now: now,

@@ -35,6 +35,11 @@ extension ShortcutListModel {
                 localized: "shortcut.prefix.error.escapeReserved",
                 defaultValue: "Escape is reserved for cancelling an armed prefix."
             )
+        case .chordConflict:
+            return String(
+                localized: "shortcut.prefix.error.chordConflict",
+                defaultValue: "Changing the prefix would make existing shortcut chords conflict."
+            )
         case .accepted, .unbound, nil:
             return nil
         }

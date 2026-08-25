@@ -80,6 +80,39 @@ import CmuxSettings
         )
     }
 
+    @Test func changingPrefixRejectsCollidingPersistedChords() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        let firstLeader = ShortcutStroke(key: "b", control: true)
+        let secondLeader = ShortcutStroke(key: "g", control: true)
+        let suffix = ShortcutStroke(key: "n")
+        await model.assignChord(
+            StoredShortcut(first: firstLeader, second: suffix),
+            to: .newTab
+        )
+        await model.assignChord(
+            StoredShortcut(first: secondLeader, second: suffix),
+            to: .openSettings
+        )
+
+        await model.assignPrefix(ShortcutStroke(key: "x", control: true))
+
+        #expect(model.prefix.isUnbound)
+        #expect(model.prefixRejection == .chordConflict)
+        let persistedPrefix = await store.value(for: catalog.shortcuts.prefix)
+        #expect(persistedPrefix.isUnbound)
+        let persisted = await store.value(for: catalog.shortcuts.bindings)
+        #expect(
+            persisted[ShortcutAction.newTab.rawValue]
+                == StoredShortcut(first: firstLeader, second: suffix)
+        )
+        #expect(
+            persisted[ShortcutAction.openSettings.rawValue]
+                == StoredShortcut(first: secondLeader, second: suffix)
+        )
+    }
+
     @Test func overlappingPrefixWritesLeaveTheNewestValuePersisted() async throws {
         let (store, catalog, errorLog) = makeStore()
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)

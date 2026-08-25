@@ -49,12 +49,14 @@ final class PrefixChordChecklistActionRegistry {
     @discardableResult
     func perform(
         _ action: KeyboardShortcutSettings.Action,
-        event: NSEvent
+        event: NSEvent,
+        resolvedWindowNumber: Int? = nil
     ) -> Bool {
         guard action == .toggleChecklistItemComplete else { return false }
-        let eventWindowNumber = event.window?.windowNumber
+        let eventWindowNumber = resolvedWindowNumber.flatMap { $0 > 0 ? $0 : nil }
+            ?? event.window?.windowNumber
             ?? (event.windowNumber > 0 ? event.windowNumber : nil)
-        guard let eventWindowNumber else { return false }
+        guard let eventWindowNumber, eventWindowNumber > 0 else { return false }
 
         // Iterate a snapshot so a view may unregister itself from its action
         // closure without invalidating this dispatch.

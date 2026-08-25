@@ -23,6 +23,8 @@ public enum ShortcutPrefixPolicyResult: Sendable, Equatable {
     case systemDefinedKeyNotSupported
     /// Escape is reserved for cancelling an armed prefix.
     case escapeReserved
+    /// Rebinding the prefix would make existing shortcut chords collide.
+    case chordConflict
 }
 
 /// Validates and canonicalizes the optional leader key shared by settings and runtime routing.
@@ -68,7 +70,7 @@ public struct ShortcutPrefixPolicy: Sendable {
         case .unbound:
             return .unbound
         case .singleStrokeRequired, .emptyStrokeNotSupported, .modifierRequired,
-             .systemDefinedKeyNotSupported, .escapeReserved:
+             .systemDefinedKeyNotSupported, .escapeReserved, .chordConflict:
             return nil
         }
     }

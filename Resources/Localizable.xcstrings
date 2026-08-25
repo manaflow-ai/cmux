@@ -223846,6 +223846,23 @@
         }
       }
     },
+    "shortcut.prefix.error.chordConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changing the prefix would make existing shortcut chords conflict."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスを変更すると既存のショートカットコードが競合します。"
+          }
+        }
+      }
+    },
     "shortcut.prefix.error.emptyStrokeNotSupported": {
       "extractionState": "manual",
       "localizations": {

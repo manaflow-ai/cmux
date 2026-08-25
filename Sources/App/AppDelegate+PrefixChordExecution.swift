@@ -135,7 +135,11 @@ extension AppDelegate {
         case .toggleChecklistItemComplete:
             return prefixChordChecklistActionRegistry.perform(
                 action,
-                event: event
+                event: event,
+                resolvedWindowNumber: prefixChordWindowNumber(
+                    for: event,
+                    fallbackWindow: resolvedShortcutEventWindow(event)
+                )
             )
 
         case .diffViewerScrollDown,

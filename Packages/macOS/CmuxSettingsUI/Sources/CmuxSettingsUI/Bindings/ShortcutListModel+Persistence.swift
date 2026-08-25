@@ -1,6 +1,10 @@
 import CmuxSettings
 
 extension ShortcutListModel {
+    private enum PrefixRebaseError: Error {
+        case chordConflict
+    }
+
     /// Enqueues one settings mutation behind every earlier shortcut mutation.
     /// The operation closure is MainActor-isolated so the model's optimistic
     /// state and its persistence side effects share one ordering boundary.
@@ -72,6 +76,12 @@ extension ShortcutListModel {
             prefix = committed
             onShortcutsChanged()
         } catch {
+            if case PrefixRebaseError.chordConflict = error {
+                guard prefixWriteGeneration == generation else { return }
+                prefix = previous
+                prefixRejection = .chordConflict
+                return
+            }
             guard prefixWriteGeneration == generation else { return }
             let committed = ShortcutPrefixPolicy().normalized(
                 await jsonStore.value(for: catalog.shortcuts.prefix)
@@ -148,6 +158,17 @@ extension ShortcutListModel {
                 changedActionIds: Set(changedActionIds)
             )
             return
+        }
+
+        for (actionID, shortcut) in rebased where shortcut.hasChord {
+            guard let action = ShortcutAction(rawValue: actionID) else { continue }
+            if detectConflict(
+                for: action,
+                stroke: shortcut,
+                overriding: rebased
+            ) != nil {
+                throw PrefixRebaseError.chordConflict
+            }
         }
 
         // A newer binding request may already have been issued while this

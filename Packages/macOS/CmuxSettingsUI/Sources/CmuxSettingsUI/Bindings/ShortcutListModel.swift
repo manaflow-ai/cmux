@@ -135,7 +135,7 @@ final class ShortcutListModel {
 
     /// The effective focus `when` clause for `action`: its `shortcuts.when`
     /// override, or the built-in ``ShortcutAction/defaultFocusWhenClause``.
-    private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
+    fileprivate func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
         whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
@@ -210,6 +210,22 @@ final class ShortcutListModel {
     /// `when` clause, or `nil` when there is no conflict. Context-disjoint or
     /// priority-routed clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
+        detectConflict(
+            for: action,
+            stroke: stroke,
+            overriding: latestBindings
+        )
+    }
+
+    /// Returns a conflict using `overriding` as the persisted binding snapshot.
+    /// Entries absent from the snapshot resolve through the normal legacy and
+    /// built-in fallback path, which lets prefix rebasing validate a complete
+    /// candidate table before it reaches JSONConfigStore.
+    fileprivate func detectConflict(
+        for action: ShortcutAction,
+        stroke: StoredShortcut,
+        overriding: [String: StoredShortcut]
+    ) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
             guard ShortcutWhenClause.bindingsCollide(
@@ -218,7 +234,16 @@ final class ShortcutListModel {
                 effectiveWhenClause(for: other),
                 rhsHasPriority: other.hasPriorityShortcutRouting
             ) else { continue }
-            let effective = effective(for: other)
+            let effective: StoredShortcut?
+            if let candidate = overriding[other.rawValue] {
+                guard !candidate.isUnbound,
+                      other.shortcutBindingPolicyResult(for: candidate) == .accepted else {
+                    continue
+                }
+                effective = candidate.canonicalized()
+            } else {
+                effective = effective(for: other)
+            }
             guard let effective, !effective.isUnbound else { continue }
             if ShortcutBindingConflict(
                 proposed: stroke,
