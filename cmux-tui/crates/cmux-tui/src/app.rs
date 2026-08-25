@@ -17379,6 +17379,17 @@ impl App {
         self.workspace_preview = None;
     }
 
+    fn commit_workspace_preview_for_pane_click(&mut self) {
+        if self.workspace_preview.is_none() {
+            return;
+        }
+        let workspace = self.tree.active_workspace;
+        self.commit_workspace_preview();
+        self.focus = FocusTarget::Pane;
+        self.sidebar_focus_pending = false;
+        self.select_workspace_for_client(Some(workspace), None);
+    }
+
     fn cancel_workspace_preview(&mut self) {
         let Some(preview) = self.workspace_preview.take() else { return };
         let Some(index) =
@@ -21593,6 +21604,13 @@ impl App {
                 self.menu = Some(menu); // padding click: keep it open
             }
             return Ok(RenderAction::Draw);
+        }
+
+        // A pane press is an explicit choice after a hover preview. Commit it
+        // before PTY or browser handling can consume the press and clear the
+        // preview through the ordinary sidebar-focus exit path.
+        if self.pane_area_at(x, y).is_some() {
+            self.commit_workspace_preview_for_pane_click();
         }
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
@@ -41806,7 +41824,8 @@ mod tests {
 
     #[test]
     fn workspace_sidebar_preview_commits_when_pane_is_clicked() {
-        let mux = Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
+        let mux =
+            Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
         let workspace_tree = Session::Local(mux.clone()).tree();
@@ -41842,7 +41861,10 @@ mod tests {
             .expect("previewed pane area");
         assert!(area.content.width > 2 && area.content.height > 2);
 
-        let click = (area.content.x + area.content.width / 2, area.content.y + area.content.height / 2);
+        let click = (
+            area.content.x + area.content.width / 2,
+            area.content.y + area.content.height / 2,
+        );
         app.handle_left_down(click.0, click.1, KeyModifiers::NONE).unwrap();
 
         assert_eq!(app.workspace_preview, None);
