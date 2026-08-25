@@ -3890,6 +3890,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/axios_multiline_grouped_chain.ts",
+            (
+                "axios.create({\n"
+                '  baseURL: "https://api.openai.com"\n'
+                "})\n"
+                '  .get("/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_stored_client_get.py",
             (
                 'client = httpx.Client(base_url="https://api.openai.com")\n'
