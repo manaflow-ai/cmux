@@ -219,6 +219,8 @@ jobs:
       # (relay-publish-npm.yml), so a routine TUI release can never take over
       # cmux-relay@latest from the shipping relay.
       - name: Publish platform packages
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           packages=(
@@ -229,8 +231,16 @@ jobs:
             cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
+            # A retried run must not fail on the packages an earlier attempt
+            # already published at this exact version.
+            if [[ "$(npm view "$package@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+              echo "Skipping $package@$PUBLISH_VERSION: already published"
+              continue
+            fi
             echo "Publishing $package"
-            if ! npm publish --provenance "dist/npm-packages/$package"; then
+            # --access public is required to publish a NEW unscoped package
+            # with --provenance and is a no-op for the existing public ones.
+            if ! npm publish --provenance --access public "dist/npm-packages/$package"; then
               cat >&2 <<'EOF'
           npm publish failed.
 
@@ -251,8 +261,14 @@ jobs:
           done
 
       - name: Publish launcher package
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if [[ "$(npm view "cmux@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+            echo "Skipping cmux@$PUBLISH_VERSION: already published"
+            exit 0
+          fi
           # Deliberately do not pass --tag: this coordinated TUI publish takes
           # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
-          npm publish --provenance dist/npm-packages/cmux
+          npm publish --provenance --access public dist/npm-packages/cmux

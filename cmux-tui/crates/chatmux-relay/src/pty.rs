@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
+use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
@@ -690,6 +691,22 @@ fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, message: &st
     }));
 }
 
+fn send_typed_pty_error(
+    context: &FrameContext,
+    pty_id: &str,
+    code: RelayPtyErrorCode,
+    message: &str,
+) {
+    let wire_code = match code {
+        RelayPtyErrorCode::BadRequest => "bad_request",
+        RelayPtyErrorCode::TrustRefused => "trust_refused",
+        RelayPtyErrorCode::SessionLimit => "session_limit",
+        RelayPtyErrorCode::TerminalGone => "terminal_gone",
+        RelayPtyErrorCode::Failed => "failed",
+    };
+    send_pty_error(context, pty_id, wire_code, message);
+}
+
 impl Inner {
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -813,8 +830,8 @@ impl Inner {
             {
                 Ok(Some(opened)) => Some(opened),
                 Ok(None) => None, // degrade to whole-session
-                Err(message) => {
-                    fail("failed", &message);
+                Err((code, message)) => {
+                    send_typed_pty_error(context, &pty_id, code, &message);
                     return;
                 }
             }
@@ -1977,9 +1994,13 @@ impl Inner {
         pty_id: &str,
         server_roots: Option<&[String]>,
         context: &FrameContext,
-    ) -> Result<Option<Opened>, String> {
+    ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
-        let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
+        let ensured = self
+            .deps
+            .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env)
+            .await
+            .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
         let control = match self.deps.connect_control(&ensured.socket_path).await {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
@@ -2024,8 +2045,14 @@ impl Inner {
         }
         let Some(surface_id) = surface_id else {
             control.end();
-            return Err(format!(
-                "terminal \"{surface_ref}\" not found in session \"{session}\" (it may have been closed)"
+            // Typed refusal: the terminal died with its process (or its tab
+            // closed) — permanent, so clients render an ended state and
+            // never offer a retry.
+            return Err((
+                RelayPtyErrorCode::TerminalGone,
+                format!(
+                    "terminal \"{surface_ref}\" not found in session \"{session}\" (it may have been closed)"
+                ),
             ));
         };
 
@@ -2041,17 +2068,26 @@ impl Inner {
                 .and_then(Value::as_str);
             if actual.is_none_or(|value| value.is_empty() || !Path::new(value).is_absolute()) {
                 control.end();
-                return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "cannot prove existing surface cwd is within allowed roots".to_owned(),
+                ));
             }
             let Some(actual) = actual else {
                 control.end();
-                return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "cannot prove existing surface cwd is within allowed roots".to_owned(),
+                ));
             };
             if scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)
                 .is_err()
             {
                 control.end();
-                return Err("existing surface cwd is outside allowed roots".to_owned());
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "existing surface cwd is outside allowed roots".to_owned(),
+                ));
             }
         }
 
@@ -2094,7 +2130,10 @@ impl Inner {
                 .and_then(|v| v.get("error"))
                 .and_then(Value::as_str)
                 .unwrap_or("no reply");
-            return Err(format!("attach-surface failed for terminal \"{surface_ref}\": {reason}"));
+            return Err((
+                RelayPtyErrorCode::Failed,
+                format!("attach-surface failed for terminal \"{surface_ref}\": {reason}"),
+            ));
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
@@ -2304,6 +2343,8 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::{CloseHandler, EventHandler};
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2504,6 +2545,7 @@ mod tests {
         socket_dir: PathBuf,
         read_dir: Option<Vec<String>>,
         ensure_socket_path: Option<PathBuf>,
+        control: Option<Arc<dyn ControlHandle>>,
     }
 
     #[async_trait]
@@ -2547,7 +2589,10 @@ mod tests {
             socket_path: &Path,
         ) -> Result<Arc<dyn ControlHandle>, String> {
             self.recorded.lock().unwrap().connected.push(socket_path.to_path_buf());
-            Err("no control socket in tests unless injected".to_owned())
+            match &self.control {
+                Some(control) => Ok(Arc::clone(control)),
+                None => Err("no control socket in tests unless injected".to_owned()),
+            }
         }
         async fn read_dir(&self, _path: &Path) -> Result<Vec<String>, ()> {
             self.read_dir.clone().ok_or(())
@@ -2587,6 +2632,15 @@ mod tests {
         read_dir: Option<Vec<String>>,
         ensure_socket_path: Option<PathBuf>,
     ) -> Harness {
+        harness_with_control(resolve, read_dir, ensure_socket_path, None)
+    }
+
+    fn harness_with_control(
+        resolve: Option<CmuxTui>,
+        read_dir: Option<Vec<String>>,
+        ensure_socket_path: Option<PathBuf>,
+        control: Option<Arc<dyn ControlHandle>>,
+    ) -> Harness {
         let home = TestDirectory::new("harness");
         let home_path = home.path.clone();
         let env = env_map(&home_path);
@@ -2599,6 +2653,7 @@ mod tests {
             socket_dir,
             read_dir,
             ensure_socket_path,
+            control,
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -2940,6 +2995,7 @@ mod tests {
             socket_dir: PathBuf::from("/run/cmux-tui-501"),
             read_dir: None,
             ensure_socket_path: None,
+            control: None,
         });
         let manager =
             PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
@@ -3071,6 +3127,63 @@ mod tests {
         // a second path from socket_dir and session.
         assert_eq!(h.connected(), vec![daemon_socket]);
         assert_eq!(h.sent()[0]["type"], "pty_opened");
+    }
+
+    /// Scripted control plane: identifies at the protocol floor and lists a
+    /// workspace tree WITHOUT the requested terminal — the JS harness's
+    /// "closed tab" shape.
+    struct GoneControl;
+
+    impl ControlHandle for GoneControl {
+        fn request(
+            &self,
+            cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let response = match cmd {
+                "identify" => Some(serde_json::json!({
+                    "ok": true,
+                    "data": { "protocol": CONTROL_MIN_PROTOCOL, "capabilities": [] },
+                })),
+                "list-workspaces" => Some(serde_json::json!({
+                    "ok": true,
+                    "data": { "workspaces": [] },
+                })),
+                _ => None,
+            };
+            Box::pin(async move { response })
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {}
+    }
+
+    #[tokio::test]
+    async fn missing_surface_refuses_with_typed_terminal_gone() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness_with_control(Some(cmux), None, None, Some(Arc::new(GoneControl)));
+        h.open(
+            "p1",
+            "job-x",
+            serde_json::json!({ "surface": "term_dead" }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        let sent = h.sent();
+        let error = sent.iter().find(|f| ty(f) == "pty_error").expect("pty_error frame");
+        // The typed code is the contract (chatmux protocol RelayPtyErrorCode);
+        // the message keeps the human wording the Node relay used.
+        assert_eq!(error["code"], "terminal_gone");
+        let decoded: crate::relay_wire::RelayPtyError =
+            serde_json::from_value(error.clone()).expect("generated pty_error fixture");
+        assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
+        assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
+        // A gone terminal must NOT degrade to a whole-session attach.
+        assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
     }
 
     #[tokio::test]

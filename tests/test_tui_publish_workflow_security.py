@@ -1510,7 +1510,12 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert 'dist_tag="next"' in text
     assert 'dist_tag="latest"' in text
     assert 'if [[ "$version" == *-rc.* ]]' in text
-    assert text.count('npm publish --provenance --tag "$DIST_TAG"') == 2
+    # --access public is required for the first publish of each new unscoped
+    # cmux-relay package name under --provenance and is a no-op afterwards.
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 2
+    assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
+        'npm publish --provenance --access public --tag "$DIST_TAG"', ""
+    )
     assert "npm publish --provenance dist/npm-packages" not in text
 
     # Same provenance posture as the TUI publisher: trusted-publisher
