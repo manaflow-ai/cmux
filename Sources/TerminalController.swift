@@ -3830,6 +3830,20 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let vmError = error as? VMClientError,
+               Self.isCloudVMAuthenticationError(vmError) {
+                // Keep the auth boundary explicit for every VM verb. The CLI
+                // can then return a stable non-zero auth-required failure
+                // instead of presenting a generic backend error.
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: String(
+                        localized: "socket.cloudVM.authRequired",
+                        defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+                    )
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
@@ -3841,6 +3855,17 @@ class TerminalController {
                 code: "vm_error",
                 message: "unknown vm error"
             )
+        }
+    }
+
+    private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
+        switch error {
+        case .notSignedIn:
+            return true
+        case .httpStatus(let status, _):
+            return status == 401
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+            return false
         }
     }
 

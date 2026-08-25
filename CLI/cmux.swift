@@ -3203,12 +3203,13 @@ struct CMUXCLI {
     /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:
     /// a machine without a desktop, or a backend without open-port, just skips the split.
     @discardableResult
-    private func openVMDesktopSplit(vmId: String, client: SocketClient, workspaceId: String? = nil) -> Bool {
-        guard let payload = try? client.sendV2(
+    private func openVMDesktopSplit(vmId: String, client: SocketClient, workspaceId: String? = nil) throws -> Bool {
+        let payload = try client.sendV2(
             method: "vm.open_port",
             params: ["id": vmId, "port": Self.cloudVMDesktopPort],
             responseTimeout: 90
-        ), let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return false }
+        )
+        guard let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return false }
         // Pin the split to the machine's own workspace when we just created it; a
         // create can finish before the app has focused the new workspace, and an
         // untargeted split would land in whatever was focused before. Without a
@@ -4705,7 +4706,7 @@ struct CMUXCLI {
                 // A machine with a screen shows it: stream the noVNC desktop into a browser
                 // split beside the shell so the workspace opens as terminal + desktop.
                 if Self.cloudVMImageHasDesktop(image) {
-                    openVMDesktopSplit(vmId: id, client: client, workspaceId: createdWorkspaceId)
+                    _ = try? openVMDesktopSplit(vmId: id, client: client, workspaceId: createdWorkspaceId)
                 }
 
             case "desktop", "vnc":
@@ -4721,7 +4722,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                guard openVMDesktopSplit(vmId: vmId, client: client, workspaceId: workspaceOpt) else {
+                guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: workspaceOpt) else {
                     throw CLIError(message: String(
                         localized: "cli.vm.desktop.unavailable",
                         defaultValue: "\(vmId) has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."
@@ -4862,7 +4863,7 @@ struct CMUXCLI {
                 if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
-                    openVMDesktopSplit(vmId: vmId, client: client)
+                    _ = try? openVMDesktopSplit(vmId: vmId, client: client)
                 }
 
             case "rename":

@@ -8073,7 +8073,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSource: String = "cloudVM",
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
-        guard auth?.accountFlow.isAuthenticated == true else { return false }
+        let authState = CloudVMPanelAuthState.resolve(
+            isAuthenticated: auth?.accountFlow.isAuthenticated == true,
+            isWorkingOnAuth: auth?.accountFlow.isWorkingOnAuth == true
+        )
+        guard authState.allowsAuthenticatedOperation else {
+            _ = performAccountSignInWorkspaceAction(
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).auth"
+            )
+            return false
+        }
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
@@ -8159,7 +8169,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.current"
     ) -> Bool {
-        guard auth?.accountFlow.isAuthenticated == true else { return false }
+        let authState = CloudVMPanelAuthState.resolve(
+            isAuthenticated: auth?.accountFlow.isAuthenticated == true,
+            isWorkingOnAuth: auth?.accountFlow.isWorkingOnAuth == true
+        )
+        guard authState.allowsAuthenticatedOperation else {
+            _ = performAccountSignInWorkspaceAction(
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).auth"
+            )
+            return false
+        }
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
@@ -8192,7 +8212,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
-        guard auth?.accountFlow.isAuthenticated == true else { return false }
+        let authState = CloudVMPanelAuthState.resolve(
+            isAuthenticated: auth?.accountFlow.isAuthenticated == true,
+            isWorkingOnAuth: auth?.accountFlow.isWorkingOnAuth == true
+        )
+        guard authState.allowsAuthenticatedOperation else {
+            _ = performAccountSignInWorkspaceAction(
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).auth"
+            )
+            return false
+        }
         let context = preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
         guard let context else {

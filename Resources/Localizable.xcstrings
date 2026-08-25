@@ -122787,6 +122787,57 @@
         }
       }
     },
+    "machines.auth.checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux account…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxアカウントを確認しています…"
+          }
+        }
+      }
+    },
+    "machines.auth.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to see and manage the machines in your cmux account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxアカウントにサインインして、マシンを表示・管理してください。"
+          }
+        }
+      }
+    },
+    "machines.auth.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machinesを使うにはサインインしてください"
+          }
+        }
+      }
+    },
     "machines.activity.pending": {
       "extractionState": "manual",
       "localizations": {
@@ -238003,6 +238054,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux おやすみモードのロックを解除"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.authRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMを利用するにはサインインが必要です。`cmux auth login`を実行してから再試行してください。"
           }
         }
       }

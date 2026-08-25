@@ -2,6 +2,26 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
+/// The local auth states that matter to the Cloud Machines panel. Keeping the
+/// projection here means the panel never has to infer auth from a failed VM
+/// request (which could otherwise briefly leave stale machine rows visible).
+enum CloudVMPanelAuthState: Equatable {
+    case checking
+    case signedOut
+    case signedIn
+
+    static func resolve(isAuthenticated: Bool, isWorkingOnAuth: Bool) -> Self {
+        if isAuthenticated { return .signedIn }
+        if isWorkingOnAuth { return .checking }
+        return .signedOut
+    }
+
+    /// Whether a native Cloud VM operation may start in this state.
+    var allowsAuthenticatedOperation: Bool {
+        self == .signedIn
+    }
+}
+
 /// Right-sidebar Machines tab: the user's cloud machine fleet. Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Rows receive immutable
@@ -11,13 +31,55 @@ struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     let chromeBackgroundColor: NSColor
 
+    private var accountFlow: HostAccountFlow? {
+        AppDelegate.shared?.auth?.accountFlow
+    }
+
+    private var authState: CloudVMPanelAuthState {
+        CloudVMPanelAuthState.resolve(
+            isAuthenticated: accountFlow?.isAuthenticated == true,
+            // Keep the embedded sign-in screen mounted while the browser is
+            // waiting for the callback. Only session restore/completion owns
+            // the panel-wide checking state.
+            isWorkingOnAuth: accountFlow?.isCompletingSignIn == true
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            controlBar
-            content
+            switch authState {
+            case .checking:
+                authCheckingState
+            case .signedOut:
+                authGate
+            case .signedIn:
+                authenticatedContent
+            }
         }
-        .onAppear { viewModel.startPolling() }
-        .onDisappear { viewModel.stopPolling() }
+        .onAppear { syncPolling(for: authState) }
+        .onChange(of: authState) { _, state in
+            syncPolling(for: state)
+        }
+        .onDisappear {
+            viewModel.stopPolling()
+        }
+        .accessibilityIdentifier("CloudMachinesPanel")
+    }
+
+    @ViewBuilder
+    private var authenticatedContent: some View {
+        controlBar
+        content
+    }
+
+    private func syncPolling(for state: CloudVMPanelAuthState) {
+        switch state {
+        case .signedIn:
+            viewModel.startPolling()
+        case .checking, .signedOut:
+            viewModel.stopPolling()
+            viewModel.resetForAuthTransition()
+        }
     }
 
     private var controlBar: some View {
@@ -77,6 +139,85 @@ struct MachinesPanelView: View {
         }
     }
 
+    private var authCheckingState: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            ProgressView()
+                .controlSize(.small)
+            Text(String(
+                localized: "machines.auth.checking",
+                defaultValue: "Checking your cmux account…"
+            ))
+            .cmuxFont(size: 13)
+            .foregroundColor(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesAuthCheckingView")
+    }
+
+    @ViewBuilder
+    private var authGate: some View {
+        if let accountFlow {
+            CloudMachinesSignInView(accountFlow: accountFlow)
+        } else {
+            VStack(spacing: 12) {
+                Spacer()
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text(String(
+                    localized: "machines.auth.title",
+                    defaultValue: "Sign in to use Cloud Machines"
+                ))
+                .cmuxFont(size: 13, weight: .semibold)
+                Text(String(
+                    localized: "machines.auth.subtitle",
+                    defaultValue: "Sign in to see and manage the machines in your cmux account."
+                ))
+                .cmuxFont(size: 12)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("CloudMachinesSignInUnavailableView")
+        }
+    }
+
+    private struct CloudMachinesSignInView: View {
+        let accountFlow: HostAccountFlow
+        @State private var signInModel: AccountSignInModel
+
+        init(accountFlow: HostAccountFlow) {
+            self.accountFlow = accountFlow
+            _signInModel = State(initialValue: AccountSignInModel(flow: accountFlow))
+        }
+
+        var body: some View {
+            VStack(spacing: 8) {
+                Text(String(
+                    localized: "machines.auth.title",
+                    defaultValue: "Sign in to use Cloud Machines"
+                ))
+                .cmuxFont(size: 13, weight: .semibold)
+                Text(String(
+                    localized: "machines.auth.subtitle",
+                    defaultValue: "Sign in to see and manage the machines in your cmux account."
+                ))
+                .cmuxFont(size: 12)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+                AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
+                    .frame(maxWidth: 440)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("CloudMachinesSignInView")
+        }
+    }
+
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
     private func requestNewMachine() {
@@ -85,7 +226,15 @@ struct MachinesPanelView: View {
             return
         }
         viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-        MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
+        let didStart = MachineRowActions.openNewMachine { [weak viewModel] _ in
+            viewModel?.endOperation()
+        }
+        if !didStart {
+            // A sign-out can race the button click. CloudVMActionLauncher
+            // opens the shared sign-in flow and returns false; clear the
+            // panel's progress state because no completion callback follows.
+            viewModel.endOperation()
+        }
     }
 
     private var machinesList: some View {
@@ -337,21 +486,27 @@ struct MachineRowActions {
         MachineRowActions(
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
-                launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate)
+                if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
             },
             openDesktop: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
-                launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate)
+                if !launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
             },
             runCommand: { id, verb in
                 onWillMutate(operationLabel(verb: verb, id: id))
                 let result = resultPresentation(verb: verb)
-                launch(
+                if !launch(
                     arguments: verb + [id],
                     successTitle: result.title,
                     presentOutputOnSuccess: result.presentsOutput,
                     onDidMutate: onDidMutate
-                )
+                ) {
+                    onDidMutate()
+                }
             },
             confirmDelete: { id in
                 presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
@@ -399,13 +554,14 @@ struct MachineRowActions {
     }
 
     @MainActor
-    static func openNewMachine(onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil) {
+    @discardableResult
+    static func openNewMachine(onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        CloudVMActionLauncher.shared.start(
+        return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: ["vm", "new"],
@@ -420,11 +576,11 @@ struct MachineRowActions {
         presentOutputOnSuccess: Bool = false,
         onSuccess: (@MainActor () -> Void)? = nil,
         onDidMutate: @escaping @MainActor () -> Void
-    ) {
+    ) -> Bool {
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        CloudVMActionLauncher.shared.start(
+        return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
@@ -470,7 +626,9 @@ struct MachineRowActions {
                 arguments.append(label)
             }
             onWillMutate(operationLabel(verb: ["rename"], id: id))
-            launch(arguments: arguments, onDidMutate: onDidMutate)
+            if !launch(arguments: arguments, onDidMutate: onDidMutate) {
+                onDidMutate()
+            }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: respond)
@@ -502,14 +660,16 @@ struct MachineRowActions {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
-            launch(
+            if !launch(
                 arguments: ["vm", "rm", id],
                 onSuccess: {
                     // The machine is gone; its workspaces would only sit there "Connected".
                     AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
                 },
                 onDidMutate: onDidMutate
-            )
+            ) {
+                onDidMutate()
+            }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: respond)
