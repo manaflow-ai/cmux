@@ -9,6 +9,8 @@ import os
 /// ingress keeps the first and latest shape per runtime, the latest link state,
 /// and lifecycle transitions independently. At most one main-queue drain is
 /// pending for a view, and the runtime-keyed map is capped to four lifetimes.
+/// SAFETY: The weak AppKit view is touched only on the main actor; all
+/// callback-thread state is isolated behind ``pendingState``.
 final class GhosttyPointerStyleIngress: @unchecked Sendable {
     struct Request {
         enum Event {
