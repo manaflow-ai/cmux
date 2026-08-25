@@ -2365,6 +2365,11 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
+        // Normal session teardown calls `shutdown` and awaits every request.
+        // Drop is the last-resort path for an embedding or poisoned caller:
+        // cancel first so a task that is still being polled cannot start a
+        // new Git child after this connection has lost its owner.
+        self.request_cancel.cancel();
         if let Ok(mut requests) = self.requests.lock() {
             requests.abort_all();
         }

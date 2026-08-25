@@ -88,11 +88,6 @@ mod unix {
         paused: AtomicBool,
         resume_notify: Notify,
         closed_notify: Notify,
-        /// Set only after the read half observes the peer's EOF/error. This
-        /// is separate from `closed`, which is set immediately for deliberate
-        /// local shutdown and therefore cannot prove peer observation.
-        peer_closed: AtomicBool,
-        peer_closed_notify: Notify,
     }
 
     impl Shared {
@@ -146,8 +141,6 @@ mod unix {
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
             closed_notify: Notify::new(),
-            peer_closed: AtomicBool::new(false),
-            peer_closed_notify: Notify::new(),
         });
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
@@ -268,8 +261,6 @@ mod unix {
                 // Responses to fire-and-forget sends fall through silently.
             }
         }
-        shared.peer_closed.store(true, Ordering::SeqCst);
-        shared.peer_closed_notify.notify_waiters();
         shared.settle_closed();
     }
 
