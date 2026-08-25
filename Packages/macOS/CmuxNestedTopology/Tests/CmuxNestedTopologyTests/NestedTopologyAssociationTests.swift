@@ -50,6 +50,41 @@ struct NestedTopologyAssociationTests {
         #expect(titled.panes[0].title == providerTitle)
     }
 
+    @Test("a repeated heuristic update without a title preserves the existing title")
+    func repeatedHeuristicWithoutTitlePreservesTitle() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let inferredTitle = NestedNodeTitle(value: "First guess", authority: .inferred)
+        let original = fixture.pane(
+            tabRawID: "tab-1",
+            title: inferredTitle,
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [original]
+        )
+        let repeatedGuess = fixture.pane(
+            tabRawID: "tab-2",
+            title: nil,
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(node: repeatedGuess)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
+        #expect(result.panes[0].association.heuristicAlreadySatisfied)
+        #expect(result.panes[0].title == inferredTitle)
+    }
+
     @Test("authoritative provider parentage can replace a prior heuristic")
     func providerParentageWins() throws {
         let fixture = NestedTopologyTestFixture()
