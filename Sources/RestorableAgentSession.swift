@@ -1026,13 +1026,16 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
+    private let ambiguousPanelIds: Set<UUID>
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? entry(panelId: panelId)
     }
 
     func entry(panelId: UUID) -> Entry? {
-        entriesByPanelId[panelId]
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
+        return entriesByPanelId[panelId]
     }
 
     /// Resolves a restart-stable panel while preserving a live entry for its current owner.
@@ -1043,8 +1046,11 @@ struct RestorableAgentSessionIndex: Sendable {
     /// stale hook history.
     func entryForStablePanel(workspaceId: UUID, panelId: UUID) -> Entry? {
         let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
-        guard let exact else { return entriesByPanelId[panelId] }
-        guard !Self.entryHasLiveProcess(exact) else { return exact }
+        if let exact, Self.entryHasLiveProcess(exact) { return exact }
+        // An exact owner key disambiguates equal-recency records; only a panel-only
+        // lookup must fail closed when no owner evidence is available.
+        if let exact, ambiguousPanelIds.contains(panelId) { return exact }
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return entriesByPanelId[panelId] ?? exact
     }
 
@@ -1739,6 +1745,23 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func entryHasLiveProcess(_ entry: Entry) -> Bool {
         entry.processLiveness == .running && !entry.processIDs.isEmpty
+    }
+
+    private static func shouldPreferStablePanelEntry(
+        _ candidate: Entry,
+        over existing: Entry
+    ) -> Bool {
+        let candidateIsLive = entryHasLiveProcess(candidate)
+        let existingIsLive = entryHasLiveProcess(existing)
+        if candidateIsLive != existingIsLive {
+            return candidateIsLive
+        }
+        if candidate.updatedAt != existing.updatedAt {
+            return candidate.updatedAt > existing.updatedAt
+        }
+        let candidateIdentity = "\(candidate.snapshot.kind.rawValue):\(candidate.snapshot.sessionId)"
+        let existingIdentity = "\(existing.snapshot.kind.rawValue):\(existing.snapshot.sessionId)"
+        return candidateIdentity > existingIdentity
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -2618,31 +2641,31 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
-        var entriesByPanelId: [UUID: Entry] = [:]
+        var candidatesByPanelId: [UUID: [Entry]] = [:]
         for (key, entry) in entriesByPanel {
-            guard let existing = entriesByPanelId[key.panelId] else {
-                entriesByPanelId[key.panelId] = entry
+            candidatesByPanelId[key.panelId, default: []].append(entry)
+        }
+
+        var entriesByPanelId: [UUID: Entry] = [:]
+        var ambiguousPanelIds: Set<UUID> = []
+        for (panelId, candidates) in candidatesByPanelId {
+            let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
+            if candidatesByTimestamp.values.contains(where: { $0.count > 1 }) {
+                // Equal timestamps from separate owner keys have no reliable panel-only winner.
+                ambiguousPanelIds.insert(panelId)
+            }
+
+            guard var selected = candidates.first else {
                 continue
             }
-            let incomingIsLive = Self.entryHasLiveProcess(entry)
-            let existingIsLive = Self.entryHasLiveProcess(existing)
-            if incomingIsLive != existingIsLive {
-                if incomingIsLive { entriesByPanelId[key.panelId] = entry }
-                continue
+            for candidate in candidates.dropFirst()
+            where Self.shouldPreferStablePanelEntry(candidate, over: selected) {
+                selected = candidate
             }
-            if entry.updatedAt != existing.updatedAt {
-                if entry.updatedAt > existing.updatedAt { entriesByPanelId[key.panelId] = entry }
-                continue
-            }
-            // Dictionary iteration order is not stable. Keep equal-timestamp fallback
-            // selection deterministic so a restored panel cannot change identity at random.
-            let incomingIdentity = "\(entry.snapshot.kind.rawValue):\(entry.snapshot.sessionId)"
-            let existingIdentity = "\(existing.snapshot.kind.rawValue):\(existing.snapshot.sessionId)"
-            if incomingIdentity > existingIdentity {
-                entriesByPanelId[key.panelId] = entry
-            }
+            entriesByPanelId[panelId] = selected
         }
         self.entriesByPanelId = entriesByPanelId
+        self.ambiguousPanelIds = ambiguousPanelIds
     }
 }
 

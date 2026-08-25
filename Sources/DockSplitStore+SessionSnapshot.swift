@@ -149,7 +149,7 @@ extension DockSplitStore {
         return sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            observation: restorableAgentIndex?.entry(
+            observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
                 panelId: panelId
             ),

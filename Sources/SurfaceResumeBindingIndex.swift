@@ -7,45 +7,60 @@ struct SurfaceResumeBindingIndex: Sendable {
 
     private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
     private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
+    private let ambiguousPanelIds: Set<UUID>
 
     init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
         self.bindingsByPanel = bindingsByPanel
-        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+        var candidatesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
         for (key, binding) in bindingsByPanel {
-            guard let existing = bindingsByPanelId[key.panelId] else {
-                bindingsByPanelId[key.panelId] = binding
+            candidatesByPanelId[key.panelId, default: []].append(binding)
+        }
+
+        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+        var ambiguousPanelIds: Set<UUID> = []
+        for (panelId, candidates) in candidatesByPanelId {
+            let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
+            if candidatesByTimestamp.values.contains(where: { $0.count > 1 }) {
+                ambiguousPanelIds.insert(panelId)
+            }
+            guard var selected = candidates.first else {
                 continue
             }
-            if binding.isProcessDetected != existing.isProcessDetected {
-                if binding.isProcessDetected { bindingsByPanelId[key.panelId] = binding }
-                continue
+            for candidate in candidates.dropFirst() {
+                if candidate.isProcessDetected != selected.isProcessDetected {
+                    if candidate.isProcessDetected { selected = candidate }
+                    continue
+                }
+                if candidate.updatedAt != selected.updatedAt {
+                    if candidate.updatedAt > selected.updatedAt { selected = candidate }
+                    continue
+                }
+                let candidateIdentity = "\(candidate.kind ?? ""):\(candidate.checkpointId ?? candidate.command)"
+                let selectedIdentity = "\(selected.kind ?? ""):\(selected.checkpointId ?? selected.command)"
+                if candidateIdentity > selectedIdentity { selected = candidate }
             }
-            if binding.updatedAt != existing.updatedAt {
-                if binding.updatedAt > existing.updatedAt { bindingsByPanelId[key.panelId] = binding }
-                continue
-            }
-            let incomingIdentity = "\(binding.kind ?? \"\"):\(binding.checkpointId ?? binding.command)"
-            let existingIdentity = "\(existing.kind ?? \"\"):\(existing.checkpointId ?? existing.command)"
-            if incomingIdentity > existingIdentity {
-                bindingsByPanelId[key.panelId] = binding
-            }
+            bindingsByPanelId[panelId] = selected
         }
         self.bindingsByPanelId = bindingsByPanelId
+        self.ambiguousPanelIds = ambiguousPanelIds
     }
 
     func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
+        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? binding(panelId: panelId)
     }
 
     func binding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanelId[panelId]
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
+        return bindingsByPanelId[panelId]
     }
 
     /// Resolves a restart-stable panel while preferring a process-detected binding for its owner.
     func bindingForStablePanel(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         let exact = bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
-        guard let exact else { return bindingsByPanelId[panelId] }
-        if exact.isProcessDetected { return exact }
+        if let exact, exact.isProcessDetected { return exact }
+        if let exact, ambiguousPanelIds.contains(panelId) { return exact }
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return bindingsByPanelId[panelId] ?? exact
     }
 
