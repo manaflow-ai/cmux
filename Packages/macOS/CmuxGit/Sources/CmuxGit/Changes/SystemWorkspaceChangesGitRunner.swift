@@ -25,10 +25,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
-        self.executableURLs = executableURL.map { [$0] }
-            ?? SystemGitExecutableResolver(environment: environment).executableURLs()
-        self.environment = Self.scopedEnvironment(environment)
-        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
+        self.init(
+            executableURLs: executableURL.map { [$0] }
+                ?? SystemGitExecutableResolver(environment: environment).executableURLs(),
+            environment: environment,
+            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
+        )
     }
 
     /// Creates a runner with an ordered executable list. The next candidate is
@@ -42,17 +44,13 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         self.executableURLs = executableURLs.isEmpty
             ? SystemGitExecutableResolver(environment: environment).executableURLs()
             : executableURLs
-        self.environment = Self.scopedEnvironment(environment)
-        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
-    }
-
-    private static func scopedEnvironment(_ environment: [String: String]) -> [String: String] {
         var scopedEnvironment = environment
         for key in Self.repositorySelectionEnvironmentKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
-        return scopedEnvironment
+        self.environment = scopedEnvironment
+        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
     }
 
     func run(arguments: [String], in directory: URL) throws -> WorkspaceChangesGitResult {

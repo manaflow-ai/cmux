@@ -124,10 +124,10 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: fixture.root.path)
         )
-        let output = GitMetadataService.gitRemoteVOutput(
+        let output = GitConfigBranchTraversal(
             repository: repository,
             branchContext: .resolved("feature/reftable-sidebar")
-        )
+        ).remoteVOutput()
 
         #expect(
             GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output ?? "")

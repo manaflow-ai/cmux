@@ -165,11 +165,7 @@ public struct GitMetadataService: Sendable {
     ///   not inside a git repository.
     @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(
-            for: directory,
-            safetyConfiguration: safetyConfiguration,
-            referenceReader: referenceReader
-        )
+        await watchDescriptor(for: directory)?.watchedPaths
     }
 
     /// The complete Git-aware event plan for `directory`, including tracked
@@ -178,10 +174,18 @@ public struct GitMetadataService: Sendable {
     public nonisolated func watchDescriptor(
         for directory: String
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        Self.workspaceGitMetadataWatchDescriptor(
-            for: directory,
-            safetyConfiguration: safetyConfiguration,
-            referenceReader: referenceReader
+        guard let repository = Self.resolveGitRepository(containing: directory),
+              let descriptor = Self.workspaceGitMetadataWatchDescriptor(
+                  for: directory,
+                  safetyConfiguration: safetyConfiguration
+              ) else {
+            return nil
+        }
+        let branchContext = await gitReferenceBranchContext(repository: repository)
+        return branchAwareWatchDescriptor(
+            descriptor,
+            repository: repository,
+            branchContext: branchContext
         )
     }
 
@@ -197,11 +201,14 @@ public struct GitMetadataService: Sendable {
     ///   repository or no GitHub remote.
     @concurrent
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
-        guard let repository = Self.resolveGitRepository(containing: directory),
-              let output = Self.gitRemoteVOutput(
-                  repository: repository,
-                  branchContext: .resolved(referenceReader.snapshot(repository: repository).branchName)
-              ) else {
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
+            return []
+        }
+        let branchContext = await gitReferenceBranchContext(repository: repository)
+        guard let output = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: branchContext
+        ).remoteVOutput() else {
             return []
         }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)

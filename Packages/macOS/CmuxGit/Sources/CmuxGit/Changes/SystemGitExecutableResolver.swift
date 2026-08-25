@@ -6,6 +6,7 @@ import Foundation
 /// manager while the system Git is older. The caller can try the returned
 /// candidates in order and keep the first command that succeeds.
 nonisolated struct SystemGitExecutableResolver: Sendable {
+    private static let maximumCandidateCount = 8
     private static let wellKnownGitPaths = [
         "/opt/homebrew/bin/git",
         "/usr/local/bin/git",
@@ -15,10 +16,15 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
     ]
 
     private let environment: [String: String]
+    private let fileProbe: any GitExecutableFileProbing
 
     /// Creates a resolver using the supplied process environment.
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileProbe: (any GitExecutableFileProbing)? = nil
+    ) {
         self.environment = environment
+        self.fileProbe = fileProbe ?? SystemGitExecutableFileProbe()
     }
 
     /// Returns executable Git candidates, de-duplicated and bounded to known
@@ -27,30 +33,21 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         // Prefer absolute, well-known installations so an ambient PATH entry
         // cannot shadow the system tool for ordinary repositories. PATH entries
         // remain fallback candidates for newer user-installed Git versions.
-        var paths = Self.wellKnownGitPaths
-        if let searchPath = environment["PATH"] {
-            paths.append(contentsOf: searchPath.split(separator: ":").compactMap { entry in
-                guard entry.first == "/" else { return nil }
-                return URL(fileURLWithPath: String(entry), isDirectory: true)
-                    .appendingPathComponent("git", isDirectory: false)
-                    .path
-            })
-        }
         var result: [URL] = []
         var seen: Set<String> = []
-        for path in paths {
-            let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-            guard seen.insert(standardizedPath).inserted else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(
-                atPath: standardizedPath,
-                isDirectory: &isDirectory
-            ),
-            !isDirectory.boolValue,
-            FileManager.default.isExecutableFile(atPath: standardizedPath) else {
-                continue
+        for path in Self.wellKnownGitPaths {
+            guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+            if result.count == Self.maximumCandidateCount { return result }
+        }
+        if let searchPath = environment["PATH"] {
+            for entry in searchPath.split(separator: ":") {
+                guard entry.first == "/" else { continue }
+                let path = URL(fileURLWithPath: String(entry), isDirectory: true)
+                    .appendingPathComponent("git", isDirectory: false)
+                    .path
+                guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+                if result.count == Self.maximumCandidateCount { return result }
             }
-            result.append(URL(fileURLWithPath: standardizedPath))
         }
 
         // Keep a deterministic spawn failure rather than silently switching to
@@ -59,5 +56,19 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
             result.append(URL(fileURLWithPath: "/usr/bin/git"))
         }
         return result
+    }
+
+    private func appendExecutable(
+        atPath path: String,
+        to result: inout [URL],
+        seen: inout Set<String>
+    ) -> Bool {
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard seen.insert(standardizedPath).inserted else { return false }
+        guard fileProbe.isExecutableFile(atPath: standardizedPath) else {
+            return false
+        }
+        result.append(URL(fileURLWithPath: standardizedPath))
+        return true
     }
 }

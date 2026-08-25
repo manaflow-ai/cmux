@@ -1,6 +1,13 @@
 import Foundation
 
 extension GitMetadataService {
+    /// Resolves the branch context for config traversal on the blocking-I/O lane.
+    nonisolated func gitReferenceBranchContext(
+        repository: ResolvedGitRepository
+    ) async -> GitConfigBranchContext {
+        .resolved((await gitReferenceSnapshot(repository: repository)).branchName)
+    }
+
     /// Resolves refs on the package's bounded blocking-I/O lane.
     ///
     /// - Parameter repository: The already-resolved repository to inspect.
