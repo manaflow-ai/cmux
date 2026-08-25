@@ -3084,6 +3084,26 @@ struct DeferredAgentResumeRestore: Sendable {
     let remoteResumeCommandEmbedded: Bool = false
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
+
+    init(
+        stablePanelID: UUID,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        restoresRemoteWorkspaceTerminalSnapshot: Bool,
+        remoteResumeContext: SurfaceResumeRemoteContext? = nil,
+        remoteResumeCommandEmbedded: Bool = false,
+        workingDirectory: String?,
+        resumeWorkingDirectory: String?
+    ) {
+        self.stablePanelID = stablePanelID
+        self.restorableAgent = restorableAgent
+        self.resumeBinding = resumeBinding
+        self.restoresRemoteWorkspaceTerminalSnapshot = restoresRemoteWorkspaceTerminalSnapshot
+        self.remoteResumeContext = remoteResumeContext
+        self.remoteResumeCommandEmbedded = remoteResumeCommandEmbedded
+        self.workingDirectory = workingDirectory
+        self.resumeWorkingDirectory = resumeWorkingDirectory
+    }
 }
 
 private extension CmuxTopProcessArguments {
