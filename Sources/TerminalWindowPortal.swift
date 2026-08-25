@@ -1759,7 +1759,7 @@ final class WindowTerminalPortal: NSObject {
         pruneDeadEntries()
         reconcileRootBackdropExclusion(
             forHostedId: hostedId,
-            immediately: !deferLayoutSynchronization
+            immediately: syncLayout
         )
     }
 
