@@ -103,6 +103,7 @@ public struct TerminalPointerStyleState {
 
         case .ghosttyShape(let shape, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
+            guard ghosttyShape != shape else { return false }
             guard let cursor = cursor(for: shape) else {
                 // Ghostty sends the terminal's base shape when an OSC 8
                 // hyperlink ends. Unsupported base shapes have no AppKit
@@ -112,9 +113,6 @@ public struct TerminalPointerStyleState {
                 if ghosttyShape == GHOSTTY_MOUSE_SHAPE_POINTER {
                     pendingUnsupportedBaseAfterPointer = true
                 }
-                return false
-            }
-            guard ghosttyShape != shape || isGhosttyLinkHoverActive else {
                 return false
             }
             if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
