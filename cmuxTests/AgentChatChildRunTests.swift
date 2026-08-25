@@ -73,6 +73,22 @@ struct AgentChatChildRunTests {
         #expect(rec.children.isEmpty)
     }
 
+    @Test func agentToolNameAlsoSpawnsChildren() {
+        // Claude Code 2.x renamed the spawn tool "Task" -> "Agent".
+        var rec = record()
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec,
+            event: event(.preToolUse, tool: "Agent", input: #"{"description":"probe A"}"#, requestId: "r9", at: 10)
+        )
+        #expect(rec.children.count == 1)
+        #expect(rec.children[0].label == "probe A")
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec,
+            event: event(.postToolUse, tool: "Agent", requestId: "r9", at: 30)
+        )
+        #expect(!rec.children[0].isRunning)
+    }
+
     @Test func missingRequestIdClosesOldestOpenChild() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(

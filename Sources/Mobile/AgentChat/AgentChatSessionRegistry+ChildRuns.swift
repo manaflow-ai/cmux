@@ -54,7 +54,9 @@ extension AgentChatSessionRegistry {
     }
 
     private nonisolated static func isTaskSpawn(_ event: WorkstreamEvent) -> Bool {
-        event.toolName == "Task"
+        // Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both
+        // names remain on the wire depending on CLI version.
+        event.toolName == "Task" || event.toolName == "Agent"
     }
 
     private nonisolated static func openChild(
