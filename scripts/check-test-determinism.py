@@ -3321,6 +3321,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_shell_truthy_integer.py",
+            'subprocess.run("curl https://api.openai.com/v1/items", shell=1)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/template_interpolation_fetch.ts",
             'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -3661,6 +3666,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_parenthesized_stored_client_get.py",
+            (
+                'client = (httpx.Client(base_url="https://api.openai.com"))\n'
+                'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_stored_client_explicit_public_target.py",
             (
                 "client = httpx.Client()\n"
@@ -3762,6 +3775,14 @@ def _self_test() -> int:
             "web/tests/axios_stored_client_get.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_parenthesized_stored_client_get.ts",
+            (
+                'const client = (axios.create({ baseURL: "https://api.openai.com" }));\n'
                 'await client.get("/v1/items");\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
