@@ -56,31 +56,49 @@ final class HiveComputersService {
     /// offers Open on paired rows) or auth is not configured.
     func makeViewerSession(deviceID: String) async -> HiveRemoteMacSession? {
         guard let auth, let directory else { return nil }
-        var computer = directory.computers.first(where: { $0.deviceID == deviceID })
-        if computer == nil {
-            // On a fresh launch the directory is empty until something (the
-            // Settings pane, the scope picker) refreshes it. An open request
-            // arriving first — relaunch restore, `hive.open` RPC — must not
-            // fail on that ordering; load the pairings/registry and re-check.
-            await directory.refresh()
-            computer = directory.computers.first(where: { $0.deviceID == deviceID })
-        }
+        // Always bind a viewer to the current account/team snapshot. A cached
+        // row can otherwise survive a team switch and authorize the old
+        // team's routes until the next settings refresh.
+        await directory.refresh()
+        return await makeViewerSessionFromCurrentDirectory(
+            deviceID: deviceID,
+            auth: auth,
+            directory: directory
+        )
+    }
+
+    private func makeViewerSessionFromCurrentDirectory(
+        deviceID: String,
+        auth: AuthCoordinator,
+        directory: HiveComputerDirectory,
+        admission: HiveTailscaleRouteAdmission.Result? = nil
+    ) async -> HiveRemoteMacSession? {
+        let computer = directory.computers.first(where: { $0.deviceID == deviceID })
         guard let computer else { return nil }
         guard computer.isPaired else { return nil }
         // Prefer the freshest routes: a live online instance's advertised set,
         // falling back to whatever the pairing/registry row carries.
         guard let best = computer.bestPairingRoutes else { return nil }
+        let routeAdmission: HiveTailscaleRouteAdmission.Result
+        if let admission {
+            routeAdmission = admission
+        } else {
+            routeAdmission = await HiveTailscaleRouteAdmission().admit(routes: best.routes)
+        }
+        guard !routeAdmission.routes.isEmpty else { return nil }
         let runtime = HiveSyncRuntime.network(
             allowsLoopbackRoutes: Self.allowsLoopbackPairing,
             stackAccessTokenProvider: { try await auth.accessToken() },
             stackAccessTokenForceRefresher: { try await auth.forceRefreshAccessToken() },
-            stackAccessTokenForStatusProvider: { try? await auth.accessToken() }
+            stackAccessTokenForStatusProvider: { try? await auth.accessToken() },
+            verifiedTailscaleHosts: routeAdmission.verifiedTailscaleHosts
         )
         return HiveRemoteMacSession(
             runtime: runtime,
             macDeviceID: deviceID,
             displayName: computer.displayName,
-            routes: best.routes,
+            routes: routeAdmission.routes,
+            sourceRoutes: best.routes,
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
             },
@@ -100,17 +118,20 @@ final class HiveComputersService {
     /// (`computers.presentation = sidebar`), one per device, so scope
     /// switches reuse the connection instead of re-dialing.
     private var embeddedSessions: [String: HiveRemoteMacSession] = [:]
+    private var embeddedScope: HiveAccountScope?
 
     /// The cached embedded-viewer session for a device, creating and
     /// connecting one on first use. Returns `nil` when the computer has no
     /// pairing record or auth is not configured.
     func embeddedSession(deviceID: String) async -> HiveRemoteMacSession? {
+        guard let directory else { return nil }
+        await refreshEmbeddedDirectory(directory)
         if let existing = embeddedSessions[deviceID] {
-            let computer = directory?.computers.first(where: { $0.deviceID == deviceID })
+            let computer = directory.computers.first(where: { $0.deviceID == deviceID })
             let best = computer?.bestPairingRoutes
             let bindingChanged = computer == nil
                 || computer?.isPaired != true
-                || best?.routes != existing.routes
+                || best?.routes != existing.sourceRoutes
                 || best?.instanceTag != existing.expectedInstanceTag
                 || computer?.isRegistryBacked != existing.requiresHostIdentity
             if bindingChanged {
@@ -120,7 +141,20 @@ final class HiveComputersService {
                 return existing
             }
         }
-        guard let session = await makeViewerSession(deviceID: deviceID) else { return nil }
+        guard let auth else { return nil }
+        let currentComputer = directory.computers.first(where: { $0.deviceID == deviceID })
+        let currentAdmission: HiveTailscaleRouteAdmission.Result?
+        if let best = currentComputer?.bestPairingRoutes {
+            currentAdmission = await HiveTailscaleRouteAdmission().admit(routes: best.routes)
+        } else {
+            currentAdmission = nil
+        }
+        guard let session = await makeViewerSessionFromCurrentDirectory(
+            deviceID: deviceID,
+            auth: auth,
+            directory: directory,
+            admission: currentAdmission
+        ) else { return nil }
         // Re-check after the await: a concurrent first call may have won.
         if let existing = embeddedSessions[deviceID] {
             await session.disconnect()
@@ -143,10 +177,35 @@ final class HiveComputersService {
         await HiveViewerWindowController.shared.closeAll()
         let sessions = embeddedSessions.values
         embeddedSessions.removeAll()
+        embeddedScope = nil
         for session in sessions {
             await session.disconnect()
         }
         directory?.clearForSignOut()
+    }
+
+    private func refreshEmbeddedDirectory(_ directory: HiveComputerDirectory) async {
+        await directory.refresh()
+        guard let auth else {
+            let staleSessions = Array(embeddedSessions.values)
+            embeddedSessions.removeAll()
+            embeddedScope = nil
+            for session in staleSessions {
+                await session.disconnect()
+            }
+            return
+        }
+        let scope = HiveAccountScope(
+            stackUserID: auth.currentUser?.id,
+            teamID: auth.resolvedTeamID
+        )
+        guard embeddedScope != scope else { return }
+        let staleSessions = Array(embeddedSessions.values)
+        embeddedSessions.removeAll()
+        embeddedScope = scope
+        for session in staleSessions {
+            await session.disconnect()
+        }
     }
 
     /// The live connection phase for a device's embedded viewer session

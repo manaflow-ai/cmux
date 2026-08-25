@@ -38,6 +38,10 @@ public final class HiveRemoteMacSession {
     /// The currently selected route set; a changed registry/presence snapshot
     /// causes the app service to replace this session before reconnecting.
     public let routes: [CmxAttachRoute]
+    /// The registry route snapshot from which ``routes`` was admitted. Used to
+    /// detect binding changes without re-running the local Tailscale proof on
+    /// every presence update.
+    public let sourceRoutes: [CmxAttachRoute]
     /// The registry instance tag this session was bound to, when available.
     public let expectedInstanceTag: String?
     /// Whether this session requires the authenticated host-identity gate.
@@ -60,7 +64,7 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored public private(set) var renderGridRouter: HiveRemoteRenderGridRouter?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
-    @ObservationIgnored private var workspaceRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceRefreshTask: Task<Bool, Never>?
     @ObservationIgnored private var workspaceRefreshPending = false
     @ObservationIgnored private var workspaceListeners:
         [UUID: AsyncStream<[HiveRemoteWorkspace]>.Continuation] = [:]
@@ -72,6 +76,8 @@ public final class HiveRemoteMacSession {
     ///   - macDeviceID: The Mac's stable device id.
     ///   - displayName: The Mac's display name.
     ///   - routes: The paired record's attach routes.
+    ///   - sourceRoutes: The unmodified registry routes used for binding-change
+    ///     comparisons, when `routes` has been canonicalized by admission.
     ///   - retryDelay: Awaited between reconnect attempts with the
     ///     consecutive-failure count; production passes a bounded backoff
     ///     sleep, tests a recorder that returns immediately.
@@ -85,6 +91,7 @@ public final class HiveRemoteMacSession {
         macDeviceID: String,
         displayName: String,
         routes: [CmxAttachRoute],
+        sourceRoutes: [CmxAttachRoute]? = nil,
         retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
         stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
         expectedInstanceTag: String? = nil,
@@ -94,6 +101,7 @@ public final class HiveRemoteMacSession {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
         self.routes = routes
+        self.sourceRoutes = sourceRoutes ?? routes
         self.expectedInstanceTag = expectedInstanceTag
         self.requiresHostIdentity = requiresHostIdentity
         self.retryDelay = retryDelay
@@ -136,9 +144,10 @@ public final class HiveRemoteMacSession {
     }
 
     /// Re-fetch the workspace list from the connected Mac.
-    public func refreshWorkspaces() async {
+    @discardableResult
+    public func refreshWorkspaces() async -> Bool {
         scheduleWorkspaceRefresh()
-        await workspaceRefreshTask?.value
+        return await workspaceRefreshTask?.value ?? false
     }
 
     /// Creates a terminal session using this Mac's shared surface-scoped event
@@ -168,29 +177,32 @@ public final class HiveRemoteMacSession {
             return
         }
         workspaceRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            await self.performWorkspaceRefresh()
+            guard let self else { return false }
+            let succeeded = await self.performWorkspaceRefresh()
             self.workspaceRefreshTask = nil
             guard !Task.isCancelled else {
                 self.workspaceRefreshPending = false
-                return
+                return succeeded
             }
             if self.workspaceRefreshPending {
                 self.workspaceRefreshPending = false
                 self.scheduleWorkspaceRefresh()
             }
+            return succeeded
         }
     }
 
-    private func performWorkspaceRefresh() async {
-        guard !Task.isCancelled, let client else { return }
+    private func performWorkspaceRefresh() async -> Bool {
+        guard !Task.isCancelled, let client else { return false }
         do {
             let refreshed = try await fetchWorkspaces(client: client)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             setWorkspaces(refreshed)
+            return true
         } catch {
             // Keep the stale list; the event loop's stream death drives the
             // visible reconnect state.
+            return false
         }
     }
 
@@ -334,7 +346,6 @@ public final class HiveRemoteMacSession {
     private func runEventLoop(client: MobileCoreRPCClient) async {
         var consecutiveFailures = 0
         while !Task.isCancelled {
-            let stream = await client.subscribe(to: ["workspace.updated"])
             do {
                 // Register the subscription host-side; this also reconnects a
                 // torn-down transport, which is the recovery path after a blip.
@@ -346,8 +357,27 @@ public final class HiveRemoteMacSession {
                 consecutiveFailures = 0
                 guard !Task.isCancelled else { return }
                 phase = .connected
-                await refreshWorkspaces()
+                // Refresh before installing the local listener. If setup or
+                // the refresh fails, no AsyncStream continuation has been
+                // registered and the retry cannot leak an orphan listener.
+                guard await refreshWorkspaces() else {
+                    consecutiveFailures += 1
+                    phase = .reconnecting
+                    await retryDelay(consecutiveFailures)
+                    continue
+                }
                 guard !Task.isCancelled else { return }
+                let stream = await client.subscribe(to: ["workspace.updated"])
+                // The refresh closes the small handshake/listener race: any
+                // event emitted before the listener was installed is reflected
+                // in the authoritative snapshot above.
+                for await _ in stream {
+                    scheduleWorkspaceRefresh()
+                }
+                if Task.isCancelled { return }
+                phase = .reconnecting
+                consecutiveFailures += 1
+                await retryDelay(consecutiveFailures)
             } catch is CancellationError {
                 return
             } catch {
@@ -357,14 +387,6 @@ public final class HiveRemoteMacSession {
                 await retryDelay(consecutiveFailures)
                 continue
             }
-            for await _ in stream {
-                scheduleWorkspaceRefresh()
-            }
-            // Stream finished: the transport died. Loop to re-subscribe.
-            if Task.isCancelled { return }
-            phase = .reconnecting
-            consecutiveFailures += 1
-            await retryDelay(consecutiveFailures)
         }
     }
 

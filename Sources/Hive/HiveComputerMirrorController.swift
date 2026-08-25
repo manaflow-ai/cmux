@@ -192,10 +192,12 @@ final class HiveComputerMirrorController {
                 forName: NSWindow.willCloseNotification,
                 object: window,
                 queue: .main
-            ) { [weak self, weak tabManager] _ in
-                Task { @MainActor [weak self, weak tabManager] in
-                    guard let self, let tabManager else { return }
-                    await self.detach(deviceID: deviceID, from: tabManager)
+            ) { [weak self] _ in
+                // Key teardown by the mirror, not by a window context that
+                // AppDelegate may unregister during the same close turn.
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.detach(mirrorKey: key)
                 }
             }
         }
@@ -216,13 +218,14 @@ final class HiveComputerMirrorController {
                     )
                     guard self.mirrorsByKey[key] === mirror else { return }
                     guard let computer = computers.first(where: { $0.deviceID == deviceID }) else {
-                        continue
+                        await self.detach(deviceID: deviceID, from: tabManager)
+                        return
                     }
                     guard computer.isPaired, let best = computer.bestPairingRoutes else {
                         await self.detach(deviceID: deviceID, from: tabManager)
                         return
                     }
-                    guard best.routes != session.routes
+                    guard best.routes != session.sourceRoutes
                         || best.instanceTag != session.expectedInstanceTag
                         || computer.isRegistryBacked != session.requiresHostIdentity else {
                         continue
@@ -269,6 +272,16 @@ final class HiveComputerMirrorController {
         guard let mirror = mirrorsByKey.removeValue(forKey: key) else { return }
         let shouldDiscard = !mirrorsByKey.keys.contains { $0.deviceID == deviceID }
         await teardownMirror(deviceID: deviceID, mirror: mirror, discardEmbeddedSession: shouldDiscard)
+    }
+
+    private func detach(mirrorKey key: MirrorKey) async {
+        guard let mirror = mirrorsByKey.removeValue(forKey: key) else { return }
+        let shouldDiscard = !mirrorsByKey.keys.contains { $0.deviceID == key.deviceID }
+        await teardownMirror(
+            deviceID: key.deviceID,
+            mirror: mirror,
+            discardEmbeddedSession: shouldDiscard
+        )
     }
 
     /// Tear down every embedded mirror, used when account auth ends.
@@ -427,7 +440,11 @@ final class HiveComputerMirrorController {
     /// Formats a mirror workspace title through the localized format resource
     /// so creation and later topology/title updates use identical text.
     private func localizedWorkspaceTitle(remoteTitle: String, computerName: String) -> String {
-        String(localized: "hive.mirror.workspaceTitle", defaultValue: "\(remoteTitle) — \(computerName)")
+        let template = String(
+            localized: "hive.mirror.workspaceTitle",
+            defaultValue: "%1$@ — %2$@"
+        )
+        return String.localizedStringWithFormat(template, remoteTitle, computerName)
     }
 
     private func addMissingTerminals(

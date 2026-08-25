@@ -13,8 +13,14 @@ internal import CmuxMobileTransport
 /// inside the tailnet address space (`100.64/10`, Tailscale's IPv6 ULA, or
 /// `*.ts.net`); anything else fails exactly like the shared factory.
 public struct HiveTailscaleByteTransportFactory: CmxByteTransportFactory {
+    private let admittedHosts: Set<String>
+
     /// Creates the factory.
-    public init() {}
+    /// - Parameter admittedHosts: Canonical numeric hosts present in an
+    ///   authenticated local Tailscale status snapshot.
+    public init(admittedHosts: Set<String> = []) {
+        self.admittedHosts = admittedHosts
+    }
 
     /// Route-only variant; same verification as the request variant.
     public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -25,17 +31,19 @@ public struct HiveTailscaleByteTransportFactory: CmxByteTransportFactory {
     /// - Throws: `CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable`
     ///   when the route is not a tailnet-classified tailscale host.
     public func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport {
-        // The Mac viewer's registry-backed routes are admitted by the
-        // tailnet address check below and by MobileShellRouteAuthPolicy's
-        // `.loopbackAndTailscaleTunnel` trust. MobileCoreRPCClient uses the
-        // `.stackBearer` intent for this existing RPC lane; keep accepting the
-        // transport-admission intent too for callers that already completed an
-        // out-of-band handshake.
+        // The Mac viewer's bearer route must have an authenticated local
+        // Tailscale status proof. The range check in `makeVerifiedTransport`
+        // remains a structural guard, not an authorization decision.
         guard request.authorizationMode == .stackBearer
             || request.authorizationMode == .transportAdmission else {
             throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
                 request.authorizationMode
             )
+        }
+        guard case let .hostPort(host, _) = request.route.endpoint,
+              let canonicalHost = CmxTailscalePeerAddress(host)?.value,
+              admittedHosts.contains(canonicalHost) else {
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
         }
         return try makeVerifiedTransport(route: request.route)
     }

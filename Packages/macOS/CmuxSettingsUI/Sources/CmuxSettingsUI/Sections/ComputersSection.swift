@@ -370,10 +370,11 @@ private struct ComputersSectionRow: View {
 
     private var title: String {
         if computer.isThisMac {
-            return String(
+            let template = String(
                 localized: "settings.computers.row.thisMac",
-                defaultValue: "\(computer.name) (This Mac)"
+                defaultValue: "%@ (This Mac)"
             )
+            return String.localizedStringWithFormat(template, computer.name)
         }
         return computer.name
     }
@@ -399,10 +400,11 @@ private struct ComputersSectionRow: View {
         }
         guard let lastSeenAt else { return nil }
         let relative = lastSeenAt.formatted(.relative(presentation: .named))
-        return String(
+        let template = String(
             localized: "settings.computers.row.lastSeen",
-            defaultValue: "Last seen \(relative)"
+            defaultValue: "Last seen %@"
         )
+        return String.localizedStringWithFormat(template, relative)
     }
 
     @ViewBuilder

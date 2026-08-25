@@ -100,18 +100,22 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
                 guard let self,
                       let entry = self.viewersByDeviceID[deviceID],
                       entry.session === currentSession else { return }
-                guard let computer = computers.first(where: { $0.deviceID == deviceID }),
-                      computer.isPaired,
-                      let best = computer.bestPairingRoutes else {
-                    continue
+                guard let computer = computers.first(where: { $0.deviceID == deviceID }) else {
+                    await self.close(deviceID: deviceID)
+                    return
                 }
-                guard best.routes != session.routes
-                    || best.instanceTag != session.expectedInstanceTag
-                    || computer.isRegistryBacked != session.requiresHostIdentity else {
+                guard computer.isPaired, let best = computer.bestPairingRoutes else {
+                    await self.close(deviceID: deviceID)
+                    return
+                }
+                guard best.routes != currentSession.sourceRoutes
+                    || best.instanceTag != currentSession.expectedInstanceTag
+                    || computer.isRegistryBacked != currentSession.requiresHostIdentity else {
                     continue
                 }
                 guard let replacement = await HiveComputersService.shared.makeViewerSession(deviceID: deviceID) else {
-                    continue
+                    await self.close(deviceID: deviceID)
+                    return
                 }
                 replacement.connect()
                 entry.session = replacement
