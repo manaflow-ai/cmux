@@ -32,17 +32,23 @@ struct BrowserExternalNavigationHandler {
 
     /// Returns whether a URL matches a configured external rule.
     func shouldOpenExternally(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
-              !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) else {
+        guard !Self.isAppOwnedInternalURL(url) else {
             return false
         }
-        return shouldOpenExternally(url.absoluteString)
+        return shouldOpenExternally(target: url.absoluteString)
     }
 
     /// Returns whether raw URL text matches a configured external rule.
     func shouldOpenExternally(_ rawURL: String) -> Bool {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
+        if let parsedURL = URL(string: target), Self.isAppOwnedInternalURL(parsedURL) {
+            return false
+        }
+        return shouldOpenExternally(target: target)
+    }
+
+    private func shouldOpenExternally(target: String) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
         return BrowserExternalURLPolicy(defaults: defaults).matches(target)
     }
@@ -53,15 +59,23 @@ struct BrowserExternalNavigationHandler {
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?
     ) -> Bool {
-        guard !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) else {
-            return false
-        }
         guard navigationType == .linkActivated,
               targetFrameIsMain != false,
-              url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased() else {
+              !Self.isAppOwnedInternalURL(url) else {
             return false
         }
         return shouldOpenExternally(url)
+    }
+
+    private static func isAppOwnedInternalURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if scheme == AuthEnvironment.callbackScheme.lowercased() {
+            return true
+        }
+        if BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(scheme) {
+            return true
+        }
+        return BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url)
     }
 
     /// Opens a matching URL through the injected system-browser opener.

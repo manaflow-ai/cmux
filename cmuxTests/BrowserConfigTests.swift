@@ -5612,6 +5612,22 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertFalse(
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(siblingCallbackURL)
         )
+        let diffViewerURL = try XCTUnwrap(
+            URL(string: "cmux-diff-viewer://session-token/document")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL.absoluteString)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                diffViewerURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
     }
 
     func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {
