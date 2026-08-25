@@ -2531,7 +2531,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     deinit {
-        artifactPreviewTask?.cancel()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
     }

@@ -56,12 +56,11 @@ struct ArtifactSidebarThumbnailView: View {
         let openedFile: ArtifactSidebarFileAccess.OpenedFile?
         let temporaryURL: URL?
         if let artifactRoot {
-            openedFile = ArtifactSidebarFileAccess().openedFile(
+            openedFile = nil
+            temporaryURL = await ArtifactSidebarFileAccess().makeTemporaryPreviewURLAsync(
                 for: fileURL,
                 artifactRoot: artifactRoot
             )
-            guard let openedFile else { return }
-            temporaryURL = await openedFile.makeTemporaryPreviewURLAsync()
             guard let temporaryURL else { return }
         } else {
             openedFile = nil

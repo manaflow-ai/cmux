@@ -161,6 +161,27 @@ struct ArtifactSidebarFileAccess {
         openedFile(for: sourceURL, artifactRoot: artifactRoot)?.sourceURL
     }
 
+    /// Validates and materializes one thumbnail source away from the main actor.
+    ///
+    /// The entire descriptor validation and bounded copy stay inside one
+    /// utility task so virtualized sidebar rows do not perform filesystem work
+    /// before their first suspension.
+    func makeTemporaryPreviewURLAsync(
+        for sourceURL: URL,
+        artifactRoot: URL,
+        maximumBytes: Int64 = 8 * 1024 * 1024
+    ) async -> URL? {
+        await Task.detached(priority: .utility) {
+            guard let opened = ArtifactSidebarFileAccess().openedFile(
+                for: sourceURL,
+                artifactRoot: artifactRoot
+            ) else {
+                return nil
+            }
+            return opened.makeTemporaryPreviewURL(maximumBytes: maximumBytes)
+        }.value
+    }
+
     /// Opens and validates one artifact while retaining the validated inode.
     func openedFile(for sourceURL: URL, artifactRoot: URL) -> OpenedFile? {
         guard sourceURL.isFileURL else { return nil }

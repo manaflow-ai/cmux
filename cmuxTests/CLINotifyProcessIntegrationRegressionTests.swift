@@ -3576,6 +3576,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     contents: Data("copy-\(index)".utf8)
                 )
             )
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -2 * 24 * 60 * 60)],
+                ofItemAtPath: url.path
+            )
         }
 
         CMUXCLI(args: []).cleanupTemporaryProjectFiles(in: directory)
