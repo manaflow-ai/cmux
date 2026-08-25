@@ -16,11 +16,13 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::{
     RootLists, ensure_scoped_file_roots_available, process_env_snapshot, scrubbed_env,
@@ -66,6 +68,7 @@ const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
 const GIT_STDOUT_DRAIN_TIMEOUT_MS: u64 = 5_000;
 const GIT_STOP_TIMEOUT_MS: u64 = 1_000;
+const CONNECTION_REQUEST_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1559,12 +1562,26 @@ impl Drop for GitProcessGuard {
         let Some(pid) = self.0.take() else { return };
         #[cfg(unix)]
         unsafe {
-            // The direct child is also killed by Tokio's kill_on_drop guard.
-            // killpg covers helpers which inherited stdout/stderr.
+            // The direct child is also configured with Tokio's kill_on_drop,
+            // but Drop cannot await Tokio's reaper. Kill the private process
+            // group and synchronously reap the direct child here. This is the
+            // cancellation fallback for a request task that is aborted before
+            // it reaches `abort_git_operation`; without the wait, the child
+            // can remain a zombie after the connection JoinSet is torn down.
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-            // Drop cannot await Child::wait. All owned paths above await it;
-            // cancellation relies on Tokio's documented best-effort reaper,
-            // without starting an unbounded thread or risking a reused PID.
+            loop {
+                let result = libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0);
+                if result == pid as libc::pid_t {
+                    break;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
+                // Tokio may have won the race to reap the child. In that
+                // case there is no process left for this guard to collect.
+                break;
+            }
         }
         #[cfg(windows)]
         {
@@ -1758,9 +1775,12 @@ async fn abort_git_operation(
     // the Child still owns the process-group identity.
     process_guard.kill_group();
     let _ = child.start_kill();
-    if finish_git_stderr(stderr_task, child, process_guard, deadline, operation).await.is_ok() {
-        let _ = wait_git_until(child, deadline).await;
-    }
+    // Preserve the first stderr/deadline error, but always perform the
+    // bounded child wait. A failed stderr drain must not skip reap and leave a
+    // zombie behind while the guard's Drop can only signal the process group.
+    let _stderr_result =
+        finish_git_stderr(stderr_task, child, process_guard, deadline, operation).await;
+    let _ = wait_git_until(child, deadline).await;
     disarm_if_reaped(child, process_guard);
 }
 
@@ -2179,6 +2199,7 @@ pub struct Connection {
     /// outbound queue and the relay session that created it.
     requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
     admission: Arc<Semaphore>,
+    request_cancel: CancellationToken,
 }
 
 impl Connection {
@@ -2191,11 +2212,45 @@ impl Connection {
             watches,
             requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
             admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT_WORKSPACE_REQUESTS)),
+            request_cancel: CancellationToken::new(),
         }
     }
 
     pub fn set_local_observe(&self, observe: bool) {
         self.local_observe.store(observe, Ordering::Relaxed);
+    }
+
+    /// Cancel and await every request admitted by this socket. Git requests
+    /// own a direct child process, so dropping the JoinSet after `abort_all`
+    /// is not enough: the task must reach its async cleanup and reap the
+    /// child before the connection releases its runtime resources.
+    pub async fn shutdown(&self) -> bool {
+        self.request_cancel.cancel();
+        let mut requests = {
+            let Ok(mut guard) = self.requests.lock() else { return true };
+            std::mem::take(&mut *guard)
+        };
+        // Cancellation is cooperative: request tasks observe the token and
+        // drop their operation future, allowing GitProcessGuard to perform
+        // its kill-and-reap fallback before the JoinSet entry completes.
+        let completed = tokio::time::timeout(CONNECTION_REQUEST_SHUTDOWN_TIMEOUT, async {
+            while requests.join_next().await.is_some() {}
+        })
+        .await
+        .is_ok();
+        if completed {
+            return true;
+        }
+
+        // A non-cooperative provider task may ignore cancellation. Abort it
+        // once more and give JoinSet a short bounded reap window so ordinary
+        // Git tasks still finish their kill-and-wait path.
+        requests.abort_all();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while requests.join_next().await.is_some() {}
+        })
+        .await
+        .is_ok()
     }
 
     /// Entry point for the three v6 server frame types. Never blocks; never
@@ -2265,6 +2320,7 @@ impl Connection {
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
+        let cancelled = self.request_cancel.clone();
         let permit = match self.admission.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
@@ -2275,7 +2331,10 @@ impl Connection {
         };
         let task = async move {
             let request_id = request.request_id.clone();
-            let outcome = execute(&runtime, &local_observe, request, permit).await;
+            let outcome = tokio::select! {
+                _ = cancelled.cancelled() => return,
+                outcome = execute(&runtime, &local_observe, request, permit) => outcome,
+            };
             let text = match outcome {
                 Ok(body) => ok_frame(&request_id, body),
                 Err(refusal) => error_frame(&request_id, &refusal),
@@ -2996,6 +3055,74 @@ mod tests {
         let result = wait_git_with_timeout(&mut child, std::time::Duration::from_millis(50)).await;
         assert!(result.is_err(), "a child that closes pipes must still hit the wait deadline");
         assert!(child.id().is_none(), "the timeout path must reap the direct child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_abort_reaps_child_when_stderr_reader_fails() {
+        use std::task::{Context, Poll};
+        use tokio::io::{AsyncRead, ReadBuf};
+
+        struct FailingReader;
+        impl AsyncRead for FailingReader {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                _buffer: &mut ReadBuf<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "synthetic stderr failure",
+                )))
+            }
+        }
+
+        let root = scratch("git-abort-stderr-error");
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("shell child");
+        let mut guard = GitProcessGuard::new(&child);
+        let drain = GitStderrDrain::start(FailingReader);
+        abort_git_operation(
+            Some(drain),
+            &mut child,
+            &mut guard,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            "git",
+        )
+        .await;
+        assert!(child.id().is_none(), "stderr failure must still reap the child");
+        let _ = root;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_abort_reaps_child_when_stderr_deadline_expires() {
+        let root = scratch("git-abort-stderr-timeout");
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("shell child");
+        let (_writer, reader) = tokio::io::duplex(64);
+        let mut guard = GitProcessGuard::new(&child);
+        let drain = GitStderrDrain::start(reader);
+        // Keep the writer alive so the drain cannot observe EOF before the
+        // operation deadline. The abort path must kill and reap regardless.
+        abort_git_operation(
+            Some(drain),
+            &mut child,
+            &mut guard,
+            std::time::Instant::now() + std::time::Duration::from_millis(1),
+            "git",
+        )
+        .await;
+        assert!(child.id().is_none(), "stderr timeout must still reap the child");
+        let _ = root;
     }
 
     #[tokio::test]

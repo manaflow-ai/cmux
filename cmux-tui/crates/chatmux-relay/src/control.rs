@@ -28,12 +28,31 @@ pub trait ControlHandle: Send + Sync {
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
     fn send(&self, cmd: &str, params: Value);
+    /// Send one mutating command and wait for an ordered daemon barrier before
+    /// allowing the next session command. The default is for deterministic
+    /// test controls; UnixControl overrides it with a FIFO `identify` reply.
+    fn ordered_send(
+        &self,
+        cmd: &str,
+        params: Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        self.send(cmd, params);
+        Box::pin(std::future::ready(true))
+    }
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
     fn pause(&self);
     fn resume(&self);
     fn end(&self);
+    /// Close this transport only after the daemon has observed all commands
+    /// already queued on it. Test controls and older transports that have no
+    /// acknowledgement primitive may return `true` immediately; the Unix
+    /// implementation overrides this with an ordered `identify` barrier.
+    fn end_and_wait(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        self.end();
+        Box::pin(std::future::ready(true))
+    }
 }
 
 #[cfg(unix)]
@@ -69,6 +88,11 @@ mod unix {
         paused: AtomicBool,
         resume_notify: Notify,
         closed_notify: Notify,
+        /// Set only after the read half observes the peer's EOF/error. This
+        /// is separate from `closed`, which is set immediately for deliberate
+        /// local shutdown and therefore cannot prove peer observation.
+        peer_closed: AtomicBool,
+        peer_closed_notify: Notify,
     }
 
     impl Shared {
@@ -95,6 +119,7 @@ mod unix {
         next_id: AtomicU64,
         timeout_ms: u64,
         ended: AtomicBool,
+        barrier_completed: AtomicBool,
     }
 
     /// Connect a JSON-lines control client to a cmux-tui session socket.
@@ -121,6 +146,8 @@ mod unix {
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
             closed_notify: Notify::new(),
+            peer_closed: AtomicBool::new(false),
+            peer_closed_notify: Notify::new(),
         });
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
@@ -137,6 +164,7 @@ mod unix {
             next_id: AtomicU64::new(1),
             timeout_ms,
             ended: AtomicBool::new(false),
+            barrier_completed: AtomicBool::new(false),
         }))
     }
 
@@ -157,15 +185,20 @@ mod unix {
             let Some(line) = next_line else {
                 break;
             };
-            if shared.closed.load(Ordering::SeqCst) {
-                if let Some(written) = line.written {
-                    let _ = written.send(false);
-                }
-                continue;
-            }
             let result = {
                 let mut writer = writer.lock().await;
-                writer.write_all(&line.bytes).await
+                // Re-check only after acquiring the writer lock. `end()` can
+                // close the shared state while this task is waiting for a
+                // previous write; checking before the lock allowed a stale
+                // line to pass that check and be written after teardown.
+                if shared.closed.load(Ordering::SeqCst) {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "control writer closed",
+                    ))
+                } else {
+                    writer.write_all(&line.bytes).await
+                }
             };
             let succeeded = result.is_ok();
             if let Some(written) = line.written {
@@ -235,6 +268,8 @@ mod unix {
                 // Responses to fire-and-forget sends fall through silently.
             }
         }
+        shared.peer_closed.store(true, Ordering::SeqCst);
+        shared.peer_closed_notify.notify_waiters();
         shared.settle_closed();
     }
 
@@ -313,6 +348,34 @@ mod unix {
             let _ = self.enqueue_line(id, cmd, params, None);
         }
 
+        fn ordered_send(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let cmd = cmd.to_owned();
+            Box::pin(async move {
+                if self.shared.closed.load(Ordering::Acquire) {
+                    return false;
+                }
+                let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+                if !self.enqueue_line(id, &cmd, params, None) {
+                    return false;
+                }
+                // JSON-lines requests are processed in read order by the
+                // daemon. The identify reply therefore acknowledges this
+                // command and every earlier command on this socket.
+                tokio::time::timeout(
+                    Duration::from_millis(self.timeout_ms),
+                    self.request("identify", serde_json::json!({})),
+                )
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|response| response.get("ok").and_then(Value::as_bool) == Some(true))
+            })
+        }
+
         fn on_event(&self, handler: EventHandler) {
             *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
         }
@@ -343,6 +406,40 @@ mod unix {
             unsafe {
                 libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
             }
+        }
+
+        fn end_and_wait(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            Box::pin(async move {
+                if self.barrier_completed.load(Ordering::Acquire) {
+                    return true;
+                }
+                if self.shared.closed.load(Ordering::Acquire) {
+                    return false;
+                }
+                // `identify` is side-effect free and is ordered behind all
+                // earlier control commands on this JSON-lines connection.
+                // Its response is the daemon-observed close barrier. If the
+                // transport is already closed, no new claim may be admitted.
+                let barrier = tokio::time::timeout(
+                    Duration::from_millis(self.timeout_ms),
+                    self.request("identify", serde_json::json!({})),
+                )
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|response| response.get("ok").and_then(Value::as_bool) == Some(true));
+                if !barrier {
+                    self.end();
+                    return false;
+                }
+                self.barrier_completed.store(true, Ordering::Release);
+                self.end();
+                // The identify response is the daemon-observed barrier. Do
+                // not wait for peer EOF after local shutdown: EOF ordering is
+                // transport-dependent and cannot strengthen the protocol
+                // guarantee.
+                true
+            })
         }
     }
 }

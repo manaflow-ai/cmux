@@ -1241,9 +1241,16 @@ async fn relay_session(
         }
     };
 
-    // Drop workspace-owned request/watch tasks before draining the outbound
-    // queues. This retires watch tokens and prevents more frames from being
-    // admitted while the writer is shutting down.
+    // Cancel and await workspace-owned request tasks before draining the
+    // outbound queues. Git tasks must reap their child before the connection
+    // releases its runtime resources; a synchronous `Drop` abort is not a
+    // sufficient child-reaping boundary.
+    if !workspace.shutdown().await {
+        eprintln!(
+            "Workspace request shutdown exceeded {:?}; remaining handlers were aborted.",
+            CONNECTION_TASK_SHUTDOWN_TIMEOUT
+        );
+    }
     drop(workspace);
 
     // Handlers are owned by this socket. Cancel them before returning so a

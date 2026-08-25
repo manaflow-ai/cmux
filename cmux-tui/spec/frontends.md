@@ -95,11 +95,9 @@ Initial surface dimensions and geometry ownership follow the consolidated
 [`Sizing`](commands.md#sizing) contract. Passive clients report their viewport
 without resizing the PTY. A client explicitly claims geometry for one terminal
 view, and the canonical grid stays frozen when that owner disconnects until a
-client makes another explicit claim. The Rust `chatmux-relay` wrapper has a
-separate local attachment rule: it may fence its relay owner, choose the
-lowest-id eligible relay viewer, and send that viewer's report followed by an
-explicit claim before later relay input. This wrapper rule does not change the
-core cmux-tui server contract.
+client makes another explicit claim. The Rust `chatmux-relay` wrapper closes a
+lost relay attachment and waits for a newly attached viewer to make that
+explicit claim; it does not elect a survivor or issue a cross-socket claim.
 
 ## 4. Render A PTY Surface
 

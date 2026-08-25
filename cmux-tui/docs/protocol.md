@@ -176,9 +176,10 @@ When several clients display one terminal, their size reports are passive
 viewport hints until one exact client and terminal view claim geometry
 authority. Only that owner can resize the canonical PTY grid; every other view
 crops, pans, or scales it locally. Releasing or disconnecting the owner, or a
-refused owner resize, automatically fences the old owner and elects the
-deterministic eligible survivor. The replacement report and claim are queued
-before later input. The grid freezes only when no eligible viewer remains.
+refused owner resize, fences the old owner and freezes the current grid. A
+replacement report and claim must come from a newly attached client; the core
+server does not elect a survivor across sockets because the wire contract has
+no generation token for that hand-off.
 Browser surfaces retain the legacy smallest-participating-size reducer because
 each browser has one live tab. A client releases its report when that view
 becomes hidden. Input and mux-driven redraws never claim geometry or reassert an
