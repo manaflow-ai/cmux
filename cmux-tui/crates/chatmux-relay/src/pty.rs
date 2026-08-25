@@ -1999,12 +1999,21 @@ impl TerminalSizing {
         if !self.candidate_is_current(target, viewer_id, endpoint, grid, generation) {
             return CandidateRequestOutcome::Stale;
         }
-        CandidateRequestOutcome::Reply(
-            target
-                .queue
-                .ordered_request_at(endpoint, command, params, generation, None, true)
-                .await,
-        )
+        let response = target
+            .queue
+            .ordered_request_at(endpoint, command, params, generation, None, true)
+            .await;
+        // `None` is used both for a transport failure and for a command that
+        // the ordered actor rejected as stale.  Do not turn the latter into
+        // `leave_endpoint`: a newer generation may already own this viewer
+        // identity and must not be detached by an old candidate worker.
+        if response.is_none()
+            && !self.candidate_is_current(target, viewer_id, endpoint, grid, generation)
+        {
+            CandidateRequestOutcome::Stale
+        } else {
+            CandidateRequestOutcome::Reply(response)
+        }
     }
 
     fn join(
@@ -3010,23 +3019,10 @@ impl TerminalSizing {
                 }
                 CandidateRequestOutcome::Reply(response) => response,
             };
-            if reported.is_none() {
-                // A timeout or transport failure leaves a request that may
-                // still be queued in the control writer. Close this endpoint
-                // before reserving a replacement so the late request cannot
-                // steal authority after the survivor fence.
-                self.leave_endpoint(&target.key, viewer_id, &endpoint);
-                return;
-            }
-            if !control_response_ok(reported.as_ref()) {
-                self.abandon_candidate_request(
-                    target, viewer_id, &endpoint, grid, generation, token,
-                );
-                return;
-            }
-            // The viewer can detach while the report round-trip is pending.
-            // Re-check liveness before claiming authority; otherwise a late
-            // reply would let a dead attachment claim a surface after leave.
+            // A reply can be valid JSON even after a leave/update advanced
+            // the candidate generation.  Check the fence before interpreting
+            // `ok` or `accepted`; an old refusal must not clear or freeze a
+            // newer explicit claim.
             if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
                 if endpoint.is_active() {
                     self.abandon_candidate_request(
@@ -3037,10 +3033,15 @@ impl TerminalSizing {
                 }
                 return;
             }
-            // A passive report can return accepted:false while retaining the
-            // report. The explicit claim remains the only authority change;
-            // a refusal freezes the current core geometry.
-            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+            if reported.is_none() {
+                // A timeout or transport failure leaves a request that may
+                // still be queued in the control writer. Close this endpoint
+                // before reserving a replacement so the late request cannot
+                // steal authority after the survivor fence.
+                self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                return;
+            }
+            if !control_response_ok(reported.as_ref()) {
                 self.abandon_candidate_request(
                     target, viewer_id, &endpoint, grid, generation, token,
                 );
@@ -3068,6 +3069,19 @@ impl TerminalSizing {
                 }
                 CandidateRequestOutcome::Reply(response) => response,
             };
+            // Apply the same generation fence to the claim response.  In
+            // particular, an old `ok:false` must not clear a newer claim
+            // reservation or detach its endpoint.
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+                if endpoint.is_active() {
+                    self.abandon_candidate_request(
+                        target, viewer_id, &endpoint, grid, generation, token,
+                    );
+                } else {
+                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                }
+                return;
+            }
             if claimed.is_none() {
                 self.leave_endpoint(&target.key, viewer_id, &endpoint);
                 return;
@@ -3318,14 +3332,19 @@ impl TerminalSizingLease {
     }
 
     /// Release the relay sizing attachment. Returns true when the sizing
-    /// coordinator owns transport teardown; callers must not close the
+    /// coordinator owns transport teardown, including repeated calls after a
+    /// callback already released the lease. Callers must not close the
     /// control directly in that case because the queue must first establish
     /// the daemon-observed ordering barrier.
     fn leave(&self) -> bool {
-        let (should_leave, endpoint) = {
+        let (queue_owned, endpoint) = {
             let mut state = self.state.lock().expect("terminal sizing lease lock");
             if state.released {
-                (false, None)
+                // A close/event callback can release the lease before the
+                // proxy's Drop path runs. Preserve the queue-owned marker so
+                // the second path cannot bypass the FIFO close with a direct
+                // `control.end()`.
+                (state.joined || state.joining, None)
             } else {
                 state.released = true;
                 // Clone only the endpoint needed for the immediate ordered
@@ -3333,18 +3352,17 @@ impl TerminalSizingLease {
                 // Control callbacks may retain the lease, so retaining this
                 // Arc after release would keep the whole control cycle alive.
                 (
-                    state.joined && !state.joining,
+                    state.joined || state.joining,
                     state.endpoint.take().and_then(|endpoint| endpoint.upgrade()),
                 )
             }
         };
-        if should_leave && let Some(endpoint) = endpoint {
+        if queue_owned && let Some(endpoint) = endpoint {
             if let Some(coordinator) = self.coordinator.upgrade() {
                 coordinator.leave_endpoint(&self.key, self.viewer_id, &endpoint);
-                return true;
             }
         }
-        false
+        queue_owned
     }
 }
 
@@ -7103,6 +7121,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_candidate_reply_does_not_detach_current_endpoint() {
+        let control = SizingControl::new(12, &[]);
+        control.block_claim_dispatch();
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-candidate-reply.sock"),
+            surface_id: 41,
+        };
+        coordinator
+            .join(key.clone(), 1, 41, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier");
+        control.wait_for_claim_dispatch().await;
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 1).expect("candidate endpoint");
+        let old_generation = TerminalSizing::current_generation(&target);
+
+        // Simulate a newer viewer transition while the old claim request is
+        // waiting for its daemon response. The generation change is the
+        // ordering fence; the endpoint itself remains attached and healthy.
+        {
+            let _queue_state = target.queue.state.lock().unwrap();
+            let _state = target.state.lock().unwrap();
+            assert_eq!(TerminalSizing::current_generation(&target), old_generation);
+            coordinator.advance_generation(&target);
+        }
+        control.release_claim_dispatch();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.queue.state.lock().unwrap().claim_fence.is_none() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("stale candidate worker did not clear its old fence");
+
+        let current = coordinator.queue_for(&key, 1).expect("current endpoint");
+        assert!(Arc::ptr_eq(&current, &endpoint), "stale reply detached the live endpoint");
+        assert!(current.is_active(), "stale reply deactivated the live endpoint");
+        assert_eq!(
+            target.state.lock().unwrap().owner,
+            None,
+            "stale candidate reply must not claim the newer generation"
+        );
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
     async fn failed_close_permanently_freezes_retired_target_without_revival() {
         let control = SizingControl::new(12, &[]);
         control.set_end_ok(false);
@@ -7811,7 +7879,12 @@ mod tests {
         let endpoint_weak = Arc::downgrade(&endpoint);
         let lease_weak = Arc::downgrade(&lease);
 
-        lease.leave();
+        assert!(lease.leave(), "joined lease must own queue teardown");
+        // The close callback and the proxy drop can both release the same
+        // lease. A repeated call must retain the queue-owned marker; otherwise
+        // the second path can call control.end() directly while the FIFO close
+        // is still pending.
+        assert!(lease.leave(), "repeated joined-lease release must stay queue-owned");
         assert!(lease.state.lock().unwrap().endpoint.is_none());
         drop(endpoint);
         drop(lease);
