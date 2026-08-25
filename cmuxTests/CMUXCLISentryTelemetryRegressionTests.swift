@@ -2,12 +2,6 @@ import Darwin
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 private final class CMUXCLISentryTelemetryBundleToken {}
 
 @Suite struct CMUXCLISentryTelemetryRegressionTests {
@@ -105,101 +99,126 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         )
     }
 
-#if DEBUG
-#if canImport(cmux_DEV) || canImport(cmux)
-    @Test func scopedStructuredAndWrappedCLIErrorClassification() throws {
+    @Test func structuredProtocolCodeControlsSentryCapture() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-sentry-classification-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-cli-sentry-structured-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        func telemetry(probePath: String) -> CLISocketSentryTelemetry {
-            var environment = ProcessInfo.processInfo.environment
-            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-                environment.removeValue(forKey: key)
-            }
-            environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
-            return CLISocketSentryTelemetry(
-                command: "ping",
-                commandArgs: [],
-                socketPath: "/tmp/cmux-regression.sock",
-                processEnv: environment
-            )
-        }
-
-        let wrappedUnavailableProbe = root.appendingPathComponent("wrapped-unavailable.txt").path
-        telemetry(probePath: wrappedUnavailableProbe).captureError(
-            stage: "agent-hook-notification-delivery",
-            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
-            classificationError: NSError(
-                domain: "com.cmuxterm.cli.inner-wrapper",
-                code: 1,
-                userInfo: [
-                    NSUnderlyingErrorKey: CLIError(
-                        message: "unavailable: TabManager not available (Code: 1)",
-                        v2Code: "unavailable"
-                    )
-                ]
-            )
+        let unavailableProbe = root.appendingPathComponent("unavailable-probe.txt").path
+        let unavailableResult = try runStructuredErrorProbe(
+            code: "unavailable",
+            probePath: unavailableProbe,
+            root: root
         )
-        #expect(!FileManager.default.fileExists(atPath: wrappedUnavailableProbe))
+        #expect(!unavailableResult.timedOut, Comment(rawValue: unavailableResult.stdout))
+        #expect(unavailableResult.status != 0, Comment(rawValue: unavailableResult.stdout))
+        #expect(unavailableResult.stdout.lowercased().contains("unavailable"), Comment(rawValue: unavailableResult.stdout))
+        #expect(!FileManager.default.fileExists(atPath: unavailableProbe))
 
-        let wrappedLegacyProbe = root.appendingPathComponent("wrapped-legacy.txt").path
-        telemetry(probePath: wrappedLegacyProbe).captureError(
-            stage: "agent-hook-notification-delivery",
-            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
-            classificationError: NSError(
-                domain: "com.cmuxterm.cli.inner-wrapper",
-                code: 1,
-                userInfo: [
-                    NSUnderlyingErrorKey: CLIError(message: "ERROR: TabManager not available")
-                ]
-            )
+        let actionableProbe = root.appendingPathComponent("actionable-probe.txt").path
+        let actionableResult = try runStructuredErrorProbe(
+            code: "internal_error",
+            probePath: actionableProbe,
+            root: root
         )
-        #expect(!FileManager.default.fileExists(atPath: wrappedLegacyProbe))
-
-        let actionableCodeProbe = root.appendingPathComponent("actionable-code.txt").path
-        telemetry(probePath: actionableCodeProbe).captureError(
-            stage: "socket_command",
-            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
-            classificationError: NSError(
-                domain: "com.cmuxterm.cli.inner-wrapper",
-                code: 1,
-                userInfo: [
-                    NSUnderlyingErrorKey: CLIError(
-                        message: "unavailable: TabManager not available (Code: 1)",
-                        v2Code: "internal_error"
-                    )
-                ]
-            )
-        )
-        #expect(FileManager.default.fileExists(atPath: actionableCodeProbe))
-
-        let missingPathProbe = root.appendingPathComponent("missing-path.txt").path
-        telemetry(probePath: missingPathProbe).captureError(
-            stage: "socket_connect",
-            error: CLIError(
-                message: "Socket not found at /tmp/cmux-regression.sock (Code: 1)",
-                socketFailureKind: .pathMissing
-            )
-        )
-        #expect(!FileManager.default.fileExists(atPath: missingPathProbe))
-
-        let startupTimeoutProbe = root.appendingPathComponent("startup-timeout.txt").path
-        telemetry(probePath: startupTimeoutProbe).captureError(
-            stage: "socket_startup_wait",
-            error: CLIError(
-                message: "cmux app did not start in time (socket not found at /tmp/cmux-regression.sock)",
-                socketFailureKind: .startupTimeout
-            )
-        )
-        #expect(FileManager.default.fileExists(atPath: startupTimeoutProbe))
+        #expect(!actionableResult.timedOut, Comment(rawValue: actionableResult.stdout))
+        #expect(actionableResult.status != 0, Comment(rawValue: actionableResult.stdout))
+        #expect(actionableResult.stdout.lowercased().contains("unavailable"), Comment(rawValue: actionableResult.stdout))
+        #expect(FileManager.default.fileExists(atPath: actionableProbe))
     }
-#endif
-#endif
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CMUXCLISentryTelemetryBundleToken.self)
+    }
+
+    private func runStructuredErrorProbe(
+        code: String,
+        probePath: String,
+        root: URL
+    ) throws -> ProcessRunResult {
+        let socketPath = root.appendingPathComponent("\(code).sock").path
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer { Darwin.close(clientFD) }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                    guard let requestData = line.data(using: .utf8),
+                          let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+                          let id = request["id"] as? String else {
+                        return nil
+                    }
+                    let response: [String: Any] = [
+                        "id": id,
+                        "ok": false,
+                        "error": [
+                            "code": code,
+                            "message": "TabManager not available"
+                        ]
+                    ]
+                    return try? String(
+                        data: JSONSerialization.data(withJSONObject: response),
+                        encoding: .utf8
+                    )
+                }
+            },
+            onListenerClosed: {}
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "1"
+        environment["HOME"] = root.path
+        return runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["capabilities"],
+            environment: environment,
+            timeout: 5
+        )
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let buffer = UnsafeMutableRawPointer(tuplePointer).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, pointer, maxLength - 1)
+            }
+        }
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0, listen(fd, 8) == 0 else {
+            let errorCode = errno
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode))
+        }
+        return fd
     }
 
     private func sentryProbeEnvironment(socketPath: String, probePath: String) -> [String: String] {
