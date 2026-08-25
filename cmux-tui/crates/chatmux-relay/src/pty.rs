@@ -1626,12 +1626,21 @@ impl OrderedControlQueue {
     /// a stale entry was removed so ingress can continue without treating it
     /// as a queue-capacity or transport failure.
     fn discard_stale_pending_locked(&self, state: &mut OrderedControlQueueState) -> bool {
-        let Some((generation, _, _, claim)) = state.pending_resize.as_ref() else { return false };
+        let Some((generation, endpoint, _, claim)) = state.pending_resize.as_ref() else {
+            return false;
+        };
         if *generation == self.current_generation() {
             return false;
         }
+        let pending_generation = *generation;
+        let pending_endpoint = endpoint_ptr(endpoint);
+        let pending_claim = *claim;
         state.pending_resize = None;
-        if *claim || state.claim_fence.is_some_and(|fence| fence.generation != *generation) {
+        if pending_claim
+            && state.claim_fence.is_some_and(|fence| {
+                fence.generation == pending_generation && fence.endpoint_ptr == pending_endpoint
+            })
+        {
             state.claim_fence = None;
         }
         true
@@ -7904,6 +7913,34 @@ mod tests {
         control.wait_for_sends(sends_before + 1).await;
         assert_eq!(control.sends()[sends_before].0, "send");
         assert!(endpoint.is_active(), "stale resize must not detach a healthy endpoint");
+    }
+
+    #[test]
+    fn stale_nonclaim_pending_does_not_clear_current_claim_fence() {
+        let queue = OrderedControlQueue::new(41);
+        let old_control: Arc<dyn ControlHandle> = Arc::new(SizingControl::new(12, &[]));
+        let new_control: Arc<dyn ControlHandle> = Arc::new(SizingControl::new(12, &[]));
+        let old_endpoint = queue.endpoint(1, old_control);
+        let new_endpoint = queue.endpoint(2, new_control);
+        let current_generation = queue.current_generation();
+        let expected_fence = ClaimFence {
+            generation: current_generation,
+            viewer_id: new_endpoint.viewer_id,
+            grid: SizingGrid { cols: 80, rows: 24 },
+            token: 7,
+            endpoint_ptr: endpoint_ptr(&new_endpoint),
+        };
+        let mut state = queue.state.lock().unwrap();
+        state.claim_fence = Some(expected_fence);
+        state.pending_resize = Some((
+            current_generation.saturating_sub(1),
+            old_endpoint,
+            SizingGrid { cols: 100, rows: 30 },
+            false,
+        ));
+        assert!(queue.discard_stale_pending_locked(&mut state));
+        assert_eq!(state.claim_fence, Some(expected_fence));
+        assert!(state.pending_resize.is_none());
     }
 
     #[test]
