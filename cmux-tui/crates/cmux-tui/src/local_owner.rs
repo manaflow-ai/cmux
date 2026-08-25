@@ -167,8 +167,7 @@ fn attempt(socket: &Path, expected_session: Option<&str>) -> Result<Attempt, Ens
     let Some(pid) = identity["pid"].as_u64() else {
         return Err(EnsureError::InvalidIdentity);
     };
-    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty())
-    else {
+    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
         return Err(EnsureError::InvalidIdentity);
     };
     Ok(Attempt::Ready(ReadyOwner {
@@ -255,11 +254,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
-    std::thread::Builder::new()
-        .name("local-owner-reaper".to_string())
-        .spawn(move || {
-            let _ = child.wait();
-        })?;
+    std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
+        let _ = child.wait();
+    })?;
     Ok(())
 }
 
