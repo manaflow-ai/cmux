@@ -66,6 +66,11 @@ extension CmxAttachTransportKind {
             L10n.string("mobile.connections.method.websocket", defaultValue: "WebSocket")
         case .debugLoopback:
             L10n.string("mobile.connections.method.debug", defaultValue: "Debug")
+        case .nextTransport:
+            L10n.string(
+                "mobile.connections.method.nextTransport",
+                defaultValue: "Next transport"
+            )
         }
     }
 }

@@ -1,4 +1,5 @@
 #if DEBUG
+import CMUXMobileCore
 import CmuxNextTransport
 import Foundation
 import IrohLib
@@ -170,6 +171,7 @@ final class MobileHostNextTransportRuntime {
                 }
             }
             state = relays.isEmpty ? "ready (direct only)" : "ready (relay)"
+            publishPresenceRoute()
             mobileHostNextTransportLog.info(
                 "next-transport host up: \(self.endpointID ?? "?", privacy: .public)")
         } catch {
@@ -179,9 +181,37 @@ final class MobileHostNextTransportRuntime {
         }
     }
 
+    /// Graduation slice 3: advertise the parallel host through the existing
+    /// presence `routes` field. The route is identity + relay only (private
+    /// addresses never enter presence), rides the same status pipeline as the
+    /// iroh route so heartbeats pick it up automatically, and is facade-only:
+    /// old clients drop the unknown kind at their failable-decode boundaries
+    /// and no legacy selection/dial path treats it as a candidate.
+    private func publishPresenceRoute() {
+        guard let endpointID else { return }
+        do {
+            let route = try CmxAttachRoute(
+                id: CmxAttachTransportKind.nextTransport.rawValue,
+                kind: .nextTransport,
+                endpoint: .peer(
+                    id: endpointID,
+                    relayHint: nil,
+                    directAddrs: [],
+                    relayURL: relayURL
+                ),
+                priority: 30
+            )
+            MobileHostService.shared.updateNextTransportRoute(route)
+        } catch {
+            mobileHostNextTransportLog.error(
+                "next-transport presence route rejected: \(String(describing: error))")
+        }
+    }
+
     private func stop() async {
         acceptTask?.cancel()
         renewTask?.cancel()
+        MobileHostService.shared.updateNextTransportRoute(nil)
         try? await endpoint?.close()
         endpoint = nil
         host = nil

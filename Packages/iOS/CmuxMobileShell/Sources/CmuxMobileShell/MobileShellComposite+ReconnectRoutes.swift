@@ -252,10 +252,15 @@ extension MobileShellComposite {
         tailscaleRequirement: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
+        // `.nextTransport` is the graduation facade's presence advertisement,
+        // never a legacy reconnect candidate. Excluded unconditionally (even
+        // with an empty supported-kinds allowlist) so a persisted or
+        // registry-refreshed route set can never surface it for dialing.
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
             to: routes,
             observedAt: Date()
         )
+            .filter { $0.kind != .nextTransport }
             .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
             .sorted(by: Self.routeSortsBefore)
         if preferNonLoopback {

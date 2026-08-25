@@ -9926,10 +9926,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
+        // `.nextTransport` is the graduation facade's presence advertisement,
+        // never a legacy dial candidate. Excluded unconditionally (even with
+        // an empty supported-kinds allowlist) so it can never be selected.
         let orderedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
             to: ticket.routes,
             observedAt: Date()
-        ).sorted(by: Self.routeSortsBefore)
+        )
+        .filter { $0.kind != .nextTransport }
+        .sorted(by: Self.routeSortsBefore)
         let supportedRoutes: [CmxAttachRoute]
         if supportedKinds.isEmpty {
             supportedRoutes = orderedRoutes

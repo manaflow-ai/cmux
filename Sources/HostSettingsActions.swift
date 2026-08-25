@@ -519,6 +519,11 @@ final class HostSettingsActions: SettingsHostActions {
             return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
         case .websocket:
             return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
+        case .nextTransport:
+            return String(
+                localized: "settings.mobile.route.nextTransport",
+                defaultValue: "Next transport"
+            )
         }
     }
 
