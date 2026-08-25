@@ -654,6 +654,89 @@ struct DockSessionPersistenceTests {
         #expect(newestBindingIndex.binding(panelId: panelID)?.checkpointId == newestSessionID)
     }
 
+    @Test("Stable-panel ownership reports a conflicting live owner")
+    func stablePanelOwnershipReportsConflictingLiveOwner() {
+        let expectedOwnerID = UUID()
+        let conflictingOwnerID = UUID()
+        let panelID = UUID()
+        let expectedSessionID = UUID().uuidString
+        let conflictingSessionID = UUID().uuidString
+        let expectedPID = 43_101
+        let conflictingPID = 43_102
+        let expectedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(expectedPID),
+            startSeconds: 20,
+            startMicroseconds: 1
+        )
+        let conflictingIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(conflictingPID),
+            startSeconds: 20,
+            startMicroseconds: 2
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                .init(workspaceId: expectedOwnerID, panelId: panelID): (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: expectedSessionID,
+                        workingDirectory: nil,
+                        launchCommand: nil
+                    ),
+                    updatedAt: 100,
+                    processIDs: [expectedPID],
+                    agentProcessIDs: [expectedPID],
+                    sessionIDSource: .explicit
+                ),
+                .init(workspaceId: conflictingOwnerID, panelId: panelID): (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: conflictingSessionID,
+                        workingDirectory: nil,
+                        launchCommand: nil
+                    ),
+                    updatedAt: 100,
+                    processIDs: [conflictingPID],
+                    agentProcessIDs: [conflictingPID],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { pid in
+                switch pid {
+                case expectedPID:
+                    expectedIdentity
+                case conflictingPID:
+                    conflictingIdentity
+                default:
+                    nil
+                }
+            }
+        )
+
+        #expect(
+            index.hasConflictingLiveStablePanelEntry(
+                workspaceId: expectedOwnerID,
+                panelId: panelID,
+                expectedKind: "codex",
+                expectedSessionId: expectedSessionID,
+                processIdentityProvider: { pid in
+                    switch pid {
+                    case expectedPID:
+                        expectedIdentity
+                    case conflictingPID:
+                        conflictingIdentity
+                    default:
+                        nil
+                    }
+                },
+                processPresenceProvider: { _ in .present }
+            )
+        )
+    }
+
     @Test("Stable-panel lookup revalidates a cached owner PID before preferring it")
     func stablePanelLookupRevalidatesCachedOwnerPID() throws {
         let fileManager = FileManager.default
