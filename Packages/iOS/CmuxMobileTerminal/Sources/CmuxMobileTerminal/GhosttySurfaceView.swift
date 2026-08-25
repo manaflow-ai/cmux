@@ -1283,6 +1283,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
 
+    var hostedChromeHidden: Bool { chromeHidden }
+
     /// Host-driven geometry resync for inputs the surface cannot observe
     /// itself: the grid container reads the WINDOW's bottom safe-area inset
     /// (the slid surface's own inset is a meaningless 0), and a window-level

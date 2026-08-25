@@ -1117,7 +1117,9 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
     let decoder = GzDecoder::new(compressed.as_slice());
-    let mut uncompressed = Vec::new();
+    // The segment header already carries a validated byte count. Reserve it
+    // once, so decompression does not repeatedly grow and copy the buffer.
+    let mut uncompressed = Vec::with_capacity(expected_bytes);
     decoder
         .take(u64::try_from(expected_bytes)?.saturating_add(1))
         .read_to_end(&mut uncompressed)

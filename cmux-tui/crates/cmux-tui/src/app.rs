@@ -98,6 +98,23 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+
+fn read_crossterm_event(
+    timeout: Option<Duration>,
+    mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    mut read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
+        && !poll(timeout)?
+    {
+        return Ok(None);
+    }
+    if timeout.is_none() && !poll(Duration::from_millis(100))? {
+        return Ok(None);
+    }
+    read().map(Some)
+}
+
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -950,6 +967,10 @@ impl HostInputMessage {
     fn is_passive_motion(&self) -> bool {
         matches!(self, Self::Event(Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })))
     }
+
+    fn is_resize(&self) -> bool {
+        matches!(self, Self::Event(Event::Resize(..)))
+    }
 }
 
 #[derive(Default)]
@@ -976,6 +997,18 @@ impl HostInputIngress {
         if event.is_passive_motion()
             && state.events.back().is_some_and(HostInputMessage::is_passive_motion)
         {
+            let previous_bytes =
+                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
+            state.retained_bytes =
+                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
+            *state.events.back_mut().unwrap() = event;
+            return Ok(false);
+        }
+        // Crossterm can report several intermediate sizes while a terminal is
+        // being resized. Keep only the latest adjacent resize so the app
+        // always applies the final dimensions instead of spending queue space
+        // on stale events.
+        if event.is_resize() && state.events.back().is_some_and(HostInputMessage::is_resize) {
             let previous_bytes =
                 state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
             state.retained_bytes =
@@ -1019,6 +1052,10 @@ impl HostInputIngress {
     fn close(&self) {
         self.state.lock().unwrap().closed = true;
         self.space_available.notify_all();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
     }
 
     #[cfg(test)]
@@ -4198,7 +4235,7 @@ impl MenuAction {
             MenuAction::RenameManagedWorkspace(_) => {
                 localization::catalog().sidebar.rename_workspace
             }
-            MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
+            MenuAction::CopyWorkspaceId(_) => menu.copy_workspace_id,
             MenuAction::CloseWorkspace(_) => {
                 localization::catalog().action_label(Action::CloseWorkspace)
             }
@@ -4223,13 +4260,13 @@ impl MenuAction {
             MenuAction::BrowserEditUrl(_) => {
                 localization::catalog().action_label(Action::BrowserEditUrl)
             }
-            MenuAction::BrowserCopyUrl(_) => "Copy URL",
-            MenuAction::BrowserActivate(_) => "Show in Chrome",
+            MenuAction::BrowserCopyUrl(_) => menu.copy_url,
+            MenuAction::BrowserActivate(_) => menu.show_in_chrome,
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
-            MenuAction::CopyTabId(_) => "Copy tab id",
-            MenuAction::CopyPaneId(_) => "Copy pane id",
+            MenuAction::CopyTabId(_) => menu.copy_tab_id,
+            MenuAction::CopyPaneId(_) => menu.copy_pane_id,
             MenuAction::CopyStatusMessage => menu.copy_message,
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
@@ -4255,13 +4292,13 @@ impl MenuAction {
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
-            MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
-            MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize { .. } => "Use only this client size",
-            MenuAction::RestoreAllClientSizing(_) => "Use all client sizes",
-            MenuAction::DisconnectClient(_) => "Disconnect",
+            MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
+            MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
+            MenuAction::UseClientSize { .. } => menu.use_only_client_size,
+            MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
+            MenuAction::DisconnectClient(_) => menu.disconnect_client,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
-                "Provider action"
+                localization::catalog().sidebar.provider_actions
             }
             MenuAction::CreateMachineFrom(_) => localization::catalog().sidebar.new_machine,
             MenuAction::ConnectMachineTarget(_) => localization::catalog().sidebar.connect_machine,
@@ -4985,9 +5022,17 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
         let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
         let size = reported_size
             .map(|(cols, rows)| format!("{cols}×{rows}"))
-            .unwrap_or_else(|| "no grid".to_string());
-        let self_label = if client.is_self { " · this client" } else { "" };
-        let sizing_label = if size_participating { "" } else { " · excluded" };
+            .unwrap_or_else(|| localization::catalog().menu.no_grid.to_string());
+        let self_label = if client.is_self {
+            format!(" · {}", localization::catalog().menu.this_client)
+        } else {
+            String::new()
+        };
+        let sizing_label = if size_participating {
+            String::new()
+        } else {
+            format!(" · {}", localization::catalog().menu.excluded)
+        };
         let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
         let mut actions = Vec::new();
         if reported_size.is_some() {
@@ -5008,7 +5053,10 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
         }
         items.push(MenuItem::Submenu { label, items: actions });
     }
-    Some(MenuItem::Submenu { label: format!("Connected clients ({})", clients.len()), items })
+    Some(MenuItem::Submenu {
+        label: format!("{} ({})", localization::catalog().menu.connected_clients, clients.len()),
+        items,
+    })
 }
 
 /// What a committed rename prompt applies to.
@@ -6711,6 +6759,11 @@ pub struct App {
     pub(crate) rendered_pane_content_generations: HashMap<SurfaceId, PaneContentGeneration>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
+    /// Host mouse-capture state this client last asserted. Full-TUI clients
+    /// always capture; a scoped attach client mirrors the inner terminal's
+    /// mouse-tracking state so the host owns clicks and selection whenever
+    /// the inner application did not request mouse input.
+    host_mouse_capture_applied: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -8398,23 +8451,20 @@ fn prepare_machine_session(
 ) -> anyhow::Result<PreparedMachineSession> {
     // The managed-workspace guard runs on every presentation, reused or
     // not: a pooled session can change state while it is not presented, and
-    // the guard is the invariant that makes presenting it safe. Only the
-    // cosmetic default-colors round-trip is skipped for reused sessions.
+    // the guard is the invariant that makes presenting it safe. Default
+    // colors are also refreshed for reused sessions because they belong to
+    // the current client presentation, not to the pooled remote session.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = if replacement.reused {
-        None
-    } else {
-        replacement
-            .session
-            .set_default_colors(preparation.default_colors)
-            .err()
-            .map(|error| error.to_string())
-    };
+    let color_error = replacement
+        .session
+        .set_default_colors(preparation.default_colors)
+        .err()
+        .map(|error| error.to_string());
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -8759,13 +8809,8 @@ fn run_with_machine_updates_inner(
             &mut stdout,
             terminal_restore.host_keyboard_protocol_mut(),
         )?;
-        stdout.execute(EnableMouseCapture)?;
-        // Ask the host terminal to report Shift-modified mouse events so
-        // Shift remains cmux's selection/context-menu escape while the inner
-        // application owns ordinary mouse input.
-        write!(stdout, "\x1b[>1s")?;
-        stdout.execute(EnableFocusChange)?;
-        stdout.execute(EnableBracketedPaste)?;
+        stdout.write_all(host_startup_input_modes(surface_only.is_some()).as_bytes())?;
+        stdout.flush()?;
         Ok(())
     })() {
         return Err(terminal_restore.restore_after_error(e));
@@ -8783,28 +8828,19 @@ fn run_with_machine_updates_inner(
         }
         let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
         'input: loop {
-            let events = if let Some(timeout) = graphics_responses.time_until_expiry() {
-                match crossterm::event::poll(timeout) {
-                    Ok(true) => match crossterm::event::read() {
-                        Ok(event) => graphics_responses.filter(event),
-                        Err(error) => {
-                            input.fail(error.to_string());
-                            break 'input;
-                        }
-                    },
-                    Ok(false) => graphics_responses.take_expired(),
-                    Err(error) => {
-                        input.fail(error.to_string());
-                        break 'input;
-                    }
-                }
-            } else {
-                match crossterm::event::read() {
-                    Ok(event) => graphics_responses.filter(event),
-                    Err(error) => {
-                        input.fail(error.to_string());
-                        break 'input;
-                    }
+            if input.ingress.is_closed() {
+                break 'input;
+            }
+            let events = match read_crossterm_event(
+                graphics_responses.time_until_expiry(),
+                crossterm::event::poll,
+                crossterm::event::read,
+            ) {
+                Ok(Some(event)) => graphics_responses.filter(event),
+                Ok(None) => graphics_responses.take_expired(),
+                Err(error) => {
+                    input.fail(error.to_string());
+                    break 'input;
                 }
             };
             for event in events {
@@ -8920,7 +8956,8 @@ fn run_with_machine_updates_inner(
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
-        applied_outer_cursor: None,
+        applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
+        host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -10907,7 +10944,12 @@ impl App {
         if !self.session.workspaces_are_provider_managed()
             && let Err(error) = self.session.mark_workspaces_provider_managed()
         {
-            self.status_message = Some(error.to_string());
+            self.status_message = Some(
+                localization::catalog()
+                    .sidebar
+                    .workspace_state_failed
+                    .replace("{error}", &error.to_string()),
+            );
             return;
         }
         let (workspace_key, rename) = match mutation {
@@ -11019,7 +11061,10 @@ impl App {
             .filter(|intent| Some(*intent) != self.machine_presented)
             .is_some_and(|intent| {
                 !self.machine_action_in_flight
-                    && update.connection_phase(intent) == MachineConnectionPhase::Failed
+                    && (update.connection_phase(intent) == MachineConnectionPhase::Failed
+                        || self.machine_ui.as_ref().is_some_and(|previous| {
+                            previous.connection_phase(intent) == MachineConnectionPhase::Failed
+                        }))
             });
         if presented_deleted
             && let Some(presented) = self.machine_presented
@@ -12711,7 +12756,8 @@ impl App {
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
-            self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
+            self.sidebar_plugin_error =
+                Some(localization::catalog().sidebar.plugin_exited.to_string());
             if self.config.sidebar.plugin.is_some() {
                 self.leave_workspace_sidebar();
             }
@@ -12859,11 +12905,106 @@ impl App {
             stdout.flush()?;
             self.applied_outer_cursor = Some(self.desired_outer_cursor);
         }
+        let desired_mouse_capture = self.desired_host_mouse_capture();
+        if let Some(sequence) = host_mouse_capture_escape_if_changed(
+            self.host_mouse_capture_applied,
+            desired_mouse_capture,
+        ) {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.host_mouse_capture_applied = Some(desired_mouse_capture);
+        }
         Ok(())
     }
 
+    /// Full-TUI clients always capture host mouse input. A scoped attach
+    /// client mirrors the inner terminal's mouse-tracking state instead, so
+    /// the host terminal keeps native click and selection handling whenever
+    /// the inner application did not request mouse input.
+    ///
+    /// The state is read from the scoped surface's terminal itself (the
+    /// mirror a daemon replay restores and live output keeps current), never
+    /// from the rendered-frame projection: `draw_content` removes a
+    /// surface's rendered semantics at the start of every draw and restores
+    /// them only after a successful render, so a frame whose pane render
+    /// failed or was skipped (renderer error while daemon output is applied,
+    /// zero-sized pane during layout churn) must not release capture the
+    /// inner application still holds. When the state is momentarily
+    /// unknowable (terminal lock contended, surface gone during teardown)
+    /// the client keeps the capture it last applied instead of toggling the
+    /// host.
+    fn desired_host_mouse_capture(&self) -> bool {
+        let Some(surface_id) = self.surface_only else { return true };
+        let canonical = self
+            .session
+            .surface(surface_id)
+            .and_then(|surface| surface.try_pointer_semantics())
+            .and_then(|probe| match probe {
+                PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
+                PointerSemanticProbe::Contended => None,
+            });
+        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+    }
+
+    /// A scoped attach client mirrors the inner terminal's input modes onto
+    /// the host terminal, but the host can silently drop those modes without
+    /// the client ever seeing it: app-side session restore can write a reset
+    /// into the Ghostty surface after the client's capture-on burst, or the
+    /// host can re-initialize the surface on relaunch. The per-frame capture
+    /// (and cursor) sync is edge-triggered on the last applied state, so a
+    /// dropped mode is never re-asserted and the bridge tab loses mouse input
+    /// until the inner application happens to toggle modes (btop never does).
+    ///
+    /// Focus-in and resize are the two host-visible signals that the host may
+    /// have re-initialized: Ghostty emits a focus-in report on every window
+    /// re-activation and app reopen, and the reattached surface is resized to
+    /// the new window's geometry. Clearing the applied host bookkeeping on
+    /// those events forces the next frame to re-derive the canonical inner
+    /// state and re-emit it, recovering any mode the host silently dropped.
+    /// Scoped clients only: a full TUI owns the whole host surface and
+    /// re-emits its modes through its own lifecycle.
+    fn reassert_scoped_host_terminal_state(&mut self) {
+        if self.surface_only.is_none() {
+            return;
+        }
+        // Keep the last applied state when the inner terminal cannot be
+        // probed. Clearing it here would make the next frame guess `false`
+        // and release host capture during a transient lock/contention.
+        let probe_available = self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .and_then(|surface| surface.try_pointer_semantics())
+            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
+        if probe_available {
+            self.host_mouse_capture_applied = None;
+        }
+        // The previous frame may have applied an authored style. If the
+        // inner application reset DECSCUSR, clear the desired style now so
+        // focus or resize cannot replay stale cursor state onto the host.
+        if self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .is_some_and(|surface| !surface.cursor_style_authored())
+        {
+            self.desired_outer_cursor = OuterCursorSpec::Reset;
+        }
+        self.applied_outer_cursor = None;
+    }
+
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
-        self.desired_outer_cursor = OuterCursorSpec::Reset;
+        // Scoped attach is transparent to the host cursor. Do not schedule a
+        // reset merely because a frame starts when the host state is already
+        // the initial reset. Once a scoped inner application stops authoring
+        // DECSCUSR, however, every normal frame must derive Reset so a stale
+        // authored style cannot survive without a focus or resize event.
+        let authored = self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .is_some_and(|surface| surface.cursor_style_authored());
+        if self.surface_only.is_none() || !authored {
+            self.desired_outer_cursor = OuterCursorSpec::Reset;
+        }
     }
 
     pub(crate) fn use_terminal_cursor_spec(
@@ -14490,7 +14631,7 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(
-                            "Mux event backlog overflowed; subscription recovered".to_string(),
+                            localization::catalog().session.mux_subscription_recovered.to_string(),
                         );
                     }
                     Err(error) => {
@@ -14512,9 +14653,11 @@ impl App {
                         self.prefix_armed = false;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
-                        self.status_message = Some(format!(
-                            "Mux event backlog recovery failed; queued input was discarded while retrying: {error}"
-                        ));
+                        self.status_message = Some(
+                            localization::catalog()
+                                .session
+                                .mux_subscription_recovery_failed(&error),
+                        );
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -14835,9 +14978,12 @@ impl App {
                         }
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         if let Some(error) = error {
-                            self.status_message = Some(format!(
-                                "session changed, but its layout refresh failed: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .sidebar
+                                    .layout_refresh_failed
+                                    .replace("{error}", error.as_str()),
+                            );
                         }
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
@@ -14846,9 +14992,12 @@ impl App {
                         if !self.accept_refresh_sequence(refresh_sequence) {
                             return Ok(RenderAction::None);
                         }
-                        self.status_message = Some(format!(
-                            "session changed, but its layout is still stale: {error}"
-                        ));
+                        self.status_message = Some(
+                            localization::catalog()
+                                .sidebar
+                                .layout_stale
+                                .replace("{error}", error.as_str()),
+                        );
                         let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
                             self.layout_refresh_retries_remaining -= 1;
@@ -15001,13 +15150,16 @@ impl App {
                     }
                     Err(error) => {
                         let retrying = self.schedule_background_refresh_retry();
-                        self.status_message = Some(if retrying {
-                            format!("refresh remote tree failed; retrying: {error}")
+                        let template = if retrying {
+                            localization::catalog().sidebar.refresh_remote_tree_retrying
                         } else {
-                            format!(
-                                "refresh remote tree failed after {BACKGROUND_REFRESH_RETRIES} attempts; automatic retries stopped, reconnect to retry: {error}"
-                            )
-                        });
+                            localization::catalog().sidebar.refresh_remote_tree_stopped
+                        };
+                        self.status_message = Some(
+                            template
+                                .replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string())
+                                .replace("{error}", error.as_str()),
+                        );
                         let _ = self.session.take_background_refresh_dirty();
                         false
                     }
@@ -15025,7 +15177,12 @@ impl App {
                 match result {
                     Ok(clients) => self.replace_clients(clients),
                     Err(error) => {
-                        self.status_message = Some(format!("Could not list clients: {error}"));
+                        self.status_message = Some(
+                            localization::catalog()
+                                .sidebar
+                                .clients_list_failed
+                                .replace("{error}", error.as_str()),
+                        );
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -15133,6 +15290,7 @@ impl App {
             }
             TerminalInput::FocusGained => {
                 self.advance_pointer_focus_generation();
+                self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
@@ -15142,6 +15300,7 @@ impl App {
                 Ok(RenderAction::None)
             }
             TerminalInput::Resize => {
+                self.reassert_scoped_host_terminal_state();
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
                 }
@@ -16983,7 +17142,7 @@ impl App {
             let was_sidebar_focused = self.workspace_sidebar_focused();
             let keep_machine_rail_focus =
                 self.machine_sidebar_focused() && action == Action::ProviderMenu;
-            if !(was_sidebar_focused && action == Action::SendPrefix) && !keep_machine_rail_focus {
+            if !(keep_machine_rail_focus || was_sidebar_focused && action == Action::SendPrefix) {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -17500,7 +17659,7 @@ impl App {
         };
         let error = error.clone();
         self.copy_text_to_clipboard(&error);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     /// Open the provider scope/actions menu near (x, y). The active scope
@@ -17585,9 +17744,19 @@ impl App {
             .enumerate()
             .map(|(index, action)| MenuItem::LabeledAction {
                 label: if action.destructive {
-                    format!("⚠ {}", action.label)
+                    format!(
+                        "⚠ {}",
+                        localization::catalog()
+                            .sidebar
+                            .provider_action_label(&action.id)
+                            .unwrap_or(action.label.as_str())
+                    )
                 } else {
-                    action.label.clone()
+                    localization::catalog()
+                        .sidebar
+                        .provider_action_label(&action.id)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| action.label.clone())
                 },
                 action: MenuAction::InvokeProviderAction(index),
             })
@@ -17608,7 +17777,11 @@ impl App {
             [] => self.stage_provider_action(index, None),
             [field] => {
                 self.prompt = Some(Prompt::new(
-                    field.label.clone(),
+                    localization::catalog()
+                        .sidebar
+                        .provider_action_field_label(&action.id, &field.id)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| field.label.clone()),
                     String::new(),
                     PromptTarget::ProviderAction(index),
                 ));
@@ -17826,11 +17999,13 @@ impl App {
             }
             FileCommand::Cd(path) => {
                 let Some(surface_id) = self.active_surface() else {
-                    self.sidebar_files.set_message("no focused pane");
+                    self.sidebar_files
+                        .set_message(localization::catalog().sidebar.file_no_focused_pane);
                     return;
                 };
                 let Some(surface) = self.session.surface(surface_id) else {
-                    self.sidebar_files.set_message("focused surface is unavailable");
+                    self.sidebar_files
+                        .set_message(localization::catalog().sidebar.file_surface_unavailable);
                     return;
                 };
                 let quoted = shell_single_quote(&path.to_string_lossy());
@@ -17843,7 +18018,7 @@ impl App {
                 ) {
                     Ok(())
                 } else {
-                    Err(anyhow::anyhow!("input was not queued"))
+                    Err(anyhow::anyhow!(localization::catalog().sidebar.file_input_not_queued))
                 }
             }
             FileCommand::OpenEditor(path) => {
@@ -17870,8 +18045,15 @@ impl App {
             ),
         };
         match result {
-            Ok(()) => self.sidebar_files.set_message("sent to focused pane"),
-            Err(error) => self.sidebar_files.set_message(error.to_string()),
+            Ok(()) => self
+                .sidebar_files
+                .set_message(localization::catalog().sidebar.file_sent_to_focused_pane),
+            Err(error) => self.sidebar_files.set_message(
+                localization::catalog()
+                    .sidebar
+                    .file_command_failed
+                    .replace("{error}", &error.to_string()),
+            ),
         }
     }
 
@@ -17999,7 +18181,12 @@ impl App {
                 return;
             }
             if let Err(error) = self.session.undo_layout(pane, Some(revision), true) {
-                self.status_message = Some(error.to_string());
+                self.status_message = Some(
+                    localization::catalog()
+                        .sidebar
+                        .layout_undo_failed
+                        .replace("{error}", &error.to_string()),
+                );
             }
             return;
         }
@@ -18110,7 +18297,12 @@ impl App {
         self.cancel_pointer_interaction();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
-            self.status_message = Some(error.to_string());
+            self.status_message = Some(
+                localization::catalog()
+                    .sidebar
+                    .pairing_response_failed
+                    .replace("{error}", &error.to_string()),
+            );
         }
         self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
     }
@@ -18707,7 +18899,11 @@ impl App {
         let Some(ws) = self.tree.active_workspace() else { return };
         let Some(screen) = ws.active_screen_ref() else { return };
         let buffer = screen.name.clone().unwrap_or_default();
-        let prompt = Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id));
+        let prompt = Prompt::new(
+            localization::catalog().action_label(Action::RenameScreen),
+            buffer,
+            PromptTarget::Screen(screen.id),
+        );
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -18826,17 +19022,18 @@ impl App {
                 self.status_message = None;
             }
         } else {
-            self.status_message = Some("browser is busy; command dropped".to_string());
+            self.status_message = Some(localization::catalog().browser.busy.to_string());
         }
     }
 
     fn enqueue_active_browser_command(&mut self, kind: BrowserInputKind) {
         let Some((surface_id, surface)) = self.active_surface_with_handle() else {
-            self.status_message = Some("no active surface".to_string());
+            self.status_message =
+                Some(localization::catalog().browser.no_active_surface.to_string());
             return;
         };
         if surface.kind() != SurfaceKind::Browser {
-            self.status_message = Some("active surface is not a browser".to_string());
+            self.status_message = Some(localization::catalog().browser.not_browser.to_string());
             return;
         }
         self.dispatch_browser_control(surface_id, surface, kind);
@@ -18853,11 +19050,11 @@ impl App {
 
     fn enqueue_browser_command(&mut self, surface_id: SurfaceId, kind: BrowserInputKind) {
         let Some(surface) = self.session.surface(surface_id) else {
-            self.status_message = Some("unknown browser surface".to_string());
+            self.status_message = Some(localization::catalog().browser.unknown_surface.to_string());
             return;
         };
         if surface.kind() != SurfaceKind::Browser {
-            self.status_message = Some("active surface is not a browser".to_string());
+            self.status_message = Some(localization::catalog().browser.not_browser.to_string());
             return;
         }
         self.dispatch_browser_control(surface_id, surface, kind);
@@ -18872,7 +19069,7 @@ impl App {
             return;
         };
         self.copy_text_to_clipboard(&url);
-        self.show_toast("Copied URL".to_string());
+        self.show_toast(localization::catalog().menu.copied_url.to_string());
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -18990,7 +19187,11 @@ impl App {
                     .find(|s| s.id == id)
                     .and_then(|s| s.name.clone())
                     .unwrap_or_default();
-                self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().action_label(Action::RenameScreen),
+                    buffer,
+                    PromptTarget::Screen(id),
+                ));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::BrowserBack(id) => {
@@ -21600,7 +21801,7 @@ impl App {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_status_message_selection(&mut self) {
@@ -21613,13 +21814,13 @@ impl App {
             return;
         };
         self.copy_text_to_clipboard(&text);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_status_message(&mut self) {
         let Some(message) = self.status_message.clone() else { return };
         self.copy_text_to_clipboard(&message);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_text_to_clipboard(&self, text: &str) {
@@ -21639,7 +21840,7 @@ impl App {
 
     fn copy_short_id(&mut self, short_id: String) {
         self.copy_text_to_clipboard(&short_id);
-        self.show_toast(format!("Copied {short_id}"));
+        self.show_toast(format!("{} {short_id}", localization::catalog().menu.copied));
     }
 
     fn show_toast(&mut self, text: String) {
@@ -22877,6 +23078,59 @@ fn outer_cursor_escape_if_changed(
     (applied != Some(desired)).then(|| outer_cursor_escape(desired))
 }
 
+/// Host input modes asserted at client startup, before any inner-terminal
+/// state is known. A scoped single-terminal attach (`attach --terminal`) is a
+/// transparent passthrough: it must not assert mouse capture or the
+/// shift-bypass report on the host, because the host terminal owns clicks and
+/// selection until the inner application requests mouse tracking. Focus
+/// reporting and bracketed paste stay enabled in both modes: the client
+/// consumes those events itself and re-encodes paste for the inner terminal
+/// according to the mode the inner application actually requested, so they
+/// are transparent to the user.
+fn host_startup_input_modes(surface_only: bool) -> String {
+    let mut out = String::new();
+    if !surface_only {
+        out.push_str(&host_mouse_capture_sequence(true));
+    }
+    let _ = crossterm::Command::write_ansi(&EnableFocusChange, &mut out);
+    let _ = crossterm::Command::write_ansi(&EnableBracketedPaste, &mut out);
+    out
+}
+
+fn host_mouse_capture_sequence(enable: bool) -> String {
+    let mut out = String::new();
+    if enable {
+        let _ = crossterm::Command::write_ansi(&EnableMouseCapture, &mut out);
+        // Ask the host terminal to report Shift-modified mouse events so
+        // Shift remains cmux's selection/context-menu escape while the inner
+        // application owns ordinary mouse input.
+        out.push_str("\x1b[>1s");
+    } else {
+        // Restore the conventional behavior where Shift bypasses capture.
+        out.push_str("\x1b[>0s");
+        let _ = crossterm::Command::write_ansi(&DisableMouseCapture, &mut out);
+    }
+    out
+}
+
+fn host_mouse_capture_escape_if_changed(applied: Option<bool>, desired: bool) -> Option<String> {
+    (applied != Some(desired)).then(|| host_mouse_capture_sequence(desired))
+}
+
+/// Initial host-cursor bookkeeping. A full TUI starts with unknown applied
+/// state, so its first frame restores host cursor globals to defaults. A
+/// scoped attach starts from an applied Reset so it emits no cursor escapes
+/// until the inner application authors a cursor style.
+fn initial_applied_outer_cursor(surface_only: bool) -> Option<OuterCursorSpec> {
+    surface_only.then_some(OuterCursorSpec::Reset)
+}
+
+/// Startup already asserted capture for full-TUI clients and asserted
+/// nothing for scoped attach clients.
+fn initial_host_mouse_capture(surface_only: bool) -> Option<bool> {
+    Some(!surface_only)
+}
+
 fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
     match spec {
         OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
@@ -22950,7 +23204,6 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
-            | Action::ProviderMenu
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
     )
@@ -23169,15 +23422,75 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn crossterm_reader_uses_bounded_polls_for_all_reads() {
+        let event = Event::Resize(80, 24);
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let mut poll_durations = Vec::new();
+
+        let blocking = super::read_crossterm_event(
+            None,
+            |timeout| {
+                poll_calls += 1;
+                poll_durations.push(timeout);
+                Ok(true)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(blocking, Some(event.clone()));
+        assert_eq!((poll_calls, read_calls), (1, 1));
+
+        let timed_out = super::read_crossterm_event(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                poll_durations.push(timeout);
+                Ok(false)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(timed_out, None);
+        assert_eq!((poll_calls, read_calls), (2, 1));
+
+        let ready = super::read_crossterm_event(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                poll_durations.push(timeout);
+                Ok(true)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(ready, Some(event));
+        assert_eq!((poll_calls, read_calls), (3, 2));
+        assert_eq!(
+            poll_durations,
+            vec![Duration::from_millis(100), Duration::from_millis(10), Duration::from_millis(10),]
+        );
+    }
+
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
         FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputRuntime,
-        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
-        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
-        PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage,
+        HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
+        MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec,
+        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
         PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
@@ -23194,17 +23507,19 @@ mod tests {
         clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
         content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
         expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
-        keyboard_protocol_accepts, layout_undo_error_completion,
-        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
-        record_surface_resize_dispatch_result, report_after_unwind,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
+        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
         sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
+    use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -23436,6 +23751,18 @@ mod tests {
         assert_eq!(ingress.len(), DEFERRED_INPUT_CAPACITY);
         ingress.close();
         producer.join().unwrap();
+    }
+
+    #[test]
+    fn host_input_ingress_keeps_latest_adjacent_resize() {
+        let ingress = HostInputIngress::default();
+        ingress.send(Event::Resize(80, 24)).unwrap();
+        ingress.send(Event::Resize(120, 40)).unwrap();
+        assert_eq!(ingress.len(), 1);
+        assert!(matches!(
+            ingress.pop_if(|_| true),
+            Some(HostInputMessage::Event(Event::Resize(120, 40)))
+        ));
     }
 
     use crate::sidebar_files::FileBrowser;
@@ -23791,7 +24118,7 @@ mod tests {
             app.config.keys.macos_option_as_alt = macos_option_as_alt;
             app.config.keys.apply_for_test(&HashMap::from([(
                 "toggle-sidebar".to_string(),
-                serde_json::Value::String("alt+j".to_string()),
+                Value::String("alt+j".to_string()),
             )]));
             let sidebar_was_visible = app.sidebar_visible;
 
@@ -25432,7 +25759,7 @@ mod tests {
         assert!(app.shortcut_help.is_none());
 
         app.run_action(Action::ShowShortcuts).unwrap();
-        let tall_height = app.config.keys.resolved_shortcuts().len() as u16 + 6;
+        let tall_height = app.shortcut_help.as_ref().unwrap().rows.len() as u16 + 6;
         let mut tall_terminal = Terminal::new(TestBackend::new(180, tall_height)).unwrap();
         tall_terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let help = app.shortcut_help.as_ref().unwrap();
@@ -27580,7 +27907,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.config.keys.apply_for_test(&HashMap::from([(
             "clear-history".to_string(),
-            serde_json::Value::String("q".to_string()),
+            Value::String("q".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
@@ -29097,6 +29424,266 @@ mod tests {
         assert!(
             outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn scoped_attach_startup_asserts_no_unrequested_host_modes() {
+        // attach --terminal is a transparent passthrough. Before the inner
+        // terminal requests anything, the client must not put the host into
+        // any mouse-tracking mode or change the shift-bypass report; the
+        // host terminal owns clicks and selection. Focus reporting and
+        // bracketed paste stay on because the client consumes them and
+        // re-encodes for the inner terminal per its actual modes.
+        let scoped = host_startup_input_modes(true);
+        for mode in ["1000", "1002", "1003", "1006", "1015", "9"] {
+            assert!(
+                !scoped.contains(&format!("\x1b[?{mode}h")),
+                "scoped attach asserted unrequested host mouse mode {mode}: {scoped:?}"
+            );
+        }
+        assert!(!scoped.contains("\x1b[>1s"), "scoped attach changed shift-bypass: {scoped:?}");
+        assert!(!scoped.contains(" q"), "scoped attach wrote DECSCUSR at startup: {scoped:?}");
+        assert!(scoped.contains("\x1b[?1004h"), "focus reporting is client-consumed and stays");
+        assert!(scoped.contains("\x1b[?2004h"), "bracketed paste is client-normalized and stays");
+
+        let full = host_startup_input_modes(false);
+        assert!(full.contains("\x1b[?1000h") && full.contains("\x1b[?1006h"));
+        assert!(full.contains("\x1b[>1s"));
+    }
+
+    #[test]
+    fn host_mouse_capture_transitions_mirror_inner_tracking() {
+        let enable = host_mouse_capture_escape_if_changed(Some(false), true)
+            .expect("enabling capture must emit");
+        assert!(enable.contains("\x1b[?1000h"));
+        assert!(enable.contains("\x1b[?1006h"));
+        assert!(enable.contains("\x1b[>1s"));
+
+        let disable = host_mouse_capture_escape_if_changed(Some(true), false)
+            .expect("disabling capture must emit");
+        assert!(disable.contains("\x1b[?1000l"));
+        assert!(disable.contains("\x1b[>0s"), "shift-bypass must be restored with capture");
+
+        assert!(host_mouse_capture_escape_if_changed(Some(true), true).is_none());
+        assert!(host_mouse_capture_escape_if_changed(Some(false), false).is_none());
+    }
+
+    #[test]
+    fn scoped_attach_initial_cursor_state_emits_nothing() {
+        // The scoped client starts from an applied Reset, so the first frame
+        // emits no OSC 12 / OSC 112 / DECSCUSR unless the inner application
+        // authored a cursor style; the full TUI keeps restoring defaults.
+        assert_eq!(initial_applied_outer_cursor(true), Some(OuterCursorSpec::Reset));
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(true),
+                OuterCursorSpec::Reset
+            )
+            .is_none(),
+            "scoped attach must not write host cursor state at startup"
+        );
+        assert_eq!(initial_applied_outer_cursor(false), None);
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(false),
+                OuterCursorSpec::Reset
+            )
+            .is_some()
+        );
+        assert_eq!(initial_host_mouse_capture(true), Some(false));
+        assert_eq!(initial_host_mouse_capture(false), Some(true));
+    }
+
+    #[test]
+    fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
+        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
+
+        app.surface_only = Some(surface.id);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach must not capture before the inner terminal requests mouse"
+        );
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h"));
+        assert!(app.desired_host_mouse_capture(), "scoped attach mirrors inner mouse tracking on");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l"));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach mirrors inner mouse tracking off"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A reattach restores the inner terminal's mouse modes through the
+    /// daemon replay before any frame renders, and a later frame whose pane
+    /// render fails or is skipped (contended terminal lock while the network
+    /// thread applies output, zero-sized pane during layout churn) leaves no
+    /// rendered pointer semantics either. Host mouse capture must follow the
+    /// terminal's canonical mode state in both situations; deriving it from
+    /// the rendered projection writes capture-off to the host exactly when
+    /// the inner application still owns the mouse.
+    #[test]
+    fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
+        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        assert!(
+            app.rendered_terminal_pointer_semantics.is_empty(),
+            "precondition: no frame has rendered this surface"
+        );
+        assert!(
+            app.desired_host_mouse_capture(),
+            "host capture must follow the inner terminal's canonical mouse-tracking \
+             state, not the rendered-frame projection"
+        );
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "capture releases when the inner application disables tracking"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// When the canonical state is momentarily unknowable (the scoped surface
+    /// is gone from the session during attach teardown or handoff), the client
+    /// must keep the capture it last applied instead of toggling the host.
+    #[test]
+    fn scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable() {
+        let mux = Mux::new("scoped-capture-unknowable-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let missing: SurfaceId = surface.id + 1000;
+        app.surface_only = Some(missing);
+
+        app.host_mouse_capture_applied = Some(true);
+        assert!(
+            app.desired_host_mouse_capture(),
+            "an unknowable surface must not release capture the client already applied"
+        );
+        app.host_mouse_capture_applied = Some(false);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "an unknowable surface must not assert capture the client never applied"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// Round-5 dogfood: btop in a reattached bridge tab renders but loses all
+    /// mouse after Keep-quit + reopen. The client correctly asserts capture on
+    /// reattach (proven byte-level against the real app), so the only way the
+    /// tab can end up dead is a host-side loss the client cannot observe: the
+    /// Ghostty surface silently drops the mouse-tracking modes (a reset written
+    /// into it by app-side session restore, or the host re-initializing on
+    /// relaunch) after the client's capture-on burst. The per-frame capture
+    /// sync is edge-triggered on `host_mouse_capture_applied`, so once the
+    /// client believes capture is applied it never re-emits, and btop never
+    /// toggles modes to trigger a change. A focus-in (Ghostty sends `\e[I` on
+    /// every window re-activation and app reopen, observed in the real path)
+    /// must force the client to re-derive and re-assert the canonical host
+    /// state so the dropped modes come back.
+    #[test]
+    fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        // The inner application (btop) holds mouse tracking, and the client has
+        // already asserted capture-on to the host once.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        // The host silently dropped the modes. The client cannot see host
+        // state: applied still says true and desired is true, so the per-frame
+        // sync emits nothing and clicks stay dead. This is the latch.
+        assert_eq!(
+            host_mouse_capture_escape_if_changed(
+                app.host_mouse_capture_applied,
+                app.desired_host_mouse_capture(),
+            ),
+            None,
+            "precondition: with stale applied state the per-frame sync re-emits nothing"
+        );
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        // Focus-in must clear the applied bookkeeping so the next frame
+        // re-derives the canonical state and re-emits capture.
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "focus-in must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(
+            reasserted.contains("\x1b[?1002h"),
+            "the re-asserted host state must re-enable mouse capture the inner app still holds"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A resize is the other moment a host can re-initialize the surface and
+    /// drop the client's asserted input modes (window geometry changes across
+    /// a quit+reopen, so the reattached surface is resized). The scoped client
+    /// must re-assert host mouse capture on resize for the same reason it does
+    /// on focus-in.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-resize-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "resize must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(reasserted.contains("\x1b[?1002h"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A full TUI owns the entire host surface and re-emits its input modes
+    /// through its normal lifecycle; the focus-in re-assert is scoped-only, so
+    /// it must not disturb a full-TUI client's capture bookkeeping.
+    #[test]
+    fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
+        let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
+        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.surface_only = None;
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied,
+            Some(true),
+            "full-TUI focus-in must not touch host-capture bookkeeping"
         );
     }
 
@@ -31984,6 +32571,10 @@ mod tests {
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 1);
         assert_eq!(app.deferred_input.len(), 1);
         assert!(app.session.client_refresh_generation() > client_refresh_generation);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().session.mux_subscription_recovered)
+        );
 
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
@@ -32019,7 +32610,9 @@ mod tests {
 
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
         assert!(app.deferred_input.is_empty());
-        assert!(app.status_message.as_deref().unwrap().contains("discarded"));
+        let expected =
+            localization::catalog().session.mux_subscription_recovery_failed("refresh failed");
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
@@ -35097,6 +35690,11 @@ mod tests {
         mux.new_workspace(None, Some((80, 24))).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
         app.sidebar_visible = false;
+        // Keep this admission test on the terminal paint path. Graphics
+        // completion is asynchronous and can otherwise race the pointer
+        // event when the full suite starts from a cold cache. SurfaceOutput
+        // below is intentionally a paint-only stimulus for this contract.
+        app.graphics_supported = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
@@ -36363,7 +36961,13 @@ mod tests {
         assert_eq!(app.deferred_input.len(), 1);
         assert_eq!(
             app.status_message.as_deref(),
-            Some("session changed, but its layout refresh failed: refresh unavailable")
+            Some(
+                localization::catalog()
+                    .sidebar
+                    .layout_refresh_failed
+                    .replace("{error}", "refresh unavailable")
+                    .as_str(),
+            )
         );
         assert!(!app.session.has_pending_mutations());
     }
@@ -36656,6 +37260,38 @@ mod tests {
         }
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
+        let surface_id = 7;
+        let (session, surface) =
+            crate::session::test_remote_session_with_unleased_view_surface(surface_id);
+        let mut app = test_app(session);
+        app.surface_only = Some(surface_id);
+        app.desired_outer_cursor = OuterCursorSpec::Terminal {
+            color: Rgb { r: 1, g: 2, b: 3 },
+            shape: CursorShape::Bar,
+            blinking: true,
+        };
+
+        app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+
+        surface.test_scan_cursor_provenance(b"\x1b[3 q");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[3 q"));
+        app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+        surface.test_scan_cursor_provenance(b"\x1b[5 q");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[5 q"));
+        app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+        surface.test_scan_cursor_provenance(b"\x1b[0 q");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[0 q"));
+        app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+        app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+        app.reassert_scoped_host_terminal_state();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
     }
 
     fn test_mouse_motion() -> MouseInput {
@@ -37443,7 +38079,7 @@ mod tests {
         app.focus = FocusTarget::MachineRail;
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            Value::String("x".to_string()),
+            serde_json::Value::String("x".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
@@ -37459,7 +38095,7 @@ mod tests {
         app.sync_layout((100, 16));
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            Value::String("j".to_string()),
+            serde_json::Value::String("j".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
@@ -42148,6 +42784,7 @@ mod tests {
             rendered_pane_content_generations: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
+            host_mouse_capture_applied: Some(true),
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,
