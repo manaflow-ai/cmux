@@ -12,6 +12,7 @@ pub mod control;
 pub mod enrollment;
 pub mod error;
 pub mod fingerprint;
+pub mod journal_forwarder;
 pub mod pairing;
 pub mod preview_proxy;
 pub mod prompt;
