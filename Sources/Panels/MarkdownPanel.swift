@@ -13,8 +13,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
-    FileContentChangeObservingPanel {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
@@ -479,3 +478,5 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
         }
     }
 }
+
+extension MarkdownPanel: FileContentChangeObservingPanel {}

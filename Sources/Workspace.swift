@@ -9191,6 +9191,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            markdownPanel.close()
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
@@ -9245,6 +9246,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isPinned: false,
             inPane: paneId
         ) else {
+            markdownPanel.close()
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
             return nil
@@ -9392,6 +9394,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             withTab: newTab,
             insertFirst: insertFirst
         ) != nil else {
+            markdownPanel.close()
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
@@ -9493,6 +9496,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isPinned: false,
             inPane: paneId
         ) else {
+            filePreviewPanel.close()
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             return nil
@@ -9695,6 +9699,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            filePreviewPanel.close()
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
