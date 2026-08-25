@@ -3947,6 +3947,34 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 /// destination manager — is the move and is exercised directly here.
 @MainActor
 final class CrossWindowWorkspaceMoveTests: XCTestCase {
+    func testDetachingSelectedZoomedWorkspaceClearsSplitZoomBeforeTransfer() {
+        let source = TabManager()
+        let destination = TabManager()
+        guard let moving = source.selectedWorkspace,
+              let focusedPanelId = moving.focusedPanelId,
+              moving.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected the moved workspace to contain a split")
+            return
+        }
+        _ = source.addWorkspace(select: false)
+
+        moving.focusPanel(focusedPanelId)
+        XCTAssertTrue(moving.toggleSplitZoom(panelId: focusedPanelId))
+        XCTAssertTrue(moving.bonsplitController.isSplitZoomed)
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the selected workspace")
+            return
+        }
+        XCTAssertFalse(
+            detached.bonsplitController.isSplitZoomed,
+            "Detaching a selected workspace should clear its outgoing zoom"
+        )
+
+        destination.attachWorkspace(detached, select: true)
+        XCTAssertFalse(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == true)
+    }
+
     func testMoveInsertsAtDropIndexInDestination() {
         let source = TabManager()
         let destination = TabManager()
