@@ -1184,6 +1184,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func revalidatingCachedProcesses(
         against processSnapshot: CmuxTopProcessSnapshot,
         panelIDs: Set<UUID>? = nil,
+        currentWorkspaceIDByPanelID: [UUID: UUID] = [:],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1207,7 +1208,7 @@ struct RestorableAgentSessionIndex: Sendable {
             let matchesByProcessID = Dictionary(uniqueKeysWithValues: recordedAgentProcessIDs.map { processID in
                 let processMatch = Self.scopedProcessMatch(
                     for: entry.snapshot,
-                    workspaceId: key.workspaceId,
+                    workspaceId: currentWorkspaceIDByPanelID[key.panelId] ?? key.workspaceId,
                     panelId: key.panelId,
                     processID: processID,
                     recordedProcessIdentity: entry.agentProcessIdentities[processID]
@@ -1240,7 +1241,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     processIdentityProvider(processID).map { (processID, $0) }
                 }
             )
-            let currentPanelProcessIDs: Set<Int> = processLiveness == .running
+            let currentPanelProcessIDs: Set<Int> = processLiveness != .exited
                 ? Set(entry.processIDs.filter { processID in
                     guard let process = processSnapshot.process(pid: processID) else { return false }
                     return process.cmuxWorkspaceID == key.workspaceId

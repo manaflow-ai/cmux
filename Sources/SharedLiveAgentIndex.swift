@@ -462,7 +462,8 @@ final class SharedLiveAgentIndex {
     /// so an agent that exits without a hook event cannot remain confidently
     /// running. All process inspection stays off the main actor.
     func refreshCachedProcessLivenessForSidebar(
-        panelIDs: Set<UUID>
+        panelIDs: Set<UUID>,
+        currentWorkspaceIDByPanelID: [UUID: UUID]
     ) {
         ensureWatchingHookStoreDirectory()
         guard let cachedIndex = index else {
@@ -489,7 +490,8 @@ final class SharedLiveAgentIndex {
                 let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
                 return cachedIndex.revalidatingCachedProcesses(
                     against: processSnapshot,
-                    panelIDs: panelIDs
+                    panelIDs: panelIDs,
+                    currentWorkspaceIDByPanelID: currentWorkspaceIDByPanelID
                 )
             }.value
             guard !Task.isCancelled else {
@@ -529,6 +531,16 @@ final class SharedLiveAgentIndex {
     /// revalidating from the sidebar freshness lease.
     func hasCachedProcessLivenessEntries() -> Bool {
         index?.hasRecordedProcessGenerationsValue() == true
+    }
+
+    /// Requests an event-driven full index reload for a newly bound agent PID.
+    /// Calls coalesce behind the existing reload task and never scan inline.
+    func requestSidebarIndexRefresh() {
+        if refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil {
+            changePending = true
+            return
+        }
+        startReload()
     }
 
 
