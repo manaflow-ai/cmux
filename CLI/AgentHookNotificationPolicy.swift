@@ -343,6 +343,27 @@ enum AgentHookNotificationPolicy {
         return value.range(of: regex, options: .regularExpression) != nil
     }
 
+    /// Redacts credentials before a command reaches durable hook state or UI.
+    static func redactSensitiveCommand(_ value: String) -> String {
+        let patterns: [(pattern: String, replacement: String)] = [
+            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
+            (#"(?:~|/)[^\s\"']+"#, "<path>"),
+            (#"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#, "<token>"),
+            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
+            (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
+            (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
+            (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
+            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),
+        ]
+        return patterns.reduce(value) { partial, entry in
+            partial.replacingOccurrences(
+                of: entry.pattern,
+                with: entry.replacement,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+    }
+
     static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#
 
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic

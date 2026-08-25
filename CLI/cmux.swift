@@ -192,37 +192,7 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func redactedPreview(for value: String) -> String {
-            let redacted = value
-                .replacingOccurrences(
-                    of: #"(?:~|/)[^\s\"']+"#,
-                    with: "<path>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(
-                    of: #"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#,
-                    with: "<token>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(
-                    of: #"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#,
-                    with: "<token>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(
-                    of: #"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#,
-                    with: "Bearer <token>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(
-                    of: #"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#,
-                    with: "<token>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(
-                    of: #"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#,
-                    with: "<credential>=<token>",
-                    options: [.regularExpression, .caseInsensitive]
-                )
+            let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(value)
             return String(redacted.prefix(180))
         }
 
@@ -32175,7 +32145,12 @@ export default CMUXSessionRestore;
             var allowedShellCommands: [String] = []
             var deniedShellCommands: [String] = []
             func applyConfig(at url: URL, readsApprovalMode: Bool) {
-                guard let data = try? Data(contentsOf: url),
+                let maximumConfigBytes: Int64 = 256 * 1024
+                guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                      values.isRegularFile == true,
+                      let fileSize = values.fileSize,
+                      fileSize <= maximumConfigBytes,
+                      let data = try? Data(contentsOf: url),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return
                 }
@@ -32816,10 +32791,10 @@ export default CMUXSessionRestore;
                 return
             }
             if resolution.hasRemaining {
-                _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                // The queued notification write replaces the resolved command
+                // at the same surface when it drains. Do not enqueue a broad
+                // clear first: it can race that replacement and discard an
+                // unrelated notice on the same surface.
                 let pendingSubtitle = String(
                     localized: "agent.generic.notification.subtitle.permission",
                     defaultValue: "Permission"
@@ -34396,7 +34371,9 @@ export default CMUXSessionRestore;
             event["tool_name"] = toolName
         }
         if let toolInput = parsedInput.object?["tool_input"] {
-            event["tool_input"] = toolInput
+            event["tool_input"] = source == "cursor"
+                ? sanitizedCursorFeedToolInput(toolInput)
+                : toolInput
         } else if let cursorShellCommand {
             event["tool_input"] = [
                 "command": redactClaudeSensitiveSpans(normalizedSingleLine(cursorShellCommand))
@@ -34439,6 +34416,15 @@ export default CMUXSessionRestore;
         // the clear; wrapper-path staleness self-heals at the next
         // `prompt-submit`, which already clears the pane.
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+    }
+
+    private func sanitizedCursorFeedToolInput(_ value: Any) -> Any {
+        guard var toolInput = value as? [String: Any] else { return value }
+        for key in ["command", "cmd"] {
+            guard let command = toolInput[key] as? String else { continue }
+            toolInput[key] = redactClaudeSensitiveSpans(normalizedSingleLine(command))
+        }
+        return toolInput
     }
 
     private func feedContextForEvent(
