@@ -1281,6 +1281,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */; };
 		937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
+		A825A001A825A001A825A001 /* HerdLaneRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A825B001A825B001A825B001 /* HerdLaneRow.swift */; };
+		A825A002A825A002A825A002 /* HerdPanelDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A825B002A825B002A825B002 /* HerdPanelDetailView.swift */; };
+		A825A003A825A003A825A003 /* HerdPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A825B003A825B003A825B003 /* HerdPanelModel.swift */; };
+		A825A004A825A004A825A004 /* HerdPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A825B004A825B004A825B004 /* HerdPanelSnapshot.swift */; };
+		A825A005A825A005A825A005 /* HerdPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A825B005A825B005A825B005 /* HerdPanelView.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
@@ -4113,6 +4118,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokSessionLocator+ProcessDiscovery.swift"; sourceTree = "<group>"; };
 		937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
+		A825B001A825B001A825B001 /* HerdLaneRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdLaneRow.swift; sourceTree = "<group>"; };
+		A825B002A825B002A825B002 /* HerdPanelDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdPanelDetailView.swift; sourceTree = "<group>"; };
+		A825B003A825B003A825B003 /* HerdPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdPanelModel.swift; sourceTree = "<group>"; };
+		A825B004A825B004A825B004 /* HerdPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdPanelSnapshot.swift; sourceTree = "<group>"; };
+		A825B005A825B005A825B005 /* HerdPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdPanelView.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesFirstClassSupportTests.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
@@ -7673,6 +7683,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FE0030A3 /* RightSidebarToolPanel.swift */,
 				F17E00010000000000000002 /* FileWorkspacePanel.swift */,
 				7A22B0017A22B0017A22B001 /* GitGraphPanelView.swift */,
+				A825B001A825B001A825B001 /* HerdLaneRow.swift */,
+				A825B002A825B002A825B002 /* HerdPanelDetailView.swift */,
+				A825B003A825B003A825B003 /* HerdPanelModel.swift */,
+				A825B004A825B004A825B004 /* HerdPanelSnapshot.swift */,
+				A825B005A825B005A825B005 /* HerdPanelView.swift */,
 				DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */,
 				DCDC1000000000000000B004 /* DockConfigFile.swift */,
 				DCDC1000000000000000B006 /* DockConfigIdentity.swift */,
@@ -9839,6 +9854,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
+				A825A001A825A001A825A001 /* HerdLaneRow.swift in Sources */,
+				A825A002A825A002A825A002 /* HerdPanelDetailView.swift in Sources */,
+				A825A003A825A003A825A003 /* HerdPanelModel.swift in Sources */,
+				A825A004A825A004A825A004 /* HerdPanelSnapshot.swift in Sources */,
+				A825A005A825A005A825A005 /* HerdPanelView.swift in Sources */,
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */,

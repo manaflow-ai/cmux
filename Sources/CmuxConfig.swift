@@ -937,6 +937,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
     static let newFileBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newFileBrowser.configID)
     static let newGitGraph = actionReference(CmuxSurfaceTabBarBuiltInAction.newGitGraph.configID)
+    static let newHerd = actionReference(CmuxSurfaceTabBarBuiltInAction.newHerd.configID)
     static let newSimulator = actionReference(CmuxSurfaceTabBarBuiltInAction.newSimulator.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
@@ -949,7 +950,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         .splitRight,
         .splitDown,
         .newFileBrowser,
-        .newGitGraph
+        .newGitGraph,
+        .newHerd
     ]
 
     static func builtIn(

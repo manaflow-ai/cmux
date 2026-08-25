@@ -16,12 +16,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
-    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    private weak var toolFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var fileWorkspaceModelStorage: FileWorkspaceModel?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var gitGraphModelStorage: GitGraphPanelModel?
+    private var herdModelStorage: HerdPanelModel?
     private var remoteFileOpenTask: Task<Void, Never>?
     private var workspaceObservationCancellable: AnyCancellable?
 
@@ -35,6 +36,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         self.mode = mode
         self.sourcePanelID = sourcePanelID
         self.rootDirectory = rootDirectory
+        if mode == .herd {
+            self.herdModelStorage = HerdPanelModel()
+        }
         reattach(to: workspace)
     }
 
@@ -87,6 +91,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return model
     }
 
+    var herdModel: HerdPanelModel {
+        guard let model = herdModelStorage else {
+            preconditionFailure("Herd model requested for a non-Herd tool panel")
+        }
+        return model
+    }
+
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
 
@@ -100,8 +111,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerContainerView = container
     }
 
-    fileprivate func attachSessionIndexFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
-        sessionIndexFocusAnchorView = anchor
+    fileprivate func attachToolFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+        toolFocusAnchorView = anchor
     }
 
     func syncWorkspaceRoot(from workspace: Workspace) {
@@ -115,7 +126,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .gitGraph:
             guard let model = gitGraphModelStorage else { return }
             syncGitGraphRoot(from: workspace, model: model)
-        case .feed, .dock, .customSidebar:
+        case .herd, .feed, .dock, .customSidebar:
             break
         }
     }
@@ -198,7 +209,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         remoteFileOpenTask?.cancel()
         remoteFileOpenTask = nil
         fileExplorerContainerView = nil
-        sessionIndexFocusAnchorView = nil
+        toolFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         fileWorkspaceModelStorage?.close()
@@ -211,8 +222,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             _ = fileExplorerContainerView?.focusOutline()
         case .find:
             _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions:
-            guard let anchor = sessionIndexFocusAnchorView,
+        case .sessions, .herd:
+            guard let anchor = toolFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
         case .gitGraph, .feed, .dock, .customSidebar:
@@ -237,8 +248,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 && fileWorkspaceModelStorage?.ownsFocus(responder, in: window) == true
             guard explorerOwnsFocus || editorOwnsFocus else { return nil }
             return .panel
-        case .sessions:
-            guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
+        case .sessions, .herd:
+            guard toolFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
         case .gitGraph, .feed, .dock, .customSidebar:
             return nil
@@ -374,6 +385,12 @@ struct RightSidebarToolPanelView: View {
                 model: panel.gitGraphModel,
                 onFocus: requestPanelFocusIfNeeded
             )
+        case .herd:
+            HerdPanelView(
+                model: panel.herdModel,
+                onFocus: requestPanelFocusIfNeeded,
+                onFocusAnchorChange: panel.attachToolFocusAnchor
+            )
         case .find:
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
@@ -393,7 +410,7 @@ struct RightSidebarToolPanelView: View {
                 }
             )
             .background(
-                RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
+                RightSidebarToolFocusAnchor(onViewChange: panel.attachToolFocusAnchor)
                     .frame(width: 0, height: 0)
             )
         case .feed, .dock, .customSidebar:

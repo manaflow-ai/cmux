@@ -13566,6 +13566,8 @@ extension Workspace: BonsplitDelegate {
                 _ = openOrFocusFileBrowserSurface(inPane: pane, focus: true)
             case .newGitGraph:
                 _ = openOrFocusGitGraphSurface(inPane: pane, focus: true)
+            case .newHerd:
+                _ = openOrFocusHerdSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

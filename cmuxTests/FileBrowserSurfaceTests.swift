@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 struct FileBrowserSurfaceTests {
     @Test
-    func defaultSurfaceTabBarButtonsIncludeFileBrowserAndGitGraph() {
+    func defaultSurfaceTabBarButtonsIncludeFileBrowserGitGraphAndHerd() {
         #expect(
             CmuxSurfaceTabBarButton.defaults.map(\.id) == [
                 "cmux.newTerminal",
@@ -19,7 +19,8 @@ struct FileBrowserSurfaceTests {
                 "cmux.splitRight",
                 "cmux.splitDown",
                 "cmux.newFileBrowser",
-                "cmux.newGitGraph"
+                "cmux.newGitGraph",
+                "cmux.newHerd"
             ]
         )
     }
@@ -29,6 +30,15 @@ struct FileBrowserSurfaceTests {
         #expect(RightSidebarMode.from(cliArgument: "git-graph") == nil)
         #expect(RightSidebarMode.from(cliArgument: "gitgraph") == nil)
         #expect(RightSidebarMode.from(cliArgument: "graph") == nil)
+    }
+
+    @Test
+    func herdIsAConfiguredSurfaceActionNotAnUnrenderedSidebarMode() {
+        #expect(RightSidebarMode.from(cliArgument: "herd") == nil)
+        #expect(RightSidebarMode.from(cliArgument: "agents") == nil)
+        #expect(CmuxSurfaceTabBarBuiltInAction(configID: "herd") == .newHerd)
+        #expect(CmuxSurfaceTabBarBuiltInAction(configID: "agents") == .newHerd)
+        #expect(CmuxSurfaceTabBarBuiltInAction.newHerd.resolvedConfigMetadata.title == "New Herd Tab")
     }
 
     @Test
@@ -219,5 +229,49 @@ struct FileBrowserSurfaceTests {
         #expect(secondGraph.rootDirectory == "/tmp/second-repo")
         #expect(workspace.paneId(forPanelId: firstGraph.id) == firstPaneID)
         #expect(workspace.paneId(forPanelId: secondGraph.id) == secondPaneID)
+    }
+
+    @Test
+    func herdReusesOneCrossWorkspaceControlSurface() throws {
+        let workspace = Workspace()
+        let firstTerminalID = try #require(workspace.focusedPanelId)
+        let firstPaneID = try #require(workspace.paneId(forPanelId: firstTerminalID))
+        let secondTerminal = try #require(
+            workspace.newTerminalSplit(from: firstTerminalID, orientation: .horizontal)
+        )
+        let secondPaneID = try #require(workspace.paneId(forPanelId: secondTerminal.id))
+
+        let firstHerd = try #require(
+            workspace.openOrFocusHerdSurface(inPane: firstPaneID, focus: false)
+        )
+        let reusedHerd = try #require(
+            workspace.openOrFocusHerdSurface(inPane: secondPaneID, focus: false)
+        )
+
+        #expect(firstHerd.id == reusedHerd.id)
+        #expect(firstHerd.mode == .herd)
+        #expect(workspace.paneId(forPanelId: firstHerd.id) == firstPaneID)
+    }
+
+    @Test
+    func herdSnapshotProjectsAndPrioritizesAgentLifecycleAcrossWorkspaces() throws {
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(firstWorkspace.focusedPanelId)
+        firstWorkspace.setCustomTitle("Alpha")
+        firstWorkspace.setAgentLifecycle(key: "codex", panelId: firstPanelID, lifecycle: .idle)
+
+        let secondWorkspace = manager.addWorkspace(title: "Beta", select: true)
+        let secondPanelID = try #require(secondWorkspace.focusedPanelId)
+        secondWorkspace.setAgentLifecycle(key: "claude_code", panelId: secondPanelID, lifecycle: .needsInput)
+
+        let snapshot = HerdPanelSnapshot.capture(tabManager: manager)
+
+        #expect(snapshot.agentCount == 2)
+        #expect(snapshot.needsInputCount == 1)
+        #expect(snapshot.idleCount == 1)
+        #expect(snapshot.lanes.map(\.lifecycle) == [.needsInput, .idle])
+        #expect(snapshot.lanes.map(\.workspaceTitle) == ["Beta", "Alpha"])
+        #expect(snapshot.lanes.first?.isFocused == true)
     }
 }

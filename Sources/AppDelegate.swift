@@ -16614,6 +16614,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newHerd:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
+                      workspace.openOrFocusHerdSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,

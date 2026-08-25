@@ -20,6 +20,15 @@ extension Workspace {
         openOrFocusRepositoryToolSurface(inPane: paneID, mode: .gitGraph, focus: focus)
     }
 
+    /// Opens the cross-workspace Herd control surface, reusing the existing surface.
+    @discardableResult
+    func openOrFocusHerdSurface(
+        inPane paneID: PaneID,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        openOrFocusRightSidebarToolSurface(inPane: paneID, mode: .herd, focus: focus)
+    }
+
     private func openOrFocusRepositoryToolSurface(
         inPane paneID: PaneID,
         mode: RightSidebarMode,
