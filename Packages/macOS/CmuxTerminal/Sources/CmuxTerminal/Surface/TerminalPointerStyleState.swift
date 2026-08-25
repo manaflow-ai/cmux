@@ -110,15 +110,20 @@ public struct TerminalPointerStyleState {
                 // leaving the temporary pointing hand installed.
                 return false
             }
+            if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
+               !isGhosttyLinkHoverActive,
+               ghosttyShape == shape {
+                // A duplicate pointer is the base-shape refresh Ghostty emits
+                // for a persistent OSC 22 pointer when a link closes.
+                hasPendingGhosttyLinkPointer = false
+                return false
+            }
             guard ghosttyShape != shape || isGhosttyLinkHoverActive else {
                 return false
             }
             if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
                !isGhosttyLinkHoverActive {
-                // A duplicate pointer is the base-shape refresh Ghostty emits
-                // for a persistent OSC 22 pointer when a link closes. Only a
-                // transition into pointer is provisional hyperlink state.
-                hasPendingGhosttyLinkPointer = ghosttyShape != shape
+                hasPendingGhosttyLinkPointer = true
             } else if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
                 hasPendingGhosttyLinkPointer = false
             }

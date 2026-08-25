@@ -1,6 +1,7 @@
 import CmuxTerminal
 import Foundation
 import GhosttyKit
+import os
 
 /// Coalesces runtime pointer callbacks before they cross onto the main actor.
 ///
