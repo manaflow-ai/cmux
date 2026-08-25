@@ -343,7 +343,7 @@ _FLUENT_CLIENT_ASSIGNMENT = re.compile(
     (?:^|[;\n{])
     (?P<indent>[ \t]*)
     (?P<modifiers>
-        (?:(?:abstract|accessor|declare|override|private|protected|public|readonly|static)\s+)*
+        (?:(?:abstract|accessor|declare|export|override|private|protected|public|readonly|static)\s+)*
     )
     (?:(?P<declaration>const|let|var)\s+)?
     (?P<binding>
@@ -2053,9 +2053,19 @@ def _fluent_terminal_opening_paren(
     )
     if constructor_end >= len(line):
         return None
+    terminal_start = constructor_end + 1
+    # A constructor can be wrapped in one or more grouping parentheses before
+    # the fluent request method (for example ``(axios.create(...)).get(...)``).
+    # Skip only closing delimiters and whitespace here; the constructor call
+    # itself was already bounded by ``_call_end``.
+    while terminal_start < len(line):
+        if line[terminal_start].isspace() or line[terminal_start] == ")":
+            terminal_start += 1
+            continue
+        break
     terminal = _FLUENT_TERMINAL_CALLS[client_kind].match(
         line,
-        constructor_end + 1,
+        terminal_start,
     )
     return terminal.end() - 1 if terminal is not None else None
 
