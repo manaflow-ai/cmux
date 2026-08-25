@@ -2110,6 +2110,173 @@ def codex_hook_commands(hooks: dict) -> list[str]:
     return commands
 
 
+def test_non_codex_structured_work_replays_deferred_stop(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-non-codex-deferred-settlement.sock"
+    state_dir = root / "non-codex-deferred-settlement-state"
+    state_dir.mkdir()
+    session_id = f"pi-deferred-settlement-session-{os.getpid()}"
+    turn_id = f"pi-deferred-settlement-turn-{os.getpid()}"
+    work_id = f"pi-deferred-settlement-work-{os.getpid()}"
+    env = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def raw_commands_after(fake: FakeCmuxSocket, index: int) -> list[str]:
+        return [
+            frame.get("raw", "")
+            for frame in fake.frames[index:]
+            if "raw" in frame
+        ]
+
+    def wait_for_raw_command(
+        fake: FakeCmuxSocket,
+        index: int,
+        fragment: str,
+    ) -> list[str]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            commands = raw_commands_after(fake, index)
+            if any(fragment in command for command in commands):
+                return commands
+            time.sleep(0.05)
+        raise AssertionError(
+            f"non-Codex deferred settlement never emitted {fragment!r}: "
+            f"{fake.frames[index:]}"
+        )
+
+    base_payload = {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "cwd": str(root),
+        "hook_event_name": "UserPromptSubmit",
+    }
+    with FakeCmuxSocket(socket_path, None) as fake:
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            base_payload,
+        )
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "SubagentStart",
+            ],
+            {
+                **base_payload,
+                "hook_event_name": "SubagentStart",
+                "agent_id": work_id,
+            },
+        )
+        stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "stop",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            {
+                **base_payload,
+                "hook_event_name": "Stop",
+                "cmux_turn_boundary": "turn_end",
+            },
+        )
+        time.sleep(0.1)
+        provisional_commands = raw_commands_after(fake, stop_start)
+        if any(
+            "set_agent_lifecycle pi idle" in command
+            or command.startswith("notify_target_async ")
+            for command in provisional_commands
+        ):
+            raise AssertionError(
+                "non-Codex Stop finalized while structured work was active: "
+                f"{provisional_commands!r}"
+            )
+
+        subagent_stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "SubagentStop",
+            ],
+            {
+                **base_payload,
+                "hook_event_name": "SubagentStop",
+                "agent_id": work_id,
+            },
+        )
+        settled_commands = wait_for_raw_command(
+            fake,
+            subagent_stop_start,
+            "set_agent_lifecycle pi idle",
+        )
+        if not any(
+            command.startswith("notify_target_async ")
+            for command in settled_commands
+        ):
+            raise AssertionError(
+                "non-Codex deferred settlement did not route completion "
+                f"notification: {settled_commands!r}"
+            )
+
+    state = json.loads(
+        (state_dir / "pi-hook-sessions.json").read_text(encoding="utf-8")
+    )
+    session_state = state["sessions"][session_id]
+    if session_state.get("deferredTurnSettlementsByTurn"):
+        raise AssertionError(
+            "non-Codex deferred settlement remained after SubagentStop: "
+            f"{session_state!r}"
+        )
+
+
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home"
     codex_home.mkdir()
@@ -3710,6 +3877,49 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     "Oversized Cursor output should conclude native attention "
                     "without forwarding the oversized Feed payload"
                 )
+
+            # Cursor can create the per-process native log after preToolUse
+            # starts. The observer must wait for that file instead of
+            # abandoning the real approval before the first record exists.
+            delayed_tool_call_id = f"cursor-call-delayed-log-{id_suffix}"
+            delayed_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-delayed-log",
+                "tool_use_id": delayed_tool_call_id,
+                "tool_input": {"command": "pnpm test"},
+            }
+            log_path.unlink(missing_ok=True)
+            delayed_start = len(fake.frames)
+            run_cursor_feed("preToolUse", delayed_payload)
+            observer_deadline = time.monotonic() + 1
+            while time.monotonic() < observer_deadline:
+                if cursor_observer_pids(delayed_tool_call_id):
+                    break
+                time.sleep(0.02)
+            log_path.write_text("", encoding="utf-8")
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                delayed_tool_call_id,
+            )
+            delayed_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=delayed_start,
+            )
+            if delayed_begin.get("params", {}).get("session_id") != "cursor-session":
+                raise AssertionError(
+                    "Cursor delayed-log observer targeted the wrong session: "
+                    f"{delayed_begin!r}"
+                )
+            run_cursor_feed("postToolUse", {
+                **delayed_payload,
+                "tool_output": "delayed approval completed",
+            })
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=delayed_start,
+            )
 
             auto_payload = {
                 **requested_payload,
@@ -5993,6 +6203,10 @@ def main() -> int:
                 root,
             )
             test_structured_background_work_bounds_and_generation_owned_clear(
+                cli_path,
+                root,
+            )
+            test_non_codex_structured_work_replays_deferred_stop(
                 cli_path,
                 root,
             )

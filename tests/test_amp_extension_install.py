@@ -1252,6 +1252,56 @@ try {
     "the most recent bounded Amp turn lost settlement ownership"
   );
 
+  // Fill the bounded tombstone table and exercise its overflow recovery. A
+  // later authoritative session.start must make that one owner eligible
+  // again; a process-wide latch that never recovers would drop its turn.
+  for (let index = 0; index < 128; index += 1) {
+    const latchThread = makeThread(
+      `T-amp-overflow-latch-${index}`,
+      "running"
+    );
+    const latchCtx = { thread: latchThread };
+    await handlers.get("agent.start")({
+      thread: latchThread,
+      message: "fill bounded Amp overflow tombstones",
+      id: `msg-overflow-latch-${index}`
+    }, latchCtx);
+    await handlers.get("agent.end")({
+      thread: latchThread,
+      message: "fill bounded Amp overflow tombstones",
+      id: `msg-overflow-latch-${index}`,
+      status: "done",
+      messages: []
+    }, latchCtx);
+  }
+  const recoveryThread = makeThread(
+    "T-amp-overflow-recovery",
+    "running"
+  );
+  const recoveryCtx = { thread: recoveryThread };
+  await handlers.get("session.start")(
+    { thread: recoveryThread },
+    recoveryCtx
+  );
+  await handlers.get("agent.start")({
+    thread: recoveryThread,
+    message: "recover after bounded Amp overflow",
+    id: "msg-overflow-recovery"
+  }, recoveryCtx);
+  const beforeRecoveryEnd = stopCalls().length;
+  await handlers.get("agent.end")({
+    thread: recoveryThread,
+    message: "recover after bounded Amp overflow",
+    id: "msg-overflow-recovery",
+    status: "done",
+    messages: []
+  }, recoveryCtx);
+  recoveryThread.setState("idle");
+  await waitFor(
+    () => stopCalls().length === beforeRecoveryEnd + 2,
+    "authoritative Amp session cleanup did not recover overflowed turn tracking"
+  );
+
   const overflowThread = makeThread(
     "T-amp-active-tool-overflow",
     "running"
