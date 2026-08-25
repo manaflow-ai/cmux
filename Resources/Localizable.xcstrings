@@ -218908,6 +218908,12 @@
             "value": "読み込み中（アクティブなタスク %lld 件）"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ទុក (ភារកិច្ចសកម្ម %lld)"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -219025,6 +219031,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "読み込み中（アクティブなタスク 1 件）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ទុក (ភារកិច្ចសកម្ម 1)"
           }
         },
         "ko": {
