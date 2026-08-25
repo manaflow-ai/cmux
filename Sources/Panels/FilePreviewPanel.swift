@@ -913,14 +913,20 @@ enum FilePreviewTextLoader {
     @concurrent
     static func load(
         url: URL,
-        maximumBytes: UInt64? = maximumLoadedTextBytes
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
     ) async -> Result {
-        loadSynchronously(url: url, maximumBytes: maximumBytes)
+        loadSynchronously(
+            url: url,
+            maximumBytes: maximumBytes,
+            decodeUTF16: decodeUTF16
+        )
     }
 
     static func loadSynchronously(
         url: URL,
-        maximumBytes: UInt64? = maximumLoadedTextBytes
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
     ) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .unavailable
@@ -935,7 +941,7 @@ enum FilePreviewTextLoader {
 
         do {
             let data = try Data(contentsOf: url)
-            guard let decoded = decodeText(data) else {
+            guard let decoded = decodeText(data, decodeUTF16: decodeUTF16) else {
                 return .unavailable
             }
             return .loaded(content: decoded.content, encoding: decoded.encoding)
@@ -944,11 +950,14 @@ enum FilePreviewTextLoader {
         }
     }
 
-    private static func decodeText(_ data: Data) -> (content: String, encoding: String.Encoding)? {
+    private static func decodeText(
+        _ data: Data,
+        decodeUTF16: Bool
+    ) -> (content: String, encoding: String.Encoding)? {
         if let decoded = String(data: data, encoding: .utf8) {
             return (decoded, .utf8)
         }
-        if let decoded = String(data: data, encoding: .utf16) {
+        if decodeUTF16, let decoded = String(data: data, encoding: .utf16) {
             return (decoded, .utf16)
         }
         if let decoded = String(data: data, encoding: .isoLatin1) {

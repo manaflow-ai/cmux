@@ -400,7 +400,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             // File Preview editor limit; retain that range off the main actor.
             await FilePreviewTextLoader.load(
                 url: fileURL,
-                maximumBytes: nil
+                maximumBytes: nil,
+                decodeUTF16: false
             )
         }) { [weak self] result in
             guard let self, !self.isClosed else { return }
