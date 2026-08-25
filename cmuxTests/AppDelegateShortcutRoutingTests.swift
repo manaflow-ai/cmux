@@ -12413,6 +12413,56 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testBrowserCaptureShortcutSettingPreservesBrowserFocusModeEscapeExit() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: settingKey)
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(
+                true,
+                reason: "unit.captureEscape",
+                focusWebView: false
+            )
+        )
+
+        let baseTimestamp = ProcessInfo.processInfo.systemUptime
+        guard let firstEscape = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: harness.window.windowNumber,
+            timestamp: baseTimestamp + 0.01
+        ), let secondEscape = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: harness.window.windowNumber,
+            timestamp: baseTimestamp + 0.02
+        ) else {
+            XCTFail("Failed to construct browser focus mode Escape events")
+            return
+        }
+
+        XCTAssertTrue(harness.webView.performKeyEquivalent(with: firstEscape))
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
+
+        XCTAssertTrue(harness.webView.performKeyEquivalent(with: secondEscape))
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+    }
+
     func testRemappedGoToWorkspaceDefaultReachesFocusedBrowserWebView() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
