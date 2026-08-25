@@ -23,9 +23,9 @@ struct RemoteDaemonUploadTests {
         try Data([0x41, 0x42]).write(to: localBinary)
         let runner = RecordingProcessRunner { request in
             switch Self.uploadStep(for: request) {
-            case .createDirectory, .upload:
+            case .createDirectory, .upload, .finalize:
                 return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-            case .cleanup, .finalize, .unknown:
+            case .cleanup, .unknown:
                 return Self.unexpectedRequestResult(request)
             }
         }
