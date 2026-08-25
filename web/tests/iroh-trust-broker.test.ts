@@ -32,7 +32,7 @@ import {
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
-import { bindingMatchesDiscoveryScope } from "../services/iroh/discoveryScope";
+import type { IrohDiscoveryScope } from "../services/iroh/discoveryScope";
 import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -1829,6 +1829,39 @@ type MutableBinding = IrohBindingRecord & {
   directPortV4: number | null;
   directPortV6: number | null;
 };
+
+// Mirrors the live repository's SQL discovery-scope filter for the in-memory
+// fixture (the production filter lives in repository.ts SQL, not TypeScript).
+function bindingMatchesDiscoveryScope(
+  binding: {
+    readonly deviceUuid: string;
+    readonly appInstanceId: string;
+    readonly tag: string;
+    readonly platform: string;
+    readonly pairingEnabled: boolean;
+  },
+  scope: IrohDiscoveryScope,
+): boolean {
+  const local = scope.localBinding;
+  if (
+    binding.deviceUuid === local.deviceId
+    && binding.appInstanceId === local.appInstanceId
+    && binding.tag === local.tag
+    && binding.platform === local.platform
+  ) {
+    return true;
+  }
+  const peers = scope.peerBindings;
+  return binding.platform === peers.platform
+    && (
+      peers.tags === undefined
+      || peers.tags.includes(binding.tag.toLowerCase())
+    )
+    && (
+      peers.pairingEnabled === undefined
+      || binding.pairingEnabled === peers.pairingEnabled
+    );
+}
 
 class MemoryRepository implements IrohRepositoryShape {
   readonly challenges: IrohChallengeRecord[] = [];

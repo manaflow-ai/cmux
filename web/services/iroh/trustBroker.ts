@@ -738,4 +738,3 @@ function bindingPlatform(binding: IrohBindingRecord): "mac" | "ios" {
 // Stack bearer authentication alone is never sufficient to mutate path hints.
 // Until the dedicated endpoint-signed monotonic update route lands, clients
 // refresh watch_addr output only through a new signed registration challenge.
-export const IROH_SIGNED_PATH_HINT_UPDATE_FOLLOWUP = "endpoint-signed-monotonic-watch-addr-update-v1";

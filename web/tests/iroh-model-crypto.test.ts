@@ -7,7 +7,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import {
   assertCurrentSigningKey,
-  createOfflinePairSessionRecord,
   deriveAccountSubject,
   deriveLanRendezvousKey,
   parseVerificationKeys,
@@ -16,7 +15,6 @@ import {
   signPairGrant,
   verifyEndpointAttestation,
   verifyEndpointRegistrationSignature,
-  verifyAndConsumeOfflineSameAccountPair,
   verifyPairGrant,
   type EndpointAttestationClaims,
   type PairGrantClaims,
@@ -473,111 +471,6 @@ describe("Iroh grant verification keys and offline endpoint attestations", () =>
       retired.publicKeys,
       { ...endpointExpectation(initiator), nowSeconds },
     )).toThrow();
-  });
-
-  test("requires two fresh endpoint-bound attestations with the same opaque account subject", () => {
-    const initiatorToken = signEndpointAttestation({
-      privateKeyPem: currentPrivate,
-      kid: "current",
-      claims: initiator,
-    });
-    const acceptorToken = signEndpointAttestation({
-      privateKeyPem: currentPrivate,
-      kid: "current",
-      claims: acceptor,
-    });
-    const expected = {
-      initiator: { ...endpointExpectation(initiator), platform: "ios" as const },
-      acceptor: { ...endpointExpectation(acceptor), platform: "mac" as const },
-      nowSeconds,
-    } as const;
-    const proof = Buffer.alloc(32, 0x61).toString("base64url");
-    const session = createOfflinePairSessionRecord({
-      sessionId: "70000000-0000-4000-8000-000000000001",
-      proof,
-      acceptor: expected.acceptor,
-      nowSeconds,
-      expiresAtSeconds: nowSeconds + 300,
-    });
-    const invitation = { version: 1 as const, sessionId: session.sessionId, proof };
-
-    expect(verifyAndConsumeOfflineSameAccountPair({
-      initiatorAttestation: initiatorToken,
-      acceptorAttestation: acceptorToken,
-      publicKeys: parsedKeys.publicKeys,
-      expected,
-      session,
-      invitation,
-    }).acceptor.endpointId).toBe(acceptor.endpointId);
-    expect(session.consumedAtSeconds).toBe(nowSeconds);
-    expect(() => verifyAndConsumeOfflineSameAccountPair({
-      initiatorAttestation: initiatorToken,
-      acceptorAttestation: acceptorToken,
-      publicKeys: parsedKeys.publicKeys,
-      expected,
-      session,
-      invitation,
-    })).toThrow();
-
-    const missingSession = createOfflinePairSessionRecord({
-      sessionId: "70000000-0000-4000-8000-000000000002",
-      proof,
-      acceptor: expected.acceptor,
-      nowSeconds,
-      expiresAtSeconds: nowSeconds + 300,
-    });
-    expect(() => verifyAndConsumeOfflineSameAccountPair({
-      initiatorAttestation: "",
-      acceptorAttestation: acceptorToken,
-      publicKeys: parsedKeys.publicKeys,
-      expected,
-      session: missingSession,
-      invitation: { ...invitation, sessionId: missingSession.sessionId },
-    })).toThrow();
-    expect(missingSession.consumedAtSeconds).toBeNull();
-
-    const wrongProofSession = createOfflinePairSessionRecord({
-      sessionId: "70000000-0000-4000-8000-000000000004",
-      proof,
-      acceptor: expected.acceptor,
-      nowSeconds,
-      expiresAtSeconds: nowSeconds + 300,
-    });
-    expect(() => verifyAndConsumeOfflineSameAccountPair({
-      initiatorAttestation: initiatorToken,
-      acceptorAttestation: acceptorToken,
-      publicKeys: parsedKeys.publicKeys,
-      expected,
-      session: wrongProofSession,
-      invitation: {
-        version: 1,
-        sessionId: wrongProofSession.sessionId,
-        proof: Buffer.alloc(32, 0x62).toString("base64url"),
-      },
-    })).toThrow();
-    expect(wrongProofSession.consumedAtSeconds).toBeNull();
-
-    const otherAccountToken = signEndpointAttestation({
-      privateKeyPem: currentPrivate,
-      kid: "current",
-      claims: { ...acceptor, sub: Buffer.alloc(32, 0x52).toString("base64url") },
-    });
-    const mismatchSession = createOfflinePairSessionRecord({
-      sessionId: "70000000-0000-4000-8000-000000000003",
-      proof,
-      acceptor: expected.acceptor,
-      nowSeconds,
-      expiresAtSeconds: nowSeconds + 300,
-    });
-    expect(() => verifyAndConsumeOfflineSameAccountPair({
-      initiatorAttestation: initiatorToken,
-      acceptorAttestation: otherAccountToken,
-      publicKeys: parsedKeys.publicKeys,
-      expected,
-      session: mismatchSession,
-      invitation: { ...invitation, sessionId: mismatchSession.sessionId },
-    })).toThrow();
-    expect(mismatchSession.consumedAtSeconds).toBeNull();
   });
 
   test("rejects endpoint substitution, expiry, extra identity claims, and noncanonical signatures", () => {
