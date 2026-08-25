@@ -2000,7 +2000,8 @@ final class ClaudeHookSessionStore {
     /// files. This lock is a cross-process ordering carve-out for synchronous
     /// hook callbacks; it guards only a short, bounded reconciliation section.
     func acquireCursorShellApprovalReconciliationLock(
-        sessionId: String
+        sessionId: String,
+        deadline: Date? = nil
     ) throws -> CursorShellApprovalReconciliationLease {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty else {
@@ -2025,9 +2026,9 @@ final class ClaudeHookSessionStore {
             l_type: Int16(F_WRLCK),
             l_whence: Int16(SEEK_SET)
         )
-        let deadline = Date.now.addingTimeInterval(3.0)
+        let lockDeadline = deadline ?? Date.now.addingTimeInterval(3.0)
         while Darwin.fcntl(fd, F_SETLK, &lock) != 0 {
-            guard errno == EACCES || errno == EAGAIN, Date.now < deadline else {
+            guard errno == EACCES || errno == EAGAIN, Date.now < lockDeadline else {
                 Darwin.close(fd)
                 throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
             }
@@ -3280,7 +3281,8 @@ final class SocketClient {
     func sendV2(
         method: String,
         params: [String: Any] = [:],
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": UUID().uuidString,
@@ -3296,7 +3298,7 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 request")
         }
 
-        let raw = try send(command: requestLine, responseTimeout: responseTimeout)
+        let raw = try send(command: requestLine, responseTimeout: responseTimeout, deadline: deadline)
 
         // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
         // before the JSON protocol starts. Surface these directly instead of letting
@@ -6685,7 +6687,13 @@ struct CMUXCLI {
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
-            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
+            try runHooksSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                telemetry: cliTelemetry,
+                socketPassword: socketPasswordArg,
+                hookDeadline: cursorHookDeadline
+            )
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -16716,25 +16724,26 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         windowHandle: String? = nil,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
         if let raw, isHandleRef(raw) {
             if let windowHandle {
-                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle], responseTimeout: responseTimeout)
+                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle], responseTimeout: responseTimeout, deadline: deadline)
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
                 for item in items where (item["ref"] as? String) == raw {
                     if let id = item["id"] as? String { return id }
                 }
             } else {
                 // Resolve ref to UUID — search across all windows
-                let windows = try client.sendV2(method: "window.list", responseTimeout: responseTimeout)
+                let windows = try client.sendV2(method: "window.list", responseTimeout: responseTimeout, deadline: deadline)
                 let windowList = windows["windows"] as? [[String: Any]] ?? []
                 for window in windowList {
                     guard let windowId = window["id"] as? String else { continue }
-                    let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId], responseTimeout: responseTimeout)
+                    let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId], responseTimeout: responseTimeout, deadline: deadline)
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
                     for item in items where (item["ref"] as? String) == raw {
                         if let id = item["id"] as? String { return id }
@@ -16747,7 +16756,7 @@ struct CMUXCLI {
         if let raw, let index = Int(raw) {
             var params: [String: Any] = [:]
             if let windowHandle { params["window_id"] = windowHandle }
-            let listed = try client.sendV2(method: "workspace.list", params: params, responseTimeout: responseTimeout)
+            let listed = try client.sendV2(method: "workspace.list", params: params, responseTimeout: responseTimeout, deadline: deadline)
             let items = listed["workspaces"] as? [[String: Any]] ?? []
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
@@ -16781,7 +16790,7 @@ struct CMUXCLI {
         if let windowHandle {
             currentParams["window_id"] = windowHandle
         }
-        let current = try client.sendV2(method: "workspace.current", params: currentParams, responseTimeout: responseTimeout)
+        let current = try client.sendV2(method: "workspace.current", params: currentParams, responseTimeout: responseTimeout, deadline: deadline)
         if let wsId = current["workspace_id"] as? String { return wsId }
         throw CLIError(message: "No workspace selected")
     }
@@ -16790,12 +16799,14 @@ struct CMUXCLI {
         _ raw: String?,
         workspaceId: String,
         client: SocketClient,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws -> String {
         let listed = try client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            deadline: deadline
         )
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
@@ -30076,6 +30087,7 @@ struct CMUXCLI {
         transcriptPath: String? = nil,
         observedPermissionMode: String? = nil,
         responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
         if kind == "hermes-agent" {
@@ -30096,7 +30108,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionId: sessionId,
-                    responseTimeout: responseTimeout
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
                 )
                 return
             case .unavailable:
@@ -30150,7 +30163,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionId: sessionId,
-                    responseTimeout: responseTimeout
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
                 )
                 return
             case .unavailable:
@@ -30169,7 +30183,8 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: sessionId,
-                responseTimeout: responseTimeout
+                responseTimeout: responseTimeout,
+                deadline: deadline
             )
             return
         }
@@ -30237,7 +30252,8 @@ struct CMUXCLI {
         _ = try? client.sendV2(
             method: "surface.resume.set",
             params: params,
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            deadline: deadline
         )
     }
 
@@ -30248,7 +30264,8 @@ struct CMUXCLI {
         surfaceId: String,
         sessionId: String?,
         sessionDidEnd: Bool = false,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) -> Bool {
         clearAgentSurfaceResumeBindingOutcome(
             client: client,
@@ -30256,7 +30273,8 @@ struct CMUXCLI {
             surfaceId: surfaceId,
             sessionId: sessionId,
             sessionDidEnd: sessionDidEnd,
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            deadline: deadline
         ) != .failed
     }
 
@@ -32151,7 +32169,8 @@ export default CMUXSessionRestore;
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String? = nil,
-        rawInputOverride: String? = nil
+        rawInputOverride: String? = nil,
+        hookDeadline: Date? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
@@ -32159,7 +32178,13 @@ export default CMUXSessionRestore;
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
         let cursorShellLifecycleEvent = def.name == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(subcommand)
-        let cursorShellTargetResolutionTimeout: TimeInterval? = cursorShellLifecycleEvent ? 0.35 : nil
+        let cursorShellDeadline = cursorShellLifecycleEvent
+            ? (hookDeadline ?? Date.now.addingTimeInterval(3.0))
+            : nil
+        func cursorShellRemainingTimeout(cap: TimeInterval = 0.35) -> TimeInterval? {
+            guard let cursorShellDeadline else { return nil }
+            return max(0.01, min(cap, cursorShellDeadline.timeIntervalSinceNow))
+        }
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
@@ -32170,7 +32195,8 @@ export default CMUXSessionRestore;
                     client: client,
                     telemetry: telemetry,
                     socketPassword: socketPassword,
-                    rawInputOverride: replay.payload
+                    rawInputOverride: replay.payload,
+                    hookDeadline: hookDeadline
                 )
             }
             return
@@ -32219,12 +32245,14 @@ export default CMUXSessionRestore;
             guard let candidate = try? resolveWorkspaceId(
                 raw,
                 client: client,
-                responseTimeout: cursorShellTargetResolutionTimeout
+                responseTimeout: cursorShellRemainingTimeout(),
+                deadline: cursorShellDeadline
             ),
                   (try? client.sendV2(
                       method: "surface.list",
                       params: ["workspace_id": candidate],
-                      responseTimeout: cursorShellTargetResolutionTimeout
+                      responseTimeout: cursorShellRemainingTimeout(),
+                      deadline: cursorShellDeadline
                   )) != nil else {
                 return nil
             }
@@ -32236,12 +32264,14 @@ export default CMUXSessionRestore;
                       raw,
                       workspaceId: workspaceId,
                       client: client,
-                      responseTimeout: cursorShellTargetResolutionTimeout
+                      responseTimeout: cursorShellRemainingTimeout(),
+                      deadline: cursorShellDeadline
                   ),
                   let listed = try? client.sendV2(
                       method: "surface.list",
                       params: ["workspace_id": workspaceId],
-                      responseTimeout: cursorShellTargetResolutionTimeout
+                      responseTimeout: cursorShellRemainingTimeout(),
+                      deadline: cursorShellDeadline
                   ) else {
                 return nil
             }
@@ -32255,7 +32285,8 @@ export default CMUXSessionRestore;
                 nil,
                 workspaceId: workspaceId,
                 client: client,
-                responseTimeout: cursorShellTargetResolutionTimeout
+                responseTimeout: cursorShellRemainingTimeout(),
+                deadline: cursorShellDeadline
             )
         }
         let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
@@ -32342,12 +32373,10 @@ export default CMUXSessionRestore;
                 if readsApprovalMode, let configuredMode = json["approvalMode"] as? String {
                     mode = configuredMode
                 }
-                if let permissions = json["permissions"] as? [String: Any],
-                   let allowed = permissions["allow"] as? [String] {
+                if let permissions = json["permissions"] as? [String: Any] {
+                    let allowed = permissions["allow"] as? [String] ?? []
+                    let denied = permissions["deny"] as? [String] ?? []
                     allowedShellCommands = Array(allowed.prefix(128))
-                }
-                if let permissions = json["permissions"] as? [String: Any],
-                   let denied = permissions["deny"] as? [String] {
                     deniedShellCommands = Array(denied.prefix(128))
                 }
             }
@@ -32472,13 +32501,18 @@ export default CMUXSessionRestore;
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
-        let cursorCriticalResponseTimeout: TimeInterval = 0.35
+        func cursorCriticalTimeout() -> TimeInterval {
+            cursorShellRemainingTimeout() ?? 0.35
+        }
         var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
         defer { cursorLifecycleLease?.release() }
         func acquireCursorLifecycleLease() -> Bool {
             guard def.name == "cursor", !sessionId.isEmpty else { return true }
             if cursorLifecycleLease != nil { return true }
-            guard let lease = try? store.acquireCursorShellApprovalReconciliationLock(sessionId: sessionId) else {
+            guard let lease = try? store.acquireCursorShellApprovalReconciliationLock(
+                sessionId: sessionId,
+                deadline: cursorShellDeadline
+            ) else {
                 telemetry.breadcrumb("cursor-hook.reconciliation-lock-unavailable")
                 return false
             }
@@ -32486,7 +32520,11 @@ export default CMUXSessionRestore;
             return true
         }
         func sendCursorCriticalCommand(_ command: String) {
-            _ = try? client.send(command: command, responseTimeout: cursorCriticalResponseTimeout)
+            _ = try? client.send(
+                command: command,
+                responseTimeout: cursorCriticalTimeout(),
+                deadline: cursorShellDeadline
+            )
         }
         // One structured semantic event per hook invocation: the append-only
         // agent journal is what the sidebar reduces lifecycle state from, so
@@ -32501,7 +32539,8 @@ export default CMUXSessionRestore;
             pendingWork: Bool = false,
             declaredPhase: AgentLifecyclePhase? = nil,
             detail: String? = nil,
-            responseTimeout: TimeInterval? = nil
+            responseTimeout: TimeInterval? = nil,
+            deadline: Date? = nil
         ) {
             emitAgentJournalEvent(
                 client: client,
@@ -32518,6 +32557,7 @@ export default CMUXSessionRestore;
                 declaredPhase: declaredPhase,
                 detail: detail,
                 responseTimeout: responseTimeout,
+                deadline: deadline ?? cursorShellDeadline,
                 store: store,
                 telemetry: telemetry
             )
@@ -32545,7 +32585,8 @@ export default CMUXSessionRestore;
                     surfaceId: consumed.surfaceId,
                     sessionId: consumed.sessionId,
                     sessionDidEnd: true,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
+                    deadline: cursorShellDeadline
                 ) {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.resume-clear-failed")
                 }
@@ -33098,7 +33139,7 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     declaredPhase: .running,
                     detail: "cursor-shell-expired",
-                    responseTimeout: cursorCriticalResponseTimeout
+                    responseTimeout: cursorCriticalTimeout()
                 )
                 cursorLifecycleLease?.release()
                 cursorLifecycleLease = nil
@@ -33111,7 +33152,7 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     detail: failed ? "cursor-shell-failed-unmatched" : "cursor-shell-completed-unmatched",
-                    responseTimeout: cursorCriticalResponseTimeout
+                    responseTimeout: cursorCriticalTimeout()
                 )
                 cursorLifecycleLease?.release()
                 return
@@ -33123,7 +33164,7 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     declaredPhase: .needsInput,
                     detail: failed ? "cursor-shell-failed-remaining" : "cursor-shell-completed-remaining",
-                    responseTimeout: cursorCriticalResponseTimeout
+                    responseTimeout: cursorCriticalTimeout()
                 )
                 cursorLifecycleLease?.release()
                 return
@@ -33144,7 +33185,8 @@ export default CMUXSessionRestore;
                 ),
                 launchCommand: resumeLaunchCommand,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                responseTimeout: cursorCriticalResponseTimeout,
+                responseTimeout: cursorCriticalTimeout(),
+                deadline: cursorShellDeadline,
                 telemetry: telemetry
             )
             if let pid {
@@ -33157,7 +33199,7 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 detail: failed ? "shell-failed" : "shell-completed",
-                responseTimeout: cursorCriticalResponseTimeout
+                responseTimeout: cursorCriticalTimeout()
             )
             cursorLifecycleLease?.release()
             cursorLifecycleLease = nil
@@ -33570,7 +33612,8 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: transcriptPathForStore,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
+                    deadline: cursorShellDeadline,
                     telemetry: telemetry
                 )
                 if codexPromptTurnWentTerminal() {
@@ -33607,7 +33650,7 @@ export default CMUXSessionRestore;
                     .turnStarted,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -33872,7 +33915,7 @@ export default CMUXSessionRestore;
                 precomputedNestedDetection: isNestedAgentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
-            if def.name == "cursor", !sessionId.isEmpty, !suppressVisibleMutations {
+            if def.name == "cursor", !sessionId.isEmpty {
                 guard acquireCursorLifecycleLease() else {
                     print("{}")
                     return
@@ -33882,9 +33925,8 @@ export default CMUXSessionRestore;
                 || codexSubagentSignals.hasSubagentNotificationRelay
             let clearedCursorApprovalOnStop = def.name == "cursor"
                 && !sessionId.isEmpty
-                && !suppressVisibleMutations
                 && ((try? store.clearCursorShellApprovals(sessionId: sessionId)) == true)
-            if clearedCursorApprovalOnStop {
+            if clearedCursorApprovalOnStop, !suppressVisibleMutations {
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
@@ -33902,7 +33944,7 @@ export default CMUXSessionRestore;
                 isSubagent: isNestedAgentSession,
                 pendingWork: antigravityHasActiveBackgroundWork,
                 detail: stopHadFailure ? body : nil,
-                responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
             )
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -33927,7 +33969,8 @@ export default CMUXSessionRestore;
                     cwd: cwd,
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
+                    deadline: cursorShellDeadline,
                     telemetry: telemetry
                 )
             }
@@ -34000,7 +34043,11 @@ export default CMUXSessionRestore;
                 do {
                     let response: String
                     if def.name == "cursor" {
-                        response = try client.send(command: notifyCommand, responseTimeout: cursorCriticalResponseTimeout)
+                        response = try client.send(
+                            command: notifyCommand,
+                            responseTimeout: cursorCriticalTimeout(),
+                            deadline: cursorShellDeadline
+                        )
                     } else {
                         response = try sendV1Command(notifyCommand, client: client)
                     }
@@ -34262,7 +34309,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         detail: "cursor-shell-approval-persistence-failed",
-                        responseTimeout: cursorCriticalResponseTimeout
+                        responseTimeout: cursorCriticalTimeout()
                     )
                     cursorLifecycleLease?.release()
                     cursorLifecycleLease = nil
@@ -34479,7 +34526,7 @@ export default CMUXSessionRestore;
                 pendingWork: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                     && hasActiveAntigravityBackgroundWork(),
                 detail: notificationJournalKind == .errorReported ? summary.body : nil,
-                responseTimeout: cursorShellNeedsApproval ? cursorCriticalResponseTimeout : nil
+                responseTimeout: cursorShellNeedsApproval ? cursorCriticalTimeout() : nil
             )
 
             let notificationFingerprint = notificationDedupeFingerprint(
@@ -34531,7 +34578,11 @@ export default CMUXSessionRestore;
                 do {
                     let response: String
                     if cursorShellNeedsApproval {
-                        response = try client.send(command: notifyCommand, responseTimeout: 1.0)
+                        response = try client.send(
+                            command: notifyCommand,
+                            responseTimeout: cursorCriticalTimeout(),
+                            deadline: cursorShellDeadline
+                        )
                     } else {
                         response = try sendV1Command(notifyCommand, client: client)
                     }
@@ -34655,7 +34706,7 @@ export default CMUXSessionRestore;
                     .sessionEnded,
                     workspaceId: ending.workspaceId,
                     surfaceId: ending.surfaceId,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
                 )
             } else {
                 emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
@@ -34681,7 +34732,7 @@ export default CMUXSessionRestore;
                     .sessionEnded,
                     workspaceId: ending.workspaceId,
                     surfaceId: ending.surfaceId,
-                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                    responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
                 )
             } else {
                 emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
@@ -37899,7 +37950,8 @@ export default CMUXSessionRestore;
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        hookDeadline: Date? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {
             throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
@@ -37938,7 +37990,14 @@ export default CMUXSessionRestore;
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
-                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
+                try runGenericAgentHook(
+                    def: def,
+                    commandArgs: rest,
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword,
+                    hookDeadline: hookDeadline
+                )
                 telemetry.breadcrumb("hooks.\(def.name).completed")
             } catch {
                 telemetry.breadcrumb("hooks.\(def.name).failure")
