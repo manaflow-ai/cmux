@@ -983,6 +983,31 @@ impl Drop for ProcessGroupGuard {
             // so descendants cannot retain inherited output pipes or continue
             // running after the relay has released its action permit.
             signal_process_tree(self.pid, true);
+            // `run_spec` is commonly cancelled by dropping its future. That
+            // drops Tokio's `Child` without calling `wait`, leaving a zombie
+            // even though the process group has been killed. Reap the leader
+            // from a detached supervisor thread. `SIGKILL` makes this wait
+            // bounded by process exit, and the guard is disarmed on the normal
+            // path after `child.wait()` has already reaped it.
+            if let Some(pid) = self.pid {
+                std::thread::Builder::new()
+                    .name("chatmux-relay-child-reaper".to_owned())
+                    .spawn(move || unsafe {
+                        let mut status = 0;
+                        loop {
+                            let result = libc::waitpid(pid as libc::pid_t, &mut status, 0);
+                            if result == pid as libc::pid_t {
+                                break;
+                            }
+                            if result < 0 && std::io::Error::last_os_error().raw_os_error()
+                                != Some(libc::EINTR)
+                            {
+                                break;
+                            }
+                        }
+                    })
+                    .ok();
+            }
         }
     }
 }
