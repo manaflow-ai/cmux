@@ -381,6 +381,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D35A0000000000000000000F /* BrowserInsecureHTTPNavigationResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000F /* BrowserInsecureHTTPNavigationResolution.swift */; };
 		B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */; };
 		B1F0C0020000000000000001 /* BrowserInspectorFocusHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */; };
+		D7C0DE00000000000000A109 /* BrowserJavaScriptCompletionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */; };
 		8054A0090000000000000009 /* BrowserJavaScriptEvaluationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A00A000000000000000A /* BrowserJavaScriptEvaluationResult.swift */; };
 		BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */; };
 		BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */; };
@@ -396,6 +397,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B05F00000000000000000002 /* BrowserOffscreenRenderHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */; };
 		B05F00000000000000000004 /* BrowserOffscreenRenderPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05F00000000000000000003 /* BrowserOffscreenRenderPanel.swift */; };
 		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
+		D7C0DE00000000000000A107 /* BrowserOmnibarPageFocusAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
 		C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */; };
 		27DA3BE42CBF4AAFB6DE69C5 /* BrowserOmnibarSubmitSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */; };
@@ -3283,6 +3285,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D35B0000000000000000000F /* BrowserInsecureHTTPNavigationResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserInsecureHTTPNavigationResolution.swift; sourceTree = "<group>"; };
 		B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserInspectorFocusHandoff.swift; sourceTree = "<group>"; };
 		B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInspectorFocusHandoffTests.swift; sourceTree = "<group>"; };
+		D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserJavaScriptCompletionBridge.swift; sourceTree = "<group>"; };
 		8054A00A000000000000000A /* BrowserJavaScriptEvaluationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserJavaScriptEvaluationResult.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivity.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivityAggregationTests.swift; sourceTree = "<group>"; };
@@ -3298,6 +3301,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOffscreenRenderHost.swift; sourceTree = "<group>"; };
 		B05F00000000000000000003 /* BrowserOffscreenRenderPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOffscreenRenderPanel.swift; sourceTree = "<group>"; };
 		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
+		D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPageFocusAdapter.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
 		C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarSubmitSupport.swift; sourceTree = "<group>"; };
@@ -7159,6 +7163,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */,
 				8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */,
 				8054A00A000000000000000A /* BrowserJavaScriptEvaluationResult.swift */,
+				D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */,
+				D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */,
 				B05F00000000000000000003 /* BrowserOffscreenRenderPanel.swift */,
@@ -9357,6 +9363,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A28B087F0000000000000011 /* BrowserImageCopyPasteboardPayload.swift in Sources */,
 				D35A0000000000000000000F /* BrowserInsecureHTTPNavigationResolution.swift in Sources */,
 				B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */,
+				D7C0DE00000000000000A109 /* BrowserJavaScriptCompletionBridge.swift in Sources */,
 				8054A0090000000000000009 /* BrowserJavaScriptEvaluationResult.swift in Sources */,
 				BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */,
 				A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */,
@@ -9369,6 +9376,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B05F00000000000000000002 /* BrowserOffscreenRenderHost.swift in Sources */,
 				B05F00000000000000000004 /* BrowserOffscreenRenderPanel.swift in Sources */,
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
+				D7C0DE00000000000000A107 /* BrowserOmnibarPageFocusAdapter.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				27DA3BE42CBF4AAFB6DE69C5 /* BrowserOmnibarSubmitSupport.swift in Sources */,
 				D0B1002EA1B2C3D4E5F60001 /* BrowserPaneDropRouting.swift in Sources */,
