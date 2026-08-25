@@ -69,6 +69,20 @@ enum RouteRecordingTransportError: Error {
     case routeFailed
 }
 
+struct TransportModeErrorFactory: CmxByteTransportFactory {
+    let error: CmxTransportModeError
+
+    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
+        throw error
+    }
+
+    func makeTransport(
+        for _: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        throw error
+    }
+}
+
 final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox

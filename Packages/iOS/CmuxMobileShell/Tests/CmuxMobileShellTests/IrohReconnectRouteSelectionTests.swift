@@ -111,6 +111,52 @@ extension ReconnectRouteSelectionTests {
         #expect(factory.attemptedKinds() == [.iroh])
     }
 
+    @Test func storedReconnectSurfacesModeErrorFromTransportConstruction() async throws {
+        let clock = TestClock()
+        let modeError = CmxTransportModeError.routeClassMismatch(
+            expected: .iroh,
+            actual: .lan
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "stored-reconnect-mode-error-(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.iroh.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let route = try registryIroh(
+            id: "iroh-mode-error",
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: TransportModeErrorFactory(error: modeError),
+            now: { clock.now },
+            supportedRouteKinds: [.iroh]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "stored-reconnect-mode-error-hints-(UUID().uuidString)"
+            )!
+        )
+
+        let outcome = await store.connectStoredMacOutcome(
+            name: "Studio Mac",
+            routes: [route],
+            pairedMacDeviceID: "test-mac",
+            instanceTag: nil
+        )
+
+        #expect(outcome == .failed(.unsupportedRoute))
+        #expect(store.lastTransportModeError == modeError)
+        #expect(store.connectionError == modeError.mobileMessage)
+        #expect(store.connectionErrorGuidance == modeError.mobileGuidance)
+    }
+
     @Test func legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

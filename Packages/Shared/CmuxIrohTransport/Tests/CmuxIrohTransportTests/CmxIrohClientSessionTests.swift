@@ -76,7 +76,32 @@ struct CmxIrohClientSessionTests {
         #expect(
             await session.transportPath(
                 for: .privateNetwork(address: "192.168.1.42:443")
-            ) == .unavailable
+        ) == .unavailable
+        )
+    }
+
+    @Test
+    func pinnedIrohRejectsRelayMigrationOutsideTheCapturedPlan() async throws {
+        let allowedRelay = try publicRelayHint()
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [allowedRelay]),
+            credential: credential,
+            transportMode: .iroh
+        )
+
+        #expect(
+            await session.pathIsAllowed(.relay(url: allowedRelay.value))
+        )
+        #expect(
+            !(await session.pathIsAllowed(
+                .relay(url: "https://unexpected.relay.example/")
+            ))
         )
     }
 
