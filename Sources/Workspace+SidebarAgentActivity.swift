@@ -78,28 +78,30 @@ extension Workspace {
                         entry.snapshot.kind.rawValue
                     ) == canonicalStatusKey ? entry : nil
                 }
-                let indexHasDifferentGeneration: Bool = if let runtimeIndexEntry {
+                let indexHasDifferentGeneration: Bool
+                if let runtimeIndexEntry {
                     if runtimeIndexEntry.processLiveness == .exited {
-                        true
+                        indexHasDifferentGeneration = true
                     } else {
                         let indexedIdentities = runtimeIndexEntry.agentProcessIdentities.isEmpty
                             ? runtimeIndexEntry.processIdentities
                             : runtimeIndexEntry.agentProcessIdentities
-                        !indexedIdentities.isEmpty
-                            && !matchingPIDKeys.contains { key in
-                                guard let identity = agentPIDProcessIdentitiesByKey[key] else {
-                                    return false
-                                }
-                                return Self.indexEntry(
-                                    runtimeIndexEntry,
-                                    containsProcessIdentity: identity
-                                )
+                        let hasMatchingGeneration = matchingPIDKeys.contains { key in
+                            guard let identity = agentPIDProcessIdentitiesByKey[key] else {
+                                return false
                             }
+                            return Self.indexEntry(
+                                runtimeIndexEntry,
+                                containsProcessIdentity: identity
+                            )
+                        }
+                        indexHasDifferentGeneration = !indexedIdentities.isEmpty
+                            && !hasMatchingGeneration
                     }
                 } else {
                     // A cold index cannot disprove an owner-bound lifecycle
                     // event; wait for its deterministic index evidence.
-                    false
+                    indexHasDifferentGeneration = false
                 }
                 let livenessByPIDKey = Dictionary(uniqueKeysWithValues: matchingPIDKeys.map {
                     let identity = agentPIDProcessIdentitiesByKey[$0]
