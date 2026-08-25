@@ -139,7 +139,7 @@ struct CmxTransportModePolicyTests {
     @Test("LAN Iroh plans retain only LAN private paths")
     func lanIrohPlanKeepsOnlyLANPaths() throws {
         let plan = CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
-        #expect(throws: CmxTransportModeError.self) {
+        #expect(throws: CmxTransportModeError.noRoute(mode: .lan, macDisplayName: nil)) {
             try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: plan)
         }
         let hints = try [
