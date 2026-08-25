@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -34,7 +34,8 @@ struct CancellationInner {
     writer: Mutex<UnixStream>,
     cancel_params: Params,
     max_request_bytes: usize,
-    canceled: AtomicBool,
+    /// 0 means unsent, 1 means a sender owns the write, and 2 means sent.
+    canceled: AtomicU8,
 }
 
 /// Thread-safe cancellation handle for an owned resource stream.
@@ -57,7 +58,8 @@ impl StreamCancellation {
     }
 
     fn send(&self) -> Result<bool> {
-        if self.inner.canceled.swap(true, Ordering::AcqRel) {
+        if self.inner.canceled.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err()
+        {
             return Ok(false);
         }
         let request_id = self.request_id();
@@ -68,8 +70,19 @@ impl StreamCancellation {
             "operation": ops::STREAM_CANCEL,
             "params": self.inner.cancel_params.clone().into_value(),
         });
-        self.write_envelope(&envelope, "stream cancel")?;
-        Ok(true)
+        match self.write_envelope(&envelope, "stream cancel") {
+            Ok(()) => {
+                self.inner.canceled.store(2, Ordering::Release);
+                Ok(true)
+            }
+            Err(error) => {
+                // A failed write did not send the request. Allow a later
+                // caller to retry, while concurrent callers observe the
+                // in-flight sender and do not duplicate the request.
+                self.inner.canceled.store(0, Ordering::Release);
+                Err(error)
+            }
+        }
     }
 
     fn write_envelope(&self, envelope: &Value, context: &str) -> Result<()> {
@@ -140,7 +153,7 @@ impl ResourceStream {
                 writer: Mutex::new(parts.writer),
                 cancel_params: parts.cancel_params,
                 max_request_bytes: parts.max_request_bytes,
-                canceled: AtomicBool::new(false),
+                canceled: AtomicU8::new(0),
             }),
         };
         let mut stream = Self {
@@ -668,7 +681,7 @@ mod tests {
     use std::io::Read;
 
     #[test]
-    fn failed_cancel_send_is_one_shot_and_closes_the_transport() {
+    fn failed_cancel_send_can_be_retried_and_closes_the_transport() {
         let (client, mut peer) = UnixStream::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
         let connection =
@@ -693,7 +706,7 @@ mod tests {
         let detached = stream.cancellation();
 
         assert!(matches!(stream.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
-        detached.cancel().unwrap();
+        assert!(matches!(detached.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
 
         let mut received = Vec::new();
         peer.read_to_end(&mut received).unwrap();
