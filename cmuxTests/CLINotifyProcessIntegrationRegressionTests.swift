@@ -160,6 +160,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+        let firstReconciliationGeneration = try XCTUnwrap(
+            record["autoNameTitleReconciliationGeneration"] as? String
+        )
+        let firstReconciliationAttemptCount = record["autoNameTitleReconciliationAttemptCount"] as? Int
+        let duplicateCompact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2
+        )
+        XCTAssertFalse(duplicateCompact.timedOut, duplicateCompact.stderr)
+        XCTAssertEqual(duplicateCompact.status, 0, duplicateCompact.stderr)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["autoNameTitleReconciliationGeneration"] as? String,
+            firstReconciliationGeneration,
+            "Duplicate compact delivery must keep the existing reconciliation obligation"
+        )
+        XCTAssertEqual(
+            record["autoNameTitleReconciliationAttemptCount"] as? Int,
+            firstReconciliationAttemptCount,
+            "Duplicate compact delivery must not reset the retry budget"
+        )
         XCTAssertEqual(
             record["agentLifecycle"] as? String,
             "needsInput",

@@ -780,6 +780,45 @@ import Testing
         }
     }
 
+    @Test func freshAutoTitleDoesNotOverwriteRemoteRenameOfAutoOwnedPanel() throws {
+        try withAutoNamingSetting(true) {
+            let harness = try RemoteTmuxMirrorRenameHarness()
+            defer { harness.tearDown() }
+
+            let surface = try #require(harness.surfaces().first)
+            let panelId = try #require(
+                harness.workspace.remoteTmuxControlPane(surfaceID: surface.surfaceID)?.containerPanelID
+            )
+            _ = harness.workspace.addRemoteTmuxDisplayPane(
+                remotePaneId: 6,
+                title: "logs",
+                onInput: { _ in }
+            )
+            #expect(harness.workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Earlier automatic topic",
+                source: .auto
+            ))
+            harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Remote choice"))
+
+            let envelope = try call(method: "workspace.set_auto_title", params: [
+                "workspace_id": harness.workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "panel_only_if_multiple": true,
+                "title": "New generated topic",
+                "clear_status_on_apply": false,
+            ])
+            let result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+            #expect(result["panel_apply_skipped"] as? Bool == true)
+            #expect(harness.workspace.panelCustomTitles[panelId] == "Earlier automatic topic")
+            let renameCommands = try harness.finishCommands().filter {
+                $0.hasPrefix("rename-window ")
+            }
+            #expect(renameCommands == ["rename-window -t @2 'Earlier automatic topic'"])
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
