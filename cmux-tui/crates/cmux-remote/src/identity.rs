@@ -1106,7 +1106,21 @@ impl AuthDatabase {
     }
 
     pub async fn pending_enrollments(&self) -> Vec<PendingEnrollment> {
-        self.state.lock().await.pending.values().map(|pending| pending.request.clone()).collect()
+        self.pending_snapshot().await.unwrap_or_default()
+    }
+
+    /// Return a snapshot only when at least one enrollment is pending.
+    ///
+    /// Waiting callers used to clone every pending request merely to check
+    /// whether the map was empty. Keeping the emptiness check under the same
+    /// lock as the snapshot avoids that O(P) allocation on every notification
+    /// cycle while preserving the existing snapshot semantics.
+    async fn pending_snapshot(&self) -> Option<Vec<PendingEnrollment>> {
+        let state = self.state.lock().await;
+        if state.pending.is_empty() {
+            return None;
+        }
+        Some(state.pending.values().map(|pending| pending.request.clone()).collect())
     }
 
     pub async fn wait_for_pending(
@@ -1118,15 +1132,13 @@ impl AuthDatabase {
             let notified = self.pending_changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            let pending = self.pending_enrollments().await;
-            if !pending.is_empty() {
+            if let Some(pending) = self.pending_snapshot().await {
                 return Ok(pending);
             }
             #[cfg(test)]
             self.pending_wait_hooks.pause_after_empty().await;
             if tokio::time::timeout_at(deadline, notified.as_mut()).await.is_err() {
-                let pending = self.pending_enrollments().await;
-                return if pending.is_empty() { Err(IdentityError::Timeout) } else { Ok(pending) };
+                return self.pending_snapshot().await.ok_or(IdentityError::Timeout);
             }
         }
     }

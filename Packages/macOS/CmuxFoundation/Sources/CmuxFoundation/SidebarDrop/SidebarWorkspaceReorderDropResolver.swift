@@ -399,6 +399,12 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let promotesGroupedWorkspace = usesTopLevelRows &&
             draggedWorkspace.groupId != nil &&
             groupByAnchorId[draggedWorkspace.id] == nil
+        // A noncontiguous selection block coalesces at ANY gap, including the
+        // dragged row's own edges, so those gaps are real drop targets.
+        let blockCoalesces = SidebarWorkspaceDragBlockResolver().blockOccupiesNoncontiguousRows(
+            blockIds: request.draggedBlockWorkspaceIds,
+            rowSpaceIds: tabIds
+        )
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -407,7 +413,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             pointerY: rootTarget.pointerY,
             targetHeight: rootTarget.targetHeight,
             preserveTargetEdge: true,
-            suppressesNoOp: !promotesGroupedWorkspace
+            suppressesNoOp: !(promotesGroupedWorkspace || blockCoalesces)
         )
         guard let indicator = plannedIndicator else {
             return nil

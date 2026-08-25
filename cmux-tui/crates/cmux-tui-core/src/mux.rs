@@ -4779,11 +4779,12 @@ impl Mux {
         self.journal_ingress.flush_terminal()
     }
 
-    pub(crate) fn install_journal_writer(
+    pub(crate) fn spawn_journal_writer(
         &self,
-        writer: crate::journal_ingress::JournalWriter,
+        name: &str,
+        task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
-        self.journal_ingress.install_writer(writer)
+        self.journal_ingress.spawn_writer(name, task)
     }
 
     #[cfg(test)]
@@ -8589,7 +8590,25 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
-        let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
+        self.finalize_terminal_journal("shutdown");
+        self.journal_kernel.shutdown();
+        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+            runtime.shutdown();
+        }
+    }
+
+    fn finalize_terminal_journal(&self, context: &str) {
+        if self.journal_ingress.is_closed() {
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
+            }
+            return;
+        }
+        // Finalization can run while unwinding from a failed operation. A
+        // panic while holding the state lock poisons it, but cleanup must not
+        // panic again (for example, when a test simulates a daemon crash).
+        let surfaces =
+            unique_surface_runtimes(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
         let mut terminal_gaps = surfaces
             .iter()
@@ -8597,6 +8616,19 @@ impl Mux {
             .collect::<Vec<_>>();
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
+        }
+        if self.journal_ingress.is_current_writer_thread() {
+            if !terminal_gaps.is_empty() {
+                eprintln!(
+                    "cmux-tui: {context} on the session journal writer could not durably record \
+                     {} terminal output gap(s)",
+                    terminal_gaps.len()
+                );
+            }
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
+            }
+            return;
         }
         for gap in terminal_gaps {
             if let Err(error) = self.journal_ingress.send_durable(
@@ -8607,7 +8639,7 @@ impl Mux {
                     reason: gap.reason,
                 },
             ) {
-                eprintln!("cmux-tui: record terminal output gap during shutdown: {error:#}");
+                eprintln!("cmux-tui: record terminal output gap during {context}: {error:#}");
             }
         }
         // Each terminal reader has drained or its journal capture gate has
@@ -8616,14 +8648,10 @@ impl Mux {
         // still owns the registry; the closed gate prevents a timed-out reader
         // from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
-            eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
+            eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
-            eprintln!("cmux-tui: stop session journal writer during shutdown: {error:#}");
-        }
-        self.journal_kernel.shutdown();
-        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
-            runtime.shutdown();
+            eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
     }
 
@@ -9489,7 +9517,11 @@ impl Mux {
 
             failure_streak = failure_streak.saturating_add(1);
             let retry_exhausted = failure_streak >= KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
-            if failure_streak == 1 || failure_streak.is_power_of_two() || retry_exhausted {
+            // A transient retry is internal recovery. Publishing it as a
+            // graphics status overwrites the user's status bar for a routine
+            // topology change, even when the next attempt succeeds. Surface
+            // only the terminal failure after the retry budget is exhausted.
+            if retry_exhausted {
                 let omitted = failures.len().saturating_sub(8);
                 let mut summary = failures.into_iter().take(8).collect::<Vec<_>>().join("; ");
                 if omitted > 0 {
@@ -15461,12 +15493,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
-        if let Ok(state) = self.state.get_mut() {
-            let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
-            for surface in unique_surface_runtimes(state) {
-                let _ = surface.shutdown_for_daemon(deadline);
-            }
-        }
+        self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
@@ -19634,6 +19661,7 @@ mod tests {
             }
         }));
 
+        let events = mux.subscribe();
         close_terminal_runtime_for_test(&mux, &second);
         let deadline = Instant::now() + Duration::from_secs(1);
         while attempts.load(Ordering::Acquire) < 2 && Instant::now() < deadline {
@@ -19643,6 +19671,13 @@ mod tests {
         assert!(
             attempts.load(Ordering::Acquire) >= 2,
             "Kitty quota worker stopped after a transient failure"
+        );
+        assert!(
+            !events.try_iter().any(|event| matches!(
+                event,
+                MuxEvent::GraphicsStatus(GraphicsStatus::KittyImageBudgetUpdateFailed { .. })
+            )),
+            "transient Kitty quota failures must stay out of the status bar"
         );
         wait_for_kitty_image_budget(&mux);
     }
