@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
 use crate::relay_wire::RelayPtyErrorCode;
+use crate::wire::PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
@@ -261,6 +262,9 @@ pub trait PtyDeps: Send + Sync {
 pub struct FrameContext {
     pub send: Arc<dyn Fn(Value) + Send + Sync>,
     pub buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Outer relay version negotiated during hello. PTY frames stay v4, but
+    /// operational PTY error codes require the v7 feature gate.
+    pub negotiated_version: u64,
     pub trust: String,
     pub local_roots: Option<Vec<String>>,
     pub owner_user_id: Option<String>,
@@ -675,29 +679,31 @@ impl PtyManager {
     }
 }
 
-fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, message: &str) {
-    (context.send)(json!({
-        "version": PTY_PROTOCOL_VERSION,
-        "type": "pty_error",
-        "ptyId": pty_id,
-        "code": code,
-        "message": message,
-    }));
-}
-
-fn send_typed_pty_error(
-    context: &FrameContext,
-    pty_id: &str,
-    code: RelayPtyErrorCode,
-    message: &str,
-) {
+fn send_pty_error(context: &FrameContext, pty_id: &str, code: RelayPtyErrorCode, message: &str) {
     // Keep the hand-written frame path aligned with the generated serde
     // contract. A second string mapping can silently drift when a variant is
     // added to RelayPtyErrorCode.
     let encoded =
         serde_json::to_value(code).expect("RelayPtyErrorCode serialization is infallible");
     let wire_code = encoded.as_str().expect("RelayPtyErrorCode serializes as a string");
-    send_pty_error(context, pty_id, wire_code, message);
+    (context.send)(json!({
+        "version": PTY_PROTOCOL_VERSION,
+        "type": "pty_error",
+        "ptyId": pty_id,
+        "code": wire_code,
+        "message": message,
+    }));
+}
+
+fn operational_pty_error_code(
+    context: &FrameContext,
+    operational: RelayPtyErrorCode,
+) -> RelayPtyErrorCode {
+    if context.negotiated_version >= PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION {
+        operational
+    } else {
+        RelayPtyErrorCode::Failed
+    }
 }
 
 impl Inner {
@@ -706,17 +712,19 @@ impl Inner {
         if pty_id.is_empty() {
             return;
         }
-        let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
+        let fail = |code: RelayPtyErrorCode, message: &str| {
+            send_pty_error(context, &pty_id, code, message)
+        };
         let reservation_result = {
             let mut opening = self.opening_ids.lock().expect("opening lock");
             let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
             if attached || opening.contains(&pty_id) {
-                Err(("bad_request", "ptyId is already attached".to_owned()))
+                Err((RelayPtyErrorCode::BadRequest, "ptyId is already attached".to_owned()))
             } else if self.attachments.lock().expect("attach lock").len() + opening.len()
                 >= self.max_ptys
             {
                 Err((
-                    "session_limit",
+                    RelayPtyErrorCode::SessionLimit,
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
                 ))
             } else {
@@ -734,11 +742,11 @@ impl Inner {
         let session = frame.get("session").and_then(Value::as_str).unwrap_or_default().to_owned();
         let (Some(cols), Some(rows)) = (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
         else {
-            fail("bad_request", "invalid session name or dimensions");
+            fail(RelayPtyErrorCode::BadRequest, "invalid session name or dimensions");
             return;
         };
         if !session_name_ok(&session) {
-            fail("bad_request", "invalid session name or dimensions");
+            fail(RelayPtyErrorCode::BadRequest, "invalid session name or dimensions");
             return;
         }
         let mut surface_ref: Option<String> = None;
@@ -746,7 +754,7 @@ impl Inner {
             match surface.as_str() {
                 Some(value) if surface_ref_ok(value) => surface_ref = Some(value.to_owned()),
                 _ => {
-                    fail("bad_request", "invalid surface ref");
+                    fail(RelayPtyErrorCode::BadRequest, "invalid surface ref");
                     return;
                 }
             }
@@ -758,14 +766,14 @@ impl Inner {
         // state fails closed; the untrusted frame cannot elevate access.
         let trust = context.trust.clone();
         if trust.is_empty() {
-            fail("trust_refused", "terminal trust is not established");
+            fail(RelayPtyErrorCode::TrustRefused, "terminal trust is not established");
             return;
         }
         let owner = context.owner_user_id.as_deref();
         let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
         if trust == "observe" && (owner.is_none() || Some(actor) != owner) {
             fail(
-                "trust_refused",
+                RelayPtyErrorCode::TrustRefused,
                 "this machine is paired at observe trust; terminals are owner-only",
             );
             return;
@@ -776,7 +784,7 @@ impl Inner {
         let server_roots = match parse_allowed_roots(frame) {
             Ok(roots) => roots,
             Err(message) => {
-                fail("bad_request", message);
+                fail(RelayPtyErrorCode::BadRequest, message);
                 return;
             }
         };
@@ -784,7 +792,7 @@ impl Inner {
             && !value.is_null()
             && !value.is_string()
         {
-            fail("bad_request", "cwd must be a string");
+            fail(RelayPtyErrorCode::BadRequest, "cwd must be a string");
             return;
         }
         let cwd = match scoped_cwd(
@@ -795,7 +803,7 @@ impl Inner {
         ) {
             Ok(cwd) => cwd,
             Err(message) => {
-                fail("bad_request", &message);
+                fail(RelayPtyErrorCode::BadRequest, &message);
                 return;
             }
         };
@@ -824,7 +832,7 @@ impl Inner {
                 Ok(Some(opened)) => Some(opened),
                 Ok(None) => None, // degrade to whole-session
                 Err((code, message)) => {
-                    send_typed_pty_error(context, &pty_id, code, &message);
+                    send_pty_error(context, &pty_id, code, &message);
                     return;
                 }
             }
@@ -865,7 +873,7 @@ impl Inner {
                 match result {
                     Ok(opened) => opened,
                     Err(message) => {
-                        fail("failed", &message);
+                        fail(RelayPtyErrorCode::Failed, &message);
                         return;
                     }
                 }
@@ -1006,7 +1014,7 @@ impl Inner {
                 send_pty_error(
                     context,
                     pty_id,
-                    "failed",
+                    RelayPtyErrorCode::Failed,
                     &format!(
                         "dropped: {buffered} bytes buffered toward the server (cap {})",
                         self.output_cap
@@ -1066,11 +1074,12 @@ impl Inner {
             control.kill();
             // Overflow is a terminal viewer failure. `pty_error` is the
             // protocol's close signal and tells the client to reattach; do
-            // not emit a second `pty_exit` for the removed attachment.
+            // not emit a second `pty_exit` for the removed attachment. The
+            // operational code is downgraded for pre-v7 Workers.
             send_pty_error(
                 context,
                 pty_id,
-                "overflow",
+                operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
                 "pty viewer delivery queue overflowed; reattach to continue receiving output",
             );
         }
@@ -1170,7 +1179,7 @@ impl Inner {
             send_pty_error(
                 context,
                 pty_id,
-                "trust_revoked",
+                operational_pty_error_code(context, RelayPtyErrorCode::TrustRevoked),
                 &format!("PTY {action} refused after trust change"),
             );
             None
@@ -2169,7 +2178,7 @@ impl Inner {
                 send_pty_error(
                     &context_for_exit,
                     &pty_id_for_exit,
-                    "overflow",
+                    operational_pty_error_code(&context_for_exit, RelayPtyErrorCode::Overflow),
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
@@ -2689,11 +2698,21 @@ mod tests {
 
     impl Harness {
         fn context(&self, trust: &str, owner: Option<String>) -> FrameContext {
+            self.context_at_version(PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, trust, owner)
+        }
+
+        fn context_at_version(
+            &self,
+            negotiated_version: u64,
+            trust: &str,
+            owner: Option<String>,
+        ) -> FrameContext {
             let sent = Arc::clone(&self.sent);
             let buffered = Arc::clone(&self.buffered);
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
+                negotiated_version,
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
@@ -3209,9 +3228,12 @@ mod tests {
             (RelayPtyErrorCode::SessionLimit, "session_limit"),
             (RelayPtyErrorCode::TerminalGone, "terminal_gone"),
             (RelayPtyErrorCode::Failed, "failed"),
+            (RelayPtyErrorCode::Overflow, "overflow"),
+            (RelayPtyErrorCode::TrustRevoked, "trust_revoked"),
+            (RelayPtyErrorCode::Busy, "busy"),
         ];
         for (code, expected) in cases {
-            send_typed_pty_error(&context, "p1", code, "test");
+            send_pty_error(&context, "p1", code, "test");
             assert_eq!(harness.sent().pop().expect("error frame")["code"], expected);
         }
     }
@@ -3431,17 +3453,37 @@ mod tests {
     }
 
     #[test]
-    fn backlog_overflow_uses_explicit_pty_error_code() {
+    fn backlog_overflow_uses_contract_pty_error_code() {
         let harness = harness(None, None);
         let context = harness.context("supervised", harness.owner.clone());
         send_pty_error(
             &context,
             "p1",
-            "overflow",
+            operational_pty_error_code(&context, RelayPtyErrorCode::Overflow),
             "pty output backlog overflowed; reattach to continue receiving output",
         );
         let frame = harness.sent().pop().unwrap();
         assert_eq!(frame["type"], "pty_error");
         assert_eq!(frame["code"], "overflow");
+        let decoded: crate::relay_wire::RelayPtyError =
+            serde_json::from_value(frame).expect("contract-valid pty_error frame");
+        assert_eq!(decoded.code, RelayPtyErrorCode::Overflow);
+    }
+
+    #[test]
+    fn operational_pty_error_downgrades_for_older_workers() {
+        let harness = harness(None, None);
+        let context = harness.context_at_version(6, "supervised", harness.owner.clone());
+        send_pty_error(
+            &context,
+            "p1",
+            operational_pty_error_code(&context, RelayPtyErrorCode::Overflow),
+            "pty output backlog overflowed; reattach to continue receiving output",
+        );
+        let frame = harness.sent().pop().unwrap();
+        assert_eq!(frame["code"], "failed");
+        let decoded: crate::relay_wire::RelayPtyError =
+            serde_json::from_value(frame).expect("contract-valid downgraded pty_error frame");
+        assert_eq!(decoded.code, RelayPtyErrorCode::Failed);
     }
 }

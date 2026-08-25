@@ -193,10 +193,11 @@ an explicit not-found result.
 Clients must close the failed local PTY view after `terminal_gone`, discard input
 queued for that resource, and avoid retrying the same resource reference. They
 may retry `failed` after a new authenticated transport generation when the
-command's ownership and idempotency rules permit it. Unknown codes are generic
-failures. `overflow`, `trust_revoked`, and `busy` are operational codes used by
-some relay paths; clients must handle them as failures and reattach or retry
-according to the accompanying message and command contract.
+command's ownership and idempotency rules permit it. The generated PTY error
+contract also defines `overflow`, `trust_revoked`, and `busy`. These additive
+operational codes are enabled only after outer relay protocol version 7; the PTY
+frame itself remains version 4. Older Workers receive `failed` with the same
+retry or reattach instruction in `message`. Unknown codes are protocol-invalid.
 
 Frames for one PTY are ordered on the logical stream. A reconnect creates a new
 transport generation, and clients must re-authenticate and rediscover the

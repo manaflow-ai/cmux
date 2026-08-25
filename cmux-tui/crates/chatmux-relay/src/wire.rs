@@ -20,8 +20,11 @@ use serde_json::Value;
 use crate::config::ManagedIdentity;
 
 /// Relay wire dialect this build advertises. Workspace/watch/preview frames
-/// use v6; lower dialect features remain capability-gated.
-pub const ADVERTISED_PROTOCOL_VERSION: u64 = 6;
+/// use v6. Version 7 adds the typed PTY operational-error feature gate.
+pub const ADVERTISED_PROTOCOL_VERSION: u64 = 7;
+/// PTY frame shapes remain v4. This outer negotiation version gates the
+/// additive `overflow`, `trust_revoked`, and `busy` error codes.
+pub const PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION: u64 = 7;
 /// Frame dialect marker (`RelayFrameVersion`, >= 2) on every sent frame.
 pub const FRAME_VERSION: u64 = 2;
 /// Verbs exist from this dialect on.
