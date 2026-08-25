@@ -73,6 +73,10 @@ public struct RegistryDevice: Equatable, Sendable, Identifiable {
     public var displayName: String?
     /// When the registry last saw any registration/refresh for this device.
     public var lastSeenAt: Date
+    /// Whether the authenticated registry response identifies this Mac as
+    /// owned by the current Stack user. Decoders fail closed when an older
+    /// server omits the field; local fixture initializers default to `true`.
+    public var isOwnedByCurrentUser: Bool
     /// The device's running cmux app instances (tags), newest-first.
     public var instances: [RegistryAppInstance]
 
@@ -83,13 +87,15 @@ public struct RegistryDevice: Equatable, Sendable, Identifiable {
         platform: String,
         displayName: String?,
         lastSeenAt: Date,
-        instances: [RegistryAppInstance]
+        instances: [RegistryAppInstance],
+        isOwnedByCurrentUser: Bool = true
     ) {
         self.deviceId = deviceId
         self.platform = platform
         self.displayName = displayName
         self.lastSeenAt = lastSeenAt
         self.instances = instances
+        self.isOwnedByCurrentUser = isOwnedByCurrentUser
     }
 
     /// A human label for the device: its display name, else the short device id.

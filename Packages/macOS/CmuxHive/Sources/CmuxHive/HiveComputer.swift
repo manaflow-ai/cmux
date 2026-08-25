@@ -21,6 +21,10 @@ public struct HiveComputer: Equatable, Sendable, Identifiable {
     public var isThisComputer: Bool
     /// Whether a local pairing record exists for this computer.
     public var isPaired: Bool
+    /// Whether the authenticated device-registry response belongs to this
+    /// Stack user. Local-only rows default to `true` because they were created
+    /// from an explicit pairing action rather than a team listing.
+    public var isOwnedByCurrentUser: Bool
     /// Live presence for the computer, or the best registry-derived hint.
     public var presence: HiveComputerPresence
     /// Build-channel label (`"Stable"`, `"DEV · tag"`, …) reported by the
@@ -42,6 +46,7 @@ public struct HiveComputer: Equatable, Sendable, Identifiable {
         platform: String?,
         isThisComputer: Bool,
         isPaired: Bool,
+        isOwnedByCurrentUser: Bool = true,
         presence: HiveComputerPresence,
         buildLabel: String? = nil,
         instances: [HiveComputerInstance] = []
@@ -51,6 +56,7 @@ public struct HiveComputer: Equatable, Sendable, Identifiable {
         self.platform = platform
         self.isThisComputer = isThisComputer
         self.isPaired = isPaired
+        self.isOwnedByCurrentUser = isOwnedByCurrentUser
         self.presence = presence
         self.buildLabel = buildLabel
         self.instances = instances
@@ -79,5 +85,15 @@ public struct HiveComputer: Equatable, Sendable, Identifiable {
         }
         guard let best = ordered.first else { return nil }
         return (best.routes, best.tag)
+    }
+
+    /// Whether at least one advertised instance has a route the current Mac
+    /// viewer runtime knows how to select (Tailscale, or DEBUG loopback).
+    public var hasViewerSupportedRoute: Bool {
+        instances.contains { instance in
+            instance.routes.contains { route in
+                route.kind == .tailscale || route.kind == .debugLoopback
+            }
+        }
     }
 }

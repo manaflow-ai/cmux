@@ -266,7 +266,9 @@ public final class HiveComputerDirectory {
         // (dev builds advertise loopback routes, so it would even "work").
         guard deviceID != ownDeviceID else { return .loopbackRejected }
         guard let computer = computers.first(where: { $0.deviceID == deviceID }),
-              computer.isPairableHost else {
+              computer.isPairableHost,
+              computer.isOwnedByCurrentUser,
+              computer.hasViewerSupportedRoute else {
             return .noRoutes
         }
         guard let best = computer.bestPairingRoutes else { return .noRoutes }
@@ -313,6 +315,10 @@ public final class HiveComputerDirectory {
         // Exactly one live match may claim; a 6-digit collision inside one
         // team is ambiguous and reports not-found rather than guessing.
         guard matches.count == 1, let match = matches.first else { return .codeNotFound }
+        guard match.device.isOwnedByCurrentUser,
+              match.instance.routes.contains(where: { $0.kind == .tailscale || $0.kind == .debugLoopback }) else {
+            return .noRoutes
+        }
         guard match.device.isControllableHost else { return .noRoutes }
         guard match.device.deviceId != ownDeviceID else { return .loopbackRejected }
         return await persistPairing(

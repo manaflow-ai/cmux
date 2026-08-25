@@ -121,7 +121,8 @@ extension HostSettingsActions {
             isThisMac: computer.isThisComputer,
             isPaired: computer.isPaired,
             canPair: !computer.isThisComputer && computer.isPairableHost && !computer.isPaired
-                && computer.bestPairingRoutes != nil,
+                && computer.isOwnedByCurrentUser
+                && computer.hasViewerSupportedRoute,
             presence: Self.presence(computer.presence),
             detail: Self.detail(for: computer)
         )

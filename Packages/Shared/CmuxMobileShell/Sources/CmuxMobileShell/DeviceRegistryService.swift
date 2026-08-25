@@ -238,6 +238,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let platform: String?
             let displayName: String?
             let lastSeenAt: String?
+            let isOwnedByCurrentUser: Bool?
             let instances: [Instance]?
         }
         struct ListResponse: Decodable {
@@ -264,7 +265,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                     ? device.platform! : "mac",
                 displayName: device.displayName,
                 lastSeenAt: Self.parseTimestamp(device.lastSeenAt),
-                instances: instances
+                instances: instances,
+                isOwnedByCurrentUser: device.isOwnedByCurrentUser ?? false
             )
         }
     }
