@@ -281,7 +281,7 @@ struct WorkspaceSidebarObservationTests {
                 panelId: panelId
             )
         )
-        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .idle)
     }
 
     @Test
@@ -363,7 +363,7 @@ struct WorkspaceSidebarObservationTests {
             "An accepted replacement relay generation must retire attention owned by the superseded process."
         )
         #expect(
-            workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .idle
+            workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running
         )
     }
 

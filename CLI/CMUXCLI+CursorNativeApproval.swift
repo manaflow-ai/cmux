@@ -21,6 +21,7 @@ extension CMUXCLI {
         guard let socketPath = normalizedHookValue(socketPath),
               let workspaceId = normalizedHookValue(workspaceId),
               UUID(uuidString: workspaceId) != nil,
+              let sessionId = Self.nativeAttentionOpaqueIdentifier(sessionId),
               let processIdentity = AgentPIDProcessIdentity(
                   agentTurnPID: agentPID
               ),
@@ -33,7 +34,9 @@ extension CMUXCLI {
             processIdentity: processIdentity,
             sessionId: sessionId
         )
-        guard let expectedToolCallId = identifiers.expectedToolCallId else {
+        guard let expectedToolCallId = Self.nativeAttentionOpaqueIdentifier(
+            identifiers.expectedToolCallId
+        ) else {
             // Cursor's `preToolUse` contract exposes the stable tool-use id
             // that its native permission log records as `toolCallId`. Never
             // claim the next unrelated decision by timing alone.
@@ -186,6 +189,7 @@ extension CMUXCLI {
         socketPassword: String?
     ) {
         guard let socketPath = normalizedHookValue(socketPath),
+              let sessionId = Self.nativeAttentionOpaqueIdentifier(sessionId),
               let processIdentity = AgentPIDProcessIdentity(
                   agentTurnPID: agentPID
               )
@@ -197,7 +201,9 @@ extension CMUXCLI {
             processIdentity: processIdentity,
             sessionId: sessionId
         )
-        guard identifiers.expectedToolCallId != nil else { return }
+        guard Self.nativeAttentionOpaqueIdentifier(
+            identifiers.expectedToolCallId
+        ) != nil else { return }
         CursorNativeApprovalObserverLease.cancel(
             processIdentity: processIdentity,
             observationID: identifiers.observationId
