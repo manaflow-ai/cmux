@@ -134,6 +134,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
+    private let durableReplayStore: CmuxEventLogReplayStore?
 
     init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
@@ -143,9 +144,13 @@ final class CmuxEventBus: @unchecked Sendable {
         maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
         maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
     ) {
+        let normalizedMaxEventLineBytes = max(1, maxEventLineBytes)
         self.retainedEventLimit = max(1, retainedEventLimit)
-        self.maxEventLineBytes = max(1, maxEventLineBytes)
+        self.maxEventLineBytes = normalizedMaxEventLineBytes
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.durableReplayStore = eventLogURL.map {
+            CmuxEventLogReplayStore(eventLogURL: $0, maxEventLineBytes: normalizedMaxEventLineBytes)
+        }
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -153,12 +158,44 @@ final class CmuxEventBus: @unchecked Sendable {
                 maxPendingLines: maxPendingEventLogLines
             )
         }
+        if let latestSequence = durableReplayStore?.snapshot().latestSequence {
+            self.nextSequence = latestSequence == Int64.max ? Int64.max : latestSequence + 1
+        }
     }
 
     var latestSequence: Int64 {
         lock.lock()
         defer { lock.unlock() }
         return nextSequence - 1
+    }
+
+    func makeSubscriptionContext(
+        names: Set<String>,
+        categories: Set<String>
+    ) -> (
+        subscription: CmuxEventSubscription,
+        retained: [[String: Any]],
+        latestSequence: Int64,
+        bootId: String,
+        durableReplayStore: CmuxEventLogReplayStore?
+    ) {
+        let subscription = CmuxEventSubscription(
+            names: names,
+            categories: categories,
+            maxPendingEvents: maxPendingEventsPerSubscription
+        )
+
+        lock.lock()
+        let context = (
+            subscription: subscription,
+            retained: retained,
+            latestSequence: nextSequence - 1,
+            bootId: bootId,
+            durableReplayStore: durableReplayStore
+        )
+        subscriptions[subscription.id] = subscription
+        lock.unlock()
+        return context
     }
 
     func publish(
@@ -212,69 +249,6 @@ final class CmuxEventBus: @unchecked Sendable {
                 removeSubscriptionIfStillActive(subscription)
             }
         }
-    }
-
-    func subscribe(
-        afterSequence: Int64?,
-        names: Set<String>,
-        categories: Set<String>
-    ) -> CmuxEventSubscriptionSnapshot {
-        let subscription = CmuxEventSubscription(
-            names: names,
-            categories: categories,
-            maxPendingEvents: maxPendingEventsPerSubscription
-        )
-
-        lock.lock()
-        let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
-        let latestSequence = nextSequence - 1
-        let replay = retained.filter { event in
-            let seq = Self.int64(event["seq"]) ?? 0
-            let after = afterSequence ?? latestSequence
-            return seq > after && subscription.accepts(event)
-        }
-        let requestedAfter = afterSequence ?? latestSequence
-        let gapReason: String? = afterSequence.flatMap { after in
-            if !retained.isEmpty, after < oldestSequence - 1 {
-                return "requested sequence is older than the retained in-memory event log"
-            }
-            if after > latestSequence {
-                return "requested sequence is newer than this cmux process; cmux probably restarted"
-            }
-            return nil
-        }
-        let gap = gapReason != nil
-        subscriptions[subscription.id] = subscription
-        lock.unlock()
-
-        var resume: [String: Any] = [
-            "after_seq": afterSequence.map { NSNumber(value: $0) } ?? NSNull(),
-            "requested_after_seq": NSNumber(value: requestedAfter),
-            "oldest_seq": NSNumber(value: oldestSequence),
-            "latest_seq": NSNumber(value: latestSequence),
-            "next_seq": NSNumber(value: latestSequence + 1),
-            "gap": gap
-        ]
-        if let gapReason {
-            resume["gap_reason"] = gapReason
-        }
-
-        let ack: [String: Any] = [
-            "type": "ack",
-            "protocol": Self.protocolName,
-            "version": Self.protocolVersion,
-            "boot_id": bootId,
-            "subscription_id": subscription.id.uuidString,
-            "heartbeat_interval_seconds": NSNumber(value: Self.defaultHeartbeatIntervalSeconds),
-            "replay_count": replay.count,
-            "resume": resume,
-            "filters": [
-                "names": Array(names).sorted(),
-                "categories": Array(categories).sorted()
-            ]
-        ]
-
-        return CmuxEventSubscriptionSnapshot(subscription: subscription, replay: replay, ack: ack)
     }
 
     func unsubscribe(_ subscription: CmuxEventSubscription) {

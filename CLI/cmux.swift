@@ -16188,7 +16188,7 @@ struct CMUXCLI {
             Stream cmux events as newline-delimited JSON.
 
             Options:
-              --after <seq>          Replay retained events after this sequence
+              --after <seq>          Replay durable events after this sequence
               --cursor-file <path>   Read the starting sequence from a file and update it after each event
               --name <event>         Filter by event name, repeatable
               --category <name>      Filter by category, repeatable
