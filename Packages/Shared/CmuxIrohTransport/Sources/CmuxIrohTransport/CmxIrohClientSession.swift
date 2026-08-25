@@ -291,10 +291,12 @@ public actor CmxIrohClientSession {
                     $0.source == .native && $0.kind == .relayURL
                 }
             case let .direct(address):
-                return directPathMatchesPlan(
-                    address,
-                    source: .native
-                )
+                // Native Iroh may discover a fresh public direct address after
+                // the initial relay/direct plan was built. Public direct
+                // evidence remains allowed; provider-attributed private paths
+                // stay constrained by source-qualified matching below.
+                _ = address
+                return true
             case let .privateNetwork(address):
                 return privatePathMatchesPlan(
                     .privateNetwork(address: address),
