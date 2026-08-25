@@ -254,13 +254,15 @@ final class MobileAttachTicketStore {
             if ticket.routes.allSatisfy({ $0.kind == .iroh || $0.kind == .lan }),
                ticket.routes.contains(where: { $0.kind == .iroh }),
                ticket.routes.contains(where: { $0.kind == .lan }),
-               let pairingURL = CmxPairingQRCode().encode(
+               let compactTicket = try? legacyCompatibleCompactTicket(
                    ticket,
-                   routeDisclosureMode: .irohIdentityOnly,
-                   pairingURLScheme: pairingURLScheme
-               ),
-               let url = URL(string: pairingURL) {
-                return url
+                   routeDisclosureMode: .irohIdentityOnly
+               ) {
+                return try compactAttachURL(
+                    for: compactTicket,
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
+                )
             }
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
@@ -362,19 +364,30 @@ final class MobileAttachTicketStore {
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode
     ) throws -> CmxAttachTicket {
-        guard routeDisclosureMode == .legacyPrivateNetworkCompatibility else {
-            return ticket
-        }
         let routes = ticket.routes.compactMap { route -> CmxAttachRoute? in
-            guard route.kind != .lan else { return nil }
-            guard route.kind == .iroh else { return route }
-            guard case let .peer(identity, _) = route.endpoint else { return nil }
-            return try? CmxAttachRoute(
-                id: route.id,
-                kind: .iroh,
-                endpoint: .peer(identity: identity, pathHints: []),
-                priority: route.priority
-            )
+            switch routeDisclosureMode {
+            case .irohIdentityOnly:
+                guard route.kind == .iroh,
+                      case let .peer(identity, _) = route.endpoint else {
+                    return nil
+                }
+                return try? CmxAttachRoute(
+                    id: route.id,
+                    kind: .iroh,
+                    endpoint: .peer(identity: identity, pathHints: []),
+                    priority: route.priority
+                )
+            case .legacyPrivateNetworkCompatibility:
+                guard route.kind != .lan else { return nil }
+                guard route.kind == .iroh else { return route }
+                guard case let .peer(identity, _) = route.endpoint else { return nil }
+                return try? CmxAttachRoute(
+                    id: route.id,
+                    kind: .iroh,
+                    endpoint: .peer(identity: identity, pathHints: []),
+                    priority: route.priority
+                )
+            }
         }
         guard !routes.isEmpty else {
             throw MobileAttachTicketStoreError.invalidAttachURL

@@ -135,7 +135,8 @@ extension MobileShellComposite {
         let reconnectRoutes = storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            transportMode: mac.storedTransportMode
         )
         guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
             return nil
@@ -263,10 +264,12 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
                 endpointID: irohEndpoint,
                 instanceTag: mac.instanceTag
             )
-            if let first = firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] {
+            let modeScope = mac.connectionMethodRawValue ?? "default"
+            let scopedModeEndpoint = "mode:\(modeScope):\(scopedIrohEndpoint)"
+            if let first = firstCanonicalIDByIrohEndpoint[scopedModeEndpoint] {
                 unionFind.union(pairingID, first)
             } else {
-                firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] = pairingID
+                firstCanonicalIDByIrohEndpoint[scopedModeEndpoint] = pairingID
             }
         }
     }
@@ -301,7 +304,8 @@ private extension MobilePairedMac {
         let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            transportMode: storedTransportMode
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
             return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
@@ -327,7 +331,8 @@ private extension MobilePairedMac {
         ) else {
             return nil
         }
-        return "instance:\(instanceTagScope):\(endpointKey)"
+        let modeScope = connectionMethodRawValue ?? "default"
+        return "instance:\(instanceTagScope):mode:\(modeScope):\(endpointKey)"
     }
 
     /// Presentation coalescing may join historical device ids for one app
@@ -340,6 +345,15 @@ private extension MobilePairedMac {
             instanceTag: instanceTag
         ).instanceTag
         return normalizedTag.map { "tagged:\($0)" } ?? "untagged"
+    }
+
+    /// The device-local mode used when coalescing this pairing's route set.
+    /// An absent value deliberately remains a distinct `default` scope so a
+    /// later app-wide preference change cannot merge it with an explicit
+    /// per-Computer override using a stale endpoint key.
+    var storedTransportMode: CmxTransportMode {
+        MobileConnectionMethod(rawValue: connectionMethodRawValue ?? "")?.transportMode
+            ?? .automatic
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

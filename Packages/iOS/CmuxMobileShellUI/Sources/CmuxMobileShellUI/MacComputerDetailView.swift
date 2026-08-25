@@ -630,7 +630,17 @@ struct MacComputerDetailView: View {
 
     /// Whether this Computer has the encrypted Iroh bootstrap LAN Only uses.
     private var computerHasUsableLANBootstrap: Bool {
-        computerHasUsableIrohRoute
+        guard let pairedMac else { return false }
+        return pairedMac.routes.contains { route in
+            if route.kind == .lan {
+                return !CmxLoopbackHost().matches(route)
+            }
+            guard route.kind == .iroh,
+                  case let .peer(_, pathHints) = route.endpoint else {
+                return false
+            }
+            return pathHints.contains { $0.source == .lan }
+        }
     }
 
     /// Whether this Computer currently advertises an authenticated Iroh peer.
