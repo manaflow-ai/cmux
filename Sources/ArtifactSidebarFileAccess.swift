@@ -20,9 +20,10 @@ struct ArtifactSidebarFileAccess {
         let sourceURL: URL
         let artifactRoot: URL
         private let descriptor: Int32
+        private let isDirectory: Bool
 
         var readURL: URL {
-            URL(fileURLWithPath: "/dev/fd/\(descriptor)", isDirectory: false)
+            URL(fileURLWithPath: "/dev/fd/\(descriptor)", isDirectory: isDirectory)
         }
 
         /// Materializes a bounded, extension-preserving copy for services such
@@ -53,10 +54,16 @@ struct ArtifactSidebarFileAccess {
             )
         }
 
-        init(sourceURL: URL, artifactRoot: URL, descriptor: Int32) {
+        init(
+            sourceURL: URL,
+            artifactRoot: URL,
+            descriptor: Int32,
+            isDirectory: Bool = false
+        ) {
             self.sourceURL = sourceURL
             self.artifactRoot = artifactRoot
             self.descriptor = descriptor
+            self.isDirectory = isDirectory
         }
 
         /// Duplicates the descriptor for a trusted child process and clears
@@ -374,8 +381,9 @@ struct ArtifactSidebarFileAccess {
 
     /// Creates a lazy file drag that revalidates the row at the actual
     /// pasteboard handoff. The file representation is copied before its load
-    /// handler returns, while a regular-file descriptor remains alive through
-    /// that copy; directories use the same root-confined validation path.
+    /// handler returns from the validated `/dev/fd` descriptor, so pathname
+    /// replacement cannot redirect the copy; directories use the same pinned
+    /// descriptor path.
     func dragItemProvider(for sourceURL: URL, artifactRoot: URL) -> NSItemProvider? {
         guard sourceURL.isFileURL else { return nil }
         let provider = NSItemProvider()
@@ -387,18 +395,13 @@ struct ArtifactSidebarFileAccess {
                 visibility: .all
             ) { completion in
                 let access = ArtifactSidebarFileAccess()
-                if let opened = access.openedFile(
+                if let opened = access.openedDragEntry(
                     for: sourceURL,
                     artifactRoot: artifactRoot
                 ) {
                     withExtendedLifetime(opened) {
-                        completion(opened.sourceURL, false, nil)
+                        completion(opened.readURL, false, nil)
                     }
-                } else if let directory = access.validatedRevealURL(
-                    for: sourceURL,
-                    artifactRoot: artifactRoot
-                ) {
-                    completion(directory, false, nil)
                 } else {
                     completion(nil, false, nil)
                 }
@@ -481,6 +484,26 @@ struct ArtifactSidebarFileAccess {
 
     /// Opens and validates one artifact while retaining the validated inode.
     func openedFile(for sourceURL: URL, artifactRoot: URL) -> OpenedFile? {
+        openedEntry(
+            for: sourceURL,
+            artifactRoot: artifactRoot,
+            allowingDirectories: false
+        )
+    }
+
+    private func openedDragEntry(for sourceURL: URL, artifactRoot: URL) -> OpenedFile? {
+        openedEntry(
+            for: sourceURL,
+            artifactRoot: artifactRoot,
+            allowingDirectories: true
+        )
+    }
+
+    private func openedEntry(
+        for sourceURL: URL,
+        artifactRoot: URL,
+        allowingDirectories: Bool
+    ) -> OpenedFile? {
         guard sourceURL.isFileURL else { return nil }
         let descriptor = Darwin.open(
             sourceURL.path,
@@ -490,8 +513,12 @@ struct ArtifactSidebarFileAccess {
 
         var status = stat()
         guard fstat(descriptor, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFREG,
               let openedPath = openedPath(for: descriptor) else {
+            _ = Darwin.close(descriptor)
+            return nil
+        }
+        let fileType = status.st_mode & S_IFMT
+        guard fileType == S_IFREG || (allowingDirectories && fileType == S_IFDIR) else {
             _ = Darwin.close(descriptor)
             return nil
         }
@@ -521,7 +548,8 @@ struct ArtifactSidebarFileAccess {
         return OpenedFile(
             sourceURL: openedPath,
             artifactRoot: openedRootPath,
-            descriptor: descriptor
+            descriptor: descriptor,
+            isDirectory: fileType == S_IFDIR
         )
     }
 
