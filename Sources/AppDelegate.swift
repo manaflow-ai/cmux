@@ -4959,7 +4959,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             )
             removedCrashDiagnosticState = removedCrashDiagnosticState || pruned.removedAny
-            guard let prunedWindow = pruned.snapshot?.windows.first else { continue }
+            guard let prunedWindow = pruned.snapshot?.windows.first else {
+                if case .frozen(let windowId, _) = route {
+                    mainWindowLifecycleCoordinator.removeFrozenOrphanRoute(
+                        windowId: windowId
+                    )
+                }
+                continue
+            }
             windows.append(prunedWindow)
             if windows.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
                 break
