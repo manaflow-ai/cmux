@@ -124,14 +124,11 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         )
         #expect(!actionableResult.timedOut, Comment(rawValue: actionableResult.stdout))
         #expect(actionableResult.status != 0, Comment(rawValue: actionableResult.stdout))
-        // A complete protocol reply is intentionally outside the transport
-        // capture gate; Sentry policy precedence is covered by the package
-        // tests, while this process test verifies the structured code survives
-        // CLI formatting.
         #expect(
             actionableResult.stdout.contains("internal_error: TabManager not available"),
             Comment(rawValue: actionableResult.stdout)
         )
+        #expect(FileManager.default.fileExists(atPath: actionableProbe))
     }
 
     private func bundledCLIPath() throws -> String {

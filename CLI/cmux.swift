@@ -3190,10 +3190,25 @@ struct CMUXCLI {
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
     }
 
-    private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
-        if client.hasUnfinishedOperationTelemetry() {
-            telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
+    /// Sends transport failures and structured protocol failures through the
+    /// shared Sentry policy. A complete socket reply still needs classification:
+    /// `sendV2` marks the transport operation complete before it throws its
+    /// decoded ``CLIError``.
+    private func captureSocketTransportError(
+        telemetry: CLISocketSentryTelemetry,
+        stage: String,
+        error: Error,
+        client: SocketClient
+    ) {
+        guard client.hasUnfinishedOperationTelemetry() || hasStructuredCLIError(error) else {
+            return
         }
+        telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
+    }
+
+    private func hasStructuredCLIError(_ error: Error) -> Bool {
+        guard let cliError = error as? CLIError else { return false }
+        return cliError.v2Code != nil || cliError.socketFailureKind != nil
     }
 
     private struct VMCreateIdempotencyStore: Codable {
