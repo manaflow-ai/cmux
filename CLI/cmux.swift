@@ -178,8 +178,8 @@ struct ClaudeHookSessionRecord: Codable {
 
         private static func normalizedCommand(_ value: String) -> String {
             value
-                .replacingOccurrences(of: "\\r\\n", with: "\\n")
-                .replacingOccurrences(of: "\\r", with: "\\n")
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
@@ -571,8 +571,8 @@ final class ClaudeHookSessionStore {
 
     private func normalizedCursorShellCommand(_ command: String) -> String? {
         let normalized = command
-            .replacingOccurrences(of: "\\r\\n", with: "\\n")
-            .replacingOccurrences(of: "\\r", with: "\\n")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, normalized.count <= Self.maxPendingCursorShellCommandLength else {
             return nil
@@ -16697,24 +16697,29 @@ struct CMUXCLI {
         return isUUID(value) ? value : nil
     }
 
-    func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
+    func resolveWorkspaceId(
+        _ raw: String?,
+        client: SocketClient,
+        windowHandle: String? = nil,
+        responseTimeout: TimeInterval? = nil
+    ) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
         if let raw, isHandleRef(raw) {
             if let windowHandle {
-                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle], responseTimeout: responseTimeout)
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
                 for item in items where (item["ref"] as? String) == raw {
                     if let id = item["id"] as? String { return id }
                 }
             } else {
                 // Resolve ref to UUID — search across all windows
-                let windows = try client.sendV2(method: "window.list")
+                let windows = try client.sendV2(method: "window.list", responseTimeout: responseTimeout)
                 let windowList = windows["windows"] as? [[String: Any]] ?? []
                 for window in windowList {
                     guard let windowId = window["id"] as? String else { continue }
-                    let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+                    let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId], responseTimeout: responseTimeout)
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
                     for item in items where (item["ref"] as? String) == raw {
                         if let id = item["id"] as? String { return id }
@@ -16727,7 +16732,7 @@ struct CMUXCLI {
         if let raw, let index = Int(raw) {
             var params: [String: Any] = [:]
             if let windowHandle { params["window_id"] = windowHandle }
-            let listed = try client.sendV2(method: "workspace.list", params: params)
+            let listed = try client.sendV2(method: "workspace.list", params: params, responseTimeout: responseTimeout)
             let items = listed["workspaces"] as? [[String: Any]] ?? []
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
@@ -16761,13 +16766,22 @@ struct CMUXCLI {
         if let windowHandle {
             currentParams["window_id"] = windowHandle
         }
-        let current = try client.sendV2(method: "workspace.current", params: currentParams)
+        let current = try client.sendV2(method: "workspace.current", params: currentParams, responseTimeout: responseTimeout)
         if let wsId = current["workspace_id"] as? String { return wsId }
         throw CLIError(message: "No workspace selected")
     }
 
-    private func resolveSurfaceId(_ raw: String?, workspaceId: String, client: SocketClient) throws -> String {
-        let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+    private func resolveSurfaceId(
+        _ raw: String?,
+        workspaceId: String,
+        client: SocketClient,
+        responseTimeout: TimeInterval? = nil
+    ) throws -> String {
+        let listed = try client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": workspaceId],
+            responseTimeout: responseTimeout
+        )
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
         if let raw {
@@ -32127,6 +32141,8 @@ export default CMUXSessionRestore;
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
+        let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
+        let cursorShellTargetResolutionTimeout: TimeInterval? = cursorShellEvent ? 0.35 : nil
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
@@ -32183,16 +32199,33 @@ export default CMUXSessionRestore;
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            guard let candidate = try? resolveWorkspaceId(raw, client: client),
-                  (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
+            guard let candidate = try? resolveWorkspaceId(
+                raw,
+                client: client,
+                responseTimeout: cursorShellTargetResolutionTimeout
+            ),
+                  (try? client.sendV2(
+                      method: "surface.list",
+                      params: ["workspace_id": candidate],
+                      responseTimeout: cursorShellTargetResolutionTimeout
+                  )) != nil else {
                 return nil
             }
             return candidate
         }
         func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw),
-                  let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+                  let candidate = try? resolveSurfaceId(
+                      raw,
+                      workspaceId: workspaceId,
+                      client: client,
+                      responseTimeout: cursorShellTargetResolutionTimeout
+                  ),
+                  let listed = try? client.sendV2(
+                      method: "surface.list",
+                      params: ["workspace_id": workspaceId],
+                      responseTimeout: cursorShellTargetResolutionTimeout
+                  ) else {
                 return nil
             }
             let items = listed["surfaces"] as? [[String: Any]] ?? []
@@ -32201,7 +32234,12 @@ export default CMUXSessionRestore;
             }) ? candidate : nil
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            try? resolveSurfaceId(
+                nil,
+                workspaceId: workspaceId,
+                client: client,
+                responseTimeout: cursorShellTargetResolutionTimeout
+            )
         }
         let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
             ?? resolveAccessibleWorkspaceId(directWorkspaceArg)
@@ -32226,7 +32264,8 @@ export default CMUXSessionRestore;
         let resolvedDirectSurfaceArg: String? = {
             if let strictPiTarget { return strictPiTarget.surfaceId }
             guard let directSurfaceArg else { return nil }
-            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg
+                ?? (cursorShellEvent ? nil : processBinding()?.workspaceId) else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
         // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
@@ -32255,7 +32294,6 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
         let cursorShellHasAuthoritativeSession = input.sessionId?.isEmpty == false
         let mappedSessionForPolicy = cursorShellEvent
             ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)))
@@ -32670,6 +32708,26 @@ export default CMUXSessionRestore;
             // surface snapshot and preserves the selected workspace boundary.
             if let strictPiTarget {
                 return strictPiTarget
+            }
+            if cursorShellEvent {
+                // Cursor's beforeShellExecution callback must return its
+                // native decision promptly. Use only the already-claimed or
+                // persisted target for this shell path; process/TTY probing
+                // and live re-homing would add unbounded socket work before
+                // the synchronous hook response.
+                let workspaceId = resolvedDirectWorkspaceArg ?? mapped?.workspaceId
+                let preferredSurfaceId = resolvedDirectSurfaceArg ?? mapped?.surfaceId
+                guard let workspaceId else { return nil }
+                if let preferredSurfaceId,
+                   resolvedDirectWorkspaceArg == workspaceId,
+                   resolvedDirectSurfaceArg == preferredSurfaceId {
+                    return (workspaceId, preferredSurfaceId)
+                }
+                return resolveTarget(
+                    workspaceId: workspaceId,
+                    preferredSurfaceId: preferredSurfaceId,
+                    mapped: mapped
+                )
             }
             /// Re-homes a known surface only when the hook supplied no explicit target.
             func tryLiveSurfaceBinding() -> (workspaceId: String, surfaceId: String)? {
@@ -34724,6 +34782,9 @@ export default CMUXSessionRestore;
             ?? (cursorShellCommand == nil ? nil : "Shell")
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
+        }
+        if hookEventName == "PostToolUseFailure" {
+            event["is_error"] = true
         }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = source == "cursor"

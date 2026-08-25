@@ -1264,6 +1264,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(failure.status, 0, failure.stderr)
         XCTAssertEqual(failure.stdout, "{}\n")
         let failureCommands = Array(state.snapshot().dropFirst(failureStart))
+        let failureFeedEvents = failureCommands.compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "feed.push",
+                  let params = request["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["event"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            failureFeedEvents.contains { ($0["is_error"] as? Bool) == true },
+            "Cursor shell failures must mark feed events as errors, saw (failureFeedEvents)"
+        )
         XCTAssertTrue(
             failureCommands.contains {
                 $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
