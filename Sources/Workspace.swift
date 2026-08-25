@@ -1505,8 +1505,17 @@ extension Workspace {
             let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
                 (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
+            let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
+            let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+            let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
+                workspaceId: id,
+                panelId: snapshot.id,
+                expectedKind: expectedAgentKind,
+                expectedSessionId: expectedSessionId
+            ) == true
             let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
                 restoreAgentIndex == nil ||
+                stablePanelHasConflictingLiveProcess ||
                 (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
                     restoreAgentIndex?.entry(workspaceId: id, panelId: snapshot.id) == nil)
             )

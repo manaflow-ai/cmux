@@ -129,7 +129,8 @@ extension DockSplitStore {
                snapshot,
                snapshotWorkspaceId:
                 sourceSnapshotWorkspaceId ?? sourceWorkspaceId,
-               excludingStableIdentities: excludingStableIdentities
+               excludingStableIdentities: excludingStableIdentities,
+               restorableAgentIndex: restorableAgentIndex
            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
             if let restoredPanelId {
@@ -223,8 +224,17 @@ extension DockSplitStore {
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
             (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
+        let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
+        let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+        let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
+            workspaceId: workspaceId,
+            panelId: snapshot.id,
+            expectedKind: expectedAgentKind,
+            expectedSessionId: expectedSessionId
+        ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             restoreAgentIndex == nil ||
+            stablePanelHasConflictingLiveProcess ||
             (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true &&
                 restoreAgentIndex?.entry(workspaceId: workspaceId, panelId: snapshot.id) == nil)
         )

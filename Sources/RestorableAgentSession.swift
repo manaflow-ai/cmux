@@ -1042,6 +1042,25 @@ struct RestorableAgentSessionIndex: Sendable {
         ambiguousPanelIds.contains(panelId)
     }
 
+    func hasConflictingLiveStablePanelEntry(
+        workspaceId: UUID,
+        panelId: UUID,
+        expectedKind: String?,
+        expectedSessionId: String?
+    ) -> Bool {
+        guard let entry = entryForStablePanel(workspaceId: workspaceId, panelId: panelId),
+              !entry.processIDs.isEmpty else {
+            return false
+        }
+        guard let expectedKind, let expectedSessionId else { return true }
+        return entry.snapshot.kind.rawValue != expectedKind ||
+            !ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: expectedKind,
+                lhs: entry.snapshot.sessionId,
+                rhs: expectedSessionId
+            )
+    }
+
     /// Resolves a restart-stable panel while preserving a live entry for its current owner.
     ///
     /// Dock owners can rotate independently of the panel UUID. An exact owner entry is
