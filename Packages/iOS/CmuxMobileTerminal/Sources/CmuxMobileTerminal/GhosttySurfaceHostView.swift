@@ -1,52 +1,84 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import QuartzCore
 import UIKit
 
-/// iOS 27 can leave `keyboardLayoutGuide` at the screen bottom while the keyboard is
-/// visible. Only that OS uses notification-derived dock geometry; every other OS keeps
-/// UIKit's system guide as the dock constraint authority.
-private enum KeyboardDockGeometrySource {
-    case systemLayoutGuide
-    case keyboardNotifications
-
-    static var current: Self {
-        #if DEBUG
-        if UITestConfig.forceIOS27KeyboardDockWorkaround {
-            return .keyboardNotifications
-        }
-        #endif
-        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
-            ? .keyboardNotifications
-            : .systemLayoutGuide
-    }
-}
-
 /// UIKit root that owns terminal clipping, dock placement, and keyboard motion.
 ///
-/// The terminal presentation and dock animate in one transaction. The Metal surface
-/// remains full-size and unchanged behind ``terminalClipView`` until the transition
-/// settles, so keyboard motion cannot race a display-link geometry correction.
+/// Dock-following spine (from the keyboard-pinning rebuild, #10518): ONE
+/// geometry authority — UIKit's keyboard frame notifications, on every OS
+/// version — seats the dock-bottom constraint, `keyboardDidChangeFrame`
+/// corrects a seat whose final frame disagrees with the `will` payload, and
+/// ``MobileKeyboardFrameTracker`` (a process-wide screen-space keyboard
+/// record) recovers transitions this host missed while detached (workspace
+/// switches), including visibility, so a reattached toolbar toggle is never
+/// stale. `UIKeyboardLayoutGuide` is deliberately not used: it misses
+/// detached transitions, lies at the screen bottom on iOS 27, and forms a
+/// second animation authority racing the notification-driven motion.
+///
+/// Terminal presentation (this PR): the grid never resizes for the keyboard
+/// (see `TerminalLetterboxGeometry.terminalContainerSize`); the full-height
+/// render pins with ONE constraint —
+///
+///     renderWrapper.bottom == dock.top + steadyBottomChromeReservation + slack
+///
+/// where `slack` is the blank-space absorption (`keyboardAbsorptionSlack`):
+/// while the content bottom fits above the composer bar, blank rows absorb
+/// the keyboard and the terminal stays top-pinned; as content grows the
+/// render transitions continuously into the full bottom-pin. Both constants
+/// retarget in one animated pass per keyboard leg, so a full-slack toggle
+/// does not change the wrapper's frame at all. There is no settle-fold and no
+/// presentation rebasing: with no grid renegotiation there is nothing to
+/// mask, which is also why the rebuild-revert path selection collapsed to a
+/// single presentation (the legacy transform and the rebuilt fold both
+/// existed to hide the resize round-trip).
 @MainActor
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
+    private let keyboardFrameTracker: MobileKeyboardFrameTracker
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
+    /// dock.bottom == host.bottom + c; the sole dock seat authority.
     private var dockBottomConstraint: NSLayoutConstraint!
-    private let keyboardDockGeometrySource = KeyboardDockGeometrySource.current
-    private var keyboardTransitionGeneration: UInt64 = 0
+    /// renderWrapper.bottom == dock.top + steady chrome reservation + slack.
+    private var presentationBottomConstraint: NSLayoutConstraint!
+    /// Points of the keyboard intrusion currently absorbed by blank rows
+    /// below the terminal content (see `syncPresentationReservation`).
+    private var appliedAbsorptionSlack: CGFloat = 0
+    /// True while a notification-driven keyboard leg is animating. Layout and
+    /// display-link paths must not retarget the constants the leg owns.
     private var keyboardTransitionActive = false
-    private var keyboardTargetHeight: CGFloat = 0
-    private var keyboardTargetTop: CGFloat = 0
-    private var keyboardTargetTerminalBottom: CGFloat = 0
+    private var keyboardTransitionGeneration: UInt64 = 0
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
 
-    public init(surfaceView: GhosttySurfaceView) {
+    /// Creates the host that owns terminal clipping, dock placement, and
+    /// keyboard motion for one mounted surface.
+    ///
+    /// - Parameters:
+    ///   - surfaceView: The terminal surface this host clips and docks.
+    ///   - keyboardFrameTracker: The app-lifetime screen-space keyboard
+    ///     record used to recover transitions this host missed while detached.
+    ///   - keyboardDockRebuildRevertEnabled: Accepted for call-site
+    ///     compatibility with the rebuild-revert kill switch shipped in
+    ///     #10518. The keyboard-invariant grid removed the resize both of
+    ///     that switch's presentations existed to mask, so one presentation
+    ///     path remains and the value is not consulted.
+    ///   - defaults: Accepted for call-site compatibility; not consulted.
+    public init(
+        surfaceView: GhosttySurfaceView,
+        keyboardFrameTracker: MobileKeyboardFrameTracker,
+        keyboardDockRebuildRevertEnabled: Bool = false,
+        defaults: UserDefaults = .standard
+    ) {
         self.surfaceView = surfaceView
+        self.keyboardFrameTracker = keyboardFrameTracker
         super.init(frame: surfaceView.frame)
+        _ = keyboardDockRebuildRevertEnabled
+        _ = defaults
 
         backgroundColor = surfaceView.backgroundColor
         clipsToBounds = false
@@ -63,15 +95,10 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
-        if keyboardDockGeometrySource == .systemLayoutGuide {
-            dockBottomConstraint.isActive = false
-            keyboardLayoutGuide.followsUndockedKeyboard = true
-            keyboardLayoutGuide.usesBottomSafeArea = true
-            dockBottomConstraint = surfaceView.hostedBottomDockBottomAnchor.constraint(
-                equalTo: keyboardLayoutGuide.topAnchor
-            )
-            dockBottomConstraint.isActive = true
-        }
+
+        presentationBottomConstraint = terminalPresentationView.bottomAnchor.constraint(
+            equalTo: surfaceView.hostedBottomDockTopAnchor
+        )
 
         NSLayoutConstraint.activate([
             terminalClipView.topAnchor.constraint(equalTo: topAnchor),
@@ -79,10 +106,10 @@ public final class GhosttySurfaceHostView: UIView {
             terminalClipView.trailingAnchor.constraint(equalTo: trailingAnchor),
             terminalClipView.bottomAnchor.constraint(equalTo: surfaceView.hostedBottomDockTopAnchor),
 
-            terminalPresentationView.topAnchor.constraint(equalTo: topAnchor),
             terminalPresentationView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalPresentationView.widthAnchor.constraint(equalTo: widthAnchor),
             terminalPresentationView.heightAnchor.constraint(equalTo: heightAnchor),
+            presentationBottomConstraint,
 
             surfaceView.topAnchor.constraint(equalTo: terminalPresentationView.topAnchor),
             surfaceView.leadingAnchor.constraint(equalTo: terminalPresentationView.leadingAnchor),
@@ -94,6 +121,12 @@ public final class GhosttySurfaceHostView: UIView {
             self,
             selector: #selector(keyboardWillChangeFrame(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardDidChangeFrame(_:)),
+            name: UIResponder.keyboardDidChangeFrameNotification,
             object: nil
         )
     }
@@ -112,121 +145,232 @@ public final class GhosttySurfaceHostView: UIView {
         guard window != nil else {
             keyboardTransitionGeneration &+= 1
             keyboardTransitionActive = false
+            // A detach mid-leg must strip the in-flight Core Animation state
+            // from every edge the leg was moving; a lingering presentation
+            // animation would otherwise override the freshly seated
+            // constraint model after reattachment until it expired.
             terminalPresentationView.layer.removeAllAnimations()
-            terminalPresentationView.transform = .identity
+            terminalClipView.layer.removeAllAnimations()
+            surfaceView.removeHostedBottomDockAnimations()
             return
         }
-        guard !keyboardTransitionActive else { return }
-        settleDockWithoutKeyboardAnimation()
+        keyboardTransitionGeneration &+= 1
+        keyboardTransitionActive = false
+        // Recover any keyboard transition that happened while detached: the
+        // tracker records keyboard frames process-wide, so a workspace switch
+        // that detached this host mid-transition cannot wedge the dock — or
+        // the toolbar's keyboard-toggle state — at a stale seat.
+        healKeyboardModelFromTracker()
+        seatDockWithoutAnimation()
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        guard keyboardDockGeometrySource == .systemLayoutGuide,
-              !keyboardTransitionActive else { return }
-        surfaceView.updateHostedKeyboardLayoutGuide(
-            height: keyboardLayoutGuideOverlap
+        // A keyboard leg owns both constants until its animation completes;
+        // layout passes inside the leg must not reseat them.
+        guard !keyboardTransitionActive else { return }
+        // Re-derive the seat from the tracker whenever this host is laid out
+        // OUTSIDE a keyboard transition. A keyboard notification can arrive
+        // while the host still has pre-layout bounds (a scene whose chrome is
+        // settling); the overlap captured then goes stale the moment the
+        // host's own frame changes, and no further keyboard event would ever
+        // correct the seat.
+        healKeyboardModelFromTracker()
+        syncPresentationReservation()
+        let reservation = surfaceView.hostedBottomReservation(
+            keyboardHeight: surfaceView.hostedKeyboardHeight,
+            bottomSafeAreaInset: resolvedBottomSafeAreaInset
         )
+        if abs(dockBottomConstraint.constant + reservation) > 0.25 {
+            dockBottomConstraint.constant = -reservation
+        }
     }
 
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
         guard !keyboardTransitionActive else { return }
-        settleDockWithoutKeyboardAnimation()
+        seatDockWithoutAnimation()
+        // The grid container reads the window's bottom inset through the
+        // surface's fallback resolver; the surface itself cannot observe a
+        // window-level inset change (its own inset stays 0 while slid), so
+        // the host forwards the resync.
+        surfaceView.hostRequestsGeometrySync()
+    }
+
+    /// Folds the tracker's process-wide keyboard record into the surface
+    /// model (height AND visibility) when it disagrees. The tracker hears the
+    /// same notifications this host does, in the same synchronous post, so an
+    /// attached toggle is always leg-owned before any layout pass runs — this
+    /// only corrects state from transitions the host missed while detached or
+    /// captured against stale bounds.
+    private func healKeyboardModelFromTracker() {
+        guard let overlap = keyboardFrameTracker.currentOverlap(in: self) else { return }
+        surfaceView.setHostedKeyboardState(
+            height: max(0, overlap),
+            isVisible: keyboardFrameTracker.currentVisibility(in: self)
+        )
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
-        let targetHeight = transition.overlap(in: self)
-        let targetIsVisible = transition.isVisible(in: self)
-        beginKeyboardTransition(
-            targetHeight: targetHeight,
-            targetIsVisible: targetIsVisible,
+        beginKeyboardLeg(
+            targetHeight: max(0, transition.overlap(in: self)),
+            targetIsVisible: transition.isVisible(in: self),
             transition: transition
         )
     }
 
-    private func beginKeyboardTransition(
+    /// Corrects the seat when the keyboard's final frame disagrees with the
+    /// last `will` payload (UIKit re-seats a keyboard whose layout changed
+    /// mid-presentation, e.g. an autocorrect bar toggling with the responder).
+    ///
+    /// A `did` that AGREES with the current model is ignored entirely: acting
+    /// on it would replace an in-flight leg with a zero-duration relayout and
+    /// snap the dock (the historical re-open glitch). Disagreements run the
+    /// normal leg with a short curve because `did` payloads carry no
+    /// animation duration of their own.
+    @objc private func keyboardDidChangeFrame(_ notification: Notification) {
+        guard window != nil,
+              let transition = MobileKeyboardTransition(notification: notification) else { return }
+        let targetHeight = max(0, transition.overlap(in: self))
+        guard abs(targetHeight - surfaceView.hostedKeyboardHeight) > 0.5 else { return }
+        beginKeyboardLeg(
+            targetHeight: targetHeight,
+            targetIsVisible: transition.isVisible(in: self),
+            transition: transition,
+            durationOverride: transition.duration > 0 ? nil : 0.2
+        )
+    }
+
+    private func beginKeyboardLeg(
         targetHeight: CGFloat,
         targetIsVisible: Bool,
-        transition: MobileKeyboardTransition
+        transition: MobileKeyboardTransition,
+        durationOverride: TimeInterval? = nil
     ) {
-        // A fresh keyboard notification starts from the model tree. The live
-        // presentation layers are meaningful only when this host is already
-        // animating a prior keyboard leg. Rebasing on every notification can
-        // fold an unrelated settled presentation transform into the first leg,
-        // making the terminal begin several points away from its dock.
-        if keyboardTransitionActive {
-            rebaseKeyboardPresentationFromLiveFrames()
+        if targetHeight > 0 {
+            // Refresh the blank-band measurement immediately: content written
+            // or cleared just before this raise (with no output since) must
+            // not steer the absorption with a stale row count. The result
+            // lands mid-leg and the display-link follow applies any
+            // correction right at settle.
+            surfaceView.refreshHostedContentBottomNow()
         }
-        layoutIfNeeded()
-        keyboardTransitionGeneration &+= 1
-        let generation = keyboardTransitionGeneration
-        keyboardTransitionActive = true
-        keyboardTargetHeight = max(0, targetHeight)
-        surfaceView.beginHostedKeyboardTransition(isVisible: targetIsVisible)
-
-        let reservation = surfaceView.hostedBottomReservation(
-            keyboardHeight: keyboardTargetHeight,
-            bottomSafeAreaInset: resolvedBottomSafeAreaInset
+        surfaceView.setHostedKeyboardState(
+            height: targetHeight,
+            isVisible: targetIsVisible
         )
-        if keyboardDockGeometrySource == .keyboardNotifications {
-            dockBottomConstraint.constant = -reservation
-        }
-        keyboardTargetTop = max(0, bounds.maxY - reservation)
-        keyboardTargetTerminalBottom = max(
-            0,
-            keyboardTargetTop - surfaceView.hostedBottomDockHeight
-        )
-        let rendererBottom = surfaceView.hostedTerminalRenderBottom
-        let targetTranslation = keyboardTargetTerminalBottom - rendererBottom
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
         #endif
-
-        transition.animate { [weak self] in
-            guard let self else { return }
-            self.terminalPresentationView.transform = CGAffineTransform(
-                translationX: 0,
-                y: targetTranslation
-            )
-            self.layoutIfNeeded()
+        keyboardTransitionGeneration &+= 1
+        let generation = keyboardTransitionGeneration
+        keyboardTransitionActive = true
+        // Both constants retarget in ONE animated pass. When the slack equals
+        // the whole intrusion (short content) they cancel exactly and the
+        // wrapper frame does not change — the layout pass animates nothing.
+        let intrusion = keyboardIntrusion(forHeight: targetHeight)
+        let blank = surfaceView.hostedBlankBelowContent
+        appliedAbsorptionSlack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: blank,
+            intrusion: intrusion
+        )
+        presentationBottomConstraint.constant =
+            surfaceView.hostedBottomChromeReservation + appliedAbsorptionSlack
+        dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
+            keyboardHeight: targetHeight,
+            bottomSafeAreaInset: resolvedBottomSafeAreaInset
+        )
+        MobileDebugLog.anchormux(
+            "kb.leg gen=\(generation) target=\(Int(targetHeight)) intrusion=\(Int(intrusion)) "
+            + "blank=\(blank.map { String(Int($0)) } ?? "nil") slack=\(Int(appliedAbsorptionSlack)) "
+            + "presC=\(Int(presentationBottomConstraint.constant)) dockC=\(Int(dockBottomConstraint.constant)) "
+            + "wrapY=\(Int(terminalPresentationView.frame.minY))"
+        )
+        transition.animate(durationOverride: durationOverride) { [weak self] in
+            self?.layoutIfNeeded()
         } completion: { [weak self] _ in
             guard let self, self.keyboardTransitionGeneration == generation else { return }
-            self.finishKeyboardTransition()
+            self.keyboardTransitionActive = false
+            MobileDebugLog.anchormux(
+                "kb.leg.done gen=\(generation) wrapY=\(Int(self.terminalPresentationView.frame.minY)) "
+                + "dockTop=\(Int(self.surfaceView.hostedBottomDockFrame.minY))"
+            )
+            self.sampleTerminalDockPresentationGap()
         }
     }
 
-    private func finishKeyboardTransition() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation {
-            surfaceView.finishHostedKeyboardTransition(
-                keyboardHeight: keyboardTargetHeight,
-                terminalBottom: keyboardTargetTerminalBottom
-            )
-            terminalPresentationView.transform = .identity
-            layoutIfNeeded()
-        }
-        CATransaction.commit()
-        keyboardTransitionActive = false
-        sampleTerminalDockPresentationGap()
+    /// Keeps `renderWrapper.bottom == dock.top + reservation + slack` seated
+    /// for the CURRENT model state; used by non-animated paths (plain layout,
+    /// window attach, safe-area changes). Keyboard transitions retarget the
+    /// constant themselves so both edges share one animated pass.
+    private func syncPresentationReservation() {
+        let slack = currentAbsorptionSlack()
+        appliedAbsorptionSlack = slack
+        let constant = surfaceView.hostedBottomChromeReservation + slack
+        guard abs(presentationBottomConstraint.constant - constant) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "kb.reseat presC=\(Int(presentationBottomConstraint.constant))->\(Int(constant)) "
+            + "slack=\(Int(slack)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+        )
+        presentationBottomConstraint.constant = constant
     }
 
-    private func settleDockWithoutKeyboardAnimation() {
-        if keyboardDockGeometrySource == .keyboardNotifications {
-            let reservation = surfaceView.hostedBottomReservation(
-                keyboardHeight: keyboardTargetHeight,
-                bottomSafeAreaInset: resolvedBottomSafeAreaInset
-            )
-            dockBottomConstraint.constant = -reservation
+    /// The blank-space absorption for the CURRENT keyboard model state.
+    private func currentAbsorptionSlack() -> CGFloat {
+        TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: surfaceView.hostedBlankBelowContent,
+            intrusion: keyboardIntrusion(forHeight: surfaceView.hostedKeyboardHeight)
+        )
+    }
+
+    /// How far the dock top sits above its keyboard-down seat for a keyboard
+    /// of `height`: the reservation delta between the live keyboard and the
+    /// steady state, in the current chrome mode.
+    private func keyboardIntrusion(forHeight height: CGFloat) -> CGFloat {
+        let inset = resolvedBottomSafeAreaInset
+        return max(
+            0,
+            surfaceView.hostedBottomReservation(keyboardHeight: height, bottomSafeAreaInset: inset)
+                - surfaceView.hostedBottomReservation(keyboardHeight: 0, bottomSafeAreaInset: inset)
+        )
+    }
+
+    /// Per-frame follow while a keyboard is up: content written under the
+    /// keyboard consumes the blank band, so the slack shrinks and the render
+    /// slides just enough to keep the content bottom above the composer bar
+    /// (and re-expands after a `clear`). Driven by the surface's display
+    /// link; a no-op within half a point.
+    func refreshKeyboardAbsorptionIfNeeded() {
+        guard !keyboardTransitionActive,
+              surfaceView.hostedKeyboardHeight > 0 else { return }
+        let slack = currentAbsorptionSlack()
+        guard abs(slack - appliedAbsorptionSlack) > 0.5 else { return }
+        appliedAbsorptionSlack = slack
+        let constant = surfaceView.hostedBottomChromeReservation + slack
+        MobileDebugLog.anchormux(
+            "kb.follow presC->\(Int(constant)) slack=\(Int(slack)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+        )
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.presentationBottomConstraint.constant = constant
+            self.layoutIfNeeded()
         }
+    }
+
+    private func seatDockWithoutAnimation() {
+        syncPresentationReservation()
+        dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
+            keyboardHeight: surfaceView.hostedKeyboardHeight,
+            bottomSafeAreaInset: resolvedBottomSafeAreaInset
+        )
         UIView.performWithoutAnimation {
             layoutIfNeeded()
         }
-        keyboardTargetTop = surfaceView.hostedBottomDockFrame.maxY
-        keyboardTargetTerminalBottom = surfaceView.hostedBottomDockFrame.minY
     }
 
     private var resolvedBottomSafeAreaInset: CGFloat {
@@ -234,55 +378,6 @@ public final class GhosttySurfaceHostView: UIView {
             viewInset: safeAreaInsets.bottom,
             windowInset: window?.safeAreaInsets.bottom ?? 0
         )
-    }
-
-    private var keyboardLayoutGuideOverlap: CGFloat {
-        guard bounds.height > 0 else { return 0 }
-        let guideFrame = keyboardLayoutGuide.layoutFrame
-        guard abs(guideFrame.maxY - bounds.maxY) <= 1 else {
-            return surfaceView.hostedKeyboardHeight
-        }
-        let occupancy = max(0, bounds.maxY - guideFrame.minY)
-        return occupancy > resolvedBottomSafeAreaInset + 0.5 ? occupancy : 0
-    }
-
-    /// Rebase both sides of the terminal/dock boundary before a new keyboard will.
-    ///
-    /// A reversal arrives while the previous leg still has separate Core Animation
-    /// presentation trees for the dock constraint, clip boundary, and terminal
-    /// wrapper. Rebasing only the wrapper makes its next `.beginFromCurrentState`
-    /// animation start at the live edge while the clip remains at the old target,
-    /// exposing a one-frame gap. The notification fallback owns the dock constraint,
-    /// so it can first fold the live dock bottom into that constraint, lay out the
-    /// linked clip without actions, then fold the wrapper's live transform into its
-    /// model. The next transaction therefore starts every owned component at one edge.
-    private func rebaseKeyboardPresentationFromLiveFrames() {
-        let wrapperTransform: CGAffineTransform? = {
-            guard let presentation = terminalPresentationView.layer.presentation(),
-                  CATransform3DIsAffine(presentation.transform) else { return nil }
-            return CATransform3DGetAffineTransform(presentation.transform)
-        }()
-        let liveDockBottom = surfaceView.hostedBottomDockPresentationBottom(in: self)
-
-        guard wrapperTransform != nil || liveDockBottom != nil else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation {
-            if keyboardDockGeometrySource == .keyboardNotifications,
-               let liveDockBottom {
-                dockBottomConstraint.constant = liveDockBottom - bounds.maxY
-            }
-            if let wrapperTransform {
-                terminalPresentationView.transform = wrapperTransform
-            }
-            // The clip bottom is constrained to the dock top. Layout before removing
-            // the old animations so its model edge is the same live edge as the dock.
-            layoutIfNeeded()
-            terminalClipView.layer.removeAllAnimations()
-            surfaceView.removeHostedBottomDockAnimations()
-            terminalPresentationView.layer.removeAllAnimations()
-        }
-        CATransaction.commit()
     }
 
     func updateTerminalBackground(_ color: UIColor) {
@@ -301,12 +396,8 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     #if DEBUG
-    var debugKeyboardTransitionID: Int { keyboardTransitionActive ? 1 : -1 }
-    var debugUsesNotificationKeyboardDock: Bool {
-        keyboardDockGeometrySource == .keyboardNotifications
-    }
-    var debugKeyboardTargetHeight: CGFloat { keyboardTargetHeight }
-    var debugKeyboardTargetTop: CGFloat { keyboardTargetTop }
+    var debugUsesNotificationKeyboardDock: Bool { true }
+    var debugKeyboardAbsorptionSlack: CGFloat { appliedAbsorptionSlack }
     var debugTerminalDockPresentationGap: CGFloat {
         terminalDockPresentationGap
     }
@@ -314,6 +405,11 @@ public final class GhosttySurfaceHostView: UIView {
         maximumTerminalDockPresentationGap
     }
 
+    /// The pixel seam between the render's bottom edge and the dock's top
+    /// edge. Both derive from one constraint system laid out in one pass, so
+    /// on every frame of every keyboard transition this must equal the
+    /// blank-space absorption slack (zero whenever content reaches the
+    /// composer bar).
     private var terminalDockPresentationGap: CGFloat {
         guard let terminalBottom = surfaceView.hostedTerminalPresentationBottom(in: self),
               let dockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return 0 }
