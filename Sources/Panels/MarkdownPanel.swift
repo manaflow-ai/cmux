@@ -396,7 +396,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         lastObservedFileState = .capture(path: filePath)
         let fileURL = URL(fileURLWithPath: filePath)
         return textLoadCoordinator.submit(load: {
-            await FilePreviewTextLoader.load(url: fileURL)
+            // Markdown historically accepts files larger than the bounded
+            // File Preview editor limit; retain that range off the main actor.
+            await FilePreviewTextLoader.load(
+                url: fileURL,
+                maximumBytes: nil
+            )
         }) { [weak self] result in
             guard let self, !self.isClosed else { return }
             self.applyLoadedResult(
