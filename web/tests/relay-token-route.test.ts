@@ -20,7 +20,7 @@ const PAYLOAD: RelayPolicyPayload = {
   sequence: 4,
   iat: 1_700_000_000,
   nbf: 1_700_000_000,
-  exp: 1_700_000_300,
+  exp: 1_700_003_600,
   aud: "cmux-iroh-relay-policy",
   relay_protocol: "iroh-relay-v1",
   relays: [{
@@ -103,9 +103,9 @@ describe("POST /api/relay/token", () => {
     expect(body.relayCredentials).toEqual([{
       relayUrl: "https://relay-one.cmux.dev/",
       token: body.token,
-      expiresAt: 1_700_000_300,
-      refreshAfter: 1_700_000_240,
-      ttlSeconds: 300,
+      expiresAt: 1_700_003_600,
+      refreshAfter: 1_700_003_300,
+      ttlSeconds: 3_600,
     }]);
     expect(body.policy).toBe("signed.policy.value");
     expect(body.preference).toEqual({
@@ -114,8 +114,8 @@ describe("POST /api/relay/token", () => {
       customRelays: [],
     });
     expect(body.preferenceRevision).toBe(3);
-    expect(body.ttlSeconds).toBe(300);
-    expect(body.expiresAt).toBe(1_700_000_300);
+    expect(body.ttlSeconds).toBe(3_600);
+    expect(body.expiresAt).toBe(1_700_003_600);
 
     const [header, payload, signature] = (body.token as string).split(".");
     expect(edVerify(
@@ -129,7 +129,7 @@ describe("POST /api/relay/token", () => {
       aud: "cmux-relay",
       sub: "account-a",
       iat: 1_700_000_000,
-      exp: 1_700_000_300,
+      exp: 1_700_003_600,
       endpoint_id: ENDPOINT_ID,
     });
   });

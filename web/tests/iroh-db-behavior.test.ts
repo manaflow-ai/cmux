@@ -10,6 +10,7 @@ import {
   accountDeletionUserHash,
 } from "../services/account/deletionLock";
 import type { PairGrantPeer } from "../services/iroh/crypto";
+import { RELAY_ROTATION_MIN_OVERLAP_SECONDS } from "../services/relay/catalog";
 import {
   IROH_RETENTION_BATCH_SIZE,
   IrohRepository,
@@ -118,12 +119,18 @@ describe("Iroh trust broker database behavior", () => {
     await Effect.runPromise(acceptCatalog({ catalog: added, nowSeconds: 1_001 }));
 
     const earlyRemoval = await Effect.runPromiseExit(
-      acceptCatalog({ catalog: removed, nowSeconds: 1_300 }),
+      acceptCatalog({
+        catalog: removed,
+        nowSeconds: 1_001 + RELAY_ROTATION_MIN_OVERLAP_SECONDS - 1,
+      }),
     );
     expect(earlyRemoval._tag).toBe("Failure");
     expect(String(earlyRemoval)).toContain("unsafe_transition");
 
-    await Effect.runPromise(acceptCatalog({ catalog: removed, nowSeconds: 1_301 }));
+    await Effect.runPromise(acceptCatalog({
+      catalog: removed,
+      nowSeconds: 1_001 + RELAY_ROTATION_MIN_OVERLAP_SECONDS,
+    }));
     const [state] = await requiredSql()<Array<{
       sequence: string;
       catalog: RelayCatalog;

@@ -23,7 +23,11 @@ import {
   MANAGED_IROH_RELAY_CATALOG,
 } from "./generated/managedRelayCatalog";
 
-export const RELAY_POLICY_TTL_SECONDS = 300;
+// Matches RELAY_TOKEN_TTL_SECONDS: the policy ships in the same /api/relay/token
+// response as the credential, and the client re-verifies the cached policy's exp
+// on every load, so a shorter policy TTL would strand clients between refreshes.
+// Raising this also raises the required add-before-remove rotation overlap below.
+export const RELAY_POLICY_TTL_SECONDS = 3_600;
 export const RELAY_ROTATION_MIN_OVERLAP_SECONDS = RELAY_POLICY_TTL_SECONDS;
 
 export type RelayPolicySigningKey = {
