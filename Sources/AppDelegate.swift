@@ -4300,18 +4300,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             surfaceResumeBindingIndex: surfaceResumeBindingIndex,
             freezeWindowlessRoutes: false
         )
+        let maximumFingerprintWindows = SessionPersistencePolicy.maxWindowsPerSnapshot
+        let currentWindowIds = Set(
+            routes.prefix(maximumFingerprintWindows).map(\.windowId)
+        )
+        let previouslyPersistedWindowIds = Set(
+            lastPersistedSessionWindowIds.prefix(maximumFingerprintWindows)
+        )
+        // Deep work is limited to the windows that can be persisted now plus the
+        // bounded set persisted by the previous autosave. A route outside this
+        // union cannot affect the next snapshot until topology/order changes.
+        let fingerprintCandidateIds = currentWindowIds.union(previouslyPersistedWindowIds)
+        let fingerprintCandidates = routes.filter {
+            fingerprintCandidateIds.contains($0.windowId)
+        }
         let routeProjection = MainWindowRouteAutosaveProjection(
-            orderedWindowIds: routes.map(\.windowId),
+            orderedWindowIds: fingerprintCandidates.map(\.windowId),
             previouslyPersistedWindowIds: lastPersistedSessionWindowIds,
-            maximumFingerprintWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
+            maximumFingerprintWindows: maximumFingerprintWindows
         )
         hasher.combine(mainWindowLifecycleCoordinator.persistenceTopologyRevision)
+        hasher.combine(routes.count)
         hasher.combine(routeProjection.orderedWindowIds.count)
 
         // Lifecycle topology is cached by the coordinator. Per-route work here
         // stays constant-time; deep workspace/panel fingerprints are reserved
         // for the bounded persisted-window projection below.
-        for route in routes {
+        for route in fingerprintCandidates {
             hasher.combine(route.windowId)
             hasher.combine(route.workspaceCount)
             hasher.combine(route.selectedWorkspaceId)
@@ -4319,7 +4334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let routesByWindowId = Dictionary(
-            uniqueKeysWithValues: routes.map { ($0.windowId, $0) }
+            uniqueKeysWithValues: fingerprintCandidates.map { ($0.windowId, $0) }
         )
         hasher.combine(routeProjection.fingerprintWindowIds.count)
         for windowId in routeProjection.fingerprintWindowIds {

@@ -35,11 +35,15 @@ struct ProcessDetectedResumeIndexes: Sendable {
     }
 
     /// Loads fresh process state with a bounded lifecycle deadline.
+    @MainActor
     static func loadFreshWithDeadline(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
         deadline: Duration = .seconds(5),
+        onWorkerCreated: @escaping @MainActor @Sendable (
+            Task<ProcessDetectedResumeIndexes, Never>
+        ) -> Void = { _ in },
         sleepUntilDeadline: @escaping @Sendable (Duration) async -> Bool = { duration in
             do {
                 // Genuine recovery deadline; cancellation returns the fail-closed result.
@@ -52,6 +56,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
     ) async -> ProcessDetectedResumeIndexes? {
         await withCheckedContinuation { continuation in
             let gate = AgentForkTimeoutResumeGate<ProcessDetectedResumeIndexes?>(continuation)
+            // The synchronous worker cannot be interrupted in the middle of a
+            // process/filesystem call. Its owner retains the handle until it
+            // finishes so a later recovery pass cannot overlap another scan.
             let worker = Task.detached(priority: .utility) {
                 let result = loadFreshSynchronously(
                     homeDirectory: homeDirectory,
@@ -60,6 +67,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
                 )
                 _ = gate.resume(returning: result)
             }
+            onWorkerCreated(worker)
             Task {
                 guard await sleepUntilDeadline(deadline) else { return }
                 worker.cancel()

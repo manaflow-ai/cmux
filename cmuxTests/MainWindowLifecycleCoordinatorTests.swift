@@ -296,7 +296,7 @@ struct MainWindowLifecycleCoordinatorTests {
         let laterBindings = [laterKey: Int64(42)]
         let loader: @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
-        ) async -> ProcessDetectedResumeIndexes = { bindings in
+        ) async -> ProcessDetectedResumeIndexes? = { bindings in
             await probe.load(bindings: bindings)
         }
 
@@ -324,6 +324,17 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(await probe.loadCount <= 2)
         #expect(await probe.observedBinding(laterKey))
         #expect(await probe.observedCancellation)
+    }
+
+    @Test("Unavailable windowless recovery detection stays unavailable")
+    func unavailableWindowlessRecoveryDetectionStaysUnavailable() async {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let result = await coordinator.loadWindowlessRecoveryResumeIndexes(
+            ttyDeviceBindings: [:],
+            loader: { _ in nil }
+        )
+
+        #expect(result == nil)
     }
 
     @Test("Removing a windowless orphan cancels its owned freeze task")

@@ -307,13 +307,17 @@ extension AppDelegate {
                 ) else {
                 return
             }
-            guard let resumeIndexes = await self?.mainWindowLifecycleCoordinator
+            let resumeIndexes = await self?.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
                     await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
-                        ttyDeviceBindings: bindings
-                    ) ?? .cached(restorableAgentIndex: .empty)
+                        ttyDeviceBindings: bindings,
+                        onWorkerCreated: { [weak self] worker in
+                            self?.mainWindowLifecycleCoordinator
+                                .retainWindowlessRecoveryResumeIndexesWorker(worker)
+                        }
+                    )
                 }
             guard !Task.isCancelled,
                   self?.mainWindowLifecycleCoordinator.orphanedRoute(
@@ -323,13 +327,13 @@ extension AppDelegate {
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
-            let restorableAgentIndex = resumeIndexes.restorableAgentIndex
+            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex ?? .empty
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: ttyDeviceBindings.isEmpty
                     ? nil
-                    : resumeIndexes.surfaceResumeBindingIndex
+                    : resumeIndexes?.surfaceResumeBindingIndex
             )
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(

@@ -19,6 +19,9 @@ final class MainWindowLifecycleCoordinator {
     private var windowlessRecoveryResumeIndexesTask:
         Task<ProcessDetectedResumeIndexes?, Never>?
     @ObservationIgnored
+    private var windowlessRecoveryResumeIndexesWorkerTask:
+        Task<ProcessDetectedResumeIndexes, Never>?
+    @ObservationIgnored
     private var windowlessRouteFreezeTasks:
         [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored
@@ -33,6 +36,7 @@ final class MainWindowLifecycleCoordinator {
     deinit {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
         windowlessRecoveryResumeIndexesTask?.cancel()
+        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
     }
 
     init(
@@ -45,13 +49,21 @@ final class MainWindowLifecycleCoordinator {
     ///
     /// A window prune can orphan several windows in one turn. One coordinator-owned
     /// task keeps those routes on the same scan generation and prevents each route
-    /// from starting an independent process snapshot and registry walk.
+    /// from starting an independent process snapshot and registry walk. A nil
+    /// result means fresh detection was unavailable; callers must preserve stored
+    /// bindings through the manual/fail-closed path instead of treating it as an
+    /// authoritative empty scan.
     func loadWindowlessRecoveryResumeIndexes(
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64],
         loader: @escaping @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
-        ) async -> ProcessDetectedResumeIndexes
+        ) async -> ProcessDetectedResumeIndexes?
     ) async -> ProcessDetectedResumeIndexes? {
+        if let workerTask = windowlessRecoveryResumeIndexesWorkerTask {
+            _ = await workerTask.value
+            windowlessRecoveryResumeIndexesWorkerTask = nil
+            guard !Task.isCancelled else { return nil }
+        }
         for (key, device) in ttyDeviceBindings where
             windowlessRecoveryResumeIndexesBindings[key] == nil {
             windowlessRecoveryResumeIndexesBindings[key] = device
@@ -89,7 +101,7 @@ final class MainWindowLifecycleCoordinator {
     private func runWindowlessRecoveryResumeIndexesLoad(
         loader: @escaping @Sendable (
             [SurfaceResumeBindingIndex.PanelKey: Int64]
-        ) async -> ProcessDetectedResumeIndexes
+        ) async -> ProcessDetectedResumeIndexes?
     ) async -> ProcessDetectedResumeIndexes? {
         // One retry captures bindings that arrive while the first scan is off-main;
         // persistent churn fails closed instead of keeping a prune alive forever.
@@ -130,8 +142,20 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesGeneration &+= 1
         windowlessRecoveryResumeIndexesTask?.cancel()
         windowlessRecoveryResumeIndexesTask = nil
+        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
         windowlessRecoveryTTYDeviceBindings = nil
+    }
+
+    /// Retains a timed-out process scan until its synchronous worker really exits.
+    ///
+    /// Cancellation cannot interrupt a synchronous process/filesystem call. Keeping
+    /// this handle prevents a later orphan from starting an overlapping scan.
+    func retainWindowlessRecoveryResumeIndexesWorker(
+        _ task: Task<ProcessDetectedResumeIndexes, Never>
+    ) {
+        guard windowlessRecoveryResumeIndexesWorkerTask == nil else { return }
+        windowlessRecoveryResumeIndexesWorkerTask = task
     }
 
     /// Owns one deferred freeze task until it completes or its route leaves recovery.
@@ -165,6 +189,9 @@ final class MainWindowLifecycleCoordinator {
     func cancelAllWindowlessRouteFreezeTasks() {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
         windowlessRouteFreezeTasks.removeAll(keepingCapacity: false)
+        windowlessRecoveryResumeIndexesTask?.cancel()
+        windowlessRecoveryResumeIndexesTask = nil
+        windowlessRecoveryResumeIndexesWorkerTask?.cancel()
     }
 
     /// Indicates whether a windowless route is within the caller's bounded orphan set.
