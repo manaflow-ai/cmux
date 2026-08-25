@@ -2407,14 +2407,16 @@ impl TerminalSizing {
             }
             let Some(removed) = state.viewers.remove(&viewer_id) else { return };
             target.queue.detach_locked(&mut queue_state, &removed.endpoint);
-            // Close only this attachment. No replacement claim is issued
-            // here: the core daemon freezes its current grid until a new
-            // attachment makes an explicit claim.
+            // Close only this attachment. A claim from another surviving
+            // endpoint is still explicit, so preserve it across this
+            // generation transition; only owner loss or candidate removal
+            // freezes authority.
             let removed_owner = state.owner == Some(viewer_id);
-            if state.claim_requested.is_some_and(|request| {
+            let removed_candidate = state.claim_requested.is_some_and(|request| {
                 request.viewer_id == viewer_id
                     && request.endpoint_ptr == endpoint_ptr(&removed.endpoint)
-            }) {
+            });
+            if removed_candidate {
                 state.claim_requested = None;
             }
             if removed_owner {
@@ -2432,11 +2434,58 @@ impl TerminalSizing {
                 (target, false)
             } else {
                 let grid = smallest_sizing_grid(&state.viewers);
+                let surviving_claim = if !removed_owner && !removed_candidate {
+                    state.claim_requested.and_then(|request| {
+                        state.viewers.get(&request.viewer_id).and_then(|viewer| {
+                            (viewer.endpoint.is_active()
+                                && endpoint_ptr(&viewer.endpoint) == request.endpoint_ptr)
+                                .then_some((request.viewer_id, Arc::clone(&viewer.endpoint)))
+                        })
+                    })
+                } else {
+                    None
+                };
+                if let Some((candidate_id, endpoint)) = surviving_claim.as_ref() {
+                    state.claim_requested = Some(ClaimRequest {
+                        generation,
+                        viewer_id: *candidate_id,
+                        token: None,
+                        endpoint_ptr: endpoint_ptr(endpoint),
+                    });
+                } else if !removed_owner {
+                    // A marker that no longer names a live viewer is stale;
+                    // do not let it block input after this leave.
+                    state.claim_requested = None;
+                }
                 target.queue.clear_stale_claim_fence_locked(&mut queue_state, None);
                 let should_start = if !target.queue.close_barrier_ready_locked(&queue_state)
                     || queue_state.closing_failed
                 {
                     false
+                } else if let (Some((candidate_id, endpoint)), Some(grid)) =
+                    (surviving_claim.as_ref(), grid)
+                {
+                    let (valid, should_start) = self.enqueue_update_locked(
+                        &target,
+                        &mut queue_state,
+                        &state,
+                        *candidate_id,
+                        None,
+                        endpoint,
+                        grid,
+                        true,
+                        generation,
+                    );
+                    if valid {
+                        sync_claim_request_locked(
+                            &mut state,
+                            &queue_state,
+                            generation,
+                            *candidate_id,
+                            endpoint,
+                        );
+                    }
+                    should_start
                 } else if let (Some(owner_id), Some(grid)) = (state.owner, grid) {
                     if let Some(owner) = state.viewers.get(&owner_id)
                         && owner.endpoint.is_active()
@@ -7385,6 +7434,77 @@ mod tests {
             "the renewed claim must be completed by its own generation"
         );
         coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_candidate_reply_survives_passive_viewer_leave() {
+        let owner = SizingControl::new(12, &[]);
+        let passive = SizingControl::new(12, &[]);
+        let candidate = SizingControl::new(12, &[]);
+        candidate.block_claim_dispatch();
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-passive-leave-claim.sock"),
+            surface_id: 42,
+        };
+        coordinator
+            .join(key.clone(), 1, 42, Arc::new(owner.clone()), SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 42, Arc::new(passive.clone()), SizingGrid { cols: 100, rows: 30 })
+            .expect("passive sizing barrier")
+            .await
+            .expect("passive sizing worker");
+        coordinator.leave(&key, 1);
+
+        coordinator
+            .join(
+                key.clone(),
+                3,
+                42,
+                Arc::new(candidate.clone()),
+                SizingGrid { cols: 90, rows: 28 },
+            )
+            .expect("candidate sizing barrier");
+        candidate.wait_for_claim_dispatch().await;
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 3).expect("candidate endpoint");
+        let old_generation = TerminalSizing::current_generation(&target);
+        let old_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("candidate fence").token;
+
+        // Removing an unrelated passive viewer must renew the in-flight
+        // explicit candidate claim. Its old response is stale after the
+        // generation change, but the surviving candidate remains eligible.
+        coordinator.leave(&key, 2);
+        let new_generation = TerminalSizing::current_generation(&target);
+        assert!(new_generation > old_generation);
+        let new_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("renewed fence").token;
+        assert_ne!(new_token, old_token);
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.generation == new_generation
+                && request.viewer_id == 3
+                && request.token == Some(new_token)
+                && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+
+        candidate.release_claim_dispatch();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.state.lock().unwrap().owner == Some(3) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("renewed candidate did not complete after passive leave");
+        assert!(endpoint.is_active(), "passive leave detached the candidate endpoint");
+        coordinator.leave(&key, 3);
     }
 
     #[tokio::test]
