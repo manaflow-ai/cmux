@@ -961,7 +961,10 @@ class ResourceApiTests(unittest.TestCase):
                     terminal.wait(cmux.TerminalWaitOptions("ready")).matched
                 )
                 self.assertEqual(terminal.copy().mode, "screen")
-                self.assertEqual(terminal.process().children, (43,))
+                process = terminal.process()
+                self.assertEqual(process.children, (43,))
+                # Older servers omit foreground_cwd; decoders treat it as null.
+                self.assertIsNone(process.foreground_cwd)
                 self.assertEqual(
                     terminal.resize_viewer(
                         "terminal-lease",
