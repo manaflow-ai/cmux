@@ -10616,7 +10616,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         applyNewTabZoomPolicy(inPane: paneId)
         let result = operation()
 
-        if result == nil,
+        if !isRemoteTmuxMirror,
+           result == nil,
            let previousZoomedPaneId,
            bonsplitController.zoomedPaneId == nil,
            bonsplitController.allPaneIds.contains(previousZoomedPaneId) {

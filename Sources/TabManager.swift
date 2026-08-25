@@ -4268,13 +4268,15 @@ class TabManager: ObservableObject {
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
-                   inPane: targetPaneId,
-                   url: url,
-                   focus: true,
-                   insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID
-               ) {
+               let browserPanel = workspace.withNewTabZoomPolicy(inPane: targetPaneId, {
+                   workspace.newBrowserSurface(
+                       inPane: targetPaneId,
+                       url: url,
+                       focus: true,
+                       insertAtEnd: insertAtEnd,
+                       preferredProfileID: preferredProfileID
+                   )
+               }) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
             }
@@ -4308,13 +4310,15 @@ class TabManager: ObservableObject {
         }
 
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
+              let browserPanel = workspace.withNewTabZoomPolicy(inPane: paneId, {
+                  workspace.newBrowserSurface(
+                      inPane: paneId,
+                      url: url,
+                      focus: true,
+                      insertAtEnd: insertAtEnd,
+                      preferredProfileID: preferredProfileID
+                  )
+              }) else {
             return nil
         }
         rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
