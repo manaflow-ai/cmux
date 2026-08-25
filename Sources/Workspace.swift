@@ -5241,6 +5241,21 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId
         )
         let previousBinding = surfaceResumeBindingsByPanelId[panelId]
+        if binding.isAgentHookBinding,
+           binding.launchFlavor.remoteContext != nil,
+           let selection = binding.restoreWorkingDirectorySelection,
+           selection.discardsRecordedCwdOptions,
+           let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+           Self.restorableAgentForSessionRestore(
+               restoredAgent,
+               resumeBinding: binding
+           ) != nil {
+            // An authenticated remote report is authoritative for both persisted
+            // halves of the restore record; do not leave a stale snapshot policy
+            // for control-surface restore to prefer later.
+            restoredAgentSnapshotsByPanelId[panelId] =
+                restoredAgent.applyingAuthoritativeRemoteBindingSelection(selection)
+        }
         let constrainedBinding: SurfaceResumeBindingSnapshot = if binding.isAgentHookBinding,
                                                                    binding.launchFlavor.remoteContext != nil,
                                                                    binding.restoreWorkingDirectorySelection != nil {

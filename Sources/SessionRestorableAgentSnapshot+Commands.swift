@@ -94,6 +94,15 @@ extension SessionRestorableAgentSnapshot {
         return refreshable.applyingRestoreWorkingDirectorySelection(selection)
     }
 
+    /// Applies an authenticated remote binding's explicit cwd policy over stale snapshot state.
+    func applyingAuthoritativeRemoteBindingSelection(
+        _ selection: AgentRestoreWorkingDirectorySelection
+    ) -> SessionRestorableAgentSnapshot {
+        var unscoped = self
+        unscoped.restoreWorkingDirectorySelection = nil
+        return unscoped.applyingRestoreWorkingDirectorySelection(selection)
+    }
+
     /// Resolves an entrypoint request against the stricter policy retained on the snapshot.
     func effectiveRestoreWorkingDirectorySelection(
         _ proposedSelection: AgentRestoreWorkingDirectorySelection
@@ -243,9 +252,15 @@ extension SurfaceResumeBindingSnapshot {
         _ selection: AgentRestoreWorkingDirectorySelection,
         from agent: SessionRestorableAgentSnapshot
     ) -> SurfaceResumeBindingSnapshot {
-        let effectiveSelection = restoreWorkingDirectorySelection?.permitsResume == false
-            ? AgentRestoreWorkingDirectorySelection.unavailable
-            : selection
+        let effectiveSelection: AgentRestoreWorkingDirectorySelection
+        switch restoreWorkingDirectorySelection {
+        case .exact(let workingDirectory):
+            effectiveSelection = .exact(workingDirectory)
+        case .unavailable:
+            effectiveSelection = .unavailable
+        case .recordedFallback, nil:
+            effectiveSelection = selection
+        }
         var constrained = self
         constrained.restoreWorkingDirectorySelection = effectiveSelection
 
