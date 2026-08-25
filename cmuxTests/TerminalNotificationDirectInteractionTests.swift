@@ -61,4 +61,52 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
         XCTAssertTrue(manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: focusedPanelId))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
+
+    func testTerminalActivityRetiresReadNotificationPreviewButKeepsHistory() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "OMP",
+            subtitle: "",
+            body: "Complete"
+        )
+        store.markRead(forTabId: workspace.id, surfaceId: surfaceId)
+
+        XCTAssertEqual(store.latestNotification(forTabId: workspace.id)?.body, "Complete")
+        XCTAssertTrue(
+            manager.dismissNotificationOnTerminalInteraction(
+                tabId: workspace.id,
+                surfaceId: surfaceId
+            )
+        )
+        XCTAssertNil(store.latestNotification(forTabId: workspace.id))
+        XCTAssertEqual(store.notificationFeedHistory.notifications.first?.body, "Complete")
+    }
 }
