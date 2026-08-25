@@ -64,6 +64,7 @@ pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
 const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
 const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
+const GIT_CHILD_REAP_TIMEOUT_MS: u64 = 250;
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1434,7 +1435,36 @@ fn git_command(root: &Path, args: &[&str]) -> tokio::process::Command {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        // Put git and helpers it starts in their own group. Git itself can
+        // exit while a helper still owns stdout, so killing only the direct
+        // child is insufficient to close the pipe and make cancellation
+        // progress.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setpgid(0, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
     command
+}
+
+async fn stop_git(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+    }
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_millis(GIT_CHILD_REAP_TIMEOUT_MS),
+        child.wait(),
+    )
+    .await;
 }
 
 fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
@@ -1572,8 +1602,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     .spawn()
     .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
     let Some(stdout) = child.stdout.take() else {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        stop_git(&mut child).await;
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
     let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
@@ -1582,8 +1611,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     let read_limit = STATUS_MAX_BYTES.saturating_add(1);
     let read_result = stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes).await;
     if let Err(error) = read_result {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        stop_git(&mut child).await;
         if let Some(task) = stderr_task.take() {
             let _ = task.finish().await;
         }
@@ -1592,7 +1620,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
     if stdout_capped {
         stdout_bytes.truncate(STATUS_MAX_BYTES);
-        let _ = child.kill().await;
+        stop_git(&mut child).await;
     }
     let status = child
         .wait()
@@ -1720,8 +1748,7 @@ async fn run_git_diff(
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
     let Some(stdout) = child.stdout.take() else {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        stop_git(&mut child).await;
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
     // Drain stderr while stdout is consumed. A diagnostic stream can fill its
@@ -1745,8 +1772,7 @@ async fn run_git_diff(
                 Ok(Some(line)) => line,
                 Ok(None) => break,
                 Err(error) => {
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
+                    stop_git(&mut child).await;
                     if let Some(task) = stderr_task.take() {
                         let _ = task.finish().await;
                     }
