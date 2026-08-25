@@ -547,24 +547,32 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 let fileURL = localImageFileURL(from: requestURL)
                 let mimeType = fileURL
                     .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
-                let temporaryURL: URL?
                 if let fileURL,
                    let allowedLocalResourceRoot,
                    let opened = ArtifactSidebarFileAccess().openedFile(
                        for: fileURL,
                        artifactRoot: allowedLocalResourceRoot
                    ) {
-                    temporaryURL = opened.makeTemporaryPreviewURL(maximumBytes: 8 * 1024 * 1024)
-                } else {
-                    temporaryURL = nil
-                }
-                let loadURL = temporaryURL ?? (allowedLocalResourceRoot == nil ? fileURL : nil)
-                return Task.detached(priority: .userInitiated) {
-                    defer {
-                        if let temporaryURL {
+                    return Task { @MainActor in
+                        guard let temporaryURL = await opened.makeTemporaryPreviewURLAsync(
+                            maximumBytes: 8 * 1024 * 1024
+                        ) else {
+                            return ImageLoadResult(data: Data(), mimeType: mimeType)
+                        }
+                        defer {
                             try? FileManager.default.removeItem(at: temporaryURL)
                         }
+                        return await Task.detached(priority: .userInitiated) {
+                            guard FileManager.default.isReadableFile(atPath: temporaryURL.path) else {
+                                return ImageLoadResult(data: Data(), mimeType: mimeType)
+                            }
+                            let data = (try? Data(contentsOf: temporaryURL)) ?? Data()
+                            return ImageLoadResult(data: data, mimeType: mimeType)
+                        }.value
                     }
+                }
+                let loadURL = allowedLocalResourceRoot == nil ? fileURL : nil
+                return Task.detached(priority: .userInitiated) {
                     guard let loadURL,
                           FileManager.default.isReadableFile(atPath: loadURL.path) else {
                         return ImageLoadResult(data: Data(), mimeType: mimeType)
