@@ -9293,8 +9293,14 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
+        // The default seat is the system guide on iOS <= 26 and the
+        // notification constant on iOS 27 (where the guide can lie at the
+        // screen bottom); the runner shares the simulator's OS version.
+        let expectedDefaultSeat = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+            ? "notification"
+            : "layoutGuide"
         let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
-            $0["keyboardDockSource"] == "layoutGuide"
+            $0["keyboardDockSource"] == expectedDefaultSeat
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
