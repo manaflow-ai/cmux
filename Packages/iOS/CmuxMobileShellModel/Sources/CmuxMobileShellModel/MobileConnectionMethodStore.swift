@@ -11,6 +11,22 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// pairing code shown on the Mac once, which authorizes that exact peer;
     /// Iroh is never used as a fallback while this method is selected.
     case tailscale
+    /// Dial only the user-enabled direct addresses configured on the
+    /// Computer (LAN, WireGuard, or any other reachable network). No other
+    /// method is ever used as a fallback while this method is selected.
+    case direct
+}
+
+extension MobileConnectionMethod {
+    /// Exhaustive mapping into the diagnostics payload enum, so a future third
+    /// method becomes a compile error here instead of silently misreporting.
+    var diagnosticMethod: DiagnosticConnectionMethod {
+        switch self {
+        case .automatic: .automatic
+        case .tailscale: .tailscale
+        case .direct: .direct
+        }
+    }
 }
 
 /// Persists the user's connection-method choice.
@@ -41,7 +57,7 @@ public final class MobileConnectionMethodStore {
             defaults.set(method.rawValue, forKey: Self.methodKey)
             diagnosticLog?.recordAppEvent(
                 .connectionMethodPreferenceChanged,
-                count: method == .automatic ? 0 : 1
+                count: method.diagnosticMethod.rawValue
             )
             for continuation in continuations.values {
                 continuation.yield(method)
@@ -59,6 +75,20 @@ public final class MobileConnectionMethodStore {
         } else {
             self.method = .automatic
         }
+        recordConfiguredMethodDiagnostic()
+    }
+
+    /// Records the currently configured method into the diagnostics ring.
+    ///
+    /// Called at composition and on every foreground so any shared report
+    /// window states the configuration even after the bounded ring has rolled
+    /// past app launch; `connectionMethodPreferenceChanged` alone only marks
+    /// transitions.
+    public func recordConfiguredMethodDiagnostic() {
+        diagnosticLog?.recordAppEvent(
+            .connectionMethodConfigured,
+            count: method.diagnosticMethod.rawValue
+        )
     }
 
     /// Observes connection-method changes, beginning with the current method.

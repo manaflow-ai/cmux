@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -119,7 +120,7 @@ struct WorkspaceListView: View {
     /// (previews and macOS fallback).
     var setWorkspaceSortMode: ((MobileWorkspaceSortMode) -> Void)? = nil
     /// The user's computer order for ``MobileWorkspaceSortMode/computerPriority``,
-    /// highest first, as Mac device ids.
+    /// highest first, as device-plus-build pairing ids.
     var workspaceComputerPriority: [String] = []
     /// Persist a computer order on this device.
     var setWorkspaceComputerPriority: (([String]) -> Void)? = nil
@@ -251,7 +252,7 @@ struct WorkspaceListView: View {
             "mac:\(store?.connectedMacDeviceID ?? "")",
         ]
         identity.append(contentsOf: workspaces.map {
-            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? "")"
+            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? ""):tag:\($0.macInstanceTag ?? "")"
         })
         return identity
     }
@@ -293,51 +294,75 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Computers offered by the computer-order editor, one per physical Mac,
+    /// Computers offered by the computer-order editor, one per app instance,
     /// in their effective order: stored priority first, then the list's
     /// current display order. Present computers come straight from the
     /// aggregated rows (not the filter menu's machine list, which empties
     /// below its two-machine floor and would drop a singleton or reorder the
     /// tail); paired-but-offline computers follow, keeping their slot while
     /// disconnected.
-    var computerOrderSheetMachines: [WorkspaceFilterMachine] {
-        let names = macDisplayNamesByID()
-        let aliasIndex = macSelectionScope.aliasIndex
+    func computerOrderSheetMachines(
+        machineSnapshots: WorkspaceMachineSnapshots
+    ) -> [WorkspaceFilterMachine] {
+        let snapshotsByID = Dictionary(
+            uniqueKeysWithValues: machineSnapshots.macPickerMachines.map { ($0.id, $0) }
+        )
         var machines: [WorkspaceFilterMachine] = []
-        var seenDeviceIDs = Set<String>()
+        var seenComputerIDs = Set<String>()
         for workspace in workspaces {
             guard let deviceID = workspace.macDeviceID, !deviceID.isEmpty else { continue }
-            let representativeID = aliasIndex.deviceRepresentativeID(for: deviceID)
-            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            let rowID = MobilePairedMac.pairingID(
+                macDeviceID: deviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+            let representativeID = machineSnapshots.representativeID(for: rowID)
+            guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            if let snapshot = snapshotsByID[representativeID] {
+                machines.append(snapshot)
+                continue
+            }
+            let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
-                macDeviceID: representativeID,
-                instanceTag: nil,
-                name: names[representativeID] ?? names[deviceID]
-                    ?? workspace.macDisplayName ?? representativeID,
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag,
+                name: workspace.macDisplayName ?? representativeID,
                 buildLabel: nil
             ))
         }
         for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
-            let representativeID = aliasIndex.deviceRepresentativeID(for: mac.macDeviceID)
-            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            let representativeID = machineSnapshots.representativeID(for: mac.id)
+            guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            if let snapshot = snapshotsByID[representativeID] {
+                machines.append(snapshot)
+                continue
+            }
+            let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
-                macDeviceID: representativeID,
-                instanceTag: nil,
-                name: names[representativeID] ?? mac.resolvedName,
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag,
+                name: mac.resolvedName,
                 buildLabel: nil
             ))
         }
         var rank: [String: Int] = [:]
-        for (index, deviceID) in workspaceComputerPriority.enumerated()
-            where rank[deviceID] == nil {
-            rank[deviceID] = index
+        for (index, computerID) in workspaceComputerPriority.enumerated()
+            where rank[computerID] == nil {
+            rank[computerID] = index
         }
         return machines.enumerated()
             .sorted { lhs, rhs in
-                let lhsRank = rank[lhs.element.macDeviceID] ?? Int.max
-                let rhsRank = rank[rhs.element.macDeviceID] ?? Int.max
+                let lhsRank = rank[lhs.element.id]
+                    ?? (lhs.element.instanceTag == nil
+                        ? rank[lhs.element.macDeviceID]
+                        : nil)
+                    ?? Int.max
+                let rhsRank = rank[rhs.element.id]
+                    ?? (rhs.element.instanceTag == nil
+                        ? rank[rhs.element.macDeviceID]
+                        : nil)
+                    ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset
             }
@@ -897,7 +922,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
         )
     }
 
@@ -929,7 +955,7 @@ struct WorkspaceListView: View {
         } label: {
             Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+        .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
