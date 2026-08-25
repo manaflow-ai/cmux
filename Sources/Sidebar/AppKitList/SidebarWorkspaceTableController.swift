@@ -512,8 +512,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
         // A forced reload can follow hidden-presentation pruning, where
         // `previousRows` is already filtered while NSTableView still holds
-        // the old graph. Do not derive an anchor from mismatched indices.
-        let viewportAnchor = requiresAtomicReorderReload
+        // the old graph. The table is hidden for that lifecycle, so skip row
+        // anchoring rather than restoring an offset from mismatched indices.
+        let viewportAnchor = !forceTableReload && requiresAtomicReorderReload
             ? SidebarWorkspaceTableViewportAnchor.capture(
                 table: containerView.tableView,
                 previousRows: previousRows,
