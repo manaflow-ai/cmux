@@ -319,6 +319,7 @@ extension CMUXCLI {
         _ title: String,
         workspaceId: String,
         surfaceId: String,
+        expectedSessionId: String? = nil,
         expectedWorkspaceTitle: String? = nil,
         expectedPanelTitle: String? = nil,
         reconciliationCAS: Bool = false,
@@ -326,7 +327,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> Result<(titleApplied: Bool, targetsResolved: Bool), CLIError> {
+    ) -> Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool), CLIError> {
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
@@ -334,6 +335,9 @@ extension CMUXCLI {
             "clear_status_on_apply": clearStatusOnApply,
             "title": title
         ]
+        if let expectedSessionId {
+            params["expected_session_id"] = expectedSessionId
+        }
         if let expectedWorkspaceTitle {
             params["expected_workspace_title"] = expectedWorkspaceTitle
         }
@@ -370,7 +374,8 @@ extension CMUXCLI {
         }
         return .success((
             titleApplied: titleApplied,
-            targetsResolved: workspaceResolved && panelResolved
+            targetsResolved: workspaceResolved && panelResolved,
+            terminalSkip: payload["terminal_skip"] as? Bool == true
         ))
     }
 }

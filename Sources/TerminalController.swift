@@ -4158,6 +4158,7 @@ class TerminalController {
         let hasExpectedWorkspaceTitle = params.keys.contains("expected_workspace_title")
         let expectedPanelTitleRaw = v2String(params, "expected_panel_title")
         let hasExpectedPanelTitle = params.keys.contains("expected_panel_title")
+        let expectedSessionId = v2String(params, "expected_session_id")
         let reconciliationCAS = v2Bool(params, "reconciliation_cas") ?? false
         guard let titleRaw = v2String(params, "title"),
               !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -4181,6 +4182,7 @@ class TerminalController {
         var workspaceApplySkipped = false
         var panelApplied: Bool?
         var panelApplySkipped = false
+        var terminalSkip = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
@@ -4194,7 +4196,26 @@ class TerminalController {
                 // the same transcript does not keep retrying forever.
                 workspaceApplySkipped = true
                 panelApplySkipped = true
+                terminalSkip = true
                 return
+            }
+            if let expectedSessionId {
+                let sessionMatches = resolvedPanelId.flatMap { panelId in
+                    workspace.surfaceResumeBinding(panelId: panelId).flatMap { binding in
+                        guard let checkpointId = binding.checkpointId,
+                              let kind = binding.kind else { return false }
+                        return ManagedAgentSessionIdentity.sessionIDsMatch(
+                            kind: kind,
+                            lhs: checkpointId,
+                            rhs: expectedSessionId
+                        )
+                    }
+                } ?? false
+                guard sessionMatches else {
+                    workspaceApplySkipped = true
+                    if panelId != nil { panelApplySkipped = true }
+                    return
+                }
             }
             // A remote mirror's unclaimed panel is authoritative for the whole
             // mirror. Preflight that ownership before mutating the workspace so
@@ -4315,9 +4336,10 @@ class TerminalController {
             "title": title,
             "workspace_applied": workspaceApplied,
             "workspace_apply_skipped": workspaceApplySkipped,
-            "panel_applied": v2OrNull(panelApplied),
-            "panel_apply_skipped": panelApplySkipped,
-            "enabled": true
+                "panel_applied": v2OrNull(panelApplied),
+                "panel_apply_skipped": panelApplySkipped,
+                "terminal_skip": terminalSkip,
+                "enabled": true
         ])
     }
 

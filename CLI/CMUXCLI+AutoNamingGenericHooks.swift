@@ -344,6 +344,7 @@ extension CMUXCLI {
             title,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            expectedSessionId: sessionId,
             expectedWorkspaceTitle: title,
             expectedPanelTitle: title,
             reconciliationCAS: true,
@@ -393,7 +394,7 @@ extension CMUXCLI {
             return
         }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
-            let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool), CLIError>
+            let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
                 if (try? sessionStore.isCurrent(
                     sessionId: sessionId,
@@ -404,6 +405,7 @@ extension CMUXCLI {
                         lastTitle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        expectedSessionId: sessionId,
                         expectedWorkspaceTitle: lastTitle,
                         expectedPanelTitle: lastTitle,
                         reconciliationCAS: true,
@@ -414,11 +416,11 @@ extension CMUXCLI {
                     )
                 } else {
                     telemetry.breadcrumb("\(telemetryKey).reconcile.stale-before-apply")
-                    applyOutcome = .success((titleApplied: false, targetsResolved: false))
+                    applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false))
                 }
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
-                applyOutcome = .success((titleApplied: false, targetsResolved: false))
+                applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false))
             }
             let applied = try? applyOutcome.get()
             let confirmedApply = applied?.targetsResolved == true
@@ -468,6 +470,7 @@ extension CMUXCLI {
             sanitized,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            expectedSessionId: sessionId,
             expectedWorkspaceTitle: expectedWorkspaceTitle,
             expectedPanelTitle: expectedPanelTitle,
             client: client,
@@ -481,7 +484,7 @@ extension CMUXCLI {
                     confirmedTitle = sanitized
                 } else if let lastTitle = outcome.lastTitle {
                     confirmedTitle = lastTitle
-                } else {
+                } else if applied.terminalSkip {
                     // A terminal target skip (for example, a panel that
                     // disappeared) is resolved without creating a title. Mark
                     // its baseline complete so the same transcript is not

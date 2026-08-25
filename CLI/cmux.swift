@@ -2118,6 +2118,10 @@ final class ClaudeHookSessionStore {
                     return false
                 }
             }
+        } else {
+            // A persisted record without any active ownership evidence may be
+            // an ended session. Do not resurrect it from a delayed compact hook.
+            return false
         }
 
         let targetMatchesRecord = record.workspaceId == targetWorkspaceId
