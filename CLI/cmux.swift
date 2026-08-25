@@ -2140,6 +2140,12 @@ final class ClaudeHookSessionStore {
         let lockStart = off_t(rawOffset & 0x3FFF_FFFF_FFFF_FFFF) + 1
         let lockLength: off_t = 1
         let lockPath = statePath + ".cursor-approval-reconcile.lock"
+        let lockDirectory = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: lockDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open Cursor approval reconciliation lock: \(lockPath)")
@@ -2176,8 +2182,8 @@ final class ClaudeHookSessionStore {
               let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
         }
-        guard fileSize <= Self.maxHookStateFileBytes else {
-            throw CLIError(message: "Claude hook state file exceeds the bounded limit: \(statePath)")
+        if fileSize > Self.maxHookStateFileBytes {
+            return try quarantineOversizedState(at: stateURL)
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
@@ -33290,12 +33296,13 @@ export default CMUXSessionRestore;
                 mappedPID: mapped?.pid,
                 inferredPID: inferredPID
             )
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: hookCwd ?? mapped?.cwd
-            )
+            let launchCommand = (def.name == "cursor" ? mapped?.launchCommand : nil)
+                ?? agentLaunchCommandFromEnvironment(
+                    env,
+                    fallbackPID: pid,
+                    fallbackKind: def.name,
+                    cwd: hookCwd ?? mapped?.cwd
+                )
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name,
                 current: launchCommand,
