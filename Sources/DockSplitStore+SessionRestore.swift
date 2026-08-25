@@ -243,17 +243,13 @@ extension DockSplitStore {
             panelId: snapshot.id,
             revalidateProcessEvidence: false
         ) == true
-        let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
-            workspaceId: workspaceId,
-            panelId: snapshot.id,
-            revalidateProcessEvidence: false
-        ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             stablePanelHasConflictingLiveProcess ||
+            restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true ||
             (restoreAgentIndex?.hasCurrentAmbiguousPanel(
                 snapshot.id,
                 revalidateProcessEvidence: false
-            ) == true && !exactOwnerHasLiveProcess)
+            ) == true)
         )
         let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
             stablePanelHasUncertainProcess

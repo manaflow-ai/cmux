@@ -5748,7 +5748,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
-            if cancelledDeferredAdmission {
+            if cancelledDeferredAdmission || !pendingExplicitKeyDownEvents.isEmpty {
                 queueExplicitKeyDownForInputDemand(event)
                 requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface.afterRestoreCancel")
                 return
