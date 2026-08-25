@@ -240,13 +240,15 @@ extension AppDelegate {
         guard mainWindowRouteLedger.routesByWindowId[route.windowId] === route else {
             return
         }
+        let workspaceIdsForRemoteTeardown =
+            recoverableRouteWorkspaceIdsForRemoteTeardown(route)
         mainWindowRouteLedger.routesByWindowId.removeValue(forKey: route.windowId)
         // The route keeps only a weak manager reference. Detach remote-tmux
         // mirrors from the captured workspace identities before that manager
         // can disappear, otherwise the controller-owned SSH connections and
         // mirror observers can outlive the abandoned window owner.
         remoteTmuxController.handleWindowWorkspacesClosed(
-            workspaceIds: route.workspaceIds
+            workspaceIds: workspaceIdsForRemoteTeardown
         )
         route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
             for: route
@@ -536,6 +538,21 @@ extension AppDelegate {
             tabManager: snapshot.tabManager,
             window: snapshot.window
         )
+    }
+
+    /// Filters the route's creation-time identity snapshot against current
+    /// ownership before detaching remote mirrors. Workspaces can move to a new
+    /// manager while the old SwiftUI context is recoverable; those moved IDs
+    /// must not be torn down when the stale route later retires.
+    private func recoverableRouteWorkspaceIdsForRemoteTeardown(
+        _ route: RecoverableMainWindowRoute
+    ) -> [UUID] {
+        return route.workspaceIds.filter { workspaceId in
+            guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
+                return route.tabManager == nil
+            }
+            return currentOwner === route.tabManager
+        }
     }
 
     func scriptableMainWindowForTab(_ tabId: UUID) -> ScriptableMainWindowState? {

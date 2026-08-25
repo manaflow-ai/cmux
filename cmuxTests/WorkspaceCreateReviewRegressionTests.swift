@@ -256,6 +256,7 @@ private final class RejectingWorkspaceCreationTabManager: TabManager {
         initialSurface: NewWorkspaceInitialSurface,
         initialTerminalCommand: String?,
         initialTerminalInput: String?,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
         initialTerminalEnvironment: [String: String],
         initialBrowserURL: URL?,
         initialBrowserOmnibarVisible: Bool,
