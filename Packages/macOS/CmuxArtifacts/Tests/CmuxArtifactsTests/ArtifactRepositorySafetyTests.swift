@@ -206,6 +206,36 @@ struct ArtifactRepositorySafetyTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
     }
 
+    @Test("Mutation leases reject deletion through a symlinked parent")
+    func rejectsSymlinkedDeletionParent() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(
+            at: paths.filesystemRoot,
+            withIntermediateDirectories: true
+        )
+        let outsideFile = try ArtifactTestSupport.write(
+            "outside",
+            named: "outside.md",
+            under: outside
+        )
+        try FileManager.default.createSymbolicLink(
+            at: paths.filesystemRoot.appendingPathComponent("session", isDirectory: true),
+            withDestinationURL: outside
+        )
+
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+        #expect(throws: ArtifactStoreError.self) {
+            try lease.unlink(relativePath: "session/outside.md")
+        }
+        #expect(FileManager.default.fileExists(atPath: outsideFile.path))
+        #expect(try String(contentsOf: outsideFile, encoding: .utf8) == "outside")
+    }
+
     @Test("Tree scans stream direct children within the node budget")
     func streamsBoundedDirectoryChildren() throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

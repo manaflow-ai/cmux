@@ -170,7 +170,11 @@ public struct ClaudeTranscriptParser: Sendable {
                 output: output,
                 isError: isError,
                 exitCode: exitCode,
-                authorizesArtifactMutation: !isError && (exitCode == nil || exitCode == 0)
+                authorizesArtifactMutation: TranscriptToolCompletion.authorizesMutation(
+                    output: output,
+                    isError: isError,
+                    exitCode: exitCode
+                )
             ),
             resultSeq: seq
         )

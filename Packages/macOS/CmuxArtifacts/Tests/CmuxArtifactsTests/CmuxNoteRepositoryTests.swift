@@ -46,6 +46,20 @@ struct CmuxNoteRepositoryTests {
         }
     }
 
+    @Test("Deleting a missing note does not initialize a project store")
+    func missingDeleteDoesNotCreateStore() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+
+        await #expect(throws: CmuxNoteStoreError.noteNotFound("missing")) {
+            _ = try await repository.deleteNote(projectRoot: root, name: "missing")
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(".cmux", isDirectory: true).path
+        ))
+    }
+
     @Test("Moved notes and session folders remain discoverable without an index")
     func resolvesMovedNotesAndReusesMovedSession() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

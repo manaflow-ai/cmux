@@ -18,6 +18,26 @@ struct TranscriptToolCompletion: Sendable {
     /// Whether source-specific positive evidence authorizes mutation provenance.
     let authorizesArtifactMutation: Bool
 
+    /// Returns whether a tool result provides enough positive evidence to
+    /// authorize a file mutation when no explicit error flag is available.
+    ///
+    /// A missing exit code is common for Claude tool results, so non-empty
+    /// output is accepted unless the existing failure-text guard identifies a
+    /// failed operation. Empty or missing output fails closed.
+    static func authorizesMutation(
+        output: String?,
+        isError: Bool,
+        exitCode: Int?
+    ) -> Bool {
+        guard !isError else { return false }
+        if let exitCode { return exitCode == 0 }
+        guard let output,
+              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return !reportsFailureWithoutExitStatus(output)
+    }
+
     /// Whether the result proves the pending invocation completed successfully.
     var succeeded: Bool {
         guard !isError else { return false }
@@ -155,9 +175,8 @@ struct TranscriptToolCompletion: Sendable {
         return answers.compactMapValues { $0 as? [String: Any] }
     }
 
-    /// Codex custom tools can report failure only in their text envelope.
-    private var reportsFailureWithoutExitStatus: Bool {
-        guard let output else { return false }
+    /// Some tools can report failure only in their text envelope.
+    private static func reportsFailureWithoutExitStatus(_ output: String) -> Bool {
         let prefix = output
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(400)
@@ -166,6 +185,14 @@ struct TranscriptToolCompletion: Sendable {
             || prefix.hasPrefix("tool failed")
             || prefix.hasPrefix("apply_patch verification failed")
             || prefix.hasPrefix("error:")
+            || prefix.hasPrefix("permission denied")
+            || prefix.hasPrefix("access denied")
+            || prefix.hasPrefix("operation not permitted")
+    }
+
+    private var reportsFailureWithoutExitStatus: Bool {
+        guard let output else { return false }
+        return Self.reportsFailureWithoutExitStatus(output)
     }
 }
 

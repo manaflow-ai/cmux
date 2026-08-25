@@ -39,6 +39,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifacts.allSatisfy { $0.provenance == .referenced })
     }
 
+    @Test("Claude failure text without an error flag remains read-only")
+    func unflaggedClaudeFailureTextIsReference() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "unflagged-write", "name": "Write",
+            "input": ["file_path": "/tmp/unflagged.md", "content": "draft"],
+        ]])
+        let failure = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "unflagged-write",
+            "content": "Error: permission denied",
+        ]])
+
+        let result = ClaudeTranscriptParser().parse(
+            lines: [invocation, failure],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(result).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/unflagged.md"))
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     @Test("Failed Codex apply_patch remains a read-only reference")
     func failedCodexPatchIsReference() throws {
         let call = codexLine(type: "response_item", payload: [

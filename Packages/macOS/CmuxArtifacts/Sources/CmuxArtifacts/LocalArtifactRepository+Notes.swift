@@ -1,4 +1,3 @@
-import Darwin
 public import Foundation
 
 extension LocalArtifactRepository: NoteStoring {
@@ -135,15 +134,17 @@ extension LocalArtifactRepository: NoteStoring {
     @discardableResult
     public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepareForMutation(paths: paths)
-        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
-        defer { lease.finish() }
         let resolver = noteResolver
         let note = try resolver.resolveExact(
             notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
             rawName: name
         )
-        guard Darwin.unlink(note.absolutePath) == 0 else {
+        try prepareForMutation(paths: paths)
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+        do {
+            try lease.unlink(relativePath: note.relativePath)
+        } catch ArtifactStoreError.pathOutsideStore {
             throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
         }
         return note
