@@ -130,6 +130,10 @@ export const DESKTOP_VNC_HEAL_COMMAND = [
 
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+// Desktop/port panes are long-lived surfaces a person leaves open for days; a
+// 12h token turned every long-lived pane into a silent white screen at hour
+// twelve. The wrapper page shows an honest expiry screen when this lapses.
+const PREVIEW_OPEN_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
 const HEALTH_RETRY_ATTEMPTS = 12;
@@ -1012,8 +1016,12 @@ export class BlaxelProvider implements VMProvider {
     return url;
   }
 
-  private async mintPreviewToken(vmId: string, previewName = CMUXD_PREVIEW_NAME): Promise<string> {
-    const expiresAt = new Date(Date.now() + PREVIEW_TOKEN_TTL_SECONDS * 1000).toISOString();
+  private async mintPreviewToken(
+    vmId: string,
+    previewName = CMUXD_PREVIEW_NAME,
+    ttlSeconds = PREVIEW_TOKEN_TTL_SECONDS,
+  ): Promise<string> {
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const created = await blaxelFetch<{ spec?: { token?: string } }>(
       "POST",
       `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews/${previewName}/tokens`,
@@ -1060,9 +1068,10 @@ export class BlaxelProvider implements VMProvider {
         await this.getSandbox(vmId);
         const previewName = `port-${port}`;
         const url = await this.ensurePreview(vmId, previewName, port);
-        const token = await this.mintPreviewToken(vmId, previewName);
+        const expiresAtMs = Date.now() + PREVIEW_OPEN_TOKEN_TTL_SECONDS * 1000;
+        const token = await this.mintPreviewToken(vmId, previewName, PREVIEW_OPEN_TOKEN_TTL_SECONDS);
         const openUrl = `${url.replace(/\/+$/, "")}/?bl_preview_token=${encodeURIComponent(token)}`;
-        return { url, token, openUrl };
+        return { url, token, openUrl, expiresAtMs };
       },
     );
   }
