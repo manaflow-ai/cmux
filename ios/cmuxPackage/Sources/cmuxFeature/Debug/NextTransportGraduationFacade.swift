@@ -42,6 +42,10 @@ final class NextTransportGraduationFacade {
     /// Macs probed this app run whose probe failed (no support, host off):
     /// stay legacy without re-probing until the next launch.
     private var probedThisRun: Set<String> = []
+    /// Consecutive failed dials per Mac. A Mac restart re-mints its signing
+    /// key and ports, so stored credentials go stale; after a few failures
+    /// the bootstrap is dropped and the next healthy connection re-probes.
+    private var dialFailures: [String: Int] = [:]
 
     /// Default ON in dev builds: support is negotiated per Mac (the pair
     /// probe is the capability check — unsupported Macs simply stay legacy),
@@ -80,16 +84,33 @@ final class NextTransportGraduationFacade {
             clients[macID] = client
         }
         if let connection = await client.admittedConnection() {
+            dialFailures[macID] = 0
             return connection
         }
         await client.connect()
         for _ in 0..<20 {
             if let connection = await client.admittedConnection() {
+                dialFailures[macID] = 0
                 return connection
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        graduationLog.notice("next transport not admitted for \(macID, privacy: .public); legacy path")
+        let failures = (dialFailures[macID] ?? 0) + 1
+        dialFailures[macID] = failures
+        if failures >= 3 {
+            // Stale credentials (the Mac restarted and re-minted its signer
+            // or moved ports): drop them so the next healthy connection
+            // re-probes for fresh ones.
+            UserDefaults.standard.removeObject(forKey: Self.bootstrapKeyPrefix + macID)
+            clients[macID] = nil
+            probedThisRun.remove(macID)
+            dialFailures[macID] = 0
+            graduationLog.notice(
+                "bootstrap \(macID, privacy: .public) invalidated after \(failures) failed dials; will re-probe")
+        } else {
+            graduationLog.notice(
+                "next transport not admitted for \(macID, privacy: .public); legacy path")
+        }
         return nil
     }
 
@@ -136,12 +157,13 @@ final class NextTransportGraduationFacade {
                     "app_identity": identity.appIdentity,
                 ])
             let responseData = try await client.sendRequest(request)
+            // sendRequest returns the UNWRAPPED result payload (see
+            // MobileIrohReleaseGateResponseValidator), not the RPC envelope.
             guard
                 let object = try JSONSerialization.jsonObject(with: responseData)
                     as? [String: Any],
-                let result = object["result"] as? [String: Any],
-                let ticket = result["ticket"] as? String,
-                let grant = result["grant"] as? String
+                let ticket = object["ticket"] as? String,
+                let grant = object["grant"] as? String
             else {
                 graduationLog.notice(
                     "bootstrap \(macID, privacy: .public): malformed pair response")
