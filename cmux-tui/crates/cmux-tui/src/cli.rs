@@ -308,8 +308,8 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            flag @ ("--json" | "--jsonl" | "--quiet") => {
-                let output = match flag {
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
                     "--json" => OutputMode::Json,
                     "--jsonl" => OutputMode::JsonLines,
                     "--quiet" => OutputMode::Quiet,

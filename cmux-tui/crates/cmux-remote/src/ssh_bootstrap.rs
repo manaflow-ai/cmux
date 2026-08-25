@@ -67,6 +67,11 @@ impl SshBootstrapConfig {
                 "SSH destination cannot begin with an option prefix".into(),
             ));
         }
+        if self.remote_binary.starts_with('-') {
+            return Err(BootstrapError::Configuration(
+                "remote binary cannot begin with an option prefix".into(),
+            ));
+        }
         for (label, value) in [
             ("SSH destination", self.destination.as_str()),
             ("remote binary", self.remote_binary.as_str()),
@@ -263,7 +268,7 @@ impl SshBootstrapper {
             });
         }
         let output = match self
-            .run_remote(["mv", "-f", temporary.as_str(), self.config.remote_binary.as_str()])
+            .run_remote(["mv", "-f", "--", temporary.as_str(), self.config.remote_binary.as_str()])
             .await
         {
             Ok(output) => output,
@@ -316,14 +321,14 @@ impl SshBootstrapper {
         parent: &str,
         temporary_dir: &str,
     ) -> Result<(), BootstrapError> {
-        let parent_output = self.run_remote(["mkdir", "-p", parent]).await?;
+        let parent_output = self.run_remote(["mkdir", "-p", "--", parent]).await?;
         if parent_output.status != 0 {
             return Err(BootstrapError::Install {
                 status: parent_output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&parent_output.stderr)),
             });
         }
-        let output = self.run_remote(["mkdir", "-m", "700", temporary_dir]).await?;
+        let output = self.run_remote(["mkdir", "-m", "700", "--", temporary_dir]).await?;
         if output.status != 0 {
             return Err(BootstrapError::Install {
                 status: output.status,
@@ -524,7 +529,7 @@ impl SshBootstrapper {
 /// opens the payload with no-clobber semantics, so a same-UID process cannot
 /// redirect the stream through a planted payload symlink.
 fn upload_command(_parent: &str, _temporary_dir: &str, temporary: &str) -> String {
-    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}")
+    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 -- {temporary}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -720,7 +725,7 @@ mod tests {
         );
         assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
         assert!(command.contains("cat >&3"));
-        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("chmod 755 -- ~/.local/bin/.cmux-upload-test/payload"));
         assert!(!command.contains("cat >"));
     }
 
@@ -794,6 +799,17 @@ mod tests {
         assert!(
             matches!(error, BootstrapError::Configuration(message) if message.contains("destination"))
         );
+    }
+
+    #[test]
+    fn option_like_remote_binary_is_rejected_by_bootstrap_config() {
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.remote_binary = "-bad/path".into();
+
+        assert!(matches!(
+            SshBootstrapper::new(config),
+            Err(BootstrapError::Configuration(message)) if message.contains("remote binary")
+        ));
     }
 
     #[test]
