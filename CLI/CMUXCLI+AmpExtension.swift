@@ -609,6 +609,7 @@ export default function (amp: PluginAPI) {
     nativeAttentionInFlightEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionRetryCount: number;
     nativeAttentionIdentityRetryCount: number;
+    nativeAttentionIdentityUnavailable: boolean;
     nativeAttentionOwnsSharedStatus: boolean;
   };
   type AmpTurnStateOverflowTombstone = {
@@ -676,6 +677,7 @@ export default function (amp: PluginAPI) {
       nativeAttentionInFlightEpisode: null,
       nativeAttentionRetryCount: 0,
       nativeAttentionIdentityRetryCount: 0,
+      nativeAttentionIdentityUnavailable: false,
       nativeAttentionOwnsSharedStatus: false,
     };
   };
@@ -744,11 +746,14 @@ export default function (amp: PluginAPI) {
     state: AmpTurnState,
   ): void => {
     const shouldOwn = !state.retired
-      && (state.nativeThreadState === "awaiting-approval"
-      || state.nativeAttentionDesiredEpisode !== null
-      || state.nativeAttentionConfirmedEpisode !== null
-      || state.nativeAttentionUnconfirmedBeginEpisode !== null
-      || state.nativeAttentionInFlight);
+      && (
+        (!state.nativeAttentionIdentityUnavailable
+          && state.nativeThreadState === "awaiting-approval")
+        || state.nativeAttentionDesiredEpisode !== null
+        || state.nativeAttentionConfirmedEpisode !== null
+        || state.nativeAttentionUnconfirmedBeginEpisode !== null
+        || state.nativeAttentionInFlight
+      );
     if (shouldOwn === state.nativeAttentionOwnsSharedStatus) return;
     state.nativeAttentionOwnsSharedStatus = shouldOwn;
     nativeAttentionStatusOwnerCount += shouldOwn ? 1 : -1;
@@ -922,6 +927,16 @@ export default function (amp: PluginAPI) {
               synchronizeNativeAttention(state);
             }
           });
+        } else if (transitionIsStillNeeded()) {
+          // Without a trustworthy process generation neither begin nor its
+          // eventual end can be delivered safely. Release shared status
+          // ownership after the bounded identity attempts; a later native
+          // state transition may start a fresh episode and retry.
+          state.nativeAttentionIdentityRetryCount = 0;
+          state.nativeAttentionIdentityUnavailable = true;
+          state.nativeAttentionDesiredEpisode = null;
+          state.nativeAttentionUnconfirmedBeginEpisode = null;
+          state.nativeAttentionConfirmedEpisode = null;
         }
         if (!transitionIsStillNeeded()) {
           state.nativeAttentionIdentityRetryCount = 0;
@@ -958,6 +973,11 @@ export default function (amp: PluginAPI) {
         state.nativeAttentionInFlight = false;
         state.nativeAttentionInFlightAction = null;
         state.nativeAttentionInFlightEpisode = null;
+        state.nativeAttentionIdentityRetryCount = 0;
+        state.nativeAttentionIdentityUnavailable = true;
+        state.nativeAttentionDesiredEpisode = null;
+        state.nativeAttentionUnconfirmedBeginEpisode = null;
+        state.nativeAttentionConfirmedEpisode = null;
         refreshNativeAttentionStatusOwnership(state);
         publishAggregateStatus();
         return;
@@ -1046,6 +1066,7 @@ export default function (amp: PluginAPI) {
     if (state.retired) return;
     if (!state.nativeAttentionDesiredEpisode) {
       state.nativeAttentionIdentityRetryCount = 0;
+      state.nativeAttentionIdentityUnavailable = false;
       state.nativeAttentionDesiredEpisode = makeNativeAttentionEpisode();
     }
     refreshNativeAttentionStatusOwnership(state);
@@ -1056,6 +1077,7 @@ export default function (amp: PluginAPI) {
   const endNativeAttention = (state: AmpTurnState): void => {
     if (state.retired) return;
     state.nativeAttentionIdentityRetryCount = 0;
+    state.nativeAttentionIdentityUnavailable = false;
     state.nativeAttentionDesiredEpisode = null;
     refreshNativeAttentionStatusOwnership(state);
     synchronizeNativeAttention(state);

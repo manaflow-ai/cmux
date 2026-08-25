@@ -867,6 +867,10 @@ extension FeedCoordinator {
         else {
             return false
         }
+        // Native observers are detached from the UI and cannot safely infer a
+        // panel from focus. A missing surface identity is therefore not a
+        // request for the focused panel; it is an un-attributable observation.
+        guard surfaceId != nil else { return false }
         let key = AgentObservedAttentionKey(
             source: source,
             sessionId: sessionId,

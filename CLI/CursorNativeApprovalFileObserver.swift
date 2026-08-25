@@ -185,22 +185,37 @@ final class CursorNativeApprovalFileObserver {
     private func waitForLogPath(
         deadlineUptimeNanoseconds: UInt64
     ) -> String? {
-        if let existing = discoverLogPath(
-            deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
-        ) {
-            return existing
+        while true {
+            guard processIdentity.liveness == .live else { return nil }
+            if let existing = discoverLogPath(
+                deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+            ) {
+                return existing
+            }
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadlineUptimeNanoseconds else { return nil }
+            guard let watchDirectory = existingWatchDirectoryPath(),
+                  waitForDirectoryChange(
+                      at: watchDirectory,
+                      deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+                  ) else {
+                return nil
+            }
         }
-        guard let watchDirectory = existingWatchDirectoryPath() else {
-            return nil
-        }
-        let watchDescriptor = open(
-            watchDirectory,
-            O_EVTONLY | O_CLOEXEC
-        )
-        guard watchDescriptor >= 0 else { return nil }
+    }
+
+    /// Waits for one change to a currently existing ancestor directory. The
+    /// descriptor is intentionally recreated after each event so a directory
+    /// created beneath an ancestor is watched directly on the next pass.
+    private func waitForDirectoryChange(
+        at path: String,
+        deadlineUptimeNanoseconds: UInt64
+    ) -> Bool {
+        let watchDescriptor = open(path, O_EVTONLY | O_CLOEXEC)
+        guard watchDescriptor >= 0 else { return false }
         defer { close(watchDescriptor) }
         let eventQueue = kqueue()
-        guard eventQueue >= 0 else { return nil }
+        guard eventQueue >= 0 else { return false }
         defer { close(eventQueue) }
         var registration = kevent(
             ident: UInt(watchDescriptor),
@@ -214,20 +229,11 @@ final class CursorNativeApprovalFileObserver {
             udata: nil
         )
         guard kevent(eventQueue, &registration, 1, nil, 0, nil) == 0 else {
-            return nil
+            return false
         }
-
         while true {
-            guard processIdentity.liveness == .live else { return nil }
-            // Re-scan immediately after registering to close the race between
-            // the initial scan and the watch becoming active.
-            if let existing = discoverLogPath(
-                deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
-            ) {
-                return existing
-            }
             let now = DispatchTime.now().uptimeNanoseconds
-            guard now < deadlineUptimeNanoseconds else { return nil }
+            guard now < deadlineUptimeNanoseconds else { return false }
             let remaining = deadlineUptimeNanoseconds - now
             var timeout = timespec(
                 tv_sec: Int(remaining / Self.nanosecondsPerSecond),
@@ -243,15 +249,10 @@ final class CursorNativeApprovalFileObserver {
                 &timeout
             )
             if eventCount < 0, errno == EINTR { continue }
-            guard eventCount > 0,
-                  event.flags & UInt16(EV_ERROR) == 0 else {
-                return nil
+            guard eventCount > 0, event.flags & UInt16(EV_ERROR) == 0 else {
+                return false
             }
-            if event.fflags & Self.terminalVnodeEvents != 0 {
-                // The parent itself was replaced; a fresh observer launch will
-                // resolve the new directory rather than following stale state.
-                return nil
-            }
+            return true
         }
     }
 
