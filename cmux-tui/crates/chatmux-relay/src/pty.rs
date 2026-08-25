@@ -701,27 +701,35 @@ impl Inner {
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
-    fn sinks(self: &Arc<Self>, pty_id: &str, context: &FrameContext) -> (DataSink, ExitSink) {
+    fn sinks(
+        self: &Arc<Self>,
+        pty_id: &str,
+        context: &FrameContext,
+        control: Arc<dyn PtyControl>,
+    ) -> (DataSink, ExitSink) {
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context))
+            let control = Arc::clone(&control);
+            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context, &control))
                 as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context))
+            let control = Arc::clone(&control);
+            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &control))
                 as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
     }
 
-    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
+    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext, control: &Arc<dyn PtyControl>) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
+            || self.attachments.lock().expect("attach lock").get(pty_id).is_none_or(|a| !Arc::ptr_eq(&a.control, control)) {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -754,9 +762,10 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
+    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext, control: &Arc<dyn PtyControl>) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
+            || self.attachments.lock().expect("attach lock").get(pty_id).is_none_or(|a| !Arc::ptr_eq(&a.control, control)) {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
@@ -975,7 +984,7 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&control));
         Ok(Opened {
             created: ensured.created,
             surface: None,
@@ -1124,7 +1133,7 @@ impl Inner {
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&proxy));
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -1687,7 +1696,7 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
-        let (on_data, _) = self.sinks(pty_id, context);
+        let (on_data, _) = self.sinks(pty_id, context, Arc::clone(&proxy));
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
