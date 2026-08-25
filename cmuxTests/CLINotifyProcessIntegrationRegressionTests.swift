@@ -352,14 +352,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
 
+        let exhaustedServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: false
+            )
+        }
         let exhausted = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "auto-name"],
-            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
-            extraEnvironment: [
-                "CMUX_SOCKET_PATH": context.root.appendingPathComponent("missing.sock").path
-            ]
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [exhaustedServerHandled], timeout: 5)
         XCTAssertFalse(exhausted.timedOut, exhausted.stderr)
         XCTAssertEqual(exhausted.status, 0, exhausted.stderr)
         XCTAssertEqual(
