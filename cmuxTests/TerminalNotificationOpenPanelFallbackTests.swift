@@ -13,6 +13,93 @@ import Testing
 @Suite(.serialized)
 struct TerminalNotificationOpenPanelFallbackTests {
     @Test
+    func notificationForMovedSurfaceStaysInOriginatingWindow() throws {
+        _ = NSApplication.shared
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let store = TerminalNotificationStore.shared
+        let previousNotificationStore = appDelegate.notificationStore
+        let managerA = TabManager()
+        let managerB = TabManager()
+        let originWindowId = UUID()
+        let destinationWindowId = UUID()
+        let originWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let destinationWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        originWindow.isReleasedWhenClosed = false
+        destinationWindow.isReleasedWhenClosed = false
+        originWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(originWindowId.uuidString)")
+        destinationWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(destinationWindowId.uuidString)")
+
+        AppDelegate.shared = appDelegate
+        appDelegate.notificationStore = store
+        let originWorkspace = managerA.addWorkspace(title: "Origin", select: true)
+        let destinationWorkspace = managerB.addWorkspace(title: "Destination", select: true)
+        let originPanelId = try #require(originWorkspace.focusedPanelId)
+        appDelegate.registerMainWindow(
+            originWindow,
+            windowId: originWindowId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        appDelegate.registerMainWindow(
+            destinationWindow,
+            windowId: destinationWindowId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: originWindowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: destinationWindowId)
+            originWindow.close()
+            destinationWindow.close()
+            for workspace in managerA.tabs { managerA.closeWorkspace(workspace) }
+            for workspace in managerB.tabs { managerB.closeWorkspace(workspace) }
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = previousNotificationStore
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            AppDelegate.shared = previousShared
+        }
+
+        let transfer = try #require(originWorkspace.detachSurface(panelId: originPanelId))
+        let destinationPaneId = try #require(destinationWorkspace.bonsplitController.allPaneIds.first)
+        _ = try #require(destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false))
+        managerA.selectTab(originWorkspace)
+        managerB.selectTab(destinationWorkspace)
+        destinationWindow.makeKeyAndOrderFront(nil)
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: originWorkspace.id,
+            surfaceId: originPanelId,
+            title: "Moved surface",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 1_778_888_890),
+            isRead: false
+        )
+
+        #expect(appDelegate.openTerminalNotification(notification))
+        #expect(managerA.selectedTabId == originWorkspace.id)
+        #expect(managerB.selectedTabId == destinationWorkspace.id)
+    }
+
+    @Test
     func notificationOpenUsesStoredPanelWhenSurfaceIsStale() throws {
         let store = TerminalNotificationStore.shared
         let previousShared = AppDelegate.shared
