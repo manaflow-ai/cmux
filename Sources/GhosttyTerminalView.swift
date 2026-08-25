@@ -3675,17 +3675,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var terminalPointerStyle = TerminalPointerStyleState()
     fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
+    private var pointerStyleRuntimeLifetimeId: UUID?
+    private var suppressGhosttyPointerUntilFreshShape = false
 
     func applyTerminalPointerStyle(_ event: TerminalPointerStyleEvent) {
-        if case .focusChanged = event {
-            pointerStyleIngress?.focusChanged()
+        if case .focusChanged(let focused) = event {
+            if !focused, terminalPointerStyle.ghosttyLinkHoverActive {
+                suppressGhosttyPointerUntilFreshShape = true
+            }
+            pointerStyleIngress?.focusChanged(focused)
+        }
+        if case .ghosttyShape(_, let runtimeLifetimeId) = event,
+           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
+            suppressGhosttyPointerUntilFreshShape = false
         }
         guard terminalPointerStyle.apply(event) else { return }
         window?.invalidateCursorRects(for: self)
     }
 
     var effectiveTerminalPointerCursor: NSCursor {
-        terminalPointerStyle.effectiveCursor
+        if suppressGhosttyPointerUntilFreshShape,
+           !terminalPointerStyle.cmuxLinkHoverActive {
+            return .iBeam
+        }
+        return terminalPointerStyle.effectiveCursor
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -4686,6 +4699,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {
+        pointerStyleRuntimeLifetimeId = runtimeLifetimeId
+        suppressGhosttyPointerUntilFreshShape = false
         pointerStyleIngress?.activate(
             runtimeLifetimeId: runtimeLifetimeId,
             surfaceId: terminalSurface?.id ?? UUID()
@@ -4694,10 +4709,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
+        let retiredRuntimeLifetimeId = runtimeLifetimeId ?? pointerStyleRuntimeLifetimeId
+        if pointerStyleRuntimeLifetimeId == retiredRuntimeLifetimeId {
+            pointerStyleRuntimeLifetimeId = nil
+        }
         pointerStyleIngress?.retire(
-            runtimeLifetimeId: runtimeLifetimeId,
+            runtimeLifetimeId: retiredRuntimeLifetimeId,
             surfaceId: terminalSurface?.id ?? UUID()
         )
+        suppressGhosttyPointerUntilFreshShape = false
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 

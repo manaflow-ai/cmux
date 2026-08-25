@@ -39,6 +39,9 @@ public struct TerminalPointerStyleState {
     /// Whether the focused surface is currently showing the cmux link override.
     public var cmuxLinkHoverActive: Bool { isCmuxLinkHoverActive }
 
+    /// Whether Ghostty's transient hyperlink pointer is active.
+    public var ghosttyLinkHoverActive: Bool { isGhosttyLinkHoverActive }
+
     /// Applies one state transition and reports whether the effective cursor changed.
     ///
     /// Unsupported Ghostty shapes are ignored so an unknown or unavailable
