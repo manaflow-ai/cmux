@@ -26,15 +26,12 @@ public final class ToastCenter {
 
     public private(set) var presented: Presented?
 
-    /// Beta gate: while false (the default), `present(_:)` drops every toast
-    /// so the app behaves as if the system doesn't exist. Persisted, and
-    /// surfaced as the "Toasts" toggle under Settings → Beta Features.
-    /// Call sites with a legacy surface (the old workspace-action banner,
-    /// chat error banner, copy-button morph) branch on this to fall back.
-    public var isEnabled: Bool {
+    /// Product policy keeps the toast surface disabled in shipped builds.
+    /// The presenter remains implemented so it can be restored without
+    /// rewriting the call sites that already use it.
+    public internal(set) var isEnabled: Bool {
         didSet {
             guard oldValue != isEnabled else { return }
-            defaults.set(isEnabled, forKey: Self.enabledDefaultsKey)
             diagnosticLog?.recordAppEvent(.toastFeatureChanged, count: isEnabled ? 1 : 0)
             if !isEnabled {
                 dismissAll(reason: .featureDisabled)
@@ -42,9 +39,6 @@ public final class ToastCenter {
         }
     }
 
-    public static let enabledDefaultsKey = "cmux.toasts.betaEnabled"
-
-    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
 
     /// Toasts waiting behind the visible one, oldest first. Capped: a burst
@@ -67,22 +61,33 @@ public final class ToastCenter {
     /// next arrival.
     static let interToastGap: Duration = .milliseconds(260)
 
-    public init(
+    /// The toast UI is shelved from the product. Keep this policy separate
+    /// from the presenter so reintroducing it later is a one-line decision.
+    private static let shippedEnabled = false
+
+    /// Creates a presenter using the shipped product policy, which currently
+    /// keeps toast presentation disabled.
+    public convenience init(
         clock: any Clock<Duration> = ContinuousClock(),
-        defaults: UserDefaults = .standard,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        self.init(
+            clock: clock,
+            enabled: Self.defaultEnabled,
+            diagnosticLog: diagnosticLog
+        )
+    }
+
+    /// Internal injection keeps lifecycle tests able to exercise the dormant
+    /// presenter without exposing a production toggle. The DEBUG gallery keeps
+    /// its separate environment-gated entry point below.
+    init(
+        clock: any Clock<Duration>,
+        enabled: Bool,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.clock = clock
-        self.defaults = defaults
         self.diagnosticLog = diagnosticLog
-        var enabled = defaults.bool(forKey: Self.enabledDefaultsKey)
-        #if DEBUG
-        // The env-gated gallery harness exists to exercise toasts; a dark
-        // default there would make every gallery run a silent no-op.
-        if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
-            enabled = true
-        }
-        #endif
         self.isEnabled = enabled
         #if os(iOS)
         prefersExtendedDwell = {
@@ -93,10 +98,21 @@ public final class ToastCenter {
         #endif
     }
 
+    private static var defaultEnabled: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
+            // Keep the gallery harness useful without making the shipped
+            // product policy configurable.
+            return true
+        }
+        #endif
+        return shippedEnabled
+    }
+
     /// Present a toast: shows it now if nothing is visible, refreshes and
     /// re-bumps the visible toast when the ``Toast/coalescingKey`` matches,
-    /// and queues (FIFO, capped) otherwise. Dropped while ``isEnabled`` is
-    /// false (the beta flag is off).
+    /// and queues (FIFO, capped) otherwise. Dropped while the product policy
+    /// keeps ``isEnabled`` false.
     public func present(_ toast: Toast) {
         guard isEnabled else {
             recordToastEvent(

@@ -60,6 +60,12 @@ cmux claude-teams --model sonnet`}</CodeBlock>
         <li>{t("shimStep3")}</li>
         <li>{t("shimStep4")}</li>
       </ul>
+      <p>
+        {t.rich("shimDiagnostic", {
+          marker: (chunks) => <code>{chunks}</code>,
+          which: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
       <DocsHeading level={2} id="env-vars">{t("envVars")}</DocsHeading>
       <table>
@@ -72,10 +78,21 @@ cmux claude-teams --model sonnet`}</CodeBlock>
         <tbody>
           <tr><td><code>TMUX</code></td><td>{t("envTmux")}</td></tr>
           <tr><td><code>TMUX_PANE</code></td><td>{t("envTmuxPane")}</td></tr>
+          <tr><td><code>CMUX_SURFACE_ID</code></td><td>{t("envSurface")}</td></tr>
           <tr><td><code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS</code></td><td>{t("envTeams")}</td></tr>
           <tr><td><code>CMUX_SOCKET_PATH</code></td><td>{t("envSocket")}</td></tr>
         </tbody>
       </table>
+      <p>
+        {t.rich("envScope", {
+          tmux: (chunks) => <code>{chunks}</code>,
+          tmuxPane: (chunks) => <code>{chunks}</code>,
+          command: (chunks) => <code>{chunks}</code>,
+          surface: (chunks) => <code>{chunks}</code>,
+          tree: (chunks) => <code>{chunks}</code>,
+          caller: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
       <DocsHeading level={2} id="directories">{t("directories")}</DocsHeading>
       <table>
@@ -86,10 +103,21 @@ cmux claude-teams --model sonnet`}</CodeBlock>
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>~/.cmuxterm/claude-teams-bin/</code></td><td>{t("dirShim")}</td></tr>
+          <tr><td>{t("dirShimPath")}</td><td>{t("dirShim")}</td></tr>
           <tr><td><code>~/.cmuxterm/tmux-compat-store.json</code></td><td>{t("dirStore")}</td></tr>
         </tbody>
       </table>
+      <p>{t("storeDetails")}</p>
+      <ul>
+        <li><code>lastSplitSurface</code> &mdash; {t("storeLastSplitSurface")}</li>
+        <li>
+          <code>mainVerticalLayouts</code> &mdash; {t.rich("storeMainVerticalLayouts", {
+            mainSurfaceId: (chunks) => <code>{chunks}</code>,
+            lastColumnSurfaceId: (chunks) => <code>{chunks}</code>,
+          })}
+        </li>
+      </ul>
+      <p>{t("storeTroubleshooting")}</p>
 
       <DocsHeading level={2} id="tmux-commands">{t("tmuxCommands")}</DocsHeading>
       <p>{t("tmuxCommandsDesc")}</p>

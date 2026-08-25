@@ -71,7 +71,7 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         case .freshInstall:
             return String(
                 localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+                defaultValue: "No user Ghostty settings, so cmux applies its managed default colors."
             )
         case .userThemePair:
             return String(
@@ -1043,6 +1043,18 @@ class GhosttyApp {
             }
         })
 
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: TerminalAdaptiveDefaultThemeSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(
+                    source: "settings.terminal.adaptiveDefaultTheme"
+                )
+            }
+        })
+
         #endif
     }
 
@@ -1137,16 +1149,21 @@ class GhosttyApp {
         )
     }
 
-    /// Loads the user's resolved Ghostty config with cmux's managed default appearance
-    /// applied first, as the base: only an explicit user `theme` suppresses it, while
-    /// individual color keys override just those colors (issue #7161).
+    /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
+    /// default appearance is applied only if the config contains no directives;
+    /// otherwise Ghostty's own resolved colors are preserved.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         themeColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         let appearanceSummary = Self.userAppearanceConfigSummary()
-        if appearanceSummary.shouldApplyDefaultAppearance {
+        let adaptiveDefaultThemeEnabled =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
+        let shouldApplyManagedDefaultAppearance =
+            adaptiveDefaultThemeEnabled
+            && appearanceSummary.shouldApplyDefaultAppearance
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
         ghostty_config_load_default_files(config)
@@ -1156,12 +1173,12 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. When the user set no appearance directives at all, re-assert
-        // the managed default so that skipped legacy file's colors cannot override it.
-        if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
+        // is non-empty. For an otherwise untouched config, re-assert the managed
+        // default so that skipped legacy-file colors cannot override it.
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
-        hasUserGhosttyCommand = GhosttyConfig.load(
+        hasUserGhosttyCommand = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false
         ).command != nil
@@ -1383,9 +1400,14 @@ class GhosttyApp {
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        adaptiveDefaultThemeEnabled: Bool =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
     ) -> Bool {
-        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        configDiscovery.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        )
     }
 
     static func userAppearanceConfigSummary(configPaths: [String]? = nil) -> GhosttyConfig.UserAppearanceConfigSummary {
@@ -2149,7 +2171,7 @@ class GhosttyApp {
 
         return WorkspaceTerminalFontConfigurationSnapshot(
             configuredRuntimePoints: Float32(
-                GhosttyConfig.load(
+                GhosttyConfig.loadForCmux(
                     globalFontMagnificationPercent:
                         magnificationPercent
                 ).fontSize
@@ -2417,10 +2439,26 @@ class GhosttyApp {
 
         let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
         let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
-        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
-        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
+        let resolvedCursor = ghosttyColorValue(
+            from: config,
+            key: "cursor-color",
+            fallback: resolvedForeground
+        )
+        let resolvedCursorText = ghosttyColorValue(
+            from: config,
+            key: "cursor-text",
+            fallback: resolvedColor
+        )
+        let resolvedSelectionBackground = ghosttyColorValue(
+            from: config,
+            key: "selection-background",
+            fallback: resolvedForeground
+        )
+        let resolvedSelectionForeground = ghosttyColorValue(
+            from: config,
+            key: "selection-foreground",
+            fallback: resolvedColor
+        )
         var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
@@ -2465,7 +2503,7 @@ class GhosttyApp {
         guard useOnDiskResolvedConfig else {
             return baseline
         }
-        let resolved = GhosttyConfig.load(
+        let resolved = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false,
             globalFontMagnificationPercent:
@@ -3225,15 +3263,15 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface,
-               let terminalLifecycleID = callbackContext?.terminalLifecycleID {
+            if let callbackContext,
+               let tabId = callbackTabId {
                 surfaceView.titleUpdateIngress.submit(
                     tabId: tabId,
-                    surfaceId: sourceSurface.id,
-                    sourceSurface: sourceSurface,
-                    terminalLifecycleID: terminalLifecycleID,
-                    title: title
+                    surfaceId: callbackContext.surfaceId,
+                    sourceSurfaceIdentifier: callbackContext.sourceSurfaceIdentifier,
+                    terminalLifecycleID: callbackContext.terminalLifecycleID,
+                    title: title,
+                    titleOverride: callbackContext.titleOverride
                 )
             }
             return true
@@ -3385,7 +3423,8 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                TerminalLinkOpenCoordinator().open(request)
+                surfaceView.recordCommandClickReleaseRuntimeOutcome(.openURL)
+                return TerminalLinkOpenCoordinator().open(request)
             }
         default:
             return false
@@ -3590,6 +3629,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
+    private var commandClickReleaseRoutingActive = false
+    private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -3661,23 +3703,70 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
+        let hasPending = _pendingScrollbar != nil
         _pendingScrollbar = nil
         _scrollbarLock.unlock()
 
-        guard let pending else { return }
-        scrollbar = pending
+        guard hasPending else { return }
+        // Callback payloads are coalesced and can predate main-thread input.
+        // Treat them as invalidation signals when the runtime is available so
+        // a delayed packet can never move the viewport to obsolete geometry.
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // No runtime means the callback has no trustworthy row-space
+            // identity. Drop it rather than moving AppKit to stale geometry.
+            return
+        }
+        publishScrollbarUpdate(authoritativeScrollbar)
+    }
+
+    private func authoritativeScrollbarSnapshot() -> GhosttyScrollbar? {
+        var value = ghostty_surface_scrollbar_s()
+        guard readAuthoritativeScrollbar(&value) else { return nil }
+        return GhosttyScrollbar(
+            total: value.total,
+            offset: value.offset,
+            len: value.len
+        )
+    }
+
+    private func publishScrollbarUpdate(
+        _ value: GhosttyScrollbar,
+        isAuthoritativeWheelResponse: Bool = false
+    ) {
+        scrollbar = value
         if keyboardCopyModeActive, let surface {
             reconcileKeyboardCopyModeViewport(surface: surface)
+        }
+        var userInfo: [AnyHashable: Any] = [GhosttyNotificationKey.scrollbar: value]
+        if isAuthoritativeWheelResponse {
+            userInfo[GhosttyNotificationKey.isAuthoritativeWheelResponse] = true
         }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: userInfo
         )
     }
 
-    func flushPendingScrollbarIfAvailable() -> Bool {
+    private func postWheelScroll(
+        requiresAuthoritativeResponse: Bool,
+        authoritativeResponseUnavailable: Bool = false
+    ) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if requiresAuthoritativeResponse {
+            userInfo[GhosttyNotificationKey.requiresAuthoritativeWheelResponse] = true
+        }
+        if authoritativeResponseUnavailable {
+            userInfo[GhosttyNotificationKey.authoritativeWheelResponseUnavailable] = true
+        }
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: self,
+            userInfo: userInfo.isEmpty ? nil : userInfo
+        )
+    }
+
+    private func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()
@@ -3685,6 +3774,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPending else { return false }
         flushPendingScrollbar()
         return true
+    }
+
+    private func discardPendingScrollbar() {
+        _scrollbarLock.lock()
+        _pendingScrollbar = nil
+        _scrollbarLock.unlock()
     }
 
     func enqueueRenderedFrameUpdate(
@@ -4358,7 +4453,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: isWindowLiveResizeActive,
                 interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
-                bypass: bypassLiveResizeCoalescing
+                bypass: bypassLiveResizeCoalescing,
+                surfaceKind: terminalSurface.ioMode == .exec ? .processOwned : .manualIO
             ).shouldCoalescePixelOnlyResize,
             // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
             // would hold it at the pre-drag (larger) size and paint past the
@@ -4505,6 +4601,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
         }
         return true
+    }
+
+    func cancelKeyboardCopyMode() {
+        guard keyboardCopyModeActive else { return }
+        if let surface {
+            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        }
+        setKeyboardCopyModeActive(false)
     }
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
@@ -5327,6 +5431,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
+            cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -6480,14 +6585,67 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
+        _ = dispatchCommandClickRelease(
+            surface: surface,
+            at: point,
+            modifierFlags: event.modifierFlags,
+            mouseMods: mouseModsFromEvent(event)
+        )
+        return true
+    }
+
+    private func beginCommandClickReleaseRouting() {
+        commandClickReleaseRoutingActive = true
+        commandClickReleaseRuntimeOutcome = nil
+    }
+
+    /// Records a URL action only while its originating mouse release is active.
+    /// Other Ghostty URL actions must not affect a later path fallback.
+    fileprivate func recordCommandClickReleaseRuntimeOutcome(
+        _ outcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
+    ) {
+        guard commandClickReleaseRoutingActive else { return }
+        commandClickReleaseRuntimeOutcome = outcome
+    }
+
+    private func finishCommandClickReleaseRouting(
+        ghosttyConsumed: Bool
+    ) -> TerminalCommandClickReleaseRouter.RuntimeOutcome {
+        defer {
+            commandClickReleaseRoutingActive = false
+            commandClickReleaseRuntimeOutcome = nil
+        }
+        guard commandClickReleaseRoutingActive else {
+            return ghosttyConsumed ? .consumed : .unhandled
+        }
+        return commandClickReleaseRuntimeOutcome ?? (ghosttyConsumed ? .consumed : .unhandled)
+    }
+
+    @discardableResult
+    private func dispatchCommandClickRelease(
+        surface: ghostty_surface_t,
+        at point: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        mouseMods: ghostty_input_mods_e
+    ) -> (
+        consumed: Bool,
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome,
+        resolution: WordPathResolution?
+    ) {
+        beginCommandClickReleaseRouting()
         let consumed = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_LEFT,
-            mods: mouseModsFromEvent(event)
+            mods: mouseMods
         )
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
-        return true
+        let runtimeOutcome = finishCommandClickReleaseRouting(ghosttyConsumed: consumed)
+        let resolution = handleCommandClickRelease(
+            at: point,
+            modifierFlags: modifierFlags,
+            runtimeOutcome: runtimeOutcome
+        )
+        return (consumed, runtimeOutcome, resolution)
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -6838,11 +6996,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
     ) -> WordPathResolution? {
         guard let surface else { return nil }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
         let cmdHeld = modifierFlags.contains(.command)
+        let ghosttyConsumed = runtimeOutcome != .unhandled
         let resolvedPoint = preferredPointerPoint(from: point)
         guard cmdHeld, !suppressCommandPathHover else {
 #if DEBUG
@@ -6878,49 +7037,82 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else {
+        var resolvedPath: WordPathResolution?
+        let route = commandClickReleaseRouter.route(
+            commandHeld: cmdHeld,
+            pathFallbackSuppressed: suppressCommandPathHover,
+            runtimeOutcome: runtimeOutcome
+        ) { [self] in
+            guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else { return nil }
+            resolvedPath = resolution
+            return TerminalCommandClickReleaseRouter.ResolvedPath(
+                path: resolution.path,
+                source: resolution.source == .snapshot ? .snapshot : .quicklook
+            )
+        }
+
+        switch route {
+        case .runtimeOpenURL:
 #if DEBUG
             runtimeDebugLog(
-                hypothesisID: "h2",
+                hypothesisID: "h3",
                 name: "command_click_release",
-                expected: "cmd-click should resolve the token under the pointer",
-                actual: "no_resolution",
+                expected: "a runtime URL action exclusively owns the release",
+                actual: "runtime_open_url_owned",
                 data: [
+                    "flags": debugModifierString(modifierFlags),
+                    "ghostty_consumed": ghosttyConsumed,
+                    "point_x": point.x,
+                    "point_y": point.y
+                ]
+            )
+#endif
+            return nil
+        case .none:
+#if DEBUG
+            if let resolution = resolvedPath {
+                var payload: [String: Any] = [
                     "flags": debugModifierString(modifierFlags),
                     "ghostty_consumed": ghosttyConsumed,
                     "point_x": point.x,
                     "point_y": point.y,
                     "resolved_point_x": resolvedPoint?.x ?? -1,
-                    "resolved_point_y": resolvedPoint?.y ?? -1
+                    "resolved_point_y": resolvedPoint?.y ?? -1,
+                    "suppress_path_hover": suppressCommandPathHover
                 ]
-            )
-#endif
-            return nil
-        }
-        guard !ghosttyConsumed || resolution.source == .snapshot else {
-#if DEBUG
-            var payload: [String: Any] = [
-                "flags": debugModifierString(modifierFlags),
-                "ghostty_consumed": ghosttyConsumed,
-                "point_x": point.x,
-                "point_y": point.y,
-                "resolved_point_x": resolvedPoint?.x ?? -1,
-                "resolved_point_y": resolvedPoint?.y ?? -1,
-                "suppress_path_hover": suppressCommandPathHover
-            ]
-            for (key, value) in runtimeDebugResolutionPayload(resolution) {
-                payload[key] = value
+                for (key, value) in runtimeDebugResolutionPayload(resolution) {
+                    payload[key] = value
+                }
+                runtimeDebugLog(
+                    hypothesisID: "h3",
+                    name: "command_click_release",
+                    expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
+                    actual: "consumed_quicklook_resolution_skipped",
+                    data: payload
+                )
+            } else {
+                runtimeDebugLog(
+                    hypothesisID: "h2",
+                    name: "command_click_release",
+                    expected: "cmd-click should resolve the token under the pointer",
+                    actual: "no_resolution",
+                    data: [
+                        "flags": debugModifierString(modifierFlags),
+                        "ghostty_consumed": ghosttyConsumed,
+                        "point_x": point.x,
+                        "point_y": point.y,
+                        "resolved_point_x": resolvedPoint?.x ?? -1,
+                        "resolved_point_y": resolvedPoint?.y ?? -1
+                    ]
+                )
             }
-            runtimeDebugLog(
-                hypothesisID: "h3",
-                name: "command_click_release",
-                expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
-                actual: "consumed_quicklook_resolution_skipped",
-                data: payload
-            )
 #endif
             return nil
+        case .pathFallback:
+            break
         }
+
+        guard let resolution = resolvedPath else { return nil }
 
         #if DEBUG
         cmuxDebugLog(
@@ -7094,23 +7286,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
-        let releaseConsumed = sendGhosttyMouseButton(
-            surface,
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_LEFT,
-            mods: mods
-        )
-        let resolution = handleCommandClickRelease(
+        let release = dispatchCommandClickRelease(
+            surface: surface,
             at: clampedPoint,
             modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
+            mouseMods: mods
         )
 
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
-        if let resolution {
+        if let resolution = release.resolution {
             payload["openedPath"] = resolution.path
             payload["resolutionSource"] = resolution.source.rawValue
             payload["rawToken"] = resolution.rawToken
@@ -7148,17 +7335,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: commandMods
         )
-        let releaseConsumed = sendGhosttyMouseButton(
-            surface,
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_LEFT,
-            mods: commandMods
+        let release = dispatchCommandClickRelease(
+            surface: surface,
+            at: clampedPoint,
+            modifierFlags: flags,
+            mouseMods: commandMods
         )
         flagsChanged(with: cmdUp)
 
         return [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
     }
 
@@ -7529,8 +7716,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
-        guard let surface = surface else { return }
+        guard let surface else {
+            // Detached views used by previews and tests have no runtime
+            // snapshot. Preserve the bounded first-packet fallback for them.
+            postWheelScroll(requiresAuthoritativeResponse: true)
+            if let authoritativeScrollbar = authoritativeScrollbarSnapshot() {
+                // The synchronous snapshot supersedes any callback payload
+                // that was queued before this wheel event.
+                discardPendingScrollbar()
+                publishScrollbarUpdate(
+                    authoritativeScrollbar,
+                    isAuthoritativeWheelResponse: true
+                )
+                return
+            }
+            _ = flushPendingScrollbarIfAvailable()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        postWheelScroll(requiresAuthoritativeResponse: true)
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
@@ -7575,7 +7782,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             y,
             ghostty_input_scroll_mods_t(mods)
         )
+
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // Surface teardown can race input delivery. Cancel the pending
+            // request and discard queued geometry; publishing stale geometry
+            // here would move the viewport to an obsolete row space.
+            discardPendingScrollbar()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        publishScrollbarUpdate(
+            authoritativeScrollbar,
+            isAuthoritativeWheelResponse: true
+        )
     }
+
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
@@ -7811,8 +8035,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        executePreparedImageTransfer(
-            .fileURLs(urls),
+        let dragTypes = NSPasteboard(name: .drag).types ?? []
+        guard let durableURLs = GhosttyApp.terminalPasteboard.durableDroppedFileURLs(
+            urls,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                dragTypes
+            )
+        ) else {
+            return false
+        }
+        return executePreparedImageTransfer(
+            .fileURLs(durableURLs),
             onCancel: {}
         )
     }
@@ -8244,10 +8477,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var notificationScrollRestoreState = NotificationScrollRestoreState()
-    /// Tracks scrollback review so auto-scroll does not fight the user's position.
-    var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    var allowExplicitScrollbarSync = false
+    /// Single source of truth for terminal follow/review intent. Layout and
+    /// document reflow may move AppKit bounds transiently, but they never write
+    /// this state; only user scroll gestures, explicit restores, and
+    /// authoritative Ghostty scrollbar packets do.
+    private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8479,7 +8713,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
-        scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
@@ -8708,7 +8941,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            // Final scroll position check to update userScrolledAwayFromBottom state
+            // Final user-gesture check to settle follow/review intent.
             self?.handleLiveScroll()
         })
 
@@ -8755,11 +8988,27 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
-            queue: .main
-        ) { [weak self] _ in
+            // Every producer is ``GhosttyNSView.scrollWheel`` on the main
+            // thread. Do not enqueue this arm operation: the following
+            // authoritative snapshot must observe the new intent.
+            queue: nil
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
-                self?.pendingExplicitWheelScroll = true
-                self?.cancelPendingNotificationScrollRestoreForUserInput()
+                guard let self else { return }
+                if notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
+                    as? Bool == true {
+                    self.scrollbackViewportIntent = self.scrollbackViewportIntent
+                        .cancellingExplicitScrollbarSync()
+                    self.cancelPendingNotificationScrollRestoreForUserInput()
+                    return
+                }
+                let requiresAuthoritativeResponse =
+                    notification.userInfo?[GhosttyNotificationKey.requiresAuthoritativeWheelResponse]
+                    as? Bool == true
+                self.beginExplicitScrollbarSync(
+                    requiresAuthoritativeResponse: requiresAuthoritativeResponse
+                )
+                self.cancelPendingNotificationScrollRestoreForUserInput()
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -8928,7 +9177,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
-    private func synchronizeGeometryAndContent() -> Bool {
+    private func synchronizeGeometryAndContent(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) -> Bool {
+        let preservedReviewOriginY = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -8994,7 +9250,10 @@ final class GhosttySurfaceScrollView: NSView {
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: forceViewportSync,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
@@ -9891,6 +10150,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
@@ -10050,6 +10310,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setActive(_ active: Bool) {
         let wasActive = isActive
+        if !active {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         isActive = active
 #if DEBUG
         if wasActive != active {
@@ -11525,37 +11788,51 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView() {
+    private func synchronizeScrollView(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) {
         var didChangeGeometry = false
+        let originToPreserve = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
             documentView.frame.size.height = targetDocumentHeight
             didChangeGeometry = true
         }
 
+        // A non-flipped clip view can be clamped to its live bottom when its
+        // document or viewport height changes. Restore the pre-layout pixel
+        // anchor while reviewing scrollback or waiting for a wheel response;
+        // an authoritative Ghostty packet will replace it below.
+        if forceViewportSync != true,
+           scrollbackViewportIntent.preservesViewportDuringPendingSync,
+           let originToPreserve {
+            let maxOriginY = max(
+                0,
+                documentView.frame.height - scrollView.contentView.bounds.height
+            )
+            let preservedOrigin = CGPoint(
+                x: 0,
+                y: min(max(originToPreserve, 0), maxOriginY)
+            )
+            let currentOrigin = scrollView.contentView.bounds.origin
+            if !pointApproximatelyEqual(currentOrigin, preservedOrigin) {
+                scrollView.contentView.scroll(to: preservedOrigin)
+                didChangeGeometry = true
+            }
+        }
+
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                let offsetY = CGFloat(scrollbar.rowsBelowViewport) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                let shouldAutoScroll = forceViewportSync ??
+                    scrollbackViewportIntent.allowsPassiveScrollbarSync
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -11565,7 +11842,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
         }
 
-        allowExplicitScrollbarSync = false
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11574,22 +11850,50 @@ final class GhosttySurfaceScrollView: NSView {
     private func handleScrollChange() {
         synchronizeSurfaceView()
     }
+
+    private func beginExplicitScrollbarSync(
+        requiresAuthoritativeResponse: Bool = false
+    ) {
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .beginningExplicitScrollbarSync(
+                requiresAuthoritativeResponse: requiresAuthoritativeResponse
+            )
+    }
+
+    /// Applies a direct viewport restore as one intent transition so a later
+    /// passive bottom packet cannot overwrite a restored scrollback position.
+    @discardableResult
+    func prepareExplicitViewportRestore(
+        isAtBottom: Bool
+    ) -> TerminalScrollbackViewportIntent {
+        let previousIntent = scrollbackViewportIntent
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .resolvingExplicitViewportRestore(isAtBottom: isAtBottom)
+        return previousIntent
+    }
+
+    func rollbackExplicitViewportRestore(
+        to previousIntent: TerminalScrollbackViewportIntent
+    ) {
+        scrollbackViewportIntent = previousIntent
+    }
+
     private func handleLiveScroll() {
         cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        let topBasedScrollOffset = max(
+            documentHeight - visibleRect.origin.y - visibleRect.height,
+            0
+        )
+        scrollbackViewportIntent = scrollbackViewportIntent.applyingUserScroll(
+            distanceFromBottom: Double(max(visibleRect.origin.y, 0)),
+            bottomThreshold: Double(Self.scrollToBottomThreshold)
+        )
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
+        let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
         lastSentRow = row
@@ -11598,20 +11902,37 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
+        let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
+            ? max(scrollView.contentView.bounds.origin.y, 0)
+            : nil
+        let cellHeight = surfaceView.cellSize.height
+        let targetDistanceFromBottom = cellHeight > 0
+            ? Double(scrollbar.rowsBelowViewport) * Double(cellHeight)
+            : nil
+        let syncDecision = scrollbackViewportIntent.applyingScrollbar(
+            scrollbar,
+            targetDistanceFromBottom: targetDistanceFromBottom,
+            bottomThreshold: Double(Self.scrollToBottomThreshold),
+            isAuthoritativeWheelResponse:
+                notification.userInfo?[GhosttyNotificationKey.isAuthoritativeWheelResponse]
+                    as? Bool == true
+        )
+        scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
-        }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
-            _ = synchronizeGeometryAndContent()
+            _ = synchronizeGeometryAndContent(
+                forceViewportSync: syncDecision.shouldSynchronizeViewport,
+                preservedReviewOriginY: preservedReviewOriginY
+            )
             restorePendingNotificationScrollPositionAfterScrollbarUpdate()
             return
         }
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: syncDecision.shouldSynchronizeViewport,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
@@ -11620,14 +11941,13 @@ final class GhosttySurfaceScrollView: NSView {
         let shouldShowScrollBar = shouldShowTerminalScrollBar()
         let didChange =
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
-            scrollView.autohidesScrollers != false ||
-            scrollView.scrollerStyle != .overlay
+            scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Mirror upstream Ghostty: keep overlay scrollers even when the
-        // system preference is legacy so terminal content never sits beneath a
-        // permanently reserved scrollbar gutter.
+        // Keep the scroller visible whenever terminal scrollback exists. The
+        // scroller style itself is intentionally left to AppKit, which follows
+        // the user's Appearance > Show scroll bars preference and updates this
+        // scroll view when NSScroller.preferredScrollerStyle changes.
         scrollView.autohidesScrollers = false
-        scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
         return didChange
     }
@@ -11643,8 +11963,25 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
+        // scroller preference. Update the hosted surface/document frames through
+        // the same narrow path instead of running the full pane reconciliation,
+        // which can perturb split-layout overlays during a system preference
+        // change.
         scrollView.tile()
+        synchronizeTerminalGeometryAfterScrollerStyleChange()
+    }
+
+    private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.contentView.bounds.size
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 

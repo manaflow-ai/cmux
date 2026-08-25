@@ -213,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -382,6 +389,11 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }
 
@@ -416,6 +428,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
+        "terminal.adaptiveDefaultTheme",
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
@@ -504,6 +517,7 @@ extension CmuxSettingsFileStore {
         "browser.defaultEngine",
         "browser.chromiumExtensionDirectories",
         "browser.remoteDebuggingPort",
+        "browser.defaultZoomLevel",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
@@ -516,6 +530,7 @@ extension CmuxSettingsFileStore {
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "browser.urlAllowlist",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
         "mobile.artifactFolderAccess",

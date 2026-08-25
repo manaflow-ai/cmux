@@ -22,7 +22,21 @@ extension MobileWorkspacePreview {
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             },
+            surfaces: (remote.surfaces ?? []).map(MobileSurfacePreview.init(remote:)),
             simulators: remote.simulators
+        )
+    }
+}
+
+extension MobileSurfacePreview {
+    init(remote: MobileSyncWorkspaceListResponse.Surface) {
+        self.init(
+            id: ID(rawValue: remote.surfaceID),
+            kind: Kind(rawValue: remote.kind),
+            title: remote.title,
+            filePath: remote.filePath,
+            todo: remote.todo,
+            isFocused: remote.isFocused
         )
     }
 }

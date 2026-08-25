@@ -52,7 +52,7 @@ import Testing
         #expect(message != MobilePairingFailureCategory.authFailed.message)
         #expect(!message.contains("Make sure both devices are signed in"))
         #expect(category?.guidance?.contains("BETA") == true)
-        #expect(category?.guidance?.contains("same DEV tag") == true)
+        #expect(category?.guidance?.contains("any DEV Mac build") == true)
         #expect(category?.analyticsReason == "auth_environment_mismatch")
         // Re-authenticating cannot move the account to another Stack project,
         // so this must not drive the Sign Out re-auth prompt.

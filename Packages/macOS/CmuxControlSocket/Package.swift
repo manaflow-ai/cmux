@@ -19,10 +19,15 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CmuxControlSocketAtomicsC",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                "CmuxControlSocketAtomicsC",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

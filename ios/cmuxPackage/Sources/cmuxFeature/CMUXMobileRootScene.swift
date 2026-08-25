@@ -45,6 +45,7 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let featureFlags: MobileFeatureFlags
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -91,6 +92,7 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - featureFlags: The live PostHog-backed mobile feature flags.
     ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
     ///     used by both connection routing and Settings.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
@@ -116,6 +118,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        featureFlags: MobileFeatureFlags,
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
@@ -133,6 +136,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.featureFlags = featureFlags
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
@@ -224,14 +228,16 @@ public struct CMUXMobileRootScene: View {
         pairedMacStore: (any MobilePairedMacStoring)?
     ) -> (any DeviceRegistryRefreshing)? {
         let baseURL = auth.config.apiBaseURL
-        guard !baseURL.isEmpty else { return nil }
+        guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else {
+            return nil
+        }
         let coordinator = auth.coordinator
+        let deviceWitness = DeviceRegistryService.currentDeviceWitness()
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            // The SAME evidence probe the iroh composition passes: both
-            // callers must resolve one identity, or whichever runs first would
-            // persist a different winner and strand the other's binding.
-            deviceID: DeviceRegistryService.deviceID(
+            deviceID: appNamespace.deviceRegistryDeviceID(
+                keychainAccessGroup: auth.keychainAccessGroup,
+                deviceWitness: deviceWitness,
                 evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
             ),
             tokenSource: DeviceRegistryService.TokenSource(
@@ -252,10 +258,15 @@ public struct CMUXMobileRootScene: View {
                     stackUserID: userID,
                     teamID: teamID
                 )
-                let target = cmxCanonicalDeviceID(macDeviceID)
+                let targetID = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ).id
                 return pairedMacs?.first(where: {
-                    cmxCanonicalDeviceID($0.macDeviceID) == target
-                        && $0.instanceTag == instanceTag
+                    CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == targetID
                 })?.routes
             }
         )
@@ -306,10 +317,19 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
+              let appNamespace = auth.appNamespace,
               let baseURL = PresenceClient.resolvedServiceBaseURL(
                   isDevelopmentAuthChannel: auth.authEnvironment == .development
               ) else {
             return scopedStore
+        }
+        let legacyScope = appNamespace.legacyBackupScope
+        let legacyClientScopeProvider: (@Sendable () async -> String?)?
+        if let legacyScope {
+            let legacyScopeHeader = legacyScope.headerValue
+            legacyClientScopeProvider = { @Sendable in legacyScopeHeader }
+        } else {
+            legacyClientScopeProvider = nil
         }
         let client = PairedMacBackupClient(
             serviceBaseURL: baseURL,
@@ -318,7 +338,8 @@ public struct CMUXMobileRootScene: View {
                 currentUserID: { await coordinator.currentUser?.id }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { buildScope?.serializedScope }
+            clientScopeProvider: { appNamespace.serverScope },
+            legacyClientScopeProvider: legacyClientScopeProvider
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,
@@ -352,6 +373,8 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
+            .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             #endif

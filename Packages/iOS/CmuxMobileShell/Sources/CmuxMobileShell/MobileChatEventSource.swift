@@ -21,8 +21,7 @@ private actor MobileArtifactDownloadByteCounter {
 /// History and actions go through `mobile.chat.*` request methods; live
 /// updates arrive on the `chat.message` event topic, filtered per session.
 /// The returned event stream finishes when the underlying connection drops;
-/// ``CmuxAgentChat/ChatConversationStore`` resubscribes through its `run()`
-/// loop.
+/// consumers resubscribe when they rebuild a source for a new connection.
 public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     let diagnosticLog: DiagnosticLog?
@@ -32,6 +31,8 @@ public actor MobileChatEventSource: ChatEventSource {
     public nonisolated let supportsArtifactFolders: Bool
     /// Whether the connected Mac supports terminal-scoped directory listing.
     public nonisolated let supportsTerminalArtifactList: Bool
+    /// Whether the connected Mac supports lifecycle-bound panel file reads.
+    public nonisolated let supportsPanelArtifacts: Bool
     /// Whether the connected Mac supports session-wide artifact gallery pages.
     public nonisolated let supportsArtifactGallery: Bool
     /// Whether raw artifact bytes may use a peer-bound Iroh application lane.
@@ -46,6 +47,7 @@ public actor MobileChatEventSource: ChatEventSource {
         supportsArtifactGallery: Bool = false,
         supportsArtifactFolders: Bool = false,
         supportsTerminalArtifactList: Bool = false,
+        supportsPanelArtifacts: Bool = false,
         supportsArtifactLane: Bool = false,
         diagnosticLog: DiagnosticLog? = nil
     ) {
@@ -55,6 +57,7 @@ public actor MobileChatEventSource: ChatEventSource {
         self.supportsArtifactGallery = supportsArtifactGallery
         self.supportsArtifactFolders = supportsArtifactFolders
         self.supportsTerminalArtifactList = supportsTerminalArtifactList
+        self.supportsPanelArtifacts = supportsPanelArtifacts
         self.supportsArtifactLane = supportsArtifactLane
     }
 

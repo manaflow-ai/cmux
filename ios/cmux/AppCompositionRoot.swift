@@ -30,7 +30,14 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -138,11 +145,16 @@ final class AppCompositionRoot {
                 appLog.mirrorAppLine(line)
             }
         }
-        self.analytics = MobileAnalyticsComposition(
+        let analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent,
             diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        self.featureFlags = MobileFeatureFlags(
+            loader: analytics.clientConfig,
+            request: analytics.anonymousClientConfigRequest
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -158,12 +170,32 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        #if DEBUG
+        // DEV: a devicectl launch with DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL
+        // persists the isolated-worker override so later env-less cold
+        // launches (push wakes) keep resolving it.
+        PresenceClient.persistEnvironmentOverrideIfPresent()
+        #endif
+        // Inline replies relay through the presence worker when the phone
+        // cannot deliver directly (a backgrounded app never dials). Same
+        // worker origin as the connectivity subscriber, so the account that
+        // subscribes is the account whose inbox the Mac sweeps.
+        let replyRelayBaseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ).flatMap { URL(string: $0) }
+        let replyRelayAccessToken = CMUXMobileRuntime.stackAccessTokenProvider(
+            from: auth.coordinator
+        )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
-            notificationSettings: pushNotificationSettings
+            notificationSettings: pushNotificationSettings,
+            replyRelay: SystemReplyRelayClient(
+                serviceBaseURL: replyRelayBaseURL,
+                accessToken: { try? await replyRelayAccessToken() }
+            )
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
@@ -286,20 +318,18 @@ final class AppCompositionRoot {
         // can complete during launch, and starting earlier would leave its
         // accepted events in the in-memory ring but absent from cmux-app.log.
         auth.start()
+        featureFlags.start()
     }
 
-    deinit {
+    isolated deinit {
         pushReachabilityTask?.cancel()
+        featureFlags.stop()
     }
 
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -336,8 +366,13 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
-            iroh.didBecomeActive()
+            connectionMethodStore.recordConfiguredMethodDiagnostic()
+            let isFullForegroundReturn = iroh.didBecomeActive()
+            // A notification-permission prompt is itself a transient inactive
+            // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
+            guard isFullForegroundReturn else { return }
+            featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,

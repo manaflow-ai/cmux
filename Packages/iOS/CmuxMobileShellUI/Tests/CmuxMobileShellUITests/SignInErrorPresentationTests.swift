@@ -1,3 +1,4 @@
+import Foundation
 import StackAuth
 import Testing
 @testable import CmuxMobileShellUI

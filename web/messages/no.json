@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter"
+      "coderouterLink": "åpne coderouter",
+      "iosAppName": "iOS-app",
+      "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
+      "iosLink": "Åpne iOS-appen"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -797,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Oppretter en tmux-shim i den gjeldende overflatens midlertidige shim-katalog. Banen inneholder overflate-UUID-en og endres for hvert panel og hver oppstart, så ingen fast bane kan oppgis",
+      "shimStep2": "Setter TMUX og TMUX_PANE for å simulere tmux i oppstartsøkten for Claude Teams",
+      "shimDiagnostic": "Shim-en ruterer til cmux bare når <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> er satt; ellers faller den transparent gjennom til neste ekte tmux-kjørbare fil. Derfor viser ikke <which>which tmux</which> om Claude Teams-avskjæringen er aktiv.",
+      "envTmux": "Syntetisk tmux-socketbane for økten som kjørte cmux claude-teams",
+      "envTmuxPane": "Syntetisk tmux-panelidentifikator for økten som kjørte cmux claude-teams; tom i opprettede agentpaneler",
+      "envSurface": "UUID-en til den gjeldende overflaten; bruk den som overflateidentifikator i et opprettet agentpanel",
+      "envScope": "De syntetiske verdiene <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> og relaterte tmux-kompatibilitetsverdier beskriver økten som kjørte <command>cmux claude-teams</command>, ikke de opprettede panelene. Fra et agentpanel bruker du <surface>CMUX_SURFACE_ID</surface> og kjører <tree>cmux tree --json</tree>; <caller>caller</caller>-objektet i utdataene identifiserer det kallende panelet.",
+      "dirShimPath": "Katalog per overflate under systemets midlertidige katalog (ingen fast sti)",
+      "dirShim": "Inneholder den aktive tmux-shimen og legges først i PATH for den overflaten",
+      "dirStore": "Varig lagring for tmux-compat-buffere, hooks og tilstand for plassering/oppsett av splitter",
+      "storeDetails": "Nøklene for splittruting er:",
+      "storeLastSplitSurface": "Knytter hver workspace-UUID til surface-UUID-en som ble opprettet av det siste splittet. Den initialiserer agentkolonneankeret som bestemmer hvor neste main-vertical-splitt havner.",
+      "storeMainVerticalLayouts": "Knytter hver workspace-UUID til <mainSurfaceId>mainSurfaceId</mainSurfaceId> (hoved- eller lederoverflaten) og <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (den nederste overflaten i agentkolonnen). Påfølgende teammate-splitt målrettes mot kolonnen og stables nedover.",
+      "storeTroubleshooting": "Undersøk disse rutingsnøklene hvis et teammate-panel vises som en fane bak en eksisterende overflate i stedet for som et splitt ved siden av den."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Kom i gang",
@@ -996,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "urlAllowlist": "Verts- eller URL-mønstre som begrenser navigering i den innebygde nettleseren. Innstillinger foreslår lokale utviklingsopprinnelser; lagring av en liste aktiverer den valgfrie begrensningen. Fjern oppføringer for å blokkere dem, eller la brukerverdien være tom uten en administrert policy for å deaktivere begrensningen."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",

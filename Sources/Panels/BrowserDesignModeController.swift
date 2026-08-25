@@ -614,6 +614,23 @@ final class BrowserDesignModeController {
         )
     }
 
+    /// Evaluates page-owned JavaScript through the same cancellable, bounded
+    /// evaluator used by Design Mode. React Grab lives in the page world, so
+    /// lifecycle teardown can release this await even if WebKit drops its
+    /// completion callback while the web view is being removed.
+    func evaluatePageJavaScript(
+        _ body: String,
+        arguments: [String: Any] = [:],
+        in webView: WKWebView
+    ) async throws -> Any? {
+        try await javaScriptEvaluator.call(
+            body,
+            arguments: arguments,
+            in: webView,
+            contentWorld: .page
+        )
+    }
+
     private func receiveSnapshotData(_ data: Data) {
         guard phase.isEnabled || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }

@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "توجيه طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
-      "coderouterLink": "فتح coderouter"
+      "coderouterLink": "فتح coderouter",
+      "iosAppName": "تطبيق iOS",
+      "iosAppDescription": "ثبّت تطبيق cmux لنظام iOS عبر TestFlight (وصول تجريبي).",
+      "iosLink": "فتح تطبيق iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -797,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "للتجوال بين الشبكات، استخدم cmux mosh-tmux. يفتح طرفية Mosh متكاملة متصلة بجلسة tmux مسماة؛ ولا يستبدل مرآة مساحات العمل وعلامات التبويب والأجزاء الأصلية التي يوفرها وضع تحكم tmux عبر SSH."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "ينشئ shim لـ tmux في دليل shim المؤقت للسطح الحالي. يتضمن المسار UUID الخاص بالسطح ويتغير لكل لوحة وعند كل تشغيل للنظام، لذلك لا يمكن ذكر مسار ثابت",
+      "shimStep2": "يضبط TMUX وTMUX_PANE لمحاكاة tmux في جلسة تشغيل Claude Teams",
+      "shimDiagnostic": "توجّه shim الطلبات إلى cmux فقط عند ضبط <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>؛ وإلا فإنها تمررها بشفافية إلى ملف tmux التنفيذي الحقيقي التالي. لذلك لا توضح <which>which tmux</which> ما إذا كان اعتراض Claude Teams نشطًا.",
+      "envTmux": "مسار مقبس tmux اصطناعي للجلسة التي شغّلت cmux claude-teams",
+      "envTmuxPane": "معرّف جزء tmux اصطناعي للجلسة التي شغّلت cmux claude-teams؛ يكون فارغًا في لوحات الوكلاء التي تم إنشاؤها",
+      "envSurface": "معرّف UUID للسطح الحالي؛ استخدمه كمعرّف للسطح داخل لوحة وكيل مُنشأة",
+      "envScope": "تصف القيم الاصطناعية <tmux>TMUX</tmux> و<tmuxPane>TMUX_PANE</tmuxPane> والقيم المرتبطة بتوافق tmux الجلسة التي شغّلت <command>cmux claude-teams</command>، وليس اللوحات المُنشأة. من داخل لوحة وكيل، استخدم <surface>CMUX_SURFACE_ID</surface> وشغّل <tree>cmux tree --json</tree>؛ يحدد كائن <caller>caller</caller> في المخرجات اللوحة المستدعية.",
+      "dirShimPath": "دليل لكل سطح ضمن الدليل المؤقت للنظام (لا يوجد مسار ثابت)",
+      "dirShim": "يحتوي على shim النشط لـ tmux ويُضاف إلى بداية PATH لذلك السطح",
+      "dirStore": "تخزين دائم لمخازن tmux-compat المؤقتة والخطافات وحالة موضع/تخطيط الانقسامات",
+      "storeDetails": "مفاتيح توجيه التقسيم هي:",
+      "storeLastSplitSurface": "يربط UUID كل مساحة عمل بـ UUID السطح الذي أنشأه آخر تقسيم. ويهيئ مرساة عمود الوكلاء التي تحدد موضع تقسيم main-vertical التالي.",
+      "storeMainVerticalLayouts": "يربط UUID كل مساحة عمل بـ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (السطح الرئيسي أو القائد) و<lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (السطح الأدنى في عمود الوكلاء). تستهدف تقسيمات teammate اللاحقة ذلك العمود وتتراكم إلى الأسفل.",
+      "storeTroubleshooting": "افحص مفاتيح التوجيه هذه عندما تظهر لوحة teammate كعلامة تبويب خلف سطح موجود بدلًا من ظهورها كتقسيم بجانبه."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "البدء",
@@ -996,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
-          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان."
+          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",
+          "urlAllowlist": "أنماط المضيف أو عناوين URL التي تقيّد التنقل في المتصفح المضمّن. تقترح الإعدادات مصادر التطوير المحلية؛ يؤدي حفظ قائمة إلى تفعيل التقييد الاختياري. احذف الإدخالات لحظرها، أو اترك قيمة المستخدم فارغة عند عدم وجود سياسة مُدارة لتعطيل التقييد."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "الإعداد الافتراضي العام لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل مجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو).",

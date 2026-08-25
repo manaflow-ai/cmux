@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
-      "coderouterLink": "ouvrir coderouter"
+      "coderouterLink": "ouvrir coderouter",
+      "iosAppName": "application iOS",
+      "iosAppDescription": "Installez l'application iOS cmux via TestFlight (accès bêta).",
+      "iosLink": "Ouvrir l'application iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -797,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Pour passer d’un réseau à l’autre, utilisez cmux mosh-tmux. Il ouvre un terminal Mosh pleinement intégré attaché à une session tmux nommée ; il ne remplace pas le miroir natif des espaces, onglets et divisions fourni par le mode de contrôle tmux via SSH."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Crée un shim tmux dans le répertoire temporaire de shims de la surface actuelle. Son chemin contient l’UUID de la surface et change pour chaque panneau et à chaque démarrage ; aucun chemin fixe ne peut donc être indiqué",
+      "shimStep2": "Définit TMUX et TMUX_PANE pour simuler tmux dans la session de lancement de Claude Teams",
+      "shimDiagnostic": "Le shim ne route vers cmux que lorsque <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> est défini ; sinon, il transmet de manière transparente vers le prochain exécutable tmux réel. Ainsi, <which>which tmux</which> ne permet pas de savoir si l’interception de Claude Teams est active.",
+      "envTmux": "Chemin synthétique du socket tmux pour la session qui a exécuté cmux claude-teams",
+      "envTmuxPane": "Identifiant synthétique de panneau tmux pour la session qui a exécuté cmux claude-teams ; vide dans les panneaux d’agent créés",
+      "envSurface": "L’UUID de la surface actuelle ; utilisez-le comme identifiant de surface dans un panneau d’agent créé",
+      "envScope": "Les valeurs synthétiques <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> et les valeurs de compatibilité tmux associées décrivent la session qui a exécuté <command>cmux claude-teams</command>, et non les panneaux créés. Depuis un panneau d’agent, utilisez <surface>CMUX_SURFACE_ID</surface> et exécutez <tree>cmux tree --json</tree> ; l’objet <caller>caller</caller> de la sortie identifie le panneau appelant.",
+      "dirShimPath": "Répertoire propre à chaque surface dans le répertoire temporaire du système (aucun chemin fixe)",
+      "dirShim": "Contient le shim tmux actif et est ajouté au début de PATH pour cette surface",
+      "dirStore": "Stockage persistant des buffers et hooks tmux-compat, ainsi que de l’état de placement/disposition des splits",
+      "storeDetails": "Les clés de routage des divisions sont :",
+      "storeLastSplitSurface": "Associe chaque UUID d’espace de travail à l’UUID de la surface créée par la dernière division. Il initialise l’ancre de la colonne des agents qui détermine où se place la prochaine division main-vertical.",
+      "storeMainVerticalLayouts": "Associe chaque UUID d’espace de travail à <mainSurfaceId>mainSurfaceId</mainSurfaceId> (la surface principale ou leader) et à <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (la surface la plus basse de la colonne des agents). Les divisions suivantes des coéquipiers ciblent cette colonne et s’empilent vers le bas.",
+      "storeTroubleshooting": "Examinez ces clés de routage lorsqu’un panneau de coéquipier apparaît comme un onglet derrière une surface existante au lieu d’une division à côté de celle-ci."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Premiers pas",
@@ -996,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
-          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
+          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "urlAllowlist": "Motifs d’hôte ou d’URL qui limitent la navigation du navigateur intégré. Les réglages suggèrent les origines de développement local ; enregistrer une liste active la restriction facultative. Supprimez des entrées pour les bloquer ou laissez la valeur utilisateur vide, sans politique gérée, pour désactiver la restriction."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valeur globale par défaut indiquant où Cmd-N dans un groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre).",
