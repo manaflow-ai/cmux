@@ -2430,6 +2430,16 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!constrainedStartupInput.contains(capturedDirectory))
         #expect(remoteCommand.contains(constrainedPayload), Comment(rawValue: remoteCommand))
         #expect(!remoteCommand.contains(unsafePayload), Comment(rawValue: remoteCommand))
+
+        var staleExactNilBinding = binding
+        staleExactNilBinding.restoreWorkingDirectorySelection = .exact(nil)
+        let exactNilRemoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: staleExactNilBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        #expect(!exactNilRemoteCommand.contains(capturedDirectory), Comment(rawValue: exactNilRemoteCommand))
     }
 
     @MainActor

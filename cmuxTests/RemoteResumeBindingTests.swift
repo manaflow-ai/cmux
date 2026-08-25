@@ -668,6 +668,34 @@ struct RemoteResumeBindingTests {
         #expect(restoreRecord["working_directory"] as? String == nil)
         let launchCommand = try #require(restoreRecord["launch_command"] as? [String: Any])
         #expect(launchCommand["working_directory"] as? String == nil)
+        #expect(restoreRecord["legacy_command"] as? String == nil)
+
+        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "-C", capturedDirectory, "resume", sessionID],
+                workingDirectory: capturedDirectory
+            ),
+            restoreWorkingDirectorySelection: .exact(capturedDirectory)
+        )
+        let staleAgentResult = try v2Result(request: [
+            "id": "exact-nil-cwd-with-stale-agent-resume-get",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        let staleAgentRecord = try #require(staleAgentResult["restore_record"] as? [String: Any])
+        #expect(staleAgentRecord["working_directory"] as? String == nil)
+        #expect(staleAgentRecord["legacy_command"] as? String == nil)
+        let staleAgentLaunch = try #require(staleAgentRecord["launch_command"] as? [String: Any])
+        #expect(staleAgentLaunch["working_directory"] as? String == nil)
     }
 
     @Test
