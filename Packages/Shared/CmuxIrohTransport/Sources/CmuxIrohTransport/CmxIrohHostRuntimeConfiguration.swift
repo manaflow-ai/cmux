@@ -22,7 +22,10 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// `nil` preserves automatic use of the complete managed fleet.
     public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
-    /// A previously verified offline policy considered only after broker connectivity failure.
+    /// A previously verified last-good policy. When it still verifies for this
+    /// exact binding it activates the host immediately (cache-first) while the
+    /// live broker resolve reconciles in the background; it also remains the
+    /// verified fallback after broker connectivity failure.
     public let cachedHostPolicy: CmxIrohCachedHostPolicy?
 
     /// Creates stable inputs for one Mac host runtime lifecycle.

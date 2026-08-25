@@ -32,7 +32,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
-                TestIrohEndpoint(identity: fixture.endpointID),
+                try fixture.relayReadyEndpoint(),
             ]),
             broker: broker,
             configuration: fixture.configuration,
@@ -118,7 +118,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
-                TestIrohEndpoint(identity: fixture.endpointID),
+                try fixture.relayReadyEndpoint(),
             ]),
             broker: broker,
             configuration: fixture.configuration,
@@ -179,7 +179,7 @@ extension CmxIrohHostRuntimeTests {
             lanGeneration: 1,
             revision: 1
         )
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: revisionTwo,
@@ -318,19 +318,20 @@ extension CmxIrohHostRuntimeTests {
         .rejected(statusCode: 400, code: "invalid_request"),
         .invalidResponse,
     ])
-    func terminalBrokerFailureNeverUsesCachedPolicy(
+    func terminalBrokerFailureFailsClosedAfterCacheFirstActivation(
         _ failure: CmxIrohTrustBrokerClientError
     ) async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
             registrationError: failure
         )
+        let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -339,18 +340,19 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
         )
 
-        do {
-            try await runtime.start()
-            Issue.record("Expected terminal broker failure")
-        } catch let error as CmxIrohTrustBrokerClientError {
-            #expect(error == failure)
-        }
+        // Cache-first activation succeeds locally, but the background live
+        // reconcile discovers the terminal rejection and fails closed: a Mac
+        // the broker refuses must not keep serving on cached authority.
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
 
-        #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await runtime.snapshot().state == .failed)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await bindings.count() == 0)
     }
 
     @Test
@@ -367,7 +369,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let cachedFixture = try fixture.cachedPolicyFixture(binding: cachedMetadata)
         let now = cachedFixture.now
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
@@ -386,8 +388,13 @@ extension CmxIrohHostRuntimeTests {
             handleBinding: { _, _, _ in await bindings.record() }
         )
 
+        // Cache-first activation starts on the persisted binding; the live
+        // reconcile discovers it was replaced server-side and adopts the
+        // authenticated binding in place, publishing it exactly once.
         try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
 
+        #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == fixture.binding.bindingID)
         #expect(await bindings.count() == 1)
         await runtime.stop()
@@ -459,7 +466,7 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func confirmedOnlineBindingChangePreventsDiscoveryConnectivityFallback() async throws {
+    func halfConfirmedBindingChangeIsNeverAdoptedNorPublished() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
@@ -467,13 +474,14 @@ extension CmxIrohHostRuntimeTests {
             endpointID: fixture.endpointID.endpointID,
             bindingID: "123e4567-e89b-42d3-a456-426614174099"
         )
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: changedBinding,
             discovery: fixture.discovery,
             discoveryError: .connectivity
         )
+        let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -482,18 +490,24 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {
-            try await runtime.start()
-        }
+        // The reconcile registers a replaced binding but its discovery round
+        // fails on connectivity. The half-confirmed binding is confirmed
+        // proof that cached authority is stale, so the runtime fails closed
+        // without adopting or publishing the incomplete policy.
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
 
+        #expect(await runtime.snapshot().state == .failed)
+        #expect(await bindings.count() == 0)
         #expect(await endpoint.observedCloseCallCount() == 1)
     }
 
     @Test
-    func routeContractMismatchNeverUsesCachedPolicy() async throws {
+    func routeContractMismatchFailsClosedAfterCacheFirstActivation() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
@@ -502,7 +516,7 @@ extension CmxIrohHostRuntimeTests {
             relays: Array(fixture.managedRelays),
             routeContractVersion: 2
         )
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
@@ -519,17 +533,17 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.routeContractMismatch) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
 
+        #expect(await runtime.snapshot().state == .failed)
         #expect(await endpoint.observedCloseCallCount() == 1)
     }
 
     @Test
     func discoverySubstitutionFailsClosedAndClosesEndpoint() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let substituted = try HostRuntimeFixture.discovery(
             binding: fixture.binding,
@@ -553,12 +567,11 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
 
-        #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await runtime.snapshot().state == .failed)
+        #expect(await endpoint.observedCloseCallCount() == 1)
     }
 }
 
