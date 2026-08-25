@@ -159,28 +159,54 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             }
         )
         let emptyGroups = groups.filter { $0.isEmpty && !groupsWithMembers.contains($0.id) }
+        let emptyGroupIDs = Set(emptyGroups.map(\.id))
         guard !emptyGroups.isEmpty else { return items }
-        let pinnedEmptyGroups = emptyGroups.filter(\.isPinned)
-        let unpinnedEmptyGroups = emptyGroups.filter { !$0.isPinned }
-        let firstUnpinnedIndex = items.firstIndex { item in
-            switch item {
-            case .groupHeader(let group, _):
-                return !group.isPinned
-            case .workspace(let workspace, _):
-                if let groupID = workspace.groupID,
-                   let group = groupsByID[groupID] {
-                    return !group.isPinned
-                }
-                return !workspace.isPinned
-            case .groupFooter:
-                return false
+        var emptyBeforeGroup: [MobileWorkspaceGroupPreview.ID: [MobileWorkspaceGroupPreview]] = [:]
+        var trailingPinned: [MobileWorkspaceGroupPreview] = []
+        var trailingUnpinned: [MobileWorkspaceGroupPreview] = []
+        for (index, group) in groups.enumerated() where emptyGroupIDs.contains(group.id) {
+            let nextLiveSameTierGroup = groups.dropFirst(index + 1).first {
+                groupsWithMembers.contains($0.id) && $0.isPinned == group.isPinned
             }
-        } ?? items.endIndex
-        items.insert(
-            contentsOf: pinnedEmptyGroups.map { .groupHeader($0, hasUnread: false) },
-            at: firstUnpinnedIndex
-        )
-        items.append(contentsOf: unpinnedEmptyGroups.map { .groupHeader($0, hasUnread: false) })
-        return items
+            if let nextLiveSameTierGroup {
+                emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
+            } else if group.isPinned {
+                trailingPinned.append(group)
+            } else {
+                trailingUnpinned.append(group)
+            }
+        }
+
+        var rendered: [MobileWorkspaceListItem] = []
+        rendered.reserveCapacity(items.count + emptyGroups.count)
+        for item in items {
+            if case .groupHeader(let group, _) = item,
+               let preceding = emptyBeforeGroup[group.id] {
+                rendered.append(contentsOf: preceding.map { .groupHeader($0, hasUnread: false) })
+            }
+            rendered.append(item)
+        }
+        if !trailingPinned.isEmpty {
+            let firstUnpinnedIndex = rendered.firstIndex { item in
+                switch item {
+                case .groupHeader(let group, _):
+                    return !group.isPinned
+                case .workspace(let workspace, _):
+                    if let groupID = workspace.groupID,
+                       let group = groupsByID[groupID] {
+                        return !group.isPinned
+                    }
+                    return !workspace.isPinned
+                case .groupFooter(let groupID):
+                    return groupsByID[groupID]?.isPinned == false
+                }
+            } ?? rendered.endIndex
+            rendered.insert(
+                contentsOf: trailingPinned.map { .groupHeader($0, hasUnread: false) },
+                at: firstUnpinnedIndex
+            )
+        }
+        rendered.append(contentsOf: trailingUnpinned.map { .groupHeader($0, hasUnread: false) })
+        return rendered
     }
 }
