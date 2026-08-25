@@ -27,7 +27,7 @@ nonisolated struct WebSurfaceSelectionReader {
       const unreadable = () => ({ has_selection: false, text: '', blocks_fallback: true });
       const selected = (text, sourceDocument = null, metadata = {}) => ({
         has_selection: true,
-        text: String(text || ''),
+        text: boundedText(text),
         source_document: sourceDocument,
         ...metadata
       });
@@ -145,7 +145,7 @@ nonisolated struct WebSurfaceSelectionReader {
                 retainedRange.endContainer?.isConnected === false) {
               return false;
             }
-            return retainedRange.toString() === retainedSelection.text;
+            return boundedText(retainedRange.toString()) === retainedSelection.text;
           } catch (_) {
             return false;
           }
@@ -155,14 +155,25 @@ nonisolated struct WebSurfaceSelectionReader {
             if (retainedControl.isConnected === false) return false;
             const start = Number(retainedControlStart);
             const end = Number(retainedControlEnd);
-            return String(retainedControl.value || '').slice(start, end) === retainedSelection.text;
+            return boundedText(String(retainedControl.value || '').slice(start, end)) === retainedSelection.text;
           } catch (_) {
             return false;
           }
         }
         return true;
       };
+      const clearIfDetachedFrame = () => {
+        if (!retainedDocument || retainedDocument === document) return;
+        try {
+          const frame = retainedDocument.defaultView?.frameElement;
+          if (!frame || !frame.isConnected) clear();
+        } catch (_) {
+          clear();
+        }
+      };
+
       const read = () => {
+        clearIfDetachedFrame();
         if (retainedDocument && !retainedContentStillValid()) {
           clear(retainedDocument);
         }
@@ -175,18 +186,7 @@ nonisolated struct WebSurfaceSelectionReader {
         return retainedSelection;
       };
 
-      const clearIfDetachedFrame = () => {
-        if (!retainedDocument || retainedDocument === document) return;
-        try {
-          const frame = retainedDocument.defaultView?.frameElement;
-          if (!frame || !frame.isConnected) clear();
-        } catch (_) {
-          clear();
-        }
-      };
-
       const trackedDocuments = new WeakSet();
-      const documentObservers = new WeakMap();
       const selectionChangingKeys = new Set([
         'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp',
         'Backspace', 'Delete', 'End', 'Enter', 'Escape',
@@ -253,19 +253,10 @@ nonisolated struct WebSurfaceSelectionReader {
           scanFrames(targetDocument);
           captureDocument();
         }, { once: true });
+        // The initial scan and capture-phase load listener discover frames at
+        // their lifecycle boundary. Selection reads validate retained ranges
+        // lazily, so a document-wide mutation observer is unnecessary work.
         scanFrames(targetDocument);
-        // This observer only discovers newly inserted frames and detects a
-        // detached selected iframe. Selection content is revalidated lazily
-        // by `read`, so unrelated page mutations stay observable.
-        const observer = new MutationObserver((records) => {
-          if (records.length > 0) clearIfDetachedFrame();
-          for (const record of records) {
-            for (const node of record.addedNodes || []) scanFrames(node);
-          }
-        });
-        observer.observe(targetDocument, { childList: true, subtree: true });
-        documentObservers.set(targetDocument, observer);
-
         const targetWindow = targetDocument.defaultView;
         targetWindow?.addEventListener('beforeunload', () => {
           if (targetDocument === document) {
@@ -273,12 +264,19 @@ nonisolated struct WebSurfaceSelectionReader {
           } else {
             clear(targetDocument);
           }
-          documentObservers.get(targetDocument)?.disconnect();
-          documentObservers.delete(targetDocument);
         }, true);
       };
 
-      globalThis.__cmuxSurfaceSelectionRuntime = { read };
+      // Keep the page-world bridge immutable. Site JavaScript shares this
+      // world, so a writable global would let a page replace `read` and
+      // bypass the password-control guard before the app evaluates it.
+      const runtime = Object.freeze({ read });
+      Object.defineProperty(globalThis, '__cmuxSurfaceSelectionRuntime', {
+        configurable: false,
+        enumerable: false,
+        value: runtime,
+        writable: false
+      });
       installDocument(document);
       capture(window);
       return true;

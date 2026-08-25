@@ -203,9 +203,11 @@ extension TerminalController {
             continuation.yield(self.v2Result(id: request.id?.foundationObject, result))
             continuation.finish()
         }
+        let deadlineClock = ContinuousClock()
         let timeout = Task {
             do {
-                try await Task.sleep(for: .seconds(5))
+                // Genuine request deadline; cancellation tears down the sleeper.
+                try await deadlineClock.sleep(for: .seconds(5))
             } catch {
                 return
             }
