@@ -2947,7 +2947,7 @@ class GhosttyApp {
     /// thread, then drops it if the originating runtime has already been
     /// replaced or torn down by the time the main actor consumes it.
     private func enqueueTerminalPointerStyleEvent(
-        _ event: GhosttyPointerStyleIngressRequest.Event,
+        _ event: GhosttyPointerStyleIngressEvent,
         runtimeLifetimeId: UUID,
         surfaceView: GhosttyNSView,
         surfaceId: UUID
