@@ -3843,8 +3843,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// reuse can attach a different terminal before the original runtime is
     /// ready; never replay the old terminal's input into that replacement.
     private var pendingExplicitKeyDownSurfaceID: UUID?
-    private var pendingExplicitKeyDownKeyCodes: Set<UInt16> = []
-    private var pendingExplicitKeyUpEvents: [UInt16: NSEvent] = [:]
+    private var pendingExplicitKeyDownKeyCodes: [UInt16: Int] = [:]
+    private var pendingExplicitKeyUpEvents: [UInt16: [NSEvent]] = [:]
     private static let maximumPendingExplicitKeyDownEvents = 32
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
@@ -4167,7 +4167,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         pendingExplicitKeyDownEvents.append(event)
-        pendingExplicitKeyDownKeyCodes.insert(event.keyCode)
+        pendingExplicitKeyDownKeyCodes[event.keyCode, default: 0] += 1
     }
 
     fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
@@ -4182,15 +4182,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingExplicitKeyDownSurfaceID = nil
         for event in pendingEvents {
             guard terminalSurface?.id == pendingSurfaceID else {
-                pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
+                discardPendingExplicitKeyDownEvents()
                 return
             }
-            pendingExplicitKeyDownKeyCodes.remove(event.keyCode)
+            let remainingKeyDowns = (pendingExplicitKeyDownKeyCodes[event.keyCode] ?? 1) - 1
+            if remainingKeyDowns > 0 {
+                pendingExplicitKeyDownKeyCodes[event.keyCode] = remainingKeyDowns
+            } else {
+                pendingExplicitKeyDownKeyCodes.removeValue(forKey: event.keyCode)
+            }
             keyDown(with: event)
-            if let queuedKeyUp = pendingExplicitKeyUpEvents.removeValue(forKey: event.keyCode) {
-                keyUp(with: queuedKeyUp)
+            if remainingKeyDowns <= 0,
+               let queuedKeyUps = pendingExplicitKeyUpEvents.removeValue(forKey: event.keyCode) {
+                for queuedKeyUp in queuedKeyUps {
+                    keyUp(with: queuedKeyUp)
+                }
             }
         }
+        pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
+        pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
     }
 
     fileprivate func discardPendingExplicitKeyDownEvents() {
@@ -6246,8 +6256,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        if pendingExplicitKeyDownKeyCodes.contains(event.keyCode) {
-            pendingExplicitKeyUpEvents[event.keyCode] = event
+        if pendingExplicitKeyDownKeyCodes[event.keyCode] != nil {
+            pendingExplicitKeyUpEvents[event.keyCode, default: []].append(event)
             return
         }
         guard let surface = ensureSurfaceReadyForInput() else {
