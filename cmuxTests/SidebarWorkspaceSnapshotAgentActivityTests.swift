@@ -180,6 +180,14 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(activity.agents.isEmpty)
     }
 
+    @Test
+    func hourRangeElapsedBucketKeepsMinutePrecision() {
+        #expect(
+            SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(3_600)
+                != SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(3_660)
+        )
+    }
+
     private static func evidence(
         panelID: UUID = codexPanelID,
         statusKey: String = "codex",
