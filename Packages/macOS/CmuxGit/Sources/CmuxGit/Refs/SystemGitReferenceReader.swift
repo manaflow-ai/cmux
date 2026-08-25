@@ -16,9 +16,13 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
         storageProbe: (any GitReferenceStorageProbing)? = nil,
-        configReader: GitConfigFileReader = GitConfigFileReader()
+        configReader: GitConfigFileReader = GitConfigFileReader(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        let executableResolver = SystemGitExecutableResolver(environment: environment)
         runner = SystemWorkspaceChangesGitRunner(
+            executableURLs: executableResolver.referenceExecutableURLs(),
+            environment: environment,
             boundedCommandWallTimeLimit: boundedCommandWallTimeLimit,
             allowsExecutableFallback: true
         )
@@ -140,7 +144,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 for: symbolicReference,
                 repository: repository
             )
-            guard let currentCommit else { return nil }
+            guard currentCommit != nil || isLegitimateUnbornReference(symbolicReference) else {
+                return nil
+            }
             guard let verifiedSymbolicReference = output(
                 arguments: ["symbolic-ref", "--quiet", "HEAD"],
                 repository: repository,

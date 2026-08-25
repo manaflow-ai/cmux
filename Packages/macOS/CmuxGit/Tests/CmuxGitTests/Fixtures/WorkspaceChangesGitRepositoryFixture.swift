@@ -12,7 +12,7 @@ final class WorkspaceChangesGitRepositoryFixture {
         self.root = rootURL
         self.home = rootURL.appendingPathComponent("home", isDirectory: true)
         self.gitExecutableURLs = gitExecutableURL.map { [$0] }
-            ?? SystemGitExecutableResolver().executableURLs()
+            ?? SystemGitExecutableResolver().referenceExecutableURLs()
         self.gitExecutableURL = self.gitExecutableURLs[0]
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: self.home, withIntermediateDirectories: true)

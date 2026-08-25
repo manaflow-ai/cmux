@@ -40,10 +40,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             let configURL = pendingURLs.removeFirst().standardizedFileURL
             guard seenConfigPaths.insert(configURL.path).inserted else { continue }
             guard budget.reservePath() else { break }
-            urls.append(configURL)
             guard let config = budget.read(at: configURL) else {
                 continue
             }
+            urls.append(configURL)
             pendingURLs.append(contentsOf: includedConfigURLs(
                 fromConfig: config,
                 configURL: configURL,

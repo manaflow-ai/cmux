@@ -64,7 +64,7 @@ actor CmxConnectivityPeerSession {
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
     private var retiredDialWaiterGenerations: [UUID: UInt64] = [:]
-    private var retiredDialGeneration: UInt64 = 0
+    private var nextRetiredDialWaiterGeneration: UInt64 = 0
     // A test clock (and a very fast production clock) can expire the deadline
     // before the continuation below is registered. Keep that one-shot result
     // until the waiter observes it instead of dropping the wake-up.
@@ -517,7 +517,6 @@ actor CmxConnectivityPeerSession {
         guard let pending = pendingConnection else { return }
         pendingConnection = nil
         pending.task.cancel()
-        retiredDialGeneration &+= 1
         let drainID = UUID()
         retiredDialDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
@@ -539,6 +538,10 @@ actor CmxConnectivityPeerSession {
         retiredDialDrains[id] = nil
         guard retiredDialDrains.isEmpty else { return }
         let waiters = retiredDialWaiters.values
+        for waiterID in retiredDialWaiters.keys {
+            retiredDialWaiterGenerations.removeValue(forKey: waiterID)
+            expiredRetiredDialWaiters.remove(waiterID)
+        }
         retiredDialWaiters.removeAll()
         for continuation in waiters {
             continuation.resume()
@@ -548,7 +551,8 @@ actor CmxConnectivityPeerSession {
     private func waitForRetiredDials() async {
         guard !retiredDialDrains.isEmpty else { return }
         let waiterID = UUID()
-        retiredDialWaiterGenerations[waiterID] = retiredDialGeneration
+        nextRetiredDialWaiterGeneration &+= 1
+        retiredDialWaiterGenerations[waiterID] = nextRetiredDialWaiterGeneration
         let clock = clock
         let deadline = clock.now().addingTimeInterval(
             Self.retiredDialSettleWaitLimitSeconds
@@ -582,11 +586,12 @@ actor CmxConnectivityPeerSession {
 
     private func resumeRetiredDialWaiter(id: UUID) {
         expiredRetiredDialWaiters.remove(id)
+        retiredDialWaiterGenerations.removeValue(forKey: id)
         retiredDialWaiters.removeValue(forKey: id)?.resume()
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard !Task.isCancelled, retiredDialWaiterGenerations[id] == retiredDialGeneration else {
+        guard !Task.isCancelled, retiredDialWaiterGenerations[id] != nil else {
             return
         }
         retiredDialDrains.removeAll()

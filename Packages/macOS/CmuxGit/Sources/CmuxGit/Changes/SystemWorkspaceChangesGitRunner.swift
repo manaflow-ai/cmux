@@ -132,7 +132,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         var lastError: Error?
 
         let candidates = allowsExecutableFallback
-            ? executableURLs.prefix(2)
+            ? executableURLs.prefix(4)
             : executableURLs.prefix(1)
         for executableURL in candidates {
             guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else { break }

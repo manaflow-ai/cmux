@@ -7,6 +7,16 @@ import Foundation
 /// candidates in order and keep the first command that succeeds.
 nonisolated struct SystemGitExecutableResolver: Sendable {
     private static let maximumCandidateCount = 8
+    private static let maximumReferenceCandidateCount = 4
+    private static let preferredGitPaths = [
+        "/opt/homebrew/bin/git",
+        "/usr/local/bin/git",
+        "/opt/local/bin/git",
+    ]
+    private static let systemGitPaths = [
+        "/usr/bin/git",
+        "/Library/Developer/CommandLineTools/usr/bin/git",
+    ]
     private static let wellKnownGitPaths = [
         "/opt/homebrew/bin/git",
         "/usr/local/bin/git",
@@ -56,6 +66,40 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
             result.append(URL(fileURLWithPath: "/usr/bin/git"))
         }
         return result
+    }
+
+    /// Returns a small candidate set for a non-files reference probe.
+    ///
+    /// User-installed PATH shims are included before the older system tools so
+    /// a compatible Git is reachable without making ordinary commands trust
+    /// PATH or spawning every installation.
+    func referenceExecutableURLs() -> [URL] {
+        var result: [URL] = []
+        var seen: Set<String> = []
+        for path in Self.preferredGitPaths {
+            guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+        }
+        if let searchPath = environment["PATH"] {
+            for entry in searchPath.split(separator: ":") {
+                guard entry.first == "/" else { continue }
+                let path = URL(fileURLWithPath: String(entry), isDirectory: true)
+                    .appendingPathComponent("git", isDirectory: false)
+                    .path
+                guard !Self.systemGitPaths.contains(path) else { continue }
+                guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+                if result.count >= Self.maximumReferenceCandidateCount - Self.systemGitPaths.count {
+                    break
+                }
+            }
+        }
+        for path in Self.systemGitPaths {
+            guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+            if result.count == Self.maximumReferenceCandidateCount { break }
+        }
+        if result.isEmpty {
+            result.append(URL(fileURLWithPath: "/usr/bin/git"))
+        }
+        return Array(result.prefix(Self.maximumReferenceCandidateCount))
     }
 
     private func appendExecutable(
