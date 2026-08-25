@@ -416,6 +416,7 @@ extension DockSplitStore {
             deferAgentResumeRestore(
                 panelId: terminal.id,
                 restore: DeferredAgentResumeRestore(
+                    stablePanelID: snapshot.id,
                     restorableAgent: restorableAgent,
                     resumeBinding: resumeBinding,
                     restoresRemoteWorkspaceTerminalSnapshot: false,

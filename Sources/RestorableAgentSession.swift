@@ -2986,6 +2986,7 @@ struct RestorableAgentSessionIndex: Sendable {
 /// Deferred launch data used when a restore starts before the shared live-agent
 /// index has completed its off-main refresh.
 struct DeferredAgentResumeRestore: Sendable {
+    let stablePanelID: UUID
     let restorableAgent: SessionRestorableAgentSnapshot?
     let resumeBinding: SurfaceResumeBindingSnapshot?
     let restoresRemoteWorkspaceTerminalSnapshot: Bool

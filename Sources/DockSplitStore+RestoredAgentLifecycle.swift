@@ -142,6 +142,12 @@ extension DockSplitStore {
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
         }
+        if let deferredRestore = detached.deferredAgentResumeRestore {
+            deferAgentResumeRestore(
+                panelId: detached.panelId,
+                restore: deferredRestore
+            )
+        }
         if let runtime = detached.agentRuntime {
             agentRuntimeByPanelId[detached.panelId] = runtime
         } else {
@@ -444,19 +450,20 @@ extension DockSplitStore {
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
+            let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
-            let ownershipIsBlocked = index.hasCurrentAmbiguousPanel(panelId) ||
-                index.hasUncertainStablePanelEntry(panelId: panelId) ||
+            let ownershipIsBlocked = index.hasCurrentAmbiguousPanel(ownershipPanelID) ||
+                index.hasUncertainStablePanelEntry(panelId: ownershipPanelID) ||
                 index.hasConflictingLiveStablePanelEntry(
                     workspaceId: workspaceId,
-                    panelId: panelId,
+                    panelId: ownershipPanelID,
                     expectedKind: expectedKind,
                     expectedSessionId: expectedSessionId
                 ) ||
                 index.hasCurrentLiveProcessForStablePanel(
                     workspaceId: workspaceId,
-                    panelId: panelId
+                    panelId: ownershipPanelID
                 )
             guard !ownershipIsBlocked else {
                 removeDeferredAgentResumeRestore(panelId: panelId)
