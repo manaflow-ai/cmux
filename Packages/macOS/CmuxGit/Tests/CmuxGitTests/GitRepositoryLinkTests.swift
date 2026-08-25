@@ -496,4 +496,86 @@ import Testing
 
         #expect(metadata.repositoryLink?.url.absoluteString == "https://github.com/included-worktree/repo")
     }
+
+    @Test func falseGitConfigNoSystemKeepsConfiguredSystemConfig() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let systemConfigURL = fixture.root.appendingPathComponent("system.gitconfig")
+        try """
+        [remote "origin"]
+            url = https://github.com/system-enabled/repo.git
+        """.write(to: systemConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "false",
+                "GIT_CONFIG_SYSTEM": systemConfigURL.path,
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/system-enabled/repo.git") == true)
+    }
+
+    @Test func emptyGitConfigGlobalDisablesDefaultGlobalFiles() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-empty-global-\(UUID().uuidString)", isDirectory: true)
+        let homeConfigURL = home.appendingPathComponent(".gitconfig")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try """
+        [remote "origin"]
+            url = https://github.com/ignored-global/repo.git
+        """.write(to: homeConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "",
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "HOME": home.path,
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput == nil)
+    }
+
+    @Test func hasConfigIncludeIfMatchesRemoteDeclaredLater() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let includedURL = fixture.root.appendingPathComponent("hasconfig.inc")
+        try """
+        [remote "mirror"]
+            url = https://github.com/included/remote.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+        try """
+        [includeIf "hasconfig:remote.*.url:https://example.com/**"]
+            path = hasconfig.inc
+        [remote "origin"]
+            url = https://example.com/owner/repo.git
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/included/remote.git") == true)
+    }
 }
