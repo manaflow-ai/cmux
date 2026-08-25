@@ -17,7 +17,7 @@ final class SidebarAgentElapsedClock {
 
     var actions: SidebarAgentElapsedClockActions {
         let cache = displayCache
-        SidebarAgentElapsedClockActions(
+        return SidebarAgentElapsedClockActions(
             identity: ObjectIdentifier(self),
             register: { [weak self] target in self?.register(target) },
             unregister: { [weak self] target in self?.unregister(target) },
