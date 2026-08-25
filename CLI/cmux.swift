@@ -187,6 +187,11 @@ struct ClaudeHookSessionRecord: Codable {
     /// sets it before best-effort replay, and a later Stop clears it only after
     /// the app confirms every affected title target was resolved.
     var autoNameTitleReconciliationGeneration: String?
+    /// Number of socket apply attempts made for the current durable compact
+    /// obligation. A permanently unresolved target is abandoned after a small
+    /// bounded number of retries so every later Stop cannot repeat the same
+    /// synchronous socket work forever.
+    var autoNameTitleReconciliationAttemptCount: Int?
     /// Wall-clock of the last summarization attempt (success OR failure), so a
     /// persistently failing summarizer (rate-limited, signed out, timing out)
     /// gets the same minInterval cooldown instead of respawning every turn.
@@ -221,6 +226,7 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
+    private static let maxAutoNameTitleReconciliationAttempts = 3
 
     private let statePath: String
     private let fileManager: FileManager
@@ -467,9 +473,11 @@ final class ClaudeHookSessionStore {
                   record.autoNameLastTitle != nil || record.autoNameInFlightAt != nil else {
                 return nil
             }
+            let now = Date().timeIntervalSince1970
             let generation = UUID().uuidString
             record.autoNameTitleReconciliationGeneration = generation
-            record.updatedAt = Date().timeIntervalSince1970
+            record.autoNameTitleReconciliationAttemptCount = 0
+            record.updatedAt = now
             state.sessions[normalized] = record
             return generation
         }
@@ -488,18 +496,35 @@ final class ClaudeHookSessionStore {
         title: String?,
         compactedLineCount: Int?,
         generation: String?,
-        observationGeneration: String?
+        observationGeneration: String?,
+        exhausted: Bool
     ) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (false, nil, nil, nil, nil) }
+        guard !normalized.isEmpty else { return (false, nil, nil, nil, nil, false) }
         return try withLockedState { state in
             guard var record = state.sessions[normalized],
                   let generation = record.autoNameTitleReconciliationGeneration else {
-                return (false, nil, nil, nil, nil)
+                return (false, nil, nil, nil, nil, false)
             }
             let hasLiveInFlight = record.autoNameInFlightAt.map {
                 now.timeIntervalSince1970 - $0 < engine.config.inFlightExpiry
             } ?? false
+            let attemptCount = max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+            if !hasLiveInFlight,
+               attemptCount >= Self.maxAutoNameTitleReconciliationAttempts {
+                // Keep the normal title/baseline history intact, but abandon
+                // this permanently unresolved compact obligation. Returning
+                // `pending=true` with `exhausted=true` keeps the caller from
+                // falling through into a fresh LLM pass on this Stop.
+                record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameTitleReconciliationAttemptCount = nil
+                record.autoNameLastObservationGeneration = nil
+                record.autoNameInFlightObservedLineCount = nil
+                record.autoNameInFlightAt = nil
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (true, nil, nil, nil, nil, true)
+            }
             let observedHighWater = autoNamingObservedHighWater(in: record)
             let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
                 guard observedHighWater > 0,
@@ -518,7 +543,7 @@ final class ClaudeHookSessionStore {
                     }
                     record.updatedAt = now.timeIntervalSince1970
                     state.sessions[normalized] = record
-                    return (true, nil, nil, nil, nil)
+                    return (true, nil, nil, nil, nil, false)
                 }
                 if let transcriptLineCount {
                     recordUnclaimedAutoNamingObservation(
@@ -528,12 +553,13 @@ final class ClaudeHookSessionStore {
                     )
                 }
                 record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameTitleReconciliationAttemptCount = nil
                 record.autoNameInFlightAt = nil
                 record.autoNameLastObservationGeneration = nil
                 record.autoNameInFlightObservedLineCount = nil
                 record.updatedAt = now.timeIntervalSince1970
                 state.sessions[normalized] = record
-                return (false, nil, nil, nil, nil)
+                return (false, nil, nil, nil, nil, false)
             }
             if hasLiveInFlight {
                 if let transcriptLineCount {
@@ -545,16 +571,17 @@ final class ClaudeHookSessionStore {
                 }
                 record.updatedAt = now.timeIntervalSince1970
                 state.sessions[normalized] = record
-                return (true, nil, nil, nil, nil)
+                return (true, nil, nil, nil, nil, false)
             }
             let observationGeneration = claimAutoNamingObservation(
                 transcriptLineCount,
                 record: &record
             )
             record.autoNameInFlightAt = now.timeIntervalSince1970
+            record.autoNameTitleReconciliationAttemptCount = attemptCount + 1
             record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
-            return (true, title, compactedLineCount, generation, observationGeneration)
+            return (true, title, compactedLineCount, generation, observationGeneration, false)
         }
     }
 
@@ -593,6 +620,7 @@ final class ClaudeHookSessionStore {
                 if clearPendingOnConfirmation,
                    claimedReconciliationGeneration != nil {
                     record.autoNameTitleReconciliationGeneration = nil
+                    record.autoNameTitleReconciliationAttemptCount = nil
                 }
             } else {
                 foldAutoNamingInFlightObservationIntoHighWater(record: &record)
