@@ -476,8 +476,11 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         }
         connections.abort_all();
         while connections.join_next().await.is_some() {}
-        let upgrades: Vec<tokio::task::JoinHandle<()>> =
-            shared.upgrades.lock().map(|mut tasks| tasks.drain(..).collect()).unwrap_or_default();
+        let upgrades = shared
+            .upgrades
+            .lock()
+            .map(|mut tasks| tasks.drain(..).collect::<Vec<_>>())
+            .unwrap_or_default();
         for task in upgrades {
             task.abort();
             let _ = task.await;
