@@ -1025,8 +1025,15 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
+    private let equalRankAmbiguousPanelIds: Set<UUID>
+
+    // A corrupt or very old hook store can contain an unbounded owner history
+    // for one surface. Keep stable-panel resolution bounded and fail closed if
+    // the bound is exceeded rather than scanning the whole history on autosave.
+    private static let maximumStablePanelCandidates = 4
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
@@ -1040,6 +1047,36 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
         ambiguousPanelIds.contains(panelId)
+    }
+
+    /// Recomputes owner ambiguity from current PID evidence.
+    ///
+    /// Cached ambiguity is intentionally not authoritative after processes
+    /// exit; only multiple live owners or inconclusive owner evidence keep a
+    /// panel blocked.
+    func hasCurrentAmbiguousPanel(
+        _ panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
+    ) -> Bool {
+        let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
+            Self.currentProcessEvidence(
+                for: entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            )
+        }
+        let candidates = candidatesByPanelId[panelId] ?? []
+        return evidence.filter { $0 == .live }.count > 1 || evidence.enumerated().contains {
+            index, value in
+            value == .unknown && !candidates[index].1.processIDs.isEmpty
+        }
     }
 
     func hasConflictingLiveStablePanelEntry(
@@ -1056,8 +1093,8 @@ struct RestorableAgentSessionIndex: Sendable {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool {
-        let liveEntries = entriesByPanel.compactMap { key, entry -> Entry? in
-            guard key.panelId == panelId,
+        let liveEntries = (candidatesByPanelId[panelId] ?? []).compactMap { _, entry -> Entry? in
+            guard
                   Self.entryHasCurrentLiveProcess(
                       entry,
                       processIdentityProvider: processIdentityProvider,
@@ -1078,6 +1115,28 @@ struct RestorableAgentSessionIndex: Sendable {
                     lhs: entry.snapshot.sessionId,
                     rhs: expectedSessionId
                 )
+        }
+    }
+
+    /// Reports inconclusive PID evidence for any owner of a stable panel.
+    /// Restore must not launch while a recorded owner cannot be revalidated.
+    func hasUncertainStablePanelEntry(
+        panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
+    ) -> Bool {
+        (candidatesByPanelId[panelId] ?? []).contains { _, entry in
+            Self.currentProcessEvidence(
+                for: entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            ) == .unknown && !entry.processIDs.isEmpty
         }
     }
 
@@ -1167,39 +1226,42 @@ struct RestorableAgentSessionIndex: Sendable {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Entry? {
-        let candidates = entriesByPanel.compactMap { key, entry -> (PanelKey, Entry)? in
-            key.panelId == panelId ? (key, entry) : nil
-        }
+        let candidates = candidatesByPanelId[panelId] ?? []
         guard !candidates.isEmpty else { return nil }
 
-        let liveCandidates = candidates.filter { _, entry in
-            Self.entryHasCurrentLiveProcess(
-                entry,
-                processIdentityProvider: processIdentityProvider,
-                processPresenceProvider: processPresenceProvider
+        let candidatesWithEvidence = candidates.map { key, entry in
+            (
+                key: key,
+                entry: entry,
+                evidence: Self.currentProcessEvidence(
+                    for: entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
             )
         }
-        if let exact = liveCandidates.first(where: { key, _ in key.workspaceId == workspaceId }) {
-            return exact.1
+        let liveCandidates = candidatesWithEvidence.filter { $0.evidence == .live }
+        let hasUncertainCandidate = candidatesWithEvidence.contains {
+            $0.evidence == .unknown && !$0.entry.processIDs.isEmpty
+        }
+        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+            return exact.entry
         }
         if liveCandidates.count == 1 {
-            return liveCandidates[0].1
+            return liveCandidates[0].entry
         }
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
-        guard liveCandidates.isEmpty, !ambiguousPanelIds.contains(panelId) else {
+        guard liveCandidates.isEmpty,
+              !hasUncertainCandidate,
+              !equalRankAmbiguousPanelIds.contains(panelId) else {
             return nil
         }
 
         return candidates
             .map(\.1)
             .max { lhs, rhs in
-                if lhs.updatedAt != rhs.updatedAt {
-                    return lhs.updatedAt < rhs.updatedAt
-                }
-                let lhsIdentity = "\(lhs.snapshot.kind.rawValue):\(lhs.snapshot.sessionId)"
-                let rhsIdentity = "\(rhs.snapshot.kind.rawValue):\(rhs.snapshot.sessionId)"
-                return lhsIdentity < rhsIdentity
+                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
             }
     }
 
@@ -1900,33 +1962,79 @@ struct RestorableAgentSessionIndex: Sendable {
         entry.processLiveness == .running && !entry.processIDs.isEmpty
     }
 
+    private enum CurrentProcessEvidence: Equatable {
+        case live
+        case notLive
+        case unknown
+    }
+
     private static func entryHasCurrentLiveProcess(
         _ entry: Entry,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
         processPresenceProvider: (Int) -> PIDPresence
     ) -> Bool {
-        guard !entry.processIDs.isEmpty else { return false }
+        currentProcessEvidence(
+            for: entry,
+            processIdentityProvider: processIdentityProvider,
+            processPresenceProvider: processPresenceProvider
+        ) == .live
+    }
+
+    private static func currentProcessEvidence(
+        for entry: Entry,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
+        processPresenceProvider: (Int) -> PIDPresence
+    ) -> CurrentProcessEvidence {
+        guard !entry.processIDs.isEmpty else {
+            return entry.processLiveness == .unknown ? .unknown : .notLive
+        }
+        guard entry.processLiveness == .running else {
+            return entry.processLiveness == .unknown ? .unknown : .notLive
+        }
         let identities = entry.agentProcessIdentities.isEmpty
             ? entry.processIdentities
             : entry.agentProcessIdentities
         guard !identities.isEmpty else {
-            guard entry.processLiveness == .running else { return false }
-            return entry.processIDs.contains { processID in
-                processPresenceProvider(processID) != .absent
+            var sawUnknown = false
+            for processID in entry.processIDs {
+                switch processPresenceProvider(processID) {
+                case .present:
+                    sawUnknown = true
+                case .unknown:
+                    sawUnknown = true
+                case .absent:
+                    continue
+                }
             }
+            return sawUnknown ? .unknown : .notLive
         }
-        return identities.contains { processID, recordedIdentity in
+        var sawUnknown = false
+        for (processID, recordedIdentity) in identities {
             guard let currentIdentity = processIdentityProvider(processID) else {
-                return processPresenceProvider(processID) != .absent
+                switch processPresenceProvider(processID) {
+                case .present, .unknown:
+                    sawUnknown = true
+                case .absent:
+                    break
+                }
+                continue
             }
-            return currentIdentity == recordedIdentity
+            if currentIdentity == recordedIdentity {
+                return .live
+            }
         }
+        return sawUnknown ? .unknown : .notLive
     }
 
     private static func shouldPreferStablePanelEntry(
         _ candidate: Entry,
         over existing: Entry
     ) -> Bool {
+        let candidateLivenessRank = stablePanelLivenessRank(candidate)
+        let existingLivenessRank = stablePanelLivenessRank(existing)
+        if candidateLivenessRank != existingLivenessRank {
+            return candidateLivenessRank > existingLivenessRank
+        }
         let candidateIsLive = entryHasLiveProcess(candidate)
         let existingIsLive = entryHasLiveProcess(existing)
         if candidateIsLive != existingIsLive {
@@ -1938,6 +2046,17 @@ struct RestorableAgentSessionIndex: Sendable {
         let candidateIdentity = "\(candidate.snapshot.kind.rawValue):\(candidate.snapshot.sessionId)"
         let existingIdentity = "\(existing.snapshot.kind.rawValue):\(existing.snapshot.sessionId)"
         return candidateIdentity > existingIdentity
+    }
+
+    private static func stablePanelLivenessRank(_ entry: Entry) -> Int {
+        switch entry.processLiveness {
+        case .running:
+            return 2
+        case .unknown:
+            return 1
+        case .exited:
+            return 0
+        }
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -2817,41 +2936,61 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
-        var candidatesByPanelId: [UUID: [Entry]] = [:]
+        var allCandidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
         for (key, entry) in entriesByPanel {
-            candidatesByPanelId[key.panelId, default: []].append(entry)
+            allCandidatesByPanelId[key.panelId, default: []].append((key, entry))
         }
 
         var entriesByPanelId: [UUID: Entry] = [:]
         var ambiguousPanelIds: Set<UUID> = []
-        for (panelId, candidates) in candidatesByPanelId {
-            guard var selected = candidates.first else {
-                continue
+        var equalRankAmbiguousPanelIds: Set<UUID> = []
+        var candidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
+        for (panelId, candidates) in allCandidatesByPanelId {
+            let rankedCandidates = candidates.sorted { lhs, rhs in
+                Self.shouldPreferStablePanelEntry(lhs.1, over: rhs.1)
             }
-            for candidate in candidates.dropFirst()
-            where Self.shouldPreferStablePanelEntry(candidate, over: selected) {
-                selected = candidate
+            guard let selected = rankedCandidates.first?.1 else {
+                continue
             }
             let selectedIsLive = Self.entryHasLiveProcess(selected)
             let liveCandidateCount = candidates.reduce(into: 0) { count, candidate in
-                if Self.entryHasLiveProcess(candidate) { count += 1 }
+                if Self.entryHasLiveProcess(candidate.1) { count += 1 }
             }
             let topRankCount = candidates.reduce(into: 0) { count, candidate in
-                guard Self.entryHasLiveProcess(candidate) == selectedIsLive,
-                      candidate.updatedAt == selected.updatedAt else {
+                guard Self.entryHasLiveProcess(candidate.1) == selectedIsLive,
+                      candidate.1.updatedAt == selected.updatedAt else {
                     return
                 }
                 count += 1
             }
-            if liveCandidateCount > 1 || topRankCount > 1 {
+            if liveCandidateCount > 1 || topRankCount > 1 ||
+                rankedCandidates.count > Self.maximumStablePanelCandidates {
                 // Equal top-ranked owner records have no reliable panel-only winner.
                 ambiguousPanelIds.insert(panelId)
             }
+            if topRankCount > 1 {
+                equalRankAmbiguousPanelIds.insert(panelId)
+            }
             entriesByPanelId[panelId] = selected
+            candidatesByPanelId[panelId] = Array(
+                rankedCandidates.prefix(Self.maximumStablePanelCandidates)
+            )
         }
+        self.candidatesByPanelId = candidatesByPanelId
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
+        self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
     }
+}
+
+/// Deferred launch data used when a restore starts before the shared live-agent
+/// index has completed its off-main refresh.
+struct DeferredAgentResumeRestore: Sendable {
+    let restorableAgent: SessionRestorableAgentSnapshot?
+    let resumeBinding: SurfaceResumeBindingSnapshot?
+    let restoresRemoteWorkspaceTerminalSnapshot: Bool
+    let workingDirectory: String?
+    let resumeWorkingDirectory: String?
 }
 
 private extension CmuxTopProcessArguments {

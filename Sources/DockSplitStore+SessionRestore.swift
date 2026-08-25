@@ -224,6 +224,7 @@ extension DockSplitStore {
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
             (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
+        let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
         let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
@@ -236,17 +237,21 @@ extension DockSplitStore {
             expectedKind: expectedAgentKind,
             expectedSessionId: expectedSessionId
         ) == true
+        let stablePanelHasUncertainProcess = restoreAgentIndex?.hasUncertainStablePanelEntry(
+            panelId: snapshot.id
+        ) == true
         let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
             workspaceId: workspaceId,
             panelId: snapshot.id
         ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
-            restoreAgentIndex == nil ||
             stablePanelHasConflictingLiveProcess ||
-            (restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
+            (restoreAgentIndex?.hasCurrentAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
         )
+        let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
+            stablePanelHasUncertainProcess
         let resumeBindingForStartup = hibernation != nil ||
-            restoreOwnershipAmbiguous ||
+            restoreStartupBlocked ||
             stablePanelHasLiveProcess ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil
@@ -262,7 +267,7 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = restoreOwnershipAmbiguous || stablePanelHasLiveProcess
+        let unresolvedBindingLaunch = restoreStartupBlocked || stablePanelHasLiveProcess
             ? nil
             : approvedResumeBinding.flatMap {
                 policy.surfaceResumeStartupLaunch(
@@ -282,7 +287,7 @@ extension DockSplitStore {
                 ?? workingDirectory
         }()
         let bindingLaunch = unresolvedBindingLaunch
-        let tmuxStartCommand = !restoreOwnershipAmbiguous && !stablePanelHasLiveProcess &&
+        let tmuxStartCommand = !restoreStartupBlocked && !stablePanelHasLiveProcess &&
             restorableAgent == nil && bindingLaunch == nil
             ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
             : nil
@@ -298,7 +303,7 @@ extension DockSplitStore {
             snapshotPanelId: snapshot.id,
             shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil,
             liveIndex: restoreAgentIndex,
-            restoreOwnershipAmbiguous: restoreOwnershipAmbiguous
+            restoreStartupBlocked: restoreStartupBlocked
         )
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
@@ -400,9 +405,25 @@ extension DockSplitStore {
             willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: agentSessionAlreadyActive,
+            agentSessionAlreadyActive: restoreIndexUnavailable
+                ? false
+                : agentSessionAlreadyActive,
             ownsResumeLaunchClaim: agentLaunch != nil
         )
+        if restoreIndexUnavailable,
+           hibernation == nil,
+           restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
+            deferAgentResumeRestore(
+                panelId: terminal.id,
+                restore: DeferredAgentResumeRestore(
+                    restorableAgent: restorableAgent,
+                    resumeBinding: resumeBinding,
+                    restoresRemoteWorkspaceTerminalSnapshot: false,
+                    workingDirectory: workingDirectory,
+                    resumeWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            )
+        }
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
                 agent: restorableAgent,
@@ -512,16 +533,15 @@ extension DockSplitStore {
         snapshotPanelId: UUID,
         shouldAutoResume: Bool,
         liveIndex: RestorableAgentSessionIndex?,
-        restoreOwnershipAmbiguous: Bool
+        restoreStartupBlocked: Bool
     ) -> Bool {
         guard shouldAutoResume, let restorableAgent else { return false }
-        guard let index = liveIndex else { return true }
-        if restoreOwnershipAmbiguous {
-            // A conflicting live owner must suppress this launch even when the
-            // persisted session is not the selected stable-panel entry.
+        if restoreStartupBlocked {
+            // The off-main index refresh will resolve this staged panel.
             return true
         }
-        if index.hasAmbiguousPanel(snapshotPanelId) {
+        guard let index = liveIndex else { return true }
+        if index.hasCurrentAmbiguousPanel(snapshotPanelId) {
             // Unknown ownership is safer than launching a duplicate agent against a
             // session that may still be live under another restored owner.
             return true
@@ -551,12 +571,9 @@ extension DockSplitStore {
         }) else {
             return nil
         }
-        if let cachedIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() {
-            return cachedIndex
-        }
-        // Restore is one of the sanctioned cold-cache callers: load once for
-        // this pass rather than permanently dropping persisted resume input.
-        return RestorableAgentSessionIndex.load()
+        // Restore decisions stay cache-only on the main actor. A cold cache is
+        // resolved by the deferred restore queue after the off-main refresh.
+        return restorableAgentIndexProvider()
     }
 
 }

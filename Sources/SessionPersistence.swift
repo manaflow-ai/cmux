@@ -386,6 +386,16 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume == true
     }
 
+    /// Keeps an uncertain binding available for manual continuation without
+    /// allowing a stale process observation to launch on the next restore.
+    func disablingAutomaticResume() -> Self {
+        guard autoResume == true else { return self }
+        var disabled = self
+        disabled.autoResume = false
+        disabled.approvalPolicy = .manual
+        return disabled
+    }
+
     var usesLocalRestoreVerb: Bool {
         launchFlavor == .local
     }
