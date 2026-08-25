@@ -33239,9 +33239,16 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            guard input.rawObject?["sandbox"] as? Bool == false else {
-                telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").non-unsandboxed")
-                return
+            if failed {
+                if input.rawObject?["sandbox"] as? Bool == true {
+                    telemetry.breadcrumb("\(def.name)-hook.shell-failed.sandboxed")
+                    return
+                }
+            } else {
+                guard input.rawObject?["sandbox"] as? Bool == false else {
+                    telemetry.breadcrumb("\(def.name)-hook.shell-done.non-unsandboxed")
+                    return
+                }
             }
 
             guard let command = cursorShellCommand(from: input), !sessionId.isEmpty else {
