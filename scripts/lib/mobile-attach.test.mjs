@@ -159,6 +159,19 @@ function monotonicMilliseconds() {
   ]);
 }
 
+function resolveReadinessTimeout(extraEnv = {}) {
+  return run(
+    "bash",
+    [
+      "-c",
+      'source "$1"; cmux_attach_resolve_readiness_timeout',
+      "mobile-readiness-timeout-test",
+      validator,
+    ],
+    extraEnv,
+  );
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -518,6 +531,19 @@ test("dogfood readiness clock is stable across helper processes", () => {
     secondMilliseconds >= firstMilliseconds,
     `expected monotonic clock, got ${firstMilliseconds} -> ${secondMilliseconds}`,
   );
+});
+
+test("dogfood auth readiness leaves headroom for a cold staging sign-in", () => {
+  const result = resolveReadinessTimeout();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "45");
+
+  const override = resolveReadinessTimeout({
+    CMUX_ATTACH_READY_TIMEOUT_SECONDS: "7",
+  });
+  assert.equal(override.status, 0, override.stderr);
+  assert.equal(override.stdout, "7");
 });
 
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
