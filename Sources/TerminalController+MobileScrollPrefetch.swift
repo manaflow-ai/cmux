@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxTerminal
 import Foundation
 
 extension TerminalController {
