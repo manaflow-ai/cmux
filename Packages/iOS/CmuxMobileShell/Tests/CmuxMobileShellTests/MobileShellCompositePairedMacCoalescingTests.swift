@@ -505,6 +505,44 @@ import Testing
         #expect(store.pairedMacAliasIDs(for: "mac-a", instanceTag: "nightly") == ["mac-a"])
     }
 
+    @Test
+    func explicitTransportModesKeepSameIrohEndpointRowsSeparate() throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "shared-iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let lan = try Self.pairedMac(
+            id: "mac-lan",
+            displayName: "Shared Mac",
+            host: "unused",
+            lastSeenAt: Date(timeIntervalSince1970: 10),
+            isActive: false,
+            routes: [route],
+            connectionMethodRawValue: MobileConnectionMethod.lan.rawValue
+        )
+        let tailscale = try Self.pairedMac(
+            id: "mac-tailscale",
+            displayName: "Shared Mac",
+            host: "unused",
+            lastSeenAt: Date(timeIntervalSince1970: 20),
+            isActive: false,
+            routes: [route],
+            connectionMethodRawValue: MobileConnectionMethod.tailscale.rawValue
+        )
+
+        let coalesced = MobileShellComposite.coalescePairedMacsByIrohEndpointAuthority(
+            [lan, tailscale],
+            supportedKinds: [.iroh],
+            preferNonLoopback: true
+        )
+
+        #expect(Set(coalesced.map(\.macDeviceID)) == ["mac-lan", "mac-tailscale"])
+    }
+
     @Test func scopedActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -551,7 +589,8 @@ import Testing
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
-        routes: [CmxAttachRoute]? = nil
+        routes: [CmxAttachRoute]? = nil,
+        connectionMethodRawValue: String? = nil
     ) throws -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -565,7 +604,8 @@ import Testing
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            instanceTag: instanceTag
+            instanceTag: instanceTag,
+            connectionMethodRawValue: connectionMethodRawValue
         )
     }
 }

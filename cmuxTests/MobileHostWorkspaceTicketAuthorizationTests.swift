@@ -207,14 +207,13 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .physicalDevice)
         let attachURL = try #require(payload["attach_url"] as? String)
-        #expect(attachURL.contains("?v=3&i="))
-        #expect(!attachURL.contains("payload="))
+        #expect(attachURL.contains("?v=1&payload="))
         #expect(!attachURL.contains("192.168.1.10"))
 
-        let components = try #require(URLComponents(string: attachURL))
-        let decoded = try CmxPairingQRCode().decode(components)
+        let decoded = try compactTicket(from: attachURL)
         #expect(decoded.routes.count == 1)
         #expect(decoded.routes.first?.kind == .iroh)
+        #expect(decoded.macDeviceID == ticket.macDeviceID)
         guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
             Issue.record("Expected an identity-only Iroh route")
             return
