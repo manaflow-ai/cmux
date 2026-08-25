@@ -155,16 +155,15 @@ struct ReorderShortcutActionTests {
             let settingsAction = try #require(ShortcutAction(rawValue: action.rawValue))
             let runtimeShortcut = action.defaultShortcut
             #expect(settingsAction.displayName == action.label)
-            if let settingsStroke = settingsAction.defaultStroke {
+            if runtimeShortcut.isUnbound {
+                #expect(settingsAction.defaultStroke == nil)
+            } else {
+                let settingsStroke = try #require(settingsAction.defaultStroke)
                 #expect(settingsStroke.key == runtimeShortcut.key)
                 #expect(settingsStroke.command == runtimeShortcut.command)
                 #expect(settingsStroke.shift == runtimeShortcut.shift)
                 #expect(settingsStroke.option == runtimeShortcut.option)
                 #expect(settingsStroke.control == runtimeShortcut.control)
-            } else {
-                #expect(runtimeShortcut.isUnbound)
-            }
-            if !runtimeShortcut.isUnbound {
                 #expect(
                     !KeyboardShortcutSettings.Action.allCases.contains {
                         $0 != action && $0.defaultShortcut == runtimeShortcut
