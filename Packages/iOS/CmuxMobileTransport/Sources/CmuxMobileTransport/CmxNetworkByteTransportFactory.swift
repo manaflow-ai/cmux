@@ -60,10 +60,10 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     ) throws -> any CmxByteTransport {
         let route = request.route
         try route.validate()
-        try request.validateTransportMode()
         guard supportedKinds.contains(route.kind) else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
+        try request.validateTransportMode()
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
