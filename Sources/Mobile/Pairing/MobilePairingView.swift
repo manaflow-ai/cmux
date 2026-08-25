@@ -473,19 +473,6 @@ struct MobilePairingView: View {
                 Text(line).cmuxFont(.caption, design: .monospaced)
                     .textSelection(.enabled).foregroundStyle(.secondary)
             }
-            ForEach(ready.lanLines, id: \.self) { line in
-                Text(String(
-                    format: String(
-                        localized: "mobile.pairing.manual.lanFormat",
-                        defaultValue: "LAN: %@"
-                    ),
-                    locale: .current,
-                    line
-                ))
-                .cmuxFont(.caption, design: .monospaced)
-                .textSelection(.enabled)
-                .foregroundStyle(.secondary)
-            }
             if let entry = ready.manualEntry {
                 HStack(spacing: 8) {
                     copyButton(label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"), value: entry.host)

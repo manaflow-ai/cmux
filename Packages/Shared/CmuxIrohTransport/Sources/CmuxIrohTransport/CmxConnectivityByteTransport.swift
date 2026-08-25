@@ -131,15 +131,15 @@ actor CmxConnectivityByteTransport:
         case .direct:
             return .irohDirect
         case let .privateNetwork(address):
-            if mode == .iroh || mode == .direct {
-                return .irohDirect
-            }
-            // A Tailscale socket remains a Tailscale path even when LAN Only
-            // was requested; reporting it as LAN would let path migration
-            // bypass the pinned-mode check.
+            // Preserve the explicit Tailscale provenance before applying the
+            // Iroh/Direct presentation mapping. The peer-session owner also
+            // matches this socket back to its source-qualified dial plan.
             if let host = CmxIrohIPAddressScope.host(from: address),
                CmxTailscalePeerAddress(host) != nil {
                 return .tailscale(address: address)
+            }
+            if mode == .iroh || mode == .direct {
+                return .irohDirect
             }
             return .lan(address: address)
         case .relay:

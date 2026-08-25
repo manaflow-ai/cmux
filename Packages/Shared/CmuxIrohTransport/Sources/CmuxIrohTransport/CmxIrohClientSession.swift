@@ -269,6 +269,110 @@ public actor CmxIrohClientSession {
         return await connection.observedSelectedPathChanges()
     }
 
+    /// Checks one live path against the source-qualified dial plan captured
+    /// for this session. The raw selected-path stream carries only a socket
+    /// address, so matching it back to the plan is the ownership boundary that
+    /// prevents a private path from being reclassified as an unrestricted Iroh
+    /// direct path during migration.
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) -> Bool {
+        switch transportMode {
+        case .automatic:
+            return true
+        case .tailscale:
+            return false
+        case .lan:
+            return privatePathMatchesPlan(path, source: .lan)
+        case .iroh:
+            switch path {
+            case .unavailable:
+                return true
+            case .relay:
+                return dialPlan.publicPaths.contains {
+                    $0.source == .native && $0.kind == .relayURL
+                }
+            case let .direct(address):
+                return directPathMatchesPlan(
+                    address,
+                    source: .native
+                )
+            case let .privateNetwork(address):
+                return privatePathMatchesPlan(
+                    .privateNetwork(address: address),
+                    source: .native
+                )
+            }
+        case .direct:
+            switch path {
+            case .unavailable:
+                return true
+            case .relay:
+                return false
+            case let .direct(address):
+                return directPathMatchesPlan(
+                    address,
+                    source: .customVPN
+                )
+            case let .privateNetwork(address):
+                return privatePathMatchesPlan(
+                    .privateNetwork(address: address),
+                    source: .customVPN
+                )
+            }
+        }
+    }
+
+    private func privatePathMatchesPlan(
+        _ path: CmxIrohObservedConnectionPath,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        guard case let .privateNetwork(address) = path else { return false }
+        return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
+            $0.kind == .directAddress
+                && $0.source == source
+                && socketAddressesMatch($0.value, address)
+        }
+    }
+
+    private func directPathMatchesPlan(
+        _ address: String?,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        guard let address else {
+            return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
+                $0.kind == .directAddress && $0.source == source
+            }
+        }
+        return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
+                $0.kind == .directAddress
+                && $0.source == source
+                && socketAddressesMatch($0.value, address)
+        }
+    }
+
+    private func socketAddressesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        guard let lhsHost = CmxIrohIPAddressScope.host(from: lhs),
+              let rhsHost = CmxIrohIPAddressScope.host(from: rhs) else {
+            return lhs == rhs
+        }
+        guard lhsHost == rhsHost else { return false }
+        return socketPort(from: lhs) == socketPort(from: rhs)
+    }
+
+    private func socketPort(from address: String) -> UInt16? {
+        if address.first == "[",
+           let closingBracket = address.firstIndex(of: "]") {
+            let portStart = address.index(after: closingBracket)
+            guard portStart < address.endIndex,
+                  address[portStart] == ":" else { return nil }
+            return UInt16(address[address.index(after: portStart)...])
+        }
+        guard let colon = address.lastIndex(of: ":"),
+              address[..<colon].firstIndex(of: ":") == nil else {
+            return nil
+        }
+        return UInt16(address[address.index(after: colon)...])
+    }
+
     /// Observes redacted path lifecycle events on the admitted connection.
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
         guard let connection else {

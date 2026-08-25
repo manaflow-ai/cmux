@@ -765,26 +765,19 @@ actor CmxConnectivityPeerSession {
         // ownership policy cannot be preempted by the path observer.
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
-        if let request = activeRequest {
-            let observedTransportPath = CmxConnectivityByteTransport.mobileTransportPath(
-                path,
-                mode: request.transportMode
+        guard path == .unavailable
+            || await activeConnection.session.pathIsAllowed(path) else {
+            // This owner is shared by foreground and secondary clients. Enforce
+            // the session's source-qualified captured policy here so a
+            // migration cannot bypass the foreground UI observer and keep
+            // serving background RPCs over a disallowed class.
+            await removeActiveConnection(
+                matching: id,
+                releasesControlOwner: true,
+                reason: .runtimeReconfigured,
+                failure: .unsupportedRoute
             )
-            guard path == .unavailable
-                || CmxTransportModePolicy(request.transportMode)
-                    .allows(path: observedTransportPath) else {
-                // This owner is shared by foreground and secondary clients.
-                // Enforce the captured request policy here so a migration cannot
-                // bypass the foreground UI observer and keep serving background
-                // RPCs over a disallowed class.
-                await removeActiveConnection(
-                    matching: id,
-                    releasesControlOwner: true,
-                    reason: .runtimeReconfigured,
-                    failure: .unsupportedRoute
-                )
-                return
-            }
+            return
         }
         guard path != .unavailable else {
             armAllPathsClosedEviction(for: id)
