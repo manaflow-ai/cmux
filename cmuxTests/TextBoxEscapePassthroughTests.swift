@@ -39,6 +39,33 @@ struct TextBoxEscapePassthroughTests {
     }
 
     @Test
+    func runningCampfireAgentReceivesEscapeFromTextBox() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+
+        fixture.workspace.setAgentLifecycle(
+            key: "campfire",
+            panelId: fixture.panel.id,
+            lifecycle: .running
+        )
+        defer {
+            _ = fixture.workspace.clearAgentLifecycle(
+                key: "campfire",
+                panelId: fixture.panel.id
+            )
+        }
+        let before = fixture.panel.surface.debugPendingSocketInputForTesting()
+
+        fixture.panel.handleTextBoxEscape()
+
+        let after = fixture.panel.surface.debugPendingSocketInputForTesting()
+        #expect(
+            after.keyEvents == before.keyEvents + 1,
+            "Escape from TextBox must reach a running Campfire agent"
+        )
+    }
+
+    @Test
     func focusedTextBoxKeyDownRoutesOneEscapeToRunningAgent() throws {
         let fixture = try makeWorkspaceFixture()
         defer { closeWindow(fixture.windowID) }
