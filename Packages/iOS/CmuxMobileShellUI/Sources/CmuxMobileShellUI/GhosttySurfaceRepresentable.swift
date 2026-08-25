@@ -9,8 +9,8 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// Mounts a `GhosttySurfaceView`, routes terminal output, and bridges the SwiftUI
-/// composer into the surface-owned bottom dock. Primary-screen output uses the
+/// Mounts a `GhosttySurfaceHostView`, routes terminal output, and bridges the SwiftUI
+/// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let workspaceID: String
@@ -113,7 +113,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
-        return view
+        return GhosttySurfaceHostView(surfaceView: view)
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
@@ -123,7 +123,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
-        guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
@@ -160,7 +160,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
+        (uiView as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
