@@ -3,15 +3,16 @@
 Current snapshot: 2026-08-25.
 Audit base: `origin/main` at `bd985bddcded04ed849e3484dbcb645b32a32cb6`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Audited code tip for this board snapshot: `e4f527bc00af27346b0e628f76f907ef34531d82`.
-Current branch head, including this board update: `09d5dde272`.
+Audited code tip for this board snapshot: `75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9`.
+The documentation update follows this code tip. Query `git rev-parse HEAD` for
+the exact metadata commit after this update.
 PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen,
-points to the previous source tip until the new commits are pushed. The branch
-is 809 commits ahead of `origin/main` and 0 commits behind. The focused hosted run
+points to the latest source tip after the push. The branch is 811 commits ahead
+of `origin/main` before this documentation commit and 0 commits behind. The focused hosted run
 [`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
-passed on the earlier quota source tip and is stale for this board. The new
-protocol, cancellation, and Git pipe fixes need exact pushed-head hosted
-verification and exact-head autoreview before merge.
+passed on the earlier quota source tip and is stale for this board. The
+stale-overflow, child-reaping, protocol, cancellation, and Git pipe fixes need
+exact pushed-head hosted verification and exact-head autoreview before merge.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -81,9 +82,12 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, local branch head `09d5dde272` with code through `e4f527bc00`; remote head is older until push. | Push, run focused and full exact-head hosted verification, run local autoreview, then merge. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, source head `75ddb6fbe8`; exact-head hosted verification and local autoreview are pending. | Run focused and full exact-head hosted verification, run local autoreview, then merge. |
 | [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, head `2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, mergeable, listed checks pass. Prior preview and localization findings are addressed; local autoreview needs a clean engine run. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); run local autoreview and exact-head checks, then merge. |
 | [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, independent detached-session-owner feature, mergeable. Current review has lifecycle and localization action items. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); fix review items and run exact-head checks. |
+| [#10743](https://github.com/manaflow-ai/cmux/pull/10743) | Lawrence Chen | Open, stale-surface filtering follow-up at `470252914f`; active-index and publication-race findings remain. | Do not merge yet. Fix identity mapping and atomic publication after [#10708](https://github.com/manaflow-ai/cmux/pull/10708). |
+| [#10744](https://github.com/manaflow-ai/cmux/pull/10744) | Lawrence Chen | Open, watch replacement generation gate at `45f208fb98`; exact-head review and hosted checks are pending. | Review, then integrate with the aggregate if the close/drop lifecycle is safe. |
+| [#10745](https://github.com/manaflow-ai/cmux/pull/10745) | Lawrence Chen | Open, Git child process-group cleanup at `ee8f3d00ea`; exact-head review and hosted checks are pending. | Review Unix and Windows cleanup separately, then integrate if safe. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded by [#10708](https://github.com/manaflow-ai/cmux/pull/10708). | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking that the head is unchanged. |
@@ -91,7 +95,7 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 ## Current state
 
-The audited source tail is `e4f527bc00af27346b0e628f76f907ef34531d82`. It carries the watch compatibility,
+The audited source tail is `75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -107,7 +111,9 @@ latest tail also scopes remote-daemon cleanup to the failed writer, makes upload
 creation descriptor-backed, and avoids signaling a numeric PID marker during
 recovery. It makes close generation-aware, makes SSH upload staging no-clobber
 and ownership explicit, classifies only verified missing resources as
-`terminal_gone`, and documents the interactive/headless CLI split. A same-user
+`terminal_gone`, and documents the interactive/headless CLI split. The latest
+tail adds child reaping on missing `git diff` stdout and generation-gated stale
+PTY overflow errors in `ca12249636` and `75ddb6fbe8`. A same-user
 pathname race remains a documented residual because the portable shell path has
 no descriptor-relative `fchmod`. The issues below remain open.
 
@@ -120,6 +126,16 @@ tail then adds protocol v7 operational PTY error gating (`29145d800c`,
 `cd76c82e3d`), cancellation retirement after partial writes (`2f3e478385`,
 `ec074f4b53`), and bounded Git stderr ownership (`c4e842cc55`,
 `e4f527bc00`).
+
+### Wave 48 audit residuals
+
+| Area | Current decision | Next proof or fix |
+| --- | --- | --- |
+| Filesystem-watch replacement | P1 open. Old watch tasks can emit frames after replacement because the wire frames have no generation and task abort is not awaited. | Add a generation or stream token to event/error frames, or retire and await the old task before publishing the replacement. Keep ordered PTY/event frames on a queue, not a latest-value watcher. |
+| Git child cleanup | P1/P2 open. `git status` and `git diff` have no operation deadline around stdout reads, and dropping `Child` is not strict descendant cleanup. | Add cancellation/deadline selection, process-group or job cleanup, and bounded kill plus `wait()` before returning. Test descendants that inherit stdout and stderr. |
+| `run_spec` cleanup | P2 open. The drop guard signals a process group but does not await `Child::wait()`. | Use an owned async cleanup supervisor with escalation and a bounded reap. |
+| Stale surface tree | P1 open in [#10743](https://github.com/manaflow-ai/cmux/pull/10743). Preserve active surface identity after filtering and publish a catalog/tree snapshot atomically. | Add active-before/after, active-removed, empty-pane, and detach-between-snapshot tests before merge. |
+| Preferred editor launch | P2 open in [#10681](https://github.com/manaflow-ai/cmux/pull/10681). `exec nvim`, quoted paths, and plain `emacs` classification bypass or misclassify the current guard. | Parse shell words or use a safe launch contract, then test wrappers and GUI-capable editors. Do not merge the current head. |
 
 ### Wave 45 audit residuals
 

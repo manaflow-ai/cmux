@@ -6,7 +6,7 @@ test or a recorded dogfood result.
 
 | Request | Evidence | Acceptance | State |
 | --- | --- | --- | --- |
-| Remove stale surface references from `uvx cmux` attach output. | `~/.codex/history.jsonl`, session `019ffdb7-825e-7f81-87b2-2cc81b9e43c7` | Reproduce the missing-surface message, then prove attach, switch, and reconnect use live surface IDs only. | Open |
+| Remove stale surface references from `uvx cmux` attach output. | `~/.codex/history.jsonl`, session `019ffdb7-825e-7f81-87b2-2cc81b9e43c7` | Preserve the active surface ID while filtering, publish one revisioned catalog/tree snapshot, then prove attach, switch, reconnect, active removal, and empty-pane behavior use live surface IDs only. | Open, [#10743](https://github.com/manaflow-ai/cmux/pull/10743) needs follow-up |
 | Put cmux-tui in the base snapshot. Do not require freestyle PTYs. | `~/.codex/history.jsonl`, session `01a0132d-85cd-7031-94e5-728512bf833a` | Build the base image, install the pinned TUI binary, launch it from the documented command, and verify upgrade and rollback. | Open, infrastructure |
 | Simplify relay onboarding commands for Codex and opencode. | `~/.codex/history.jsonl`, session `019fe97c-493a-7172-967e-c24fe087b763` | One copyable command must refresh credentials for both clients, report safe errors, and never print tokens. | Open, product design |
 | Define relay as a token provider for GPU and employee organizations. | Same relay onboarding session | Document trust boundaries, tenant ownership, rotation, revocation, and audit events before implementation. | Open, security design |
@@ -18,6 +18,18 @@ test or a recorded dogfood result.
 | Use stable human-readable session names with owner and branch metadata. | UX simplification audit wave 45 | Names remain stable across reconnect and disambiguate collisions without hiding machine IDs. | Proposed |
 | Add read-only observe mode and bounded reconnect. | UX simplification audit wave 45 | Observe mode cannot write PTY input; reconnect stops at a documented deadline and reports the next action. | Proposed |
 | Keep CLI, palette, shortcut, and context-menu actions on one path. | Existing architecture decision in `TECH-DEBT-BOARD.md` | Each entry point invokes the same action and has one behavior test. | In progress |
+
+## Wave-48 pattern notes
+
+Official [Tokio channels](https://tokio.rs/tokio/tutorial/channels),
+[`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/),
+[`select!`](https://docs.rs/tokio/latest/tokio/macro.select.html),
+[Ratatui `Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html),
+and [Crossterm events](https://docs.rs/crossterm/latest/crossterm/event/enum.Event.html)
+support one state-owner task for typed actions, immutable revisioned snapshots
+for derived UI state, and sequenced resize claims. They do not support using a
+latest-value watcher for ordered PTY bytes or protocol events. Cancellation must
+close admission, stop I/O, release ownership, and join or reap children.
 
 ## Current simplification rule
 

@@ -1,13 +1,13 @@
 # cmux-tui aggregate change log
 
 Current snapshot: 2026-08-25. The audited source tip before this
-documentation snapshot is [`ba16a6745e`](https://github.com/manaflow-ai/cmux/commit/ba16a6745e1c6791c92e44c36bd24495a75de820),
-801 commits ahead of `origin/main` at
+documentation snapshot is [`75ddb6fbe8`](https://github.com/manaflow-ai/cmux/commit/75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9),
+811 commits ahead of `origin/main` at
 `bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
 points to that exact pushed head. Focused hosted run
 [`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
-passed on Linux, macOS, Rust MSRV, and the release artifact. Full hosted
-verification and exact-head autoreview remain pending. The documentation
+passed on the earlier source tip and is stale after the child-reap and
+stale-overflow fixes. Full hosted verification and exact-head autoreview remain pending. The documentation
 commit follows the audited source tip. The 2026-08-24 snapshot below is
 historical.
 
@@ -31,8 +31,9 @@ UI-15, and UI-22. They do not close any row.
 The current PR inventory found 105 open PRs mentioning `cmux-tui`, 64 of the
 newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
 [#10708](https://github.com/manaflow-ai/cmux/pull/10708). Independent features
-[#10734](https://github.com/manaflow-ai/cmux/pull/10734) and
-[#10736](https://github.com/manaflow-ai/cmux/pull/10736) stay separate until
+[#10734](https://github.com/manaflow-ai/cmux/pull/10734),
+[#10736](https://github.com/manaflow-ai/cmux/pull/10736), and
+[#10743](https://github.com/manaflow-ai/cmux/pull/10743) stay separate until
 their current review findings are fixed. Conflicting
 [#10602](https://github.com/manaflow-ai/cmux/pull/10602) and
 [#10609](https://github.com/manaflow-ai/cmux/pull/10609) are superseded and may
@@ -46,6 +47,8 @@ Revert each commit separately unless a revert note says otherwise.
 
 | Commit | Change | Revert |
 | --- | --- | --- |
+| [`75ddb6fbe8`](https://github.com/manaflow-ai/cmux/commit/75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9) | Gate stale PTY overflow errors on the attachment generation and add a replacement-generation regression test. | `git revert 75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9` |
+| [`ca12249636`](https://github.com/manaflow-ai/cmux/commit/ca1224963693698eaf9a800a3fa79e81fbe86311) | Kill and await the Git child when the `git diff` stdout pipe is unexpectedly absent. | `git revert ca1224963693698eaf9a800a3fa79e81fbe86311` |
 | [`ba16a6745e`](https://github.com/manaflow-ai/cmux/commit/ba16a6745e1c6791c92e44c36bd24495a75de820) | Clarify that the Kitty quota worker applies target limits after a timed-out update recovers. | `git revert ba16a6745e1c6791c92e44c36bd24495a75de820` |
 | [`95fd2196df`](https://github.com/manaflow-ai/cmux/commit/95fd2196df6618d0f5ba97f26e3a2196cbc0b9b0) | Assert that a timeout-admitted terminal keeps applied Kitty limits disabled before recovery. | `git revert 95fd2196df6618d0f5ba97f26e3a2196cbc0b9b0` |
 | [`31857f0c4c`](https://github.com/manaflow-ai/cmux/commit/31857f0c4c1cd52617688aa7465832fa66122f6a) | Admit terminal creation after a Kitty quota timeout with graphics disabled instead of returning an error. | `git revert 31857f0c4c1cd52617688aa7465832fa66122f6a` |
@@ -55,6 +58,22 @@ Revert each commit separately unless a revert note says otherwise.
 
 Focused hosted evidence for this tail is run
 [`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914).
+
+Wave-48 review found follow-up risks that are intentionally not hidden by the
+two fixes above: filesystem-watch replacement frames lack a generation fence,
+Git child cleanup lacks a cancellation deadline and strict descendant reap,
+and `run_spec` drops its child after signalling the process group. PR
+[#10743](https://github.com/manaflow-ai/cmux/pull/10743) also needs active-surface
+identity mapping and atomic catalog/tree publication. PR
+[#10681](https://github.com/manaflow-ai/cmux/pull/10681) needs wrapped-editor and
+quoted-path behavior coverage. These are open follow-up work, not merge claims.
+
+Follow-up implementations are open for review in
+[#10744](https://github.com/manaflow-ai/cmux/pull/10744), generation-gated watch
+replacement at `45f208fb98`, and
+[#10745](https://github.com/manaflow-ai/cmux/pull/10745), Unix Git process-group
+cleanup at `ee8f3d00ea`. Neither is part of the aggregate until exact-head
+review and hosted checks pass.
 
 ## Final aggregate tail
 
