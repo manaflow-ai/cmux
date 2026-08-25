@@ -66,10 +66,12 @@ extension Workspace {
             return nil
         }
         let startupInput: String?
-        let mustOmitStoredStartupInput =
-            binding.restoreWorkingDirectorySelection?.permitsResume == false ||
-            (binding.isAgentHookBinding && binding.restoreWorkingDirectorySelection == nil)
-        if mustOmitStoredStartupInput {
+        if binding.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true {
+            // Exact/unavailable policies may intentionally have no structured
+            // launch recipe. Keep the transport reattach, but never replay the
+            // untrusted stored shell command in that case.
+            startupInput = binding.remoteStartupInput()
+        } else if binding.isAgentHookBinding && binding.restoreWorkingDirectorySelection == nil {
             startupInput = nil
         } else {
             guard let input = binding.remoteStartupInput() else { return nil }

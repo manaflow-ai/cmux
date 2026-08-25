@@ -262,11 +262,17 @@ extension SurfaceResumeBindingSnapshot {
               let launchCommand else {
             return nil
         }
+        var structuredLaunchCommand = launchCommand
+        if let bindingEnvironment = environment, !bindingEnvironment.isEmpty {
+            var mergedEnvironment = structuredLaunchCommand.environment ?? [:]
+            mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
+            structuredLaunchCommand.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
+        }
         let agent = SessionRestorableAgentSnapshot(
             kind: agentKind,
             sessionId: sessionId,
             workingDirectory: cwd,
-            launchCommand: launchCommand,
+            launchCommand: structuredLaunchCommand,
             permissionMode: permissionMode
         ).applyingAuthoritativeBindingSelection(selection)
         guard let command = agent.resumeCommand(

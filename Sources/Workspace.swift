@@ -1457,6 +1457,10 @@ extension Workspace {
             } else {
                 nil
             }
+            let restoredPersistentSSHHasAgentStartupInput =
+                restoredPersistentSSHResumeCommand != nil &&
+                effectiveResumeBindingForStartup?.isAgentHookBinding == true &&
+                effectiveResumeBindingForStartup?.remoteStartupInput() != nil
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
@@ -1501,10 +1505,10 @@ extension Workspace {
             let canAttemptAgentResumeLaunch = !restoresRemoteWorkspaceTerminalSnapshot ||
                 remoteRestoreWorkingDirectorySelection?.permitsResume != false
             let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
-                restoredPersistentSSHResumeCommand != nil &&
+                restoredPersistentSSHHasAgentStartupInput &&
                 resumeBinding?.isAgentHookBinding == true
             let restorableAgentForContinuation =
-                canAttemptAgentResumeLaunch || restoredAgentWillRunStartupCommand
+                canAttemptAgentResumeLaunch || restoredPersistentSSHResumeCommand != nil
                     ? retainedRestorableAgent
                     : nil
             let restoredBindingLaunch = unresolvedBindingLaunch
