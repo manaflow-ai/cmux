@@ -25,6 +25,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod pipe_io;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -382,6 +383,12 @@ START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
   --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
+  --pipe-io          With attach --terminal, relay raw bytes over stdio for an
+                     embedder-fed surface instead of rendering (stdout = replay
+                     then live output, stdin = JSON input/resize lines,
+                     exit 0 = terminal ended, exit 2 = daemon connection lost).
+  --cols <n>         Initial viewer columns for --pipe-io (default 80).
+  --rows <n>         Initial viewer rows for --pipe-io (default 24).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -444,6 +451,9 @@ struct Args {
     session: String,
     socket: Option<PathBuf>,
     terminal: Option<String>,
+    pipe_io: bool,
+    pipe_io_cols: Option<u16>,
+    pipe_io_rows: Option<u16>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -518,6 +528,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         session: "main".to_string(),
         socket: None,
         terminal: None,
+        pipe_io: false,
+        pipe_io_cols: None,
+        pipe_io_rows: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -564,6 +577,19 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--terminal" => {
                 out.terminal =
                     Some(args.next().ok_or_else(|| "--terminal needs a value".to_string())?);
+            }
+            "--pipe-io" => {
+                out.pipe_io = true;
+            }
+            "--cols" => {
+                let value = args.next().ok_or_else(|| "--cols needs a value".to_string())?;
+                out.pipe_io_cols =
+                    Some(value.parse().map_err(|_| "--cols needs a number".to_string())?);
+            }
+            "--rows" => {
+                let value = args.next().ok_or_else(|| "--rows needs a value".to_string())?;
+                out.pipe_io_rows =
+                    Some(value.parse().map_err(|_| "--rows needs a number".to_string())?);
             }
             "--machine-provider" => {
                 if out.machine_provider.is_some() {
@@ -758,6 +784,12 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    if out.pipe_io && out.terminal.is_none() {
+        return Err("--pipe-io requires `cmux attach --terminal`".to_string());
+    }
+    if (out.pipe_io_cols.is_some() || out.pipe_io_rows.is_some()) && !out.pipe_io {
+        return Err("--cols/--rows require --pipe-io".to_string());
     }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
@@ -1538,6 +1570,26 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     } else {
         None
     };
+    if args.pipe_io {
+        let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
+        let session = Session::Remote(remote.clone());
+        let reason = pipe_io::run(
+            &session,
+            &remote,
+            surface,
+            args.pipe_io_cols.unwrap_or(80),
+            args.pipe_io_rows.unwrap_or(24),
+        )?;
+        // The exit reason is machine-readable protocol for the embedder,
+        // not user-facing copy; the embedder localizes what it shows.
+        {
+            let mut stderr = std::io::stderr().lock();
+            let _ =
+                writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
+            let _ = stderr.flush();
+        }
+        std::process::exit(reason.exit_code());
+    }
     run_connected_session_client(
         socket_path,
         args.session,
