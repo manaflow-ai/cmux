@@ -801,6 +801,13 @@ impl Inner {
             opened.control.kill();
             return;
         }
+        let previous_gate = self
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(&pty_id)
+            .map(|attachment| Arc::clone(&attachment.gate));
+        let _previous_gate_guard = previous_gate.as_ref().map(|gate| gate.lock().expect("attachment gate"));
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
