@@ -3222,7 +3222,10 @@ struct CMUXCLI {
         // create can finish before the app has focused the new workspace, and an
         // untargeted split would land in whatever was focused before. Without a
         // target (a later "open desktop"), the split goes where the person is.
-        var params: [String: Any] = ["url": openUrl + "&autoconnect=1&resize=remote"]
+        // reconnect: autoconnect only covers the first load — without it a machine
+        // sleeping, waking, or any dropped websocket leaves the pane parked on
+        // noVNC's disconnected screen until someone reopens the desktop.
+        var params: [String: Any] = ["url": openUrl + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"]
         if let workspaceId {
             params["workspace_id"] = workspaceId
         }
