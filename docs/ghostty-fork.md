@@ -926,6 +926,7 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - `56f5c2b9e` (test: cover long URLs through the real VT stream)
   - `a3f9c0f9c` (fix: preserve soft-wrap continuity from either row marker)
   - `98013e14d` (fix: reject incomplete soft-wrap boundaries)
+  - `3652181d1` (merge current fork main)
 - Files:
   - `src/Surface.zig`
   - `src/link.zig`
@@ -942,9 +943,9 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - Keep both row-direction markers in the shared resolver; reconstructing
     only from visible text in the cmux host can make click, hover, copy, and
     preview disagree.
-- Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-98013e14d29cc09fb642cbef38f3d7273a344191-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `5ff55af101459586370dcdc5c7b053686c660aa33bb696b79c5080c6c8185455`
+- Artifact for the merged fork tip:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3652181d1680cab41d802c064039914b90e26d62-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `fd2e26da98fb822c03a8c3e66afc2db922f4218b9156f6361fbad9854c286ba1`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded Kitty graphics state
