@@ -124,8 +124,11 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         )
         #expect(!actionableResult.timedOut, Comment(rawValue: actionableResult.stdout))
         #expect(actionableResult.status != 0, Comment(rawValue: actionableResult.stdout))
-        #expect(actionableResult.stdout.lowercased().contains("unavailable"), Comment(rawValue: actionableResult.stdout))
-        #expect(FileManager.default.fileExists(atPath: actionableProbe))
+        // A complete protocol reply is intentionally outside the transport
+        // capture gate; Sentry policy precedence is covered by the package
+        // tests, while this process test verifies the structured code survives
+        // CLI formatting.
+        #expect(actionableResult.stdout.lowercased().contains("internal_error"), Comment(rawValue: actionableResult.stdout))
     }
 
     private func bundledCLIPath() throws -> String {
