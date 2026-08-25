@@ -82,10 +82,12 @@ final class SharedLiveAgentIndex {
     private var activeForkSupportValidationRequestIdentities: [ForkProbeKey: Set<String>] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
+    private var lastSidebarLivenessRefreshAt: Date?
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let sidebarLivenessRefreshInterval: TimeInterval = 30.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
@@ -461,6 +463,13 @@ final class SharedLiveAgentIndex {
             return
         }
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
+        let now = dateProvider()
+        if let lastSidebarLivenessRefreshAt,
+           now.timeIntervalSince(lastSidebarLivenessRefreshAt)
+                < Self.sidebarLivenessRefreshInterval {
+            return
+        }
+        lastSidebarLivenessRefreshAt = now
 
         let previousFingerprint = liveAgentProcessFingerprint
         refreshTask = Task { @MainActor [weak self] in
@@ -500,9 +509,7 @@ final class SharedLiveAgentIndex {
     /// Whether the cached index has recorded process generations worth
     /// revalidating from the sidebar freshness lease.
     func hasCachedProcessLivenessEntries() -> Bool {
-        index?.forkValidationEntries().contains { _, entry in
-            !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty
-        } == true
+        index?.hasRecordedProcessGenerationsValue() == true
     }
 
     func scheduleRefreshIfStale(
@@ -1168,6 +1175,7 @@ final class SharedLiveAgentIndex {
         pruneForkSupportValidations(validPanelKeys: forkValidatedPanels, now: loadedAt)
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+        lastSidebarLivenessRefreshAt = loadedAt
     }
 
     private func applyPendingForkValidations(

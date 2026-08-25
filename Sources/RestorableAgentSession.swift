@@ -1082,6 +1082,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
+    private let hasRecordedProcessGenerations: Bool
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
@@ -1094,6 +1095,10 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return entriesByPanelId[panelId]
+    }
+
+    func hasRecordedProcessGenerationsValue() -> Bool {
+        hasRecordedProcessGenerations
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -2775,6 +2780,9 @@ struct RestorableAgentSessionIndex: Sendable {
         self.ambiguousPanelIds = Set(
             panelKeyCounts.compactMap { panelId, count in count > 1 ? panelId : nil }
         )
+        self.hasRecordedProcessGenerations = entriesByPanel.values.contains { entry in
+            !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty
+        }
     }
 }
 
