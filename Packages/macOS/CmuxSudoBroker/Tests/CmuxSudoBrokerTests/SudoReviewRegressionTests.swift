@@ -122,4 +122,91 @@ struct SudoReviewRegressionTests {
 
         #expect((await launcher.launchedRequestIDs).count <= 8)
     }
+
+    @Test("Orphan recovery recognizes tokenized sudo and helper commands")
+    func orphanRecoveryRecognizesTokenizedArguments() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let approvedScriptURL = fixture.paths.approved.appendingPathComponent("tokenized.sh")
+        let identity = SudoTestFixture.defaultRequesterIdentity
+        let token = SudoExecutionControlMarkers().token
+        let prompt = SudoAuthenticationOutputDetector.passwordPrompt
+        let sudoArguments = [
+            "/usr/bin/sudo", "-k", "-S", "-p", prompt,
+            "/Applications/cmux.app/Contents/MacOS/cmux",
+            SudoPrivilegedExecutor.hiddenCommand, "12", "1234", approvedScriptURL.path, token,
+        ]
+        let sudoInspector = SequencedSudoProcessInspector(
+            processIdentifier: identity.processIdentifier,
+            identities: [identity, identity],
+            arguments: sudoArguments
+        )
+        let sudoInventory = SudoOrphanProcessInventory(inspector: sudoInspector)
+            .identitiesByScriptPath(approvedScriptURLs: [approvedScriptURL])
+        #expect(sudoInventory[approvedScriptURL.standardizedFileURL.path] == [identity])
+
+        let helperArguments = [
+            "/Applications/cmux.app/Contents/MacOS/cmux",
+            SudoPrivilegedExecutor.hiddenCommand, "12", "1234", approvedScriptURL.path, token,
+        ]
+        let helperInspector = SequencedSudoProcessInspector(
+            processIdentifier: identity.processIdentifier,
+            identities: [identity, identity],
+            arguments: helperArguments
+        )
+        let helperInventory = SudoOrphanProcessInventory(inspector: helperInspector)
+            .identitiesByScriptPath(approvedScriptURLs: [approvedScriptURL])
+        #expect(helperInventory[approvedScriptURL.standardizedFileURL.path] == [identity])
+    }
+
+    @Test("Approval reuses complete artifacts left before state persistence")
+    func approvalTransitionReconcilesCrashLeftArtifacts() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date.now
+        let request = try fixture.enqueue(id: "approval-recovery", createdAt: now)
+        let pending = try #require(
+            fixture.store.pendingRequests().first { $0.request.id == request.id }
+        )
+        let manifest = SudoExecutionManifest(
+            id: request.id,
+            requesterIdentity: SudoTestFixture.defaultRequesterIdentity,
+            currentDirectory: request.currentDirectory,
+            deadline: request.approvalDeadline.addingTimeInterval(SudoBroker.executionGraceSeconds)
+        )
+        try Data(pending.script.utf8).write(to: fixture.store.approvedScriptURL(id: request.id))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: fixture.paths.executions
+            .appendingPathComponent("\(request.id).json"))
+
+        let transition = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: now,
+            executionGraceSeconds: SudoBroker.executionGraceSeconds
+        )
+        guard case .approved(let recoveredManifest) = transition else {
+            Issue.record("approval did not reconcile the existing artifacts")
+            return
+        }
+        #expect(recoveredManifest == manifest)
+        #expect(fixture.store.state(id: request.id)?.phase == .approved)
+    }
+
+    @Test("Crash-left atomic-write temporary files are pruned")
+    func atomicWriteTemporaryFilesAreReclaimed() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let temporaryURL = fixture.paths.requests
+            .appendingPathComponent(".request.json.tmp.123.\(UUID().uuidString)")
+        try Data("orphaned temporary data".utf8).write(to: temporaryURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date.now.addingTimeInterval(-48 * 60 * 60)],
+            ofItemAtPath: temporaryURL.path
+        )
+
+        try fixture.store.ensureDirectories()
+
+        #expect(!FileManager.default.fileExists(atPath: temporaryURL.path))
+    }
 }
