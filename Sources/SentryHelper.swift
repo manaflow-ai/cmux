@@ -1,7 +1,7 @@
 import Darwin
+import CmuxSentryReporting
 import CmuxTerminal
 import Foundation
-import Sentry
 
 @MainActor private var sentryMemoryContextRefreshTask: Task<Void, Never>?
 @MainActor private var sentryLastMemoryContextRefresh: Date?
