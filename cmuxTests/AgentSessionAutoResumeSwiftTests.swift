@@ -2475,6 +2475,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         var exactWithoutLaunchBinding = binding
         exactWithoutLaunchBinding.launchCommand = nil
         exactWithoutLaunchBinding.restoreWorkingDirectorySelection = .exact(trustedRemoteDirectory)
+        #expect(workspace.setSurfaceResumeBinding(exactWithoutLaunchBinding, panelId: panelId))
         let exactWithoutLaunchRemoteCommand = try #require(workspace.persistentSSHResumeCommand(
             for: exactWithoutLaunchBinding,
             expectedWorkspaceID: workspace.id,
