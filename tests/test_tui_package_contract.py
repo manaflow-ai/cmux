@@ -382,6 +382,17 @@ def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> N
 
     assert result.returncode == 0, result.stderr
 
+    import zipfile
+
+    wheel = next(wheels.glob("*.whl"))
+    dist_info = f"cmux-{VERSION}.dist-info"
+    with zipfile.ZipFile(wheel) as archive:
+        metadata = archive.read(f"{dist_info}/METADATA").decode("utf-8")
+    assert "Description-Content-Type: text/markdown\n" in metadata
+    description = metadata.split("\n\n", 1)[1].strip()
+    assert description.startswith("# cmux\n")
+    assert "python -m pip install cmux" in description
+
     wheel = next(wheels.glob("*macosx_11_0_arm64.whl"))
     wheel.unlink()
     result = run_validator(
