@@ -68,6 +68,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 objectFormatSHA256: &objectFormatSHA256,
                 deadline: effectiveDeadline,
                 branchContext: branchContext,
+                readDeadline: effectiveDeadline,
                 failed: &failed
             )
             if failed { return false }
@@ -100,6 +101,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 objectFormatSHA256: &objectFormatSHA256,
                 deadline: effectiveDeadline,
                 branchContext: branchContext,
+                readDeadline: effectiveDeadline,
                 failed: &failed
             )
             if failed { return nil }
@@ -117,6 +119,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         objectFormatSHA256: inout Bool,
         deadline: DispatchTime?,
         branchContext: GitConfigBranchContext,
+        readDeadline: DispatchTime,
         failed: inout Bool
     ) {
         let configURL = rawURL.standardizedFileURL
@@ -131,7 +134,11 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         }
         remainingPathCount -= 1
         let readLimit = min(remainingByteCount, GitConfigFileReader.defaultMaximumByteCount)
-        switch reader.read(at: configURL, maximumByteCount: readLimit) {
+        switch reader.read(
+            at: configURL,
+            maximumByteCount: readLimit,
+            deadline: readDeadline
+        ) {
         case .missing:
             return
         case .oversized, .unavailable:
@@ -203,6 +210,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                     objectFormatSHA256: &objectFormatSHA256,
                     deadline: deadline,
                     branchContext: branchContext,
+                    readDeadline: readDeadline,
                     failed: &failed
                 )
                 if failed { return }
