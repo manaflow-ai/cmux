@@ -13,8 +13,8 @@ enum CloudMachinesFeature {
     }
 
     /// Off-main mirror for the right-sidebar mode availability path.
-    nonisolated static var offMainIsEnabled: Bool {
-        CmuxFeatureFlags.offMainIsCloudVMUIEnabled || localOptIn(defaults: .standard)
+    nonisolated static func offMainIsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        CmuxFeatureFlags.offMainIsCloudVMUIEnabled || localOptIn(defaults: defaults)
     }
 
     nonisolated static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {

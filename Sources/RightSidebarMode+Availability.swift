@@ -25,7 +25,7 @@ extension RightSidebarMode {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
@@ -43,7 +43,7 @@ extension RightSidebarMode {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 

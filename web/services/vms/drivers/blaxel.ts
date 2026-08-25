@@ -391,12 +391,19 @@ export class BlaxelProvider implements VMProvider {
           // A machine that failed to bootstrap must not survive as an orphaned
           // sandbox (its previews die with it); the durable home volume is kept —
           // a retried create with the same volume reattaches it.
+          // A rollback failure means the sandbox is now leaked on the provider:
+          // log it loudly (the original create error still propagates) so the
+          // orphan is findable instead of silently accumulating.
+          const rollback = () =>
+            this.destroy(name).catch((cleanupErr) => {
+              console.error(`[blaxel] create rollback failed; sandbox ${name} may be orphaned`, cleanupErr);
+            });
           if (bootstrapResult.status === "rejected") {
-            await this.destroy(name).catch(() => undefined);
+            await rollback();
             throw bootstrapResult.reason;
           }
           if (previewResult.status === "rejected") {
-            await this.destroy(name).catch(() => undefined);
+            await rollback();
             throw previewResult.reason;
           }
           const previewUrl = previewResult.value;
