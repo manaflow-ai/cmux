@@ -1,6 +1,6 @@
 # cmux TUI PR intent and merge board
 
-Audit date: 2026-08-23. This board records the GitHub search and exact check
+Audit date: 2026-08-24. This board records the GitHub search and exact check
 state used for the aggregate merge. A mergeable label is not acceptance proof.
 The aggregate branch currently includes the exact-head autoreview fixes and
 cross-platform hardening through `17413db11cc0ebb7b0b5c254447cede3faaad0cf`;
@@ -20,8 +20,8 @@ commands in `TECH-DEBT-CHANGELOG.md`.
 | PR | Author | Intent | Decision |
 | --- | --- | --- | --- |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Umbrella relay, SDK, TUI lifecycle, protocol, and tech-debt integration. | This branch supersedes the overlapping slices. Merge only after exact-head hosted checks and local autoreview pass. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Earlier relay tech-debt wave. | Superseded by #10603. Its Rust SDK MSRV, Rust consumer, and Rust package checks failed in run `32644656010`. Do not merge. |
-| [#10571](https://github.com/manaflow-ai/cmux/pull/10571) | Lawrence Chen | Earlier chatmux-relay slices 2 and 3. | Superseded by #10603 and currently conflicting. Close after #10603 merges, with the reason recorded in the PR. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Earlier relay tech-debt wave. | Superseded by #10603. It remains open; do not merge. Its Rust SDK MSRV, Rust consumer, and Rust package checks failed in run `32644656010`. |
+| [#10571](https://github.com/manaflow-ai/cmux/pull/10571) | Lawrence Chen | Earlier chatmux-relay slices 2 and 3. | Closed as superseded by #10603. |
 
 ## Dependency chains that are not safe to merge blindly
 

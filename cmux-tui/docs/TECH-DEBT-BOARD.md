@@ -1,13 +1,13 @@
 # cmux-tui technical-debt board
 
-Last updated: 2026-08-23.
+Last updated: 2026-08-24.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
 Current integration code tip before this documentation commit: `17413db11cc0ebb7b0b5c254447cede3faaad0cf` (`fix(chatmux-relay): bound preview task reaping`).
 
-Current exact aggregate tip is `17413db11cc0ebb7b0b5c254447cede3faaad0cf`,
-585 commits ahead of `origin/main` before this documentation update.
-Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
+Current exact aggregate tip is `f0d52e38edd6525ef4a02f2e43651009c5d97aef`,
+647 commits ahead of `origin/main` before this documentation update.
+Exact worktree HEAD at audit time: `f0d52e38edd6525ef4a02f2e43651009c5d97aef`.
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification

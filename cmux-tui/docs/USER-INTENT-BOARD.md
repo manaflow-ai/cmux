@@ -1,6 +1,6 @@
 # cmux-tui user-intent board
 
-Audit snapshot: 2026-08-23.
+Audit snapshot: 2026-08-24.
 
 Audit base: aggregate-final at `35be8f8c8a` (`Merge concurrent TUI review fixes,
 retain aggregate tree`). This document records explicit user requests found in local
@@ -42,6 +42,7 @@ aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md)
 | UI-19 | Keep the cmux-relay and cmux-tui boundary narrow while deciding where machine event monitoring belongs. Evidence: `~/.claude/history.jsonl:90021`, 2026-08-21T09:50:13Z UTC; the request explicitly raises attack-surface risk. | Open. No documented threat model or ownership decision records which event, alarm, and monitoring capabilities belong in relay versus TUI. | Write the capability boundary and threat model. Prove that untrusted machine events cannot gain TUI control-plane or PTY authority, and that relay authentication and authorization remain enforced. |
 | UI-20 | Support diffs.com and trees.software-style editing and tree workflows in the cmux ecosystem, while deciding what belongs in snapshots, cmux-tui, or cmux-relay. Evidence: `~/.claude/history.jsonl:90028`, 2026-08-21T10:08:43Z UTC; related cmux-tui ownership question at `90036`. | Open. This is a broad product request with no scoped feature contract, snapshot inventory, or security review. | Define a smallest feature slice and ownership matrix first. Reject arbitrary snapshot software and relay capabilities until trust boundaries, package provenance, and PTY ownership are specified and tested. |
 | UI-21 | Provide secure `tui-use` tools for Pi and codemode to talk to only the sandboxes returned by the list-sandbox capability, using cmux-tui instead of tmux and reusing cmux journal hooks where appropriate. Evidence: `~/.codex/history.jsonl:18183`, 2026-08-12T07:50:27Z UTC (embedded session transcript request). | Open. No scoped tool contract, sandbox capability binding, cmux-tui transport proof, or journal-hook readiness evidence is recorded. | Enumerate sandboxes through an authenticated capability, bind each tool call to an allowlisted sandbox and cmux-tui session, reject arbitrary targets and tmux fallbacks, and prove Pi and codemode attach/input/exit behavior plus journal hook privacy and reconnect semantics. |
+| UI-22 | Fix terminal resize, show an empty/action screen instead of forcing a new conversation when opening an empty space, and clarify libghostty-web/Atlas renderer use and direct cmux-tui connectivity. Evidence: `~/.codex/sessions/2026/08/24/rollout-2026-08-24T15-02-29-01a035cb-e2ca-7c42-9fb0-421942de9005.jsonl`, 2026-08-24T22:02:35.904Z UTC. | Open. No end-to-end resize proof, empty-space state contract, renderer ownership statement, or direct transport proof is recorded. | Resize both directions repeatedly, open an empty space and verify only the intended actions or existing content, then document and test the renderer and cmux-tui transport path. |
 
 ## Aggregate residuals that affect these asks
 

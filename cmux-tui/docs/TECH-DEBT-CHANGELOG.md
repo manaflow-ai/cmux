@@ -1,6 +1,10 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`17413db11cc0ebb7b0b5c254447cede3faaad0cf`](https://github.com/manaflow-ai/cmux/commit/17413db11cc0ebb7b0b5c254447cede3faaad0cf). The prior documented code tip was [`c599fa778e506574bddf12393d4a9bb91c4772e5`](https://github.com/manaflow-ai/cmux/commit/c599fa778e506574bddf12393d4a9bb91c4772e5). The code branch is 585 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, task reaping, and the normal merge of concurrent review history.
+Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`f0d52e38edd6525ef4a02f2e43651009c5d97aef`](https://github.com/manaflow-ai/cmux/commit/f0d52e38edd6525ef4a02f2e43651009c5d97aef). The prior documented code tip was [`c599fa778e506574bddf12393d4a9bb91c4772e5`](https://github.com/manaflow-ai/cmux/commit/c599fa778e506574bddf12393d4a9bb91c4772e5). The code branch is 647 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, task reaping, and the normal merge of concurrent review history.
+
+## New tail since `c599fa778e506574bddf12393d4a9bb91c4772e5`
+
+The current tail adds bounded CLI text validation, symlink-safe relay configuration, invalid-writer-count tests, bounded relay file/list actions, PTY close-race and upgrade-task cleanup, sanitized lifecycle diagnostics, concurrent stderr caps, Windows-safe config replacement, localized recovery diagnostics, cursor-control parsing, lifecycle-name validation, launcher signal propagation, and invalid socket-path compatibility coverage. Revert individual commits with `git revert <sha>`; revert coupled behavior and tests together for `dcd68c3801`, `04b5819876`, and `a9eaf022aa`.
 
 Earlier aggregate rows retained for history:
 
