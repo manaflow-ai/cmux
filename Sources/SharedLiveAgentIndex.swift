@@ -573,6 +573,24 @@ final class SharedLiveAgentIndex {
         }
     }
 
+    /// Replays process events that arrived while a full index reload was busy.
+    /// The caller must invoke this after the competing task releases its slot.
+    private func drainPendingSidebarLivenessRefreshIfPossible() {
+        guard sidebarLivenessRefreshTask == nil,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !pendingSidebarLivenessPanelIDs.isEmpty else { return }
+        let panelIDs = pendingSidebarLivenessPanelIDs
+        let workspaceIDs = pendingSidebarLivenessWorkspaceIDs
+        pendingSidebarLivenessPanelIDs.removeAll()
+        pendingSidebarLivenessWorkspaceIDs.removeAll()
+        refreshCachedProcessLivenessForSidebar(
+            panelIDs: panelIDs,
+            currentWorkspaceIDByPanelID: workspaceIDs,
+            force: true
+        )
+    }
+
     /// Whether the cached index has recorded process generations worth
     /// revalidating from the sidebar freshness lease.
     func hasCachedProcessLivenessEntries() -> Bool {
@@ -705,6 +723,21 @@ final class SharedLiveAgentIndex {
                 panelIDs.contains($0.key)
             }
         }
+    }
+
+    /// Stops all sidebar-only process monitoring when activity rendering is
+    /// disabled, keeping the disabled path free of kernel sources and scans.
+    func disarmSidebarProcessExitWatchers() {
+        for watcher in sidebarProcessExitWatchers.values {
+            watcher.source.cancel()
+        }
+        sidebarProcessExitWatchers.removeAll()
+        sidebarProcessPanelIDsByPID.removeAll()
+        sidebarProcessWorkspaceIDsByPID.removeAll()
+        pendingSidebarLivenessPanelIDs.removeAll()
+        pendingSidebarLivenessWorkspaceIDs.removeAll()
+        sidebarLivenessRefreshTask?.cancel()
+        lastSidebarLivenessRefreshAt = nil
     }
 
     private func sidebarAgentProcessDidExit(
@@ -841,6 +874,7 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 
@@ -863,6 +897,7 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 
@@ -1101,6 +1136,7 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 

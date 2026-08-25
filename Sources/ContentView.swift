@@ -11579,6 +11579,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
+            guard renderContext.showsAgentActivity else {
+                SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatchers()
+                return
+            }
             if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>],
                !panelIdsByWorkspaceId.isEmpty {
                 // Scoped index events carry the exact panel keys whose
@@ -11679,6 +11683,9 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            if !renderContext.showsAgentActivity {
+                SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatchers()
+            }
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
