@@ -56,6 +56,8 @@ public final class HiveRemoteTerminalSession {
     @ObservationIgnored private var frameQueueNeedsReplay = false
     @ObservationIgnored private var inputTask: Task<Void, Never>?
     @ObservationIgnored private var pendingInput: [String] = []
+    @ObservationIgnored private var pendingInputBytes = 0
+    @ObservationIgnored private let maximumPendingInputBytes = 64 * 1024
     @ObservationIgnored private var inputGeneration = 0
 
     /// Creates a terminal view session over an already-connected client.
@@ -103,6 +105,7 @@ public final class HiveRemoteTerminalSession {
         inputTask?.cancel()
         inputTask = nil
         pendingInput.removeAll(keepingCapacity: true)
+        pendingInputBytes = 0
         phase = .idle
     }
 
@@ -150,7 +153,7 @@ public final class HiveRemoteTerminalSession {
 
     private func sendInput(_ text: String) {
         guard phase == .live || phase == .reattaching else { return }
-        pendingInput.append(text)
+        enqueueInput(text)
         startInputWorkerIfNeeded()
     }
 
@@ -166,6 +169,7 @@ public final class HiveRemoteTerminalSession {
             }
             while !Task.isCancelled {
                 guard let text = self.dequeueInput(for: generation) else { break }
+                var requestStarted = false
                 do {
                     let request = try MobileCoreRPCClient.requestData(
                         method: "mobile.terminal.input",
@@ -176,13 +180,23 @@ public final class HiveRemoteTerminalSession {
                         ]
                     )
                     try Task.checkCancellation()
+                    requestStarted = true
                     _ = try await self.client.sendRequest(request)
                 } catch is CancellationError {
                     return
                 } catch {
                     // Keep the lifecycle truthful when an input request fails;
                     // the attach loop will re-establish the stream.
-                    pendingInput.insert(text, at: 0)
+                    if !requestStarted {
+                        enqueueInput(text, atFront: true)
+                    } else {
+                        // A lost response is ambiguous: the host may already
+                        // have applied these non-idempotent bytes. Drop the
+                        // remainder rather than duplicating a command after
+                        // reconnect; the phase change tells the user to retry.
+                        pendingInput.removeAll(keepingCapacity: true)
+                        pendingInputBytes = 0
+                    }
                     if self.inputGeneration == generation, self.phase == .live {
                         self.phase = .reattaching
                         self.attachTask?.cancel()
@@ -197,7 +211,23 @@ public final class HiveRemoteTerminalSession {
 
     private func dequeueInput(for generation: Int) -> String? {
         guard generation == inputGeneration, phase == .live, !pendingInput.isEmpty else { return nil }
-        return pendingInput.removeFirst()
+        let text = pendingInput.removeFirst()
+        pendingInputBytes -= text.utf8.count
+        return text
+    }
+
+    private func enqueueInput(_ text: String, atFront: Bool = false) {
+        let bytes = text.utf8.count
+        guard bytes <= maximumPendingInputBytes else { return }
+        while pendingInputBytes + bytes > maximumPendingInputBytes, !pendingInput.isEmpty {
+            pendingInputBytes -= pendingInput.removeFirst().utf8.count
+        }
+        if atFront {
+            pendingInput.insert(text, at: 0)
+        } else {
+            pendingInput.append(text)
+        }
+        pendingInputBytes += bytes
     }
 
     // MARK: - Attach loop

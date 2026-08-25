@@ -98,13 +98,20 @@ struct HiveSidebarScopePicker: View {
             case .allComputers: deviceIDs = computers.map(\.id)
             case .device(let id): deviceIDs = [id]
             }
-            guard !deviceIDs.isEmpty else { return }
+            if deviceIDs.isEmpty {
+                selectFirstVisibleWorkspace(scope: scope, manager: manager)
+                return
+            }
             Task { @MainActor in
                 for deviceID in deviceIDs {
-                    _ = await HiveComputerMirrorController.shared.attach(
+                    let workspaceID = await HiveComputerMirrorController.shared.attach(
                         deviceID: deviceID,
                         into: manager
                     )
+                    guard scopeModel.scope == scope else { return }
+                    if let workspaceID, let workspace = manager.workspacesById[workspaceID] {
+                        manager.selectWorkspace(workspace)
+                    }
                 }
             }
         } label: {
@@ -139,6 +146,18 @@ struct HiveSidebarScopePicker: View {
                 .filter { $0.isPaired && !$0.isThisComputer }
                 .map { HiveScopeComputer(id: $0.deviceID, name: $0.displayName) }
             if snapshot != computers { computers = snapshot }
+        }
+    }
+
+    private func selectFirstVisibleWorkspace(scope: HiveSidebarScope, manager: TabManager) {
+        let workspace = manager.tabs.first { workspace in
+            HiveSidebarScopeModel.isVisible(
+                deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
+                scope: scope
+            )
+        }
+        if let workspace {
+            manager.selectWorkspace(workspace)
         }
     }
 }

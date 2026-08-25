@@ -83,9 +83,16 @@ extension HostSettingsActions {
         let host = MobileHostService.shared
         let status = await host.ensureListeningAndReady()
         guard status.isRunning else { return .failed }
-        guard !status.routes.isEmpty else { return .needsTailscale }
+        let supportedRoutes = status.routes.filter { route in
+            if route.kind == .tailscale { return true }
+#if DEBUG
+            if route.kind == .debugLoopback { return true }
+#endif
+            return false
+        }
+        guard !supportedRoutes.isEmpty else { return .needsTailscale }
         guard let minted = await DeviceRegistryClient.shared.publishPairingCode(
-            routes: status.routes
+            routes: supportedRoutes
         ) else { return .failed }
         return .minted(code: minted.code, expiresAt: minted.expiresAt)
     }

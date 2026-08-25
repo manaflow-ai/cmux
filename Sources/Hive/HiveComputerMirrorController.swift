@@ -298,6 +298,18 @@ final class HiveComputerMirrorController {
         for remote in workspaces {
             if let workspaceId = mirror.workspaceIdByRemoteID[remote.id],
                let workspace = tabManager.workspacesById[workspaceId] {
+                let nextWorkspaceTitle = String(
+                    localized: "hive.mirror.workspaceTitle",
+                    defaultValue: "(remote.title) — (mirror.computerName)"
+                )
+                if workspace.title != nextWorkspaceTitle {
+                    workspace.title = nextWorkspaceTitle
+                }
+                for terminal in remote.terminals {
+                    if let panelID = mirror.panelIdByRemoteTerminalID[terminal.id] {
+                        workspace.updateRemoteTmuxTabTitle(panelId: panelID, title: terminal.title)
+                    }
+                }
                 addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, client: client)
                 continue
             }

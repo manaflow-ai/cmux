@@ -46,6 +46,8 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
     @ObservationIgnored private let workspaceDecoder: HiveRemoteWorkspaceDecoder
     @ObservationIgnored private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
+    @ObservationIgnored private let expectedInstanceTag: String?
+    @ObservationIgnored private let requiresHostIdentity: Bool
     /// The connected RPC client terminal sessions share, `nil` until the
     /// first successful connect.
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
@@ -66,13 +68,18 @@ public final class HiveRemoteMacSession {
     ///     sleep, tests a recorder that returns immediately.
     ///   - stackAuthChannelTrust: The route provenance trusted to carry the
     ///     account token. Manual links default to loopback-only.
+    ///   - expectedInstanceTag: The registry instance tag, when known.
+    ///   - requiresHostIdentity: Require mobile.host.status to match the
+    ///     registry device before accepting workspace data.
     public init(
         runtime: any MobileSyncRuntime,
         macDeviceID: String,
         displayName: String,
         routes: [CmxAttachRoute],
         retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
-        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly
+        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
+        expectedInstanceTag: String? = nil,
+        requiresHostIdentity: Bool = false
     ) {
         self.runtime = runtime
         self.macDeviceID = macDeviceID
@@ -81,6 +88,8 @@ public final class HiveRemoteMacSession {
         self.retryDelay = retryDelay
         self.workspaceDecoder = HiveRemoteWorkspaceDecoder()
         self.stackAuthChannelTrust = stackAuthChannelTrust
+        self.expectedInstanceTag = expectedInstanceTag
+        self.requiresHostIdentity = requiresHostIdentity
     }
 
     /// Start (or restart) the session: dial routes, fetch the workspace list,
@@ -180,6 +189,9 @@ public final class HiveRemoteMacSession {
                 stackAuthChannelTrust: stackAuthChannelTrust
             )
             do {
+                if requiresHostIdentity {
+                    try await verifyHostIdentity(client: candidate)
+                }
                 let workspaces = try await fetchWorkspaces(client: candidate)
                 // disconnect() can cancel this task while the RPC is
                 // suspended. Do not resurrect a session after teardown.
@@ -231,6 +243,18 @@ public final class HiveRemoteMacSession {
         return try await Task.detached(priority: .userInitiated) {
             try decoder.decode(data)
         }.value
+    }
+
+    private func verifyHostIdentity(client: MobileCoreRPCClient) async throws {
+        let request = try MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        let data = try await client.sendRequest(request)
+        let status = try await Task.detached(priority: .userInitiated) {
+            try MobileHostStatusResponse.decode(data)
+        }.value
+        guard status.macDeviceID == macDeviceID,
+              expectedInstanceTag == nil || status.macInstanceTag == expectedInstanceTag else {
+            throw HiveRemoteTerminalSessionError.hostIdentityMismatch
+        }
     }
 
     // MARK: - Events

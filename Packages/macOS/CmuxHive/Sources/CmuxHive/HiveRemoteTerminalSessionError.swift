@@ -3,4 +3,5 @@ enum HiveRemoteTerminalSessionError: Error {
     case missingFrame
     case incompleteFrame
     case mismatchedSurface
+    case hostIdentityMismatch
 }

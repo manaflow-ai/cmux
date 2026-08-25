@@ -66,6 +66,7 @@ final class HiveComputersService {
             computer = directory.computers.first(where: { $0.deviceID == deviceID })
         }
         guard let computer else { return nil }
+        guard computer.isPaired else { return nil }
         // Prefer the freshest routes: a live online instance's advertised set,
         // falling back to whatever the pairing/registry row carries.
         guard let best = computer.bestPairingRoutes else { return nil }
@@ -88,7 +89,9 @@ final class HiveComputersService {
             // bearer token over an arbitrary tailnet endpoint.
             stackAuthChannelTrust: computer.isRegistryBacked
                 ? .loopbackAndTailscaleTunnel
-                : .loopbackOnly
+                : .loopbackOnly,
+            expectedInstanceTag: best.instanceTag,
+            requiresHostIdentity: computer.isRegistryBacked
         )
     }
 
@@ -128,6 +131,7 @@ final class HiveComputersService {
         for session in sessions {
             await session.disconnect()
         }
+        directory?.clearForSignOut()
     }
 
     /// The live connection phase for a device's embedded viewer session

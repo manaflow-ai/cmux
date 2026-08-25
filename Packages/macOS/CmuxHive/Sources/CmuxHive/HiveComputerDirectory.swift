@@ -47,6 +47,7 @@ public final class HiveComputerDirectory {
     @ObservationIgnored private var listeners: [UUID: AsyncStream<[HiveComputer]>.Continuation] = [:]
     @ObservationIgnored private var presenceTask: Task<Void, Never>?
     @ObservationIgnored private var presenceGeneration = 0
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     /// Creates a directory over injected source seams.
     ///
@@ -127,11 +128,29 @@ public final class HiveComputerDirectory {
     /// rebuild the merged rows. Transient registry failures keep the previous
     /// registry data; an auth rejection clears it (the scope changed).
     public func refresh() async {
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            await self?.performRefresh()
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         let scope = await scopeProvider()
         let generation = activateScope(scope)
+        guard scope.stackUserID != nil else {
+            clearLoadedSources()
+            rebuild()
+            return
+        }
         switch await registry.listDevices() {
         case .ok(let devices):
             guard await isCurrentScope(scope, generation: generation) else { return }
@@ -157,6 +176,12 @@ public final class HiveComputerDirectory {
     }
 
     private func reloadPairedRecords(scope: HiveAccountScope) async {
+        guard scope.stackUserID != nil else {
+            pairedRecords = []
+            pairedByID = [:]
+            pairedRecordsByID = [:]
+            return
+        }
         do {
             pairedRecords = try await pairedStore.loadAll(
                 stackUserID: scope.stackUserID,
@@ -168,6 +193,27 @@ public final class HiveComputerDirectory {
             // Keep the previous local list; a store read failure must not
             // wipe rows the registry no longer needs to confirm.
         }
+    }
+
+    /// Clear account-owned rows when auth transitions to signed out.
+    public func clearForSignOut() {
+        _ = activateScope(HiveAccountScope(stackUserID: nil, teamID: nil))
+        clearLoadedSources()
+        rebuild()
+    }
+
+    private func clearLoadedSources() {
+        registryDevices = []
+        pairedRecords = []
+        registryByID = [:]
+        pairedByID = [:]
+        pairedRecordsByID = [:]
+        presenceMap = PresenceMap()
+        presenceGeneration &+= 1
+        presenceTask?.cancel()
+        presenceTask = nil
+        computers = []
+        lastRefreshFailed = false
     }
 
     private func activateScope(_ scope: HiveAccountScope) -> Int {
@@ -210,6 +256,7 @@ public final class HiveComputerDirectory {
     /// routes into the local paired store.
     public func pair(deviceID: String) async -> HivePairOutcome {
         let scope = await scopeProvider()
+        guard scope.stackUserID != nil else { return .storeFailed }
         if loadedScope != scope {
             await refresh()
             guard loadedScope == scope else { return .noRoutes }
@@ -248,7 +295,7 @@ public final class HiveComputerDirectory {
         }
         await refresh()
         let scope = await scopeProvider()
-        guard loadedScope == scope else { return .codeNotFound }
+        guard scope.stackUserID != nil, loadedScope == scope else { return .codeNotFound }
         let claimTime = now()
         let matches = registryDevices.flatMap { device in
             device.instances
@@ -271,6 +318,7 @@ public final class HiveComputerDirectory {
     /// Pair from a pasted pairing link (the QR payload another Mac shows).
     public func pair(link rawLink: String) async -> HivePairOutcome {
         let scope = await scopeProvider()
+        guard scope.stackUserID != nil else { return .accountMismatch }
         if loadedScope == nil {
             _ = activateScope(scope)
         } else if loadedScope != scope {
