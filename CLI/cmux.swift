@@ -11066,7 +11066,7 @@ struct CMUXCLI {
             }
             let response = try client.sendV2(method: "workspace.group.new_workspace", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(response, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(response, mode: idFormat)))
             } else if let wsId = response["workspace_ref"] as? String {
                 print("OK \(wsId)")
             } else {
