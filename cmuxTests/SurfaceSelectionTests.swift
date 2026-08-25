@@ -300,6 +300,92 @@ struct SurfaceSelectionTests {
         #expect(!passwordSnapshot.hasSelection)
         #expect(passwordSnapshot.text.isEmpty)
         #expect(passwordSnapshot.url == baseURL.absoluteString)
+
+        let preparedNavigationSelection = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const node = document.getElementById('passage').firstChild;
+              const selectedText = 'before selected browser words';
+              const start = node.textContent.indexOf(selectedText);
+              const range = document.createRange();
+              range.setStart(node, start);
+              range.setEnd(node, start + selectedText.length);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(preparedNavigationSelection as? String == "before selected browser words")
+
+        _ = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              history.pushState({ cmuxSelectionTest: true }, '', '#selection-route');
+              return location.href;
+            })()
+            """
+        )
+        let navigationSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(!navigationSnapshot.hasSelection)
+        #expect(navigationSnapshot.text.isEmpty)
+
+        _ = try await panel.evaluateJavaScript(
+            "history.replaceState({}, '', '\(baseURL.absoluteString)')"
+        )
+        let preparedMutationSelection = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const node = document.getElementById('passage').firstChild;
+              const selectedText = 'before selected browser words';
+              const start = node.textContent.indexOf(selectedText);
+              const range = document.createRange();
+              range.setStart(node, start);
+              range.setEnd(node, start + selectedText.length);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(preparedMutationSelection as? String == "before selected browser words")
+
+        let mutationObserved = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const passage = document.getElementById('passage');
+              const observer = new MutationObserver(() => {
+                observer.disconnect();
+                resolve(true);
+              });
+              observer.observe(passage, { childList: true, characterData: true, subtree: true });
+              passage.firstChild.nodeValue = 'after the document content changed';
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(mutationObserved as? Bool == true)
+        let mutationSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(!mutationSnapshot.hasSelection)
+        #expect(mutationSnapshot.text.isEmpty)
     }
 
     private func snapshot(
