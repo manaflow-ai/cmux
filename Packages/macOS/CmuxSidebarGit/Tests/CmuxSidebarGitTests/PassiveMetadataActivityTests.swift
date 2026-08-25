@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import CmuxGit
 @testable import CmuxSidebarGit
@@ -27,6 +28,13 @@ import CmuxGit
             branch: "before-hide",
             isDirty: false
         )
+        host.updatePanelRepositoryLink(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
         host.gitMetadataActivity = .passiveReportsOnly
         service.sidebarGitMetadataWatchSettingsDidChange()
         service.updateSurfaceGitBranch(
@@ -41,6 +49,7 @@ import CmuxGit
             isDirty: true
         ))
         #expect(!host.events.contains(.clearAllGitMetadata))
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.displayName == "manaflow-ai/cmux")
         #expect(await reader.probedDirectories.isEmpty)
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
 

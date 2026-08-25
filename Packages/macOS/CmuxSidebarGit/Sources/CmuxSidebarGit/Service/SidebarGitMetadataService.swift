@@ -274,7 +274,10 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
     // MARK: Teardown
 
-    func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
+    func clearWorkspaceGitProbe(
+        _ key: WorkspaceGitProbeKey,
+        clearRepositoryLink: Bool = true
+    ) {
         removeWorkspaceGitSnapshotRequest(for: key)
         workspaceGitProbeStateByKey.removeValue(forKey: key)
         workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
@@ -282,7 +285,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTask(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
-        host?.clearPanelRepositoryLink(workspaceId: key.workspaceId, panelId: key.panelId)
+        if clearRepositoryLink {
+            host?.clearPanelRepositoryLink(workspaceId: key.workspaceId, panelId: key.panelId)
+        }
     }
 
     func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {

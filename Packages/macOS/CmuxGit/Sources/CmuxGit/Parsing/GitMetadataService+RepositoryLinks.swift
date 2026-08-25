@@ -149,7 +149,13 @@ extension GitMetadataService {
         if components.count == 2 {
             return !components[0].isEmpty && !components[1].isEmpty
         }
-        return address.contains(".")
+        let knownURISchemes = ["file", "ftp", "git", "http", "https", "ssh", "svn"]
+        guard !address.isEmpty,
+              !knownURISchemes.contains(address.lowercased()),
+              address.allSatisfy({ $0.isLetter || $0.isNumber || ".-_".contains($0) }) else {
+            return false
+        }
+        return true
     }
 
     /// Removes separators and a trailing `.git` from a non-empty repository path.
