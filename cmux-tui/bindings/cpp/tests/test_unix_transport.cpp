@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <initializer_list>
 #include <mutex>
 #include <optional>
@@ -332,18 +333,29 @@ TEST("custom transports bypass derived session validation") {
 
 TEST("Unix transport assembles partial JSON-lines frames") {
     UnixServer server;
+    std::promise<void> first_part_written;
+    std::promise<void> write_second_part;
+    auto first_part_ready = first_part_written.get_future();
+    auto second_part_ready = write_second_part.get_future();
     std::thread peer([&] {
         const int fd = ::accept(server.listener, nullptr, nullptr);
         CHECK(fd >= 0);
         const std::string first = "{\"ok\":";
         const std::string second = "true}\n{\"next\":1}\n";
         CHECK(::write(fd, first.data(), first.size()) == static_cast<ssize_t>(first.size()));
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        first_part_written.set_value();
+        second_part_ready.wait();
         CHECK(::write(fd, second.data(), second.size()) == static_cast<ssize_t>(second.size()));
         ::close(fd);
     });
     auto transport = cmux::UnixTransport::connect(server.path, std::chrono::seconds(1));
     CHECK(transport);
+    const auto first_part_status = first_part_ready.wait_for(std::chrono::seconds(2));
+    auto partial = transport.value()->receive(std::chrono::milliseconds(20));
+    write_second_part.set_value();
+    CHECK(first_part_status == std::future_status::ready);
+    CHECK(!partial);
+    CHECK_EQ(partial.error().code, cmux::ErrorCode::timeout);
     auto first = transport.value()->receive(std::chrono::seconds(1));
     auto second = transport.value()->receive(std::chrono::seconds(1));
     CHECK(first);
@@ -370,11 +382,20 @@ TEST("Unix transport times out and close unblocks receive") {
 
     cmux::Result<std::string> read =
         cmux::make_error(cmux::ErrorCode::protocol, "not started");
+    auto* unix_transport = dynamic_cast<cmux::UnixTransport*>(transport.get());
+    CHECK(unix_transport != nullptr);
+    std::promise<void> receive_waiting;
+    std::once_flag receive_waiting_once;
+    auto receive_ready = receive_waiting.get_future();
+    unix_transport->set_before_receive_wait_for_testing([&] {
+        std::call_once(receive_waiting_once, [&] { receive_waiting.set_value(); });
+    });
     std::thread reader([&] { read = transport->receive(std::chrono::seconds(30)); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const auto receive_status = receive_ready.wait_for(std::chrono::seconds(2));
     transport->close();
     reader.join();
     peer.join();
+    CHECK(receive_status == std::future_status::ready);
     CHECK(!timed_out);
     CHECK_EQ(timed_out.error().code, cmux::ErrorCode::timeout);
     CHECK(!read);
@@ -388,7 +409,6 @@ TEST("Unix transport rejects oversized frames") {
         CHECK(fd >= 0);
         const std::string oversized = std::string(64, 'x') + "\n";
         (void)::write(fd, oversized.data(), oversized.size());
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         ::close(fd);
     });
     cmux::TransportLimits limits;

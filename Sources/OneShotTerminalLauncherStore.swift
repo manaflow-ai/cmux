@@ -100,9 +100,15 @@ struct OneShotTerminalLauncherStore {
                 lines.append(trimmedCommand)
             case .userLoginShell:
                 lines.append("[[ -n \"${SHELL:-}\" ]] || exit 127")
-                lines.append(
-                    "exec \"$SHELL\" -lc \(TerminalStartupShellQuoting.singleQuoted(trimmedCommand))"
-                )
+                // Nushell cannot parse the POSIX command (`nu -lc` has no such
+                // flags and `nu -c` would be a parse error); run it through
+                // /bin/sh with the same run-command-then-exit lifecycle.
+                lines.append(contentsOf: [
+                    #"case "${SHELL:t}" in"#,
+                    "  nu) exec /bin/sh -c \(TerminalStartupShellQuoting.singleQuoted(trimmedCommand)) ;;",
+                    "  *) exec \"$SHELL\" -lc \(TerminalStartupShellQuoting.singleQuoted(trimmedCommand)) ;;",
+                    "esac",
+                ])
             }
 
             try (lines.joined(separator: "\n") + "\n").write(

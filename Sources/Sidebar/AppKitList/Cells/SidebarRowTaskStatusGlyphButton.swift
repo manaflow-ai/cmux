@@ -16,6 +16,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         let hasOverride: Bool
         let usesMonochrome: Bool
         let fontScale: CGFloat
+        let colorScheme: ColorScheme
     }
 
     private static let baseSize: CGFloat = 9
@@ -69,7 +70,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentNSColor()
+            return cmuxAccentNSColor(for: model.colorScheme)
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
             return NSColor(srgbRed: 1.0, green: 0.42, blue: 0.2, alpha: 1)

@@ -47,6 +47,10 @@ struct WorkspaceListSearchHost<Content: View>: View {
                         TaskComposerButton(action: taskComposerAction)
                             .padding(.trailing, 20)
                             .padding(.bottom, 6)
+                            // Same keyboard exemption as the iOS 26 scaffold:
+                            // a sheet keyboard must not drag the button up.
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
                     }
                 }
         }

@@ -18,11 +18,17 @@ import {
   withSubrouterAuthorizationDeadline,
 } from "@/services/vms/auth";
 import {
+  loadCoderouterTeamMetrics,
+  type CoderouterTeamMetrics,
+} from "@/services/coderouter/teamMetrics";
+import {
+  coderouterOrganizationFromCookieHeader,
+} from "@/services/coderouter/organizationScope";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
 
-export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -34,6 +40,7 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly personal: boolean;
 };
 
 type AccountState =
@@ -76,6 +83,8 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   let authenticated: {
     readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
     readonly accessToken: string | null;
+    readonly scopedTeamId: string | null;
+    readonly selectedTeamId: string | null;
   } | null;
   try {
     authenticated = await withSubrouterAuthorizationDeadline(
@@ -100,6 +109,11 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         return {
           authorized,
           accessToken: authJson?.accessToken ?? null,
+          scopedTeamId: coderouterOrganizationFromCookieHeader(
+            requestHeaders.get("cookie"),
+            user.id,
+          ),
+          selectedTeamId: user.selectedTeamId,
         };
       },
     );
@@ -137,12 +151,21 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       name: candidate.teamName,
       use: candidate.use,
       manageAccounts: candidate.manageAccounts,
+      personal: candidate.personal,
     }));
   if (teams.length === 0) {
     redirect("/dashboard");
   }
-  const selectedTeam = selectTeam(teams, team);
-  const accountState = await loadAccounts(selectedTeam, authenticated.accessToken);
+  const selectedTeam = selectTeam(
+    teams,
+    team,
+    authenticated.scopedTeamId,
+    authenticated.selectedTeamId,
+  );
+  const [accountState, metrics] = await Promise.all([
+    loadAccounts(selectedTeam, authenticated.accessToken),
+    loadCoderouterTeamMetrics(selectedTeam.id),
+  ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -175,6 +198,12 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         </div>
       </section>
 
+      <TeamMetricsSection
+        locale={locale}
+        metrics={metrics}
+        teamName={selectedTeam.name}
+      />
+
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : accountState.kind === "migrationPending" ? (
@@ -182,7 +211,16 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div>
+          {selectedTeam.manageAccounts ? (
+            <section className="mb-4">
+              <div className="mb-2">
+                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+              </div>
+              <AddAiAccountForms />
+            </section>
+          ) : null}
+
           <section>
             <div className="mb-2">
               <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
@@ -240,17 +278,163 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
               </div>
             )}
           </section>
-
-          {selectedTeam.manageAccounts ? (
-            <aside>
-              <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
-              <AddAiAccountForms teamId={selectedTeam.id} />
-            </aside>
-          ) : null}
         </div>
       )}
     </div>
   );
+}
+
+function TeamMetricsSection({
+  locale,
+  metrics,
+  teamName,
+}: {
+  readonly locale: string;
+  readonly metrics: CoderouterTeamMetrics;
+  readonly teamName: string;
+}) {
+  const copy = metricsCopy(locale);
+  if (metrics.kind === "unavailable") {
+    return (
+      <section className="mb-4 border border-border p-3">
+        <h2 className="text-sm font-medium">{copy.title}</h2>
+        <p className="mt-1 text-xs text-muted">{copy.unavailable}</p>
+      </section>
+    );
+  }
+
+  const number = new Intl.NumberFormat(locale, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+  const currency = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
+  const percent = new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  });
+  const coverage = metrics.totals.totalTokens > 0
+    ? metrics.totals.pricedTokens / metrics.totals.totalTokens
+    : 1;
+  const maxDailyTokens = Math.max(
+    1,
+    ...metrics.daily.map((day) => day.totalTokens),
+  );
+
+  return (
+    <section className="mb-4 border border-border p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-medium">{copy.title}</h2>
+          <p className="mt-1 text-xs text-muted">
+            {copy.scope.replace("{team}", teamName)}
+          </p>
+        </div>
+        <span className="font-mono text-[11px] text-muted">
+          {copy.period.replace("{days}", String(metrics.periodDays))}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <MetricCard
+          label={copy.tokens}
+          value={number.format(metrics.totals.totalTokens)}
+        />
+        <MetricCard
+          label={copy.inputTokens}
+          value={number.format(metrics.totals.inputTokens)}
+        />
+        <MetricCard
+          label={copy.outputTokens}
+          value={number.format(metrics.totals.outputTokens)}
+        />
+        <MetricCard
+          label={copy.apiEquivalent}
+          value={currency.format(metrics.totals.apiEquivalentUsd)}
+        />
+        <MetricCard
+          label={copy.pricingCoverage}
+          value={percent.format(coverage)}
+        />
+      </div>
+
+      <div
+        className="mt-3 flex h-24 items-end gap-px border border-border px-2 pt-2"
+        role="img"
+        aria-label={copy.chartLabel}
+      >
+        {metrics.daily.map((day) => {
+          const height = day.totalTokens === 0
+            ? 0
+            : Math.max(3, (day.totalTokens / maxDailyTokens) * 100);
+          return (
+            <div
+              key={day.day}
+              className="min-w-0 flex-1 bg-foreground/70"
+              style={{ height: `${height}%` }}
+              title={`${day.day}: ${number.format(day.totalTokens)} ${copy.tokens.toLowerCase()}`}
+            />
+          );
+        })}
+      </div>
+
+      <p className="mt-2 text-[11px] leading-5 text-muted">
+        {copy.privacy}
+      </p>
+      <p className="text-[11px] leading-5 text-muted">
+        {copy.estimate.replace("{version}", metrics.rateCardVersion)}
+      </p>
+    </section>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-border p-2">
+      <div className="text-[11px] text-muted">{label}</div>
+      <div className="mt-1 font-mono text-lg tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function metricsCopy(locale: string) {
+  if (locale === "ja") {
+    return {
+      title: "30日間の使用状況",
+      scope: "{team} のチーム集計",
+      period: "過去{days}日間",
+      inputTokens: "入力トークン",
+      outputTokens: "出力トークン",
+      tokens: "合計トークン",
+      apiEquivalent: "API換算額",
+      pricingCoverage: "価格対応率",
+      chartLabel: "日別のCodeRouterトークン使用量",
+      privacy:
+        "プロンプト、出力、アカウントラベル、メンバーIDは記録・表示しません。",
+      estimate:
+        "API換算額は公開定価（レート表 {version}）による推定で、実際の請求額ではありません。価格不明のモデルは換算額から除外されます。",
+      unavailable: "チーム使用状況は現在利用できません。",
+    };
+  }
+  return {
+    title: "30-day usage",
+    scope: "Team aggregate for {team}",
+    period: "Last {days} days",
+    inputTokens: "Input tokens",
+    outputTokens: "Output tokens",
+    tokens: "Total tokens",
+    apiEquivalent: "API-equivalent value",
+    pricingCoverage: "Pricing coverage",
+    chartLabel: "Daily CodeRouter token usage",
+    privacy:
+      "No prompts, outputs, account labels, or member identities are recorded or shown.",
+    estimate:
+      "API-equivalent value is an estimate using public list prices (rate card {version}), not actual spend. Models without a known price are excluded.",
+    unavailable: "Team usage is temporarily unavailable.",
+  };
 }
 
 function DashboardHeader({
@@ -277,12 +461,27 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
   );
 }
 
-function selectTeam(teams: readonly DashboardTeam[], requestedTeamId: string | undefined): DashboardTeam {
+function selectTeam(
+  teams: readonly DashboardTeam[],
+  requestedTeamId: string | undefined,
+  scopedTeamId: string | null,
+  selectedTeamId: string | null,
+): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
   }
+  if (scopedTeamId) {
+    const scoped = teams.find((team) => team.id === scopedTeamId);
+    if (scoped) return scoped;
+  }
+  if (selectedTeamId) {
+    const selected = teams.find((team) => team.id === selectedTeamId);
+    if (selected) return selected;
+  }
+  const personal = teams.find((team) => team.personal);
+  if (personal) return personal;
   return teams[0];
 }
 

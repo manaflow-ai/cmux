@@ -116,6 +116,68 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
+    func testPhonePushToggleUpdatesImmediatelyAndKeepsLatestIntent() {
+        let app = launchPreview(
+            "healthy",
+            extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
+        )
+        defer { app.terminate() }
+
+        let phone = app.switches["MobileSettingsNotifications"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 8))
+        XCTAssertEqual(phone.value as? String, "1")
+
+        tapSwitch(phone)
+
+        waitForValue(
+            phone,
+            "0",
+            timeout: 1,
+            message: "The toggle must reflect opt-out before cleanup finishes"
+        )
+        XCTAssertTrue(phone.isEnabled)
+
+        tapSwitch(phone)
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "The toggle must reflect the latest intent"
+        )
+
+        let completeEnable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-on"
+        ]
+        XCTAssertTrue(completeEnable.waitForExistence(timeout: 2))
+        XCTAssertFalse(
+            app.buttons["MobilePushReadinessCompletePhoneMutation-off"]
+                .exists,
+            "A later intent must replace pending work from the older choice"
+        )
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "Pending work must not replace the latest intent"
+        )
+        completeEnable.tap()
+        waitForValue(phone, "1")
+
+        tapSwitch(phone)
+        waitForValue(phone, "0")
+        let finalDisable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-off"
+        ]
+        XCTAssertTrue(finalDisable.waitForExistence(timeout: 2))
+        finalDisable.tap()
+        waitForValue(
+            phone,
+            "0",
+            message: "Completed cleanup must preserve the opt-out"
+        )
+    }
+
+    @MainActor
     func testFailedMacMutationRollsBackAndStaysVisible() {
         let app = launchPreview(
             "healthy",
@@ -190,7 +252,8 @@ final class PushReadinessUITests: XCTestCase {
     private func waitForValue(
         _ element: XCUIElement,
         _ expected: String,
-        timeout: TimeInterval = 4
+        timeout: TimeInterval = 4,
+        message: String? = nil
     ) {
         let predicate = NSPredicate(format: "value == %@", expected)
         let expectation = XCTNSPredicateExpectation(
@@ -200,7 +263,7 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
-            "Expected '\(expected)', got '\(String(describing: element.value))'"
+            message ?? "Expected '\(expected)', got '\(String(describing: element.value))'"
         )
     }
 

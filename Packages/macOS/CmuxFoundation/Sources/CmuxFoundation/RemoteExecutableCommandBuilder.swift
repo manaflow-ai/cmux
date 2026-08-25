@@ -37,11 +37,15 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// Returns a shell-quoted remote command that resolves and executes argv.
     ///
     /// - Parameter arguments: Arguments forwarded to the resolved executable.
+    ///
+    /// The returned value is a single `/bin/sh -c` command string. This keeps
+    /// resolver assignments away from a host-configured fish/csh login shell.
     /// - Returns: A command suitable for an OpenSSH remote-command string.
     public func remoteShellCommand(arguments: [String]) -> String {
-        remoteCommandArguments(arguments: arguments)
-            .map(\.remoteCommandShellQuoted)
-            .joined(separator: " ")
+        Self.remoteShellCommand(
+            script: Self.executionShellScript,
+            arguments: ["cmux-remote-executable", executableName, notFoundSentinel] + arguments
+        )
     }
 
     /// A shell command that prints the resolved executable path.
@@ -49,16 +53,10 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// The command exits 127 and emits the configured sentinel when no
     /// executable can be found.
     public var resolutionProbeShellCommand: String {
-        [
-            "/bin/sh",
-            "-c",
-            Self.resolutionShellScript,
-            "cmux-remote-executable",
-            executableName,
-            notFoundSentinel,
-        ]
-        .map(\.remoteCommandShellQuoted)
-        .joined(separator: " ")
+        Self.remoteShellCommand(
+            script: Self.resolutionShellScript,
+            arguments: ["cmux-remote-executable", executableName, notFoundSentinel]
+        )
     }
 
     /// A command prefix to which a remote launcher may append arguments.
@@ -67,16 +65,10 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// those arguments become the resolver's argv and reach the discovered
     /// server executable unchanged.
     public var remoteExecPrefixShellCommand: String {
-        [
-            "/bin/sh",
-            "-c",
-            Self.executionShellScript,
-            "cmux-remote-executable",
-            executableName,
-            notFoundSentinel,
-        ]
-        .map(\.remoteCommandShellQuoted)
-        .joined(separator: " ")
+        Self.remoteShellCommand(
+            script: Self.executionShellScript,
+            arguments: ["cmux-remote-executable", executableName, notFoundSentinel]
+        )
     }
 
     private static let resolutionShellScript =
@@ -102,6 +94,11 @@ public struct RemoteExecutableCommandBuilder: Sendable {
         "eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
         "if command -v \"$cmux_executable_name\" >/dev/null 2>&1; then " +
         "cmux_executable_path=\"$(command -v \"$cmux_executable_name\")\"; fi; fi; "
+
+    private static func remoteShellCommand(script: String, arguments: [String]) -> String {
+        let quotedArguments = arguments.map(\.remoteCommandShellQuoted).joined(separator: " ")
+        return "/bin/sh -c \(script.remoteCommandShellQuoted) \(quotedArguments)"
+    }
 }
 
 extension String {

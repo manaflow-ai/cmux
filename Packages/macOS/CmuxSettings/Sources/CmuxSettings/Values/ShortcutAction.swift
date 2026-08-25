@@ -63,6 +63,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Selects the next non-anchor workspace in the focused workspace group.
+    case nextSidebarTabInGroup
+    /// Selects the previous non-anchor workspace in the focused workspace group.
+    case prevSidebarTabInGroup
     /// Moves the selected workspace one position up within its pin tier.
     case moveWorkspaceUp
     /// Moves the selected workspace one position down within its pin tier.

@@ -15,7 +15,7 @@ import CmuxTerminalCore
 //    runtime start then early-returns in `ensureHeadlessStartupWindowIfNeeded`
 //    (a bootstrap window exists) and the follow-up attach defers on the
 //    missing window — permanently, because nothing ever re-arms the start.
-// 2. The optional Claude command-shim install gates `createSurface`; when the
+// 2. The optional agent command-shim install gates `createSurface`; when the
 //    install task never completes, PTY spawn is starved forever.
 @MainActor
 @Suite struct TerminalSurfaceBootstrapCustodyTests {
@@ -27,7 +27,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         // A first bootstrap start records the hidden startup window and
@@ -62,7 +62,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-first-start", source: .inputDemand)
@@ -86,7 +86,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-first-start", source: .inputDemand)
@@ -100,7 +100,7 @@ import CmuxTerminalCore
         await waitForCreateAttemptCount(surface, 2)
     }
 
-    @Test func hungClaudeShimInstallDoesNotStarveRuntimeSpawn() async throws {
+    @Test func hungAgentShimInstallDoesNotStarveRuntimeSpawn() async throws {
         _ = try #require(Bundle.main.resourceURL)
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(
@@ -108,11 +108,11 @@ import CmuxTerminalCore
             attachesThroughSurfaceModel: true
         )
         let scheduler = RecordingRestoreSpawnScheduler()
-        let shimInstaller = ManualClaudeCommandShimInstaller()
+        let shimInstaller = ManualAgentCommandShimInstaller()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-            installClaudeCommandShim: {
-                await shimInstaller.install(wrapperURL: $0, surfaceId: $1, temporaryDirectory: $2)
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installAgentCommandShims: {
+                await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
             isExecutableFile: { _ in false }
         )
@@ -121,7 +121,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost,
             runtimeFilesystem: runtimeFilesystem,
-            claudeCommandShimInstallDeadline: .milliseconds(100)
+            agentCommandShimInstallDeadline: .milliseconds(100)
         )
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
@@ -138,8 +138,8 @@ import CmuxTerminalCore
         // mode: after the lifecycle cancels the hung install (teardown,
         // agent-hibernation suspend), the next runtime creation attempts a
         // fresh install instead of permanently reporting ready-without-shim.
-        surface.cancelClaudeCommandShimInstallLifecycle()
-        let regatedState = surface.claudeCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        surface.cancelAgentCommandShimInstallLifecycle()
+        let regatedState = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
         #expect(!regatedState.isReady)
 
         // Resume the parked install continuations so teardown stays clean.
@@ -165,11 +165,11 @@ import CmuxTerminalCore
         paneHost: FakeTerminalSurfacePaneHost,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-            installClaudeCommandShim: { _, _, _ in nil },
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installAgentCommandShims: { _, _, _ in nil },
             isExecutableFile: { _ in false }
         ),
-        claudeCommandShimInstallDeadline: Duration = .seconds(5)
+        agentCommandShimInstallDeadline: Duration = .seconds(5)
     ) -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
@@ -187,7 +187,7 @@ import CmuxTerminalCore
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: scheduler,
                 runtimeFilesystem: runtimeFilesystem,
-                claudeCommandShimInstallDeadline: claudeCommandShimInstallDeadline,
+                agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"

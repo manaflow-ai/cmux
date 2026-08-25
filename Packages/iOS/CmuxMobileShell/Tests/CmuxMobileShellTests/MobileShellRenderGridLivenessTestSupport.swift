@@ -23,6 +23,10 @@ actor LivenessHostRouter {
         var topics: [String]?
         var workspaceID: String?
         var streamID: String?
+        var viewportColumns: Int?
+        var viewportRows: Int?
+        var viewportGeneration: Int?
+        var clearsViewport: Bool
         var groupID: String?
         var action: String?
         var title: String?
@@ -79,14 +83,17 @@ actor LivenessHostRouter {
     // tests from exercising the one-shot legacy identity recovery request.
     private var macDeviceID: String? = "test-mac"
     private var macInstanceTag: String? = "default"
+    private var macClientNamespace: String? = "mac:com.cmuxterm.app.debug"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    private var workspaceIDs = ["live-workspace"]
     private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
+    private var replayFailureCode: String?
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
     /// Scripts the next `mobile.sync.fetch` answer (state sync v2 tests). The
@@ -116,6 +123,10 @@ actor LivenessHostRouter {
         topics: [String]?,
         workspaceID: String? = nil,
         streamID: String? = nil,
+        viewportColumns: Int? = nil,
+        viewportRows: Int? = nil,
+        viewportGeneration: Int? = nil,
+        clearsViewport: Bool = false,
         groupID: String? = nil,
         action: String? = nil,
         title: String? = nil,
@@ -127,6 +138,10 @@ actor LivenessHostRouter {
             topics: topics,
             workspaceID: workspaceID,
             streamID: streamID,
+            viewportColumns: viewportColumns,
+            viewportRows: viewportRows,
+            viewportGeneration: viewportGeneration,
+            clearsViewport: clearsViewport,
             groupID: groupID,
             action: action,
             title: title,
@@ -138,6 +153,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func requests(for method: String) -> [RecordedRequest] {
+        recorded.filter { $0.method == method }
     }
 
     func heldRequestCount() -> Int {
@@ -177,6 +196,22 @@ actor LivenessHostRouter {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
         return reached
+    }
+
+    /// Waits for the transport's real replay-request admission signal. This
+    /// is used by tests that need to distinguish an already-started request
+    /// from one that must wait for an output acknowledgement.
+    @discardableResult
+    func waitForReplayRequestStart(
+        after existingCount: Int,
+        timeoutNanoseconds: UInt64 = 250_000_000
+    ) async -> Bool {
+        await waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: existingCount + 1,
+            timeoutNanoseconds: timeoutNanoseconds,
+            recordIssueOnTimeout: false
+        )
     }
 
     private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
@@ -257,9 +292,15 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
-    func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
+    func setHostIdentity(
+        deviceID: String?,
+        instanceTag: String?,
+        displayName: String? = nil,
+        clientNamespace: String? = "mac:com.cmuxterm.app.debug"
+    ) {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
+        macClientNamespace = clientNamespace
         macDisplayName = displayName
     }
 
@@ -290,6 +331,12 @@ actor LivenessHostRouter {
     }
 
     func failNextReplay(count: Int = 1) {
+        replayFailureCode = nil
+        replayFailuresRemaining += count
+    }
+
+    func failNextReplay(code: String, count: Int = 1) {
+        replayFailureCode = code
         replayFailuresRemaining += count
     }
 
@@ -334,6 +381,10 @@ actor LivenessHostRouter {
 
     func scriptWorkspaceListTitles(_ titles: [String]) {
         workspaceListTitles.append(contentsOf: titles)
+    }
+
+    func setWorkspaceIDs(_ workspaceIDs: [String]) {
+        self.workspaceIDs = workspaceIDs
     }
 
     func scriptNotificationFeedRevisions(_ revisions: [Int]) {
@@ -483,24 +534,27 @@ actor LivenessHostRouter {
                     message: "scripted workspace list failure"
                 )
             }
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": workspaceTitle,
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "live-terminal",
-                                "title": "Terminal",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
+            let workspaces: [[String: Any]] = workspaceIDs.enumerated().map { index, workspaceID in
+                [
+                    "id": workspaceID,
+                    "title": index == 0 ? workspaceTitle : workspaceID,
+                    "current_directory": "/Users/test/project",
+                    "is_selected": index == 0,
+                    "terminals": [
+                        [
+                            "id": workspaceID == "live-workspace"
+                                ? "live-terminal"
+                                : "\(workspaceID)-terminal",
+                            "title": "Terminal",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
                         ],
                     ],
-                ],
+                ]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": workspaces,
             ])
         case "mobile.host.status":
             hostStatusRequestCount += 1
@@ -523,6 +577,9 @@ actor LivenessHostRouter {
             } else {
                 if let macDeviceID { result["mac_device_id"] = macDeviceID }
                 if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+                if let macClientNamespace {
+                    result["mac_client_namespace"] = macClientNamespace
+                }
                 if let macDisplayName { result["mac_display_name"] = macDisplayName }
             }
             return try? Self.resultFrame(id: id, result: result)
@@ -578,7 +635,15 @@ actor LivenessHostRouter {
             }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
-                return try? Self.errorFrame(id: id, message: "replay failed")
+                let failureCode = replayFailureCode
+                if replayFailuresRemaining == 0 {
+                    replayFailureCode = nil
+                }
+                return try? Self.errorFrame(
+                    id: id,
+                    code: failureCode,
+                    message: "replay failed"
+                )
             }
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
@@ -800,6 +865,10 @@ actor LivenessTransport: CmxByteTransport {
                 topics: topics,
                 workspaceID: params?["workspace_id"] as? String,
                 streamID: streamID,
+                viewportColumns: (params?["viewport_columns"] as? NSNumber)?.intValue,
+                viewportRows: (params?["viewport_rows"] as? NSNumber)?.intValue,
+                viewportGeneration: (params?["viewport_generation"] as? NSNumber)?.intValue,
+                clearsViewport: params?["clear"] as? Bool == true,
                 groupID: params?["group_id"] as? String,
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,
@@ -938,7 +1007,8 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
-    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
+    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -947,7 +1017,8 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(
         runtime: runtime,
-        terminalInputAckResubscribeClock: inputAckRetryClock
+        terminalInputAckResubscribeClock: inputAckRetryClock,
+        controlPlaneSchedulingClock: controlPlaneSchedulingClock
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)

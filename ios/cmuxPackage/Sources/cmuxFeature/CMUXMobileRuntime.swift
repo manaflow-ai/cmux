@@ -8,8 +8,11 @@ import OSLog
 
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
-    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
+    // Iroh may spend more than eight seconds establishing a relay path before
+    // the first authenticated RPC can be written. Keep one hard end-to-end
+    // pairing deadline, but size it to leave room for both phases.
+    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
@@ -32,6 +35,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var supportsServerPushEvents: Bool
     public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
     public var terminalLaneProvider: MobileTerminalLaneProvider?
+    public var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
     public var artifactLaneProvider: MobileArtifactLaneProvider?
 
     /// Builds the production access-token provider over an injected
@@ -142,7 +146,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -157,6 +162,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
     }
 
     public init(
@@ -171,7 +177,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -185,6 +192,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
         self.now = now
     }
 }

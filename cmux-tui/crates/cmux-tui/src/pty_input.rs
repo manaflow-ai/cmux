@@ -980,11 +980,6 @@ fn fail_surface_operation_spawn(
 ) {
     let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
     let after_operation = event.after_operation.take();
-    let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&lane);
-    state.retired_in_flight_lanes.remove(&lane);
-    queue.changed.notify_all();
-    drop(state);
     on_failure(PtyOperationFailure {
         session_generation: event.session_generation,
         surface_id: Some(lane.surface_id),
@@ -995,6 +990,11 @@ fn fail_surface_operation_spawn(
         lane_failed: false,
         delivery: PtyOperationDelivery::KnownNotDelivered,
     });
+    let mut state = queue.state.lock().unwrap();
+    state.in_flight_surface_operations.remove(&lane);
+    state.retired_in_flight_lanes.remove(&lane);
+    queue.changed.notify_all();
+    drop(state);
     if let Some(after_operation) = after_operation {
         after_operation();
     }
@@ -1170,12 +1170,6 @@ fn process_event(
             ));
         }
     }
-    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
-        state.in_flight_surface_operations.remove(&lane);
-    } else {
-        state.in_flight = None;
-    }
-    queue.changed.notify_all();
     drop(state);
     if let Some(failure) = failure {
         on_failure(failure);
@@ -1183,6 +1177,14 @@ fn process_event(
     for failure in canceled {
         on_failure(failure);
     }
+    let mut state = queue.state.lock().unwrap();
+    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
+        state.in_flight_surface_operations.remove(&lane);
+    } else {
+        state.in_flight = None;
+    }
+    queue.changed.notify_all();
+    drop(state);
     // Completion is a barrier: publish only after timeout pruning,
     // in-flight ownership, and failure delivery have all settled.
     if let Some(after_operation) = after_operation {
@@ -1457,7 +1459,7 @@ mod tests {
         assert!(failure.lane_failed);
         assert_eq!(failure.label, "PTY input");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.shutdown();
     }
 
     fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {
