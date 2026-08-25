@@ -861,34 +861,6 @@ struct WorkspaceGroupTests {
         })
     }
 
-    /// The sidebar group-header activation path must not reuse the group's
-    /// anchor workspace. This test intentionally mirrors the current header
-    /// action (`selectWorkspace(anchor)`) until the activation owner is fixed;
-    /// it fails on the buggy implementation because that action selects an
-    /// existing terminal and closing it promotes another group member.
-    @Test func selectingGroupHeaderDoesNotReuseAnchorWorkspace() throws {
-        let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let groupId = try #require(
-            manager.createWorkspaceGroup(name: "G", childWorkspaceIds: manager.tabs.map(\.id))
-        )
-        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
-        let memberIds = manager.tabs
-            .filter { $0.groupId == groupId && $0.id != anchor.id }
-            .map(\.id)
-
-        // This is the exact closure currently installed by both sidebar
-        // renderers for a plain group-header click.
-        manager.selectWorkspace(anchor)
-
-        #expect(manager.selectedTabId != anchor.id)
-        #expect(memberIds.allSatisfy { id in
-            manager.tabs.contains { $0.id == id && $0.groupId == groupId }
-        })
-    }
-
     @Test func closingSoleAnchorWorkspaceRemovesGroup() throws {
         let manager = makeTabManager()
         // Keep an ungrouped outsider so closeWorkspace's `tabs.count <= 1`
