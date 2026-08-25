@@ -1,6 +1,7 @@
 import AppKit
 import ObjectiveC
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxTerminal
 #if DEBUG
 import Bonsplit
@@ -699,6 +700,8 @@ final class WindowTerminalPortal: NSObject {
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private var rootBackdropExclusionRectsByHostedId: [ObjectIdentifier: NSRect] = [:]
+    /// Coalesces aggregate root-mask publication while many pane callbacks arrive in one turn.
+    private let rootBackdropExclusionScheduler = MainActorDeferredActionScheduler()
     /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
     /// mask; adoption clears it (see bind) and detach restores this saved
     /// value so the view resumes its normal AppKit life.
@@ -1092,6 +1095,7 @@ final class WindowTerminalPortal: NSObject {
         synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        publishPendingRootBackdropExclusions()
     }
 
 #if DEBUG
@@ -1442,32 +1446,64 @@ final class WindowTerminalPortal: NSObject {
         return rect
     }
 
-    /// Reconciles the shared root from every authoritative visible entry.
-    private func reconcileRootBackdropExclusions() {
-        guard let window else { return }
-        rootBackdropExclusionRectsByHostedId = entriesByHostedId.reduce(into: [:]) { result, pair in
+    /// Rebuilds the cached exclusion rectangles from every authoritative visible entry.
+    @discardableResult
+    private func updateRootBackdropExclusionCache() -> Bool {
+        let nextRects = entriesByHostedId.reduce(into: [:]) { result, pair in
             if let rect = rootBackdropExclusionRect(for: pair.value) {
                 result[pair.key] = rect
             }
         }
+        guard nextRects != rootBackdropExclusionRectsByHostedId else { return false }
+        rootBackdropExclusionRectsByHostedId = nextRects
+        return true
+    }
+
+    /// Publishes the cached exclusion rectangles to the shared root mask.
+    private func publishRootBackdropExclusions() {
+        guard let window else { return }
+        rootBackdropExclusionScheduler.cancel()
         backdropController.updateRootBackdropExclusions(
             Array(rootBackdropExclusionRectsByHostedId.values),
             in: window
         )
     }
 
-    /// Updates one pane during immediate OSC or divider-driven geometry changes.
-    private func reconcileRootBackdropExclusion(forHostedId hostedId: ObjectIdentifier) {
-        guard let window else { return }
+    /// Flushes a scheduled publication without issuing a redundant no-op update.
+    private func publishPendingRootBackdropExclusions() {
+        guard rootBackdropExclusionScheduler.isScheduled else { return }
+        publishRootBackdropExclusions()
+    }
+
+    /// Defers one aggregate mask publication until the current main-actor turn settles.
+    private func scheduleRootBackdropExclusionPublication() {
+        rootBackdropExclusionScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
+            self?.publishRootBackdropExclusions()
+        }
+    }
+
+    /// Reconciles the shared root from every authoritative visible entry.
+    private func reconcileRootBackdropExclusions() {
+        guard updateRootBackdropExclusionCache() else { return }
+        scheduleRootBackdropExclusionPublication()
+    }
+
+    /// Updates one pane and optionally publishes the aggregate root mask immediately.
+    private func reconcileRootBackdropExclusion(
+        forHostedId hostedId: ObjectIdentifier,
+        immediately: Bool = true
+    ) {
+        guard window != nil else { return }
         let nextRect = entriesByHostedId[hostedId].flatMap {
             rootBackdropExclusionRect(for: $0)
         }
         guard rootBackdropExclusionRectsByHostedId[hostedId] != nextRect else { return }
         rootBackdropExclusionRectsByHostedId[hostedId] = nextRect
-        backdropController.updateRootBackdropExclusions(
-            Array(rootBackdropExclusionRectsByHostedId.values),
-            in: window
-        )
+        if immediately {
+            publishRootBackdropExclusions()
+        } else {
+            scheduleRootBackdropExclusionPublication()
+        }
     }
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
@@ -1540,7 +1576,10 @@ final class WindowTerminalPortal: NSObject {
         if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
-        reconcileRootBackdropExclusion(forHostedId: hostedId)
+        reconcileRootBackdropExclusion(
+            forHostedId: hostedId,
+            immediately: !(becameVisible || becameHidden)
+        )
         return needsReattach
     }
 
@@ -1697,7 +1736,10 @@ final class WindowTerminalPortal: NSObject {
             scheduleDeferredFullSynchronizeAll()
         }
         pruneDeadEntries()
-        reconcileRootBackdropExclusion(forHostedId: hostedId)
+        reconcileRootBackdropExclusion(
+            forHostedId: hostedId,
+            immediately: !deferLayoutSynchronization
+        )
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
@@ -1725,9 +1767,13 @@ final class WindowTerminalPortal: NSObject {
                 pruneDeadEntries()
             }
             let anchorId = ObjectIdentifier(anchorView)
+            let shouldPublishRootBackdropImmediately = !hasExternalGeometrySyncScheduled
             if let hostedId = hostedByAnchorId[anchorId] {
                 synchronizeHostedView(withId: hostedId, syncLayout: false)
-                reconcileRootBackdropExclusion(forHostedId: hostedId)
+                reconcileRootBackdropExclusion(
+                    forHostedId: hostedId,
+                    immediately: shouldPublishRootBackdropImmediately
+                )
             }
             scheduleExternalGeometrySynchronize(forceImmediate: false)
             return
@@ -1741,6 +1787,8 @@ final class WindowTerminalPortal: NSObject {
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
+        let shouldPublishPrimaryRootBackdropImmediately =
+            !hasDeferredFullSyncScheduled && !hasExternalGeometrySyncScheduled
         if let primaryHostedId {
             synchronizeHostedView(withId: primaryHostedId, syncLayout: syncLayout)
         }
@@ -1760,7 +1808,10 @@ final class WindowTerminalPortal: NSObject {
         // keeps the existing per-callback fan-out.
         if Self.usesCoalescedAnchorFailsafe {
             if let primaryHostedId {
-                reconcileRootBackdropExclusion(forHostedId: primaryHostedId)
+                reconcileRootBackdropExclusion(
+                    forHostedId: primaryHostedId,
+                    immediately: shouldPublishPrimaryRootBackdropImmediately
+                )
             }
             scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: true)
         } else {
@@ -1817,6 +1868,7 @@ final class WindowTerminalPortal: NSObject {
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
             }
+            self.publishPendingRootBackdropExclusions()
         }
     }
 
