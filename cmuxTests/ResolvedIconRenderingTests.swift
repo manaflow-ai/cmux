@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,20 @@ import Testing
 @Suite("Resolved icon rendering")
 @MainActor
 struct ResolvedIconRenderingTests {
+    @Test
+    func materializedTemplateHelperReturnsConcretePixels() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "folder.fill",
+            pointSize: 14,
+            weight: .regular
+        ))
+
+        #expect(image.isTemplate)
+        #expect(image.representations.contains { $0 is NSBitmapImageRep })
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
     @Test
     func systemSymbolProducesVisibleNonTemplateBitmap() throws {
         let renderer = CmuxResolvedIconRenderer()
