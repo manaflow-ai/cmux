@@ -304,18 +304,19 @@ extension TerminalController {
             : []
         let directoryAccessMode = mobileArtifactDirectoryAccessMode()
         return v2MainSync { () -> TerminalArtifactContextResolution in
-            guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-                  let resolvedSurfaceID = resolved.surfaceId,
-                  let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: resolvedSurfaceID)?.panel else {
+            guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
                 return .failure(mobileTerminalArtifactError(.notFound, path: v2RawString(params, "path")))
             }
+            let resolvedSurfaceID = resolved.surfaceID
+            let terminalTarget = resolved.target
+            let terminalPanel = terminalTarget.panel
             let workingDirectory = resolved.workspace.effectivePanelDirectory(
                 panelId: resolvedSurfaceID,
                 localFallback: mobileNonEmpty(terminalPanel.directory) ?? mobileNonEmpty(terminalPanel.requestedWorkingDirectory)
             ) ?? resolved.workspace.currentDirectory
             let terminalText = includeTerminalText
                 ? readTerminalTextForSnapshot(
-                    terminalPanel: terminalPanel,
+                    terminalTarget: terminalTarget,
                     includeScrollback: includeScrollback,
                     lineLimit: nil,
                     allowVTExport: includeScrollback

@@ -5875,15 +5875,27 @@ class TerminalController {
     }
 
     private func readPlainTerminalTextForSnapshot(
-        terminalPanel: TerminalPanel,
+        terminalPanel: TerminalPanel? = nil,
+        terminalTarget: ControlTerminalSocketTarget? = nil,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        let response = readTerminalTextBase64(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        )
+        let response: String
+        if let terminalTarget {
+            response = readTerminalTextBase64(
+                terminalSurface: terminalTarget.surface,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+        } else if let terminalPanel {
+            response = readTerminalTextBase64(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+        } else {
+            return nil
+        }
         guard response.hasPrefix("OK ") else { return nil }
         let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         if base64.isEmpty {
@@ -5897,15 +5909,18 @@ class TerminalController {
     }
 
     func readTerminalTextForSnapshot(
-        terminalPanel: TerminalPanel,
+        terminalPanel: TerminalPanel? = nil,
+        terminalTarget: ControlTerminalSocketTarget? = nil,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil,
         allowVTExport: Bool = true
     ) -> String? {
+        guard terminalPanel != nil || terminalTarget != nil else { return nil }
         if includeScrollback,
            allowVTExport,
            let vtOutput = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
+               terminalTarget: terminalTarget,
                lineLimit: lineLimit
            ) {
             return vtOutput
@@ -5913,6 +5928,7 @@ class TerminalController {
 
         return readPlainTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
+            terminalTarget: terminalTarget,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
