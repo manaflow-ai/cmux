@@ -5747,7 +5747,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
-				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
