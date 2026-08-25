@@ -32,10 +32,9 @@ extension CmuxSettingsFileStore {
             if value >= FilePreviewLineHeightSettings.minimumMultiplier,
                value <= FilePreviewLineHeightSettings.maximumMultiplier,
                value.isFinite {
-                let clamped = FilePreviewLineHeightSettings.clamp(value)
-                let rounded = (clamped / FilePreviewLineHeightSettings.stepMultiplier).rounded()
-                    * FilePreviewLineHeightSettings.stepMultiplier
-                snapshot.managedUserDefaults[FilePreviewLineHeightSettings.key] = .double(rounded)
+                snapshot.managedUserDefaults[FilePreviewLineHeightSettings.key] = .double(
+                    FilePreviewLineHeightSettings.quantize(value)
+                )
             } else {
                 logInvalid("fileEditor.lineHeight", sourcePath: sourcePath)
             }

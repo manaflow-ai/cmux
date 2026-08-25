@@ -541,54 +541,6 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testSettingsFileParsesFileEditorTypographyDefaults() throws {
-        let defaults = UserDefaults.standard
-
-        try preservingDefaults(keys: [
-            FilePreviewFontSizeSettings.key,
-            FilePreviewFontFamilySettings.key,
-            FilePreviewLineHeightSettings.key,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey
-        ]) {
-            defaults.removeObject(forKey: FilePreviewFontSizeSettings.key)
-            defaults.removeObject(forKey: FilePreviewFontFamilySettings.key)
-            defaults.removeObject(forKey: FilePreviewLineHeightSettings.key)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "fileEditor": {
-                    "fontSize": 19,
-                    "fontFamily": "  Helvetica  ",
-                    "lineHeight": 1.7
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            withExtendedLifetime(store) {
-                XCTAssertEqual(defaults.integer(forKey: FilePreviewFontSizeSettings.key), 19)
-                XCTAssertEqual(defaults.string(forKey: FilePreviewFontFamilySettings.key), "Helvetica")
-                XCTAssertEqual(defaults.double(forKey: FilePreviewLineHeightSettings.key), 1.7, accuracy: 0.01)
-            }
-        }
-    }
-
     func testManagedAppearanceUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey

@@ -1148,7 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileEditor": {
-          "fontSize": "Taille de police par défaut, en points, pour les éditeurs de texte brut nouvellement ouverts. Cmd-+ / Cmd-- / Cmd-0 zooment l’éditeur actuel.",
+          "fontSize": "Taille de police par défaut, en points, pour les éditeurs de texte brut nouvellement ouverts. Cmd-+ / Cmd-- agrandissent ou réduisent l’éditeur actuel, et Cmd-0 réinitialise sa taille.",
           "fontFamily": "Famille de polices par défaut pour les éditeurs de texte brut nouvellement ouverts. Laissez vide pour utiliser la police monospace du système.",
           "lineHeight": "Multiplicateur de hauteur de ligne pour les éditeurs de texte brut. 1.0 conserve l’espacement naturel de la police.",
           "wordWrap": "Effectue un retour à la ligne des longues lignes au bord droit de l’éditeur au lieu de les faire défiler horizontalement."
@@ -1174,7 +1174,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileEditorFontSize": "Taille de police par défaut (points) pour les éditeurs de texte brut nouvellement ouverts.",
-      "exampleFileEditorFontSizeZoom": "Zoomer l’éditeur actuel en direct avec Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontSizeZoom": "Agrandir ou réduire l’éditeur actuel en direct avec Cmd-+ / Cmd--, ou réinitialiser sa taille avec Cmd-0.",
       "exampleFileEditorFontFamily": "Famille de polices par défaut. Une valeur vide utilise la police monospace du système.",
       "exampleFileEditorLineHeight": "Multiplicateur de hauteur de ligne. 1.0 conserve l’espacement naturel de la police.",
       "exampleFileEditorWordWrap": "Renvoyer les longues lignes au bord droit de l’éditeur plutôt que de faire défiler horizontalement.",

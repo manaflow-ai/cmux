@@ -12,8 +12,7 @@ extension SavingTextView {
         let normalizedSize = CGFloat(FilePreviewFontSizeSettings.clamp(Double(defaultFontSize)))
         let normalizedLineHeight = CGFloat(FilePreviewLineHeightSettings.clamp(Double(lineHeight)))
         let firstConfiguration = !hasConfiguredPreviewTypography
-        let followsConfiguredSize = firstConfiguration
-            || abs(previewFontSize - configuredPreviewFontSize) < 0.0001
+        let followsConfiguredSize = firstConfiguration || !hasPreviewFontSizeOverride
 
         let familyChanged = normalizedFamily != previewFontFamily
         let sizeChanged = normalizedSize != configuredPreviewFontSize

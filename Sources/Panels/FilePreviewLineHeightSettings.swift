@@ -24,6 +24,15 @@ struct FilePreviewLineHeightSettings {
         return min(max(value, minimumMultiplier), maximumMultiplier)
     }
 
+    /// Clamps and rounds a multiplier to the decimal step stored in settings.
+    static func quantize(_ value: Double) -> Double {
+        let clamped = Self.clamp(value)
+        var decimal = Decimal(clamped)
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &decimal, 1, .plain)
+        return NSDecimalNumber(decimal: rounded).doubleValue
+    }
+
     /// Reads the configured multiplier, preserving the natural editor leading
     /// when the setting is absent or invalid.
     var resolvedDefault: Double {
@@ -31,15 +40,11 @@ struct FilePreviewLineHeightSettings {
               CFGetTypeID(raw) != CFBooleanGetTypeID() else {
             return Self.defaultMultiplier
         }
-        return Self.clamp(raw.doubleValue)
+        return Self.quantize(raw.doubleValue)
     }
 
     /// Persists a clamped multiplier rounded to the setting's tenth-point step.
     func setDefault(_ multiplier: Double) {
-        let clamped = Self.clamp(multiplier)
-        var decimal = Decimal(clamped)
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &decimal, 1, .plain)
-        defaults.set(NSDecimalNumber(decimal: rounded).doubleValue, forKey: Self.key)
+        defaults.set(Self.quantize(multiplier), forKey: Self.key)
     }
 }

@@ -172,6 +172,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 }
 
+enum FilePreviewTextEditorLayout {
+    static let textContainerInset = NSSize(width: 12, height: 10)
+    static let lineFragmentPadding: CGFloat = 0
+}
+
 extension SavingTextView {
     /// Builds the File Preview text view configured for large plain-text files.
     ///
@@ -264,22 +269,17 @@ extension NSTextView {
     }
 
     func applyFilePreviewTextEditorInsets() {
-        let targetInset = SavingTextView.filePreviewTextContainerInset
+        let targetInset = FilePreviewTextEditorLayout.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
             textContainerInset = targetInset
         }
-        if textContainer?.lineFragmentPadding != SavingTextView.filePreviewLineFragmentPadding {
-            textContainer?.lineFragmentPadding = SavingTextView.filePreviewLineFragmentPadding
+        if textContainer?.lineFragmentPadding != FilePreviewTextEditorLayout.lineFragmentPadding {
+            textContainer?.lineFragmentPadding = FilePreviewTextEditorLayout.lineFragmentPadding
         }
     }
 }
 
 final class SavingTextView: NSTextView {
-    /// Insets around the editor's TextKit text container.
-    fileprivate static let filePreviewTextContainerInset = NSSize(width: 12, height: 10)
-    /// Extra padding inserted at the start of each line fragment.
-    fileprivate static let filePreviewLineFragmentPadding: CGFloat = 0
-
     private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
         .browserZoomIn,
         .browserZoomOut,
@@ -291,6 +291,8 @@ final class SavingTextView: NSTextView {
     var configuredPreviewFontSize = CGFloat(FilePreviewFontSizeSettings.defaultPointSize)
     /// Current per-editor size after live zoom adjustments.
     var previewFontSize = CGFloat(FilePreviewFontSizeSettings.defaultPointSize)
+    /// Whether the user has zoomed this editor away from its configured baseline.
+    var hasPreviewFontSizeOverride = false
     /// Normalized configured family used for the current font.
     var previewFontFamily = FilePreviewFontFamilySettings.defaultFamily
     /// Current paragraph line-height multiplier.
@@ -381,7 +383,10 @@ final class SavingTextView: NSTextView {
 
     @discardableResult
     func resetPreviewFontSize() -> Bool {
-        setPreviewFontSize(configuredPreviewFontSize)
+        let wasOverridden = hasPreviewFontSizeOverride
+        let didChange = setPreviewFontSize(configuredPreviewFontSize, markAsCustomized: false)
+        hasPreviewFontSizeOverride = false
+        return didChange || wasOverridden
     }
 
     @discardableResult
@@ -390,11 +395,14 @@ final class SavingTextView: NSTextView {
     }
 
     @discardableResult
-    private func setPreviewFontSize(_ nextFontSize: CGFloat) -> Bool {
+    private func setPreviewFontSize(_ nextFontSize: CGFloat, markAsCustomized: Bool = true) -> Bool {
         let clamped = CGFloat(FilePreviewFontSizeSettings.clamp(Double(nextFontSize)))
         guard clamped.isFinite else { return false }
         guard abs(clamped - previewFontSize) > 0.0001 else { return false }
         previewFontSize = clamped
+        if markAsCustomized {
+            hasPreviewFontSizeOverride = true
+        }
         applyCurrentPreviewFont()
         return true
     }
