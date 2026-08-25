@@ -46,14 +46,14 @@ struct SudoOrphanProcessInventory: Sendable {
            arguments[9] == SudoPrivilegedExecutor.hiddenCommand {
             return arguments[12]
         }
-        if arguments.count == 10,
+        if arguments.count == 11,
            arguments[0...4].elementsEqual([
                "/usr/bin/sudo", "-k", "-S", "-p", prompt,
            ]),
            arguments[6] == SudoPrivilegedExecutor.hiddenCommand {
             return arguments[9]
         }
-        if arguments.count == 5,
+        if arguments.count == 6,
            arguments[1] == SudoPrivilegedExecutor.hiddenCommand {
             return arguments[4]
         }

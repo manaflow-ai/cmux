@@ -199,36 +199,60 @@ struct SudoSpoolStore {
             }
             let approvedURL = paths.approved.appendingPathComponent("\(id).sh")
             let manifestURL = paths.executions.appendingPathComponent("\(id).json")
-            guard try writeAtomically(
-                Data(pending.script.utf8),
-                to: approvedURL,
-                permissions: 0o600,
-                exclusive: true
-            ) else {
-                throw SudoSpoolError.approvedScriptAlreadyExists
-            }
             let manifest = SudoExecutionManifest(
                 id: id,
                 requesterIdentity: requesterIdentity,
                 currentDirectory: pending.request.currentDirectory,
                 deadline: pending.request.approvalDeadline.addingTimeInterval(executionGraceSeconds)
             )
-            do {
+            let scriptData = Data(pending.script.utf8)
+            let existingApprovedData = try? readData(
+                at: approvedURL,
+                maximumBytes: resourcePolicy.maximumScriptBytes
+            )
+            let artifactsMatch = existingApprovedData == scriptData
+                && self.manifest(id: id) == manifest
+            var createdArtifacts = false
+            if !artifactsMatch {
+                if fileManager.fileExists(atPath: approvedURL.path)
+                    || fileManager.fileExists(atPath: manifestURL.path) {
+                    try? fileManager.removeItem(at: approvedURL)
+                    try? fileManager.removeItem(at: manifestURL)
+                }
                 guard try writeAtomically(
-                    try Self.encoder.encode(manifest),
-                    to: manifestURL,
+                    scriptData,
+                    to: approvedURL,
                     permissions: 0o600,
                     exclusive: true
                 ) else {
-                    throw SudoSpoolError.executionAlreadyExists
+                    throw SudoSpoolError.approvedScriptAlreadyExists
                 }
+                do {
+                    guard try writeAtomically(
+                        try Self.encoder.encode(manifest),
+                        to: manifestURL,
+                        permissions: 0o600,
+                        exclusive: true
+                    ) else {
+                        throw SudoSpoolError.executionAlreadyExists
+                    }
+                    createdArtifacts = true
+                } catch {
+                    try? fileManager.removeItem(at: approvedURL)
+                    try? fileManager.removeItem(at: manifestURL)
+                    throw error
+                }
+            }
+            do {
                 try writeState(
                     SudoRequestState(id: id, phase: .approved, updatedAt: now)
                 )
                 return .approved(manifest)
             } catch {
-                try? fileManager.removeItem(at: approvedURL)
-                try? fileManager.removeItem(at: manifestURL)
+                if createdArtifacts {
+                    try? fileManager.removeItem(at: approvedURL)
+                    try? fileManager.removeItem(at: manifestURL)
+                }
                 throw error
             }
         }
@@ -459,6 +483,7 @@ struct SudoSpoolStore {
 
     private func performMaintenance(at date: Date) {
         let cutoff = date.addingTimeInterval(-resourcePolicy.artifactRetentionSeconds)
+        pruneAtomicWriteTemps(before: cutoff)
         pruneOrphanedRequestArtifacts(before: cutoff)
         pruneRegularFiles(
             in: paths.archive,
@@ -490,6 +515,29 @@ struct SudoSpoolStore {
         )
         try? withStoreLock(name: "audit") {
             trimAuditLog(forIncomingByteCount: 0)
+        }
+    }
+
+    private func pruneAtomicWriteTemps(before cutoff: Date) {
+        let directories = [
+            paths.requests,
+            paths.results,
+            paths.states,
+            paths.executions,
+            paths.approved,
+            paths.archive,
+            paths.locks,
+        ]
+        for directory in directories {
+            pruneRegularFiles(
+                in: directory,
+                before: cutoff,
+                maximumTotalBytes: .max,
+                isEligible: { url in
+                    let name = url.lastPathComponent
+                    return name.hasPrefix(".") && name.contains(".tmp.")
+                }
+            )
         }
     }
 

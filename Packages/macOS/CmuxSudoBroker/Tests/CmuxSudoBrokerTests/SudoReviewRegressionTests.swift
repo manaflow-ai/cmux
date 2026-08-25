@@ -170,9 +170,11 @@ struct SudoReviewRegressionTests {
         )
         let manifest = SudoExecutionManifest(
             id: request.id,
-            requesterIdentity: SudoTestFixture.defaultRequesterIdentity,
-            currentDirectory: request.currentDirectory,
-            deadline: request.approvalDeadline.addingTimeInterval(SudoBroker.executionGraceSeconds)
+            requesterIdentity: pending.request.requesterIdentity!,
+            currentDirectory: pending.request.currentDirectory,
+            deadline: pending.request.approvalDeadline.addingTimeInterval(
+                SudoBroker.executionGraceSeconds
+            )
         )
         try Data(pending.script.utf8).write(to: fixture.store.approvedScriptURL(id: request.id))
         let encoder = JSONEncoder()
