@@ -47,9 +47,7 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
 @MainActor
 struct SidebarGroupHeaderRowActions {
     let onToggleCollapsed: () -> Void
-    /// Activates the group row. Plain activation creates a fresh workspace;
-    /// modifier activation may select the anchor for multi-selection.
-    let onActivate: (NSEvent.ModifierFlags) -> Void
+    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void

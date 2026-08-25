@@ -107,16 +107,27 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onActivate: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                activateWorkspaceGroup(
-                    groupId: groupId,
-                    placement: placement,
-                    modifiers: modifiers,
-                    tabManager: tabManager,
-                    selectedTabIds: selectedTabIds,
-                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
-                )
+                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
+                }
+                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
+                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
+                }
             },
             onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
@@ -397,16 +408,27 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onActivate: { [weak tabManager, groupId = snapshot.groupId, placement = snapshot.newWorkspacePlacement, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
+            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                activateWorkspaceGroup(
-                    groupId: groupId,
-                    placement: placement,
-                    modifiers: modifiers,
-                    tabManager: tabManager,
-                    selectedTabIds: selectedTabIds,
-                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
-                )
+                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
+                }
+                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
+                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
+                }
             },
             onTapPlus: { [weak tabManager, groupId = snapshot.groupId, placement = snapshot.newWorkspacePlacement] in
                 guard let tabManager else { return }
@@ -513,54 +535,5 @@ extension VerticalTabsSidebar {
                 pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
-    }
-
-    /// Routes a group-header activation through the group owner. Plain clicks
-    /// create a fresh workspace; modifier clicks retain anchor-based sidebar
-    /// multi-selection semantics without capturing a stale anchor id.
-    @MainActor
-    private func activateWorkspaceGroup(
-        groupId: UUID,
-        placement: WorkspaceGroupNewPlacement?,
-        modifiers: NSEvent.ModifierFlags,
-        tabManager: TabManager,
-        selectedTabIds: Binding<[UUID]>,
-        lastSidebarSelectionIndex: Binding<Int?>
-    ) {
-        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-            return
-        }
-        if modifiers.contains(.command) || modifiers.contains(.shift) {
-            guard let anchorTab = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
-                return
-            }
-            let anchorId = group.anchorWorkspaceId
-            let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-            let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
-                current: selectedTabIds.wrappedValue,
-                clickedAnchorId: anchorId,
-                anchorIds: anchorIds
-            )
-            selectedTabIds.wrappedValue = toggledSelection
-            tabManager.selectWorkspace(anchorTab)
-            lastSidebarSelectionIndex.wrappedValue = tabManager.tabs.firstIndex {
-                $0.id == anchorId
-            }
-            return
-        }
-
-        let resolvedPlacement = placement
-            ?? UserDefaultsSettingsClient(defaults: .standard)
-                .value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
-        guard let workspace = tabManager.activateWorkspaceGroup(
-            groupId: groupId,
-            placement: resolvedPlacement
-        ) else {
-            return
-        }
-        selectedTabIds.wrappedValue = [workspace.id]
-        lastSidebarSelectionIndex.wrappedValue = tabManager.tabs.firstIndex {
-            $0.id == workspace.id
-        }
     }
 }

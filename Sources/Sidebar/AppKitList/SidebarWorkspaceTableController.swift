@@ -699,7 +699,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let headerActions = configuration.appKitGroupHeaderActions {
             previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
             dispatchSelection(modifiers: click.modifiers) {
-                headerActions.onActivate(click.modifiers)
+                headerActions.onFocusAnchor(click.modifiers)
             }
             return .dispatched
         }
