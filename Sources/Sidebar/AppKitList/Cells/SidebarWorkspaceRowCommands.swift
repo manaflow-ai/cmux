@@ -319,7 +319,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         }
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
-        addColorMenu(to: menu, tabManager: tabManager)
+        addColorMenu(to: menu)
         addSSHErrorItem(to: menu)
         menu.addItem(.separator())
         addMoveItems(to: menu, tabManager: tabManager)
@@ -573,7 +573,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
     }
 
-    private func addColorMenu(to menu: NSMenu, tabManager: TabManager) {
+    private func addColorMenu(to menu: NSMenu) {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         let palette = WorkspaceTabColorSettings.palette()
@@ -599,18 +599,15 @@ struct SidebarWorkspaceRowMenuBuilder {
         if !palette.isEmpty {
             submenu.addItem(.separator())
         }
-        for entry in palette {
-            let colorItem = item(entry.name) { [commands] in
-                commands.applyTabColor(entry.hex)
+        SidebarWorkspaceRowColorMenu.addPaletteItems(
+            to: submenu,
+            palette: palette,
+            currentColorHex: tab.customColor,
+            colorScheme: commands.colorScheme,
+            apply: { [commands] hex in
+                commands.applyTabColor(hex)
             }
-            let swatch = WorkspaceTabColorSettings.displayNSColor(
-                hex: entry.hex,
-                colorScheme: commands.colorScheme,
-                forceBright: false
-            ) ?? NSColor(hex: entry.hex) ?? .gray
-            colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
-            submenu.addItem(colorItem)
-        }
+        )
         let parent = item(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {}
         parent.submenu = submenu
         menu.addItem(parent)

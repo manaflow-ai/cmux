@@ -2101,6 +2101,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6707F0076707F0076707F007 /* SidebarWorkspaceRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0086707F0086707F008 /* SidebarWorkspaceRowActions.swift */; };
 		B804A0240000000000000024 /* SidebarWorkspaceRowCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0240000000000000024 /* SidebarWorkspaceRowCellView.swift */; };
 		B804A02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift */; };
+		970900020000000000000001 /* SidebarWorkspaceRowColorMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970900020000000000000002 /* SidebarWorkspaceRowColorMenu.swift */; };
 		B804A0220000000000000022 /* SidebarWorkspaceRowCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0220000000000000022 /* SidebarWorkspaceRowCommands.swift */; };
 		B8624C0294950000000000A1 /* SidebarWorkspaceRowInlineRenameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D0294950000000000A1 /* SidebarWorkspaceRowInlineRenameTests.swift */; };
 		6707F0116707F0116707F011 /* SidebarWorkspaceRowInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0126707F0126707F012 /* SidebarWorkspaceRowInput.swift */; };
@@ -4918,6 +4919,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		6707F0086707F0086707F008 /* SidebarWorkspaceRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowActions.swift; sourceTree = "<group>"; };
 		B804B0240000000000000024 /* SidebarWorkspaceRowCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowCellView.swift; sourceTree = "<group>"; };
 		B804B02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowChecklistSection.swift; sourceTree = "<group>"; };
+		970900020000000000000002 /* SidebarWorkspaceRowColorMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowColorMenu.swift; sourceTree = "<group>"; };
 		B804B0220000000000000022 /* SidebarWorkspaceRowCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift; sourceTree = "<group>"; };
 		B8624D0294950000000000A1 /* SidebarWorkspaceRowInlineRenameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowInlineRenameTests.swift; sourceTree = "<group>"; };
 		6707F0126707F0126707F012 /* SidebarWorkspaceRowInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowInput.swift; sourceTree = "<group>"; };
@@ -6322,6 +6324,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B804B0170000000000000017 /* SidebarWorkspaceTableViewportAnchor.swift */,
 				B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */,
 				B804B0220000000000000022 /* SidebarWorkspaceRowCommands.swift */,
+				970900020000000000000002 /* SidebarWorkspaceRowColorMenu.swift */,
 				B804B0230000000000000023 /* SidebarWorkspaceRowModel.swift */,
 				961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */,
 				961300000000000000000002 /* SidebarWorkspaceDescriptionText.swift */,
@@ -10373,6 +10376,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6707F0076707F0076707F007 /* SidebarWorkspaceRowActions.swift in Sources */,
 				B804A0240000000000000024 /* SidebarWorkspaceRowCellView.swift in Sources */,
 				B804A02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift in Sources */,
+				970900020000000000000001 /* SidebarWorkspaceRowColorMenu.swift in Sources */,
 				B804A0220000000000000022 /* SidebarWorkspaceRowCommands.swift in Sources */,
 				6707F0116707F0116707F011 /* SidebarWorkspaceRowInput.swift in Sources */,
 				B804A0230000000000000023 /* SidebarWorkspaceRowModel.swift in Sources */,
