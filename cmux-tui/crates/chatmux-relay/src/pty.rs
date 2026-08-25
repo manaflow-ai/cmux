@@ -6313,6 +6313,7 @@ mod tests {
 
         let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
         let owner_endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let stale_generation = TerminalSizing::current_generation(&target);
         {
             let mut state = target.state.lock().unwrap();
             state.viewers.get_mut(&1).unwrap().grid = SizingGrid { cols: 80, rows: 24 };
@@ -6329,6 +6330,7 @@ mod tests {
             &owner_endpoint,
             SizingGrid { cols: 80, rows: 24 },
             false,
+            stale_generation,
         ));
 
         let survivor_endpoint = coordinator.queue_for(&key, 2).expect("survivor endpoint");

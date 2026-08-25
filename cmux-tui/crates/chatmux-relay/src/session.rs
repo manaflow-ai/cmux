@@ -715,7 +715,6 @@ async fn relay_session(
         trust: String::new(),
         roots: None,
         owner: None,
-        negotiated_version: 0,
     }));
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let workspace = crate::workspace::Connection::new(workspace_runtime, out_tx.clone());
