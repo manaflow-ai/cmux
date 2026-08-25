@@ -203,6 +203,39 @@ struct CmxTransportModePolicyTests {
         #expect(throws: CmxTransportModeError.self) {
             try directPolicy.validate(irohDialPlan: relayPlan)
         }
+        let nativeDirect = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "203.0.113.10:58465",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let customDirect = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.10:58465",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: Date(),
+            expiresAt: Date().addingTimeInterval(300),
+            networkProfile: try CmxIrohNetworkProfileKey(
+                source: .customVPN,
+                profileID: String(repeating: "5", count: 64)
+            )
+        )
+        let mixedDirectPlan = CmxIrohDialPlan(
+            publicPaths: [nativeDirect, customDirect],
+            privateFallbackPaths: []
+        )
+        #expect(
+            directPolicy.irohDialPlan(mixedDirectPlan).publicPaths.map(\.source)
+                == [.customVPN]
+        )
+        #expect(throws: CmxTransportModeError.self) {
+            try directPolicy.validate(irohDialPlan: mixedDirectPlan)
+        }
+        #expect(
+            directPolicy.irohPathHints([nativeDirect, customDirect]).map(\.source)
+                == [.customVPN]
+        )
         #expect(directPolicy.allows(path: .irohDirect))
         #expect(!directPolicy.allows(path: .irohRelay(region: "us-east")))
     }
