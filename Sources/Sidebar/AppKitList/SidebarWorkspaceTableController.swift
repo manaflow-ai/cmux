@@ -1504,8 +1504,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             || hasMismatchedPumpOverrides else { return }
         var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
-        hasLiveMeasuredRows = false
-        lastLiveMeasuredWidth = 0
         // A width settle is not an authoritative row apply: a pump may have
         // painted a newer model into a visible cell without changing `rows`.
         // Re-measure those cells at the settled width before noting the cache
@@ -1531,6 +1529,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 noteHeightOfRowsWithoutAnimation(table, changed)
             }
         }
+        hasLiveMeasuredRows = false
+        lastLiveMeasuredWidth = 0
         if hasPendingContentRefresh {
             mutationScheduler.stageContentRefresh()
         }
@@ -1749,15 +1749,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if override.columnWidth == liveWidth || override.columnWidth == settledWidth {
             return override.height
         }
-        // Between live viewport ticks, keep the most recently installed live
-        // height only while the resize remains away from the settled width.
-        guard liveWidth != settledWidth,
-              hasLiveMeasuredRows,
-              lastLiveMeasuredWidth > 0,
-              override.columnWidth == lastLiveMeasuredWidth else {
-            return nil
-        }
-        return override.height
+        // Between live viewport ticks, the override is the height currently
+        // installed in AppKit even if the divider has already crossed back
+        // over the settled width. The settle pass below replaces or removes
+        // it before this flag is cleared.
+        return hasLiveMeasuredRows ? override.height : nil
     }
 
     /// Re-measures visible pump-painted cells during a non-authoritative width
