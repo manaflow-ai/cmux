@@ -73,7 +73,8 @@ final class HiveComputersService {
         let runtime = HiveSyncRuntime.network(
             allowsLoopbackRoutes: Self.allowsLoopbackPairing,
             stackAccessTokenProvider: { try await auth.accessToken() },
-            stackAccessTokenForceRefresher: { try await auth.forceRefreshAccessToken() }
+            stackAccessTokenForceRefresher: { try await auth.forceRefreshAccessToken() },
+            stackAccessTokenForStatusProvider: { try? await auth.accessToken() }
         )
         return HiveRemoteMacSession(
             runtime: runtime,
@@ -104,7 +105,16 @@ final class HiveComputersService {
     /// connecting one on first use. Returns `nil` when the computer has no
     /// pairing record or auth is not configured.
     func embeddedSession(deviceID: String) async -> HiveRemoteMacSession? {
-        if let existing = embeddedSessions[deviceID] { return existing }
+        if let existing = embeddedSessions[deviceID] {
+            if let computer = directory?.computers.first(where: { $0.deviceID == deviceID }),
+               let best = computer.bestPairingRoutes,
+               best.routes != existing.routes {
+                embeddedSessions.removeValue(forKey: deviceID)
+                await existing.disconnect()
+            } else {
+                return existing
+            }
+        }
         guard let session = await makeViewerSession(deviceID: deviceID) else { return nil }
         // Re-check after the await: a concurrent first call may have won.
         if let existing = embeddedSessions[deviceID] {

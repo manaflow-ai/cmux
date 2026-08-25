@@ -35,6 +35,9 @@ public final class HiveRemoteMacSession {
     public let macDeviceID: String
     /// The paired Mac's display name (for the window title).
     public let displayName: String
+    /// The currently selected route set; a changed registry/presence snapshot
+    /// causes the app service to replace this session before reconnecting.
+    public let routes: [CmxAttachRoute]
 
     /// Connection lifecycle state.
     public private(set) var phase: Phase = .idle
@@ -42,7 +45,6 @@ public final class HiveRemoteMacSession {
     public private(set) var workspaces: [HiveRemoteWorkspace] = []
 
     @ObservationIgnored private let runtime: any MobileSyncRuntime
-    @ObservationIgnored private let routes: [CmxAttachRoute]
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
     @ObservationIgnored private let workspaceDecoder: HiveRemoteWorkspaceDecoder
     @ObservationIgnored private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
@@ -53,6 +55,8 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceRefreshPending = false
     @ObservationIgnored private var workspaceListeners:
         [UUID: AsyncStream<[HiveRemoteWorkspace]>.Continuation] = [:]
 
@@ -114,6 +118,9 @@ public final class HiveRemoteMacSession {
         pendingEvents?.cancel()
         await pendingEvents?.value
         eventTask = nil
+        workspaceRefreshTask?.cancel()
+        workspaceRefreshTask = nil
+        workspaceRefreshPending = false
         if let client {
             await client.disconnect()
         }
@@ -123,6 +130,27 @@ public final class HiveRemoteMacSession {
 
     /// Re-fetch the workspace list from the connected Mac.
     public func refreshWorkspaces() async {
+        scheduleWorkspaceRefresh()
+        await workspaceRefreshTask?.value
+    }
+
+    private func scheduleWorkspaceRefresh() {
+        guard workspaceRefreshTask == nil else {
+            workspaceRefreshPending = true
+            return
+        }
+        workspaceRefreshTask = Task { [weak self] in
+            await self?.performWorkspaceRefresh()
+            guard let self else { return }
+            self.workspaceRefreshTask = nil
+            if self.workspaceRefreshPending {
+                self.workspaceRefreshPending = false
+                self.scheduleWorkspaceRefresh()
+            }
+        }
+    }
+
+    private func performWorkspaceRefresh() async {
         guard let client else { return }
         do {
             setWorkspaces(try await fetchWorkspaces(client: client))
@@ -293,7 +321,7 @@ public final class HiveRemoteMacSession {
                 continue
             }
             for await _ in stream {
-                await refreshWorkspaces()
+                scheduleWorkspaceRefresh()
             }
             // Stream finished: the transport died. Loop to re-subscribe.
             if Task.isCancelled { return }

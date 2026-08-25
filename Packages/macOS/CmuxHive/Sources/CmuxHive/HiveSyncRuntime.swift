@@ -55,12 +55,15 @@ public struct HiveSyncRuntime: MobileSyncRuntime, Sendable {
     ///   - allowsLoopbackRoutes: Include `.debugLoopback` (dev builds pairing
     ///     two instances on one machine).
     ///   - stackAccessTokenProvider: Mints the Stack access token.
+    ///   - stackAccessTokenForStatusProvider: Supplies a cached token for
+    ///     authenticated host-identity status probes.
     ///   - stackAccessTokenForceRefresher: Force-mints a fresh token after an
     ///     auth rejection.
     public static func network(
         allowsLoopbackRoutes: Bool,
         stackAccessTokenProvider: @escaping @Sendable () async throws -> String,
-        stackAccessTokenForceRefresher: @escaping @Sendable () async throws -> String
+        stackAccessTokenForceRefresher: @escaping @Sendable () async throws -> String,
+        stackAccessTokenForStatusProvider: @escaping @Sendable () async -> String? = { nil }
     ) -> HiveSyncRuntime {
         let supportedKinds: [CmxAttachTransportKind] = allowsLoopbackRoutes
             ? [.debugLoopback, .tailscale]
@@ -89,6 +92,7 @@ public struct HiveSyncRuntime: MobileSyncRuntime, Sendable {
             supportedRouteKinds: supportedKinds,
             transportFactory: transportFactory,
             stackAccessTokenProvider: stackAccessTokenProvider,
+            stackAccessTokenForStatusProvider: stackAccessTokenForStatusProvider,
             stackAccessTokenForceRefresher: stackAccessTokenForceRefresher
         )
     }

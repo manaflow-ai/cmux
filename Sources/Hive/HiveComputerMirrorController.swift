@@ -298,9 +298,9 @@ final class HiveComputerMirrorController {
         for remote in workspaces {
             if let workspaceId = mirror.workspaceIdByRemoteID[remote.id],
                let workspace = tabManager.workspacesById[workspaceId] {
-                let nextWorkspaceTitle = String(
-                    localized: "hive.mirror.workspaceTitle",
-                    defaultValue: "(remote.title) — (mirror.computerName)"
+                let nextWorkspaceTitle = localizedWorkspaceTitle(
+                    remoteTitle: remote.title,
+                    computerName: mirror.computerName
                 )
                 if workspace.title != nextWorkspaceTitle {
                     workspace.title = nextWorkspaceTitle
@@ -313,9 +313,9 @@ final class HiveComputerMirrorController {
                 addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, client: client)
                 continue
             }
-            let title = String(
-                localized: "hive.mirror.workspaceTitle",
-                defaultValue: "\(remote.title) — \(mirror.computerName)"
+            let title = localizedWorkspaceTitle(
+                remoteTitle: remote.title,
+                computerName: mirror.computerName
             )
             let workspace = tabManager.addWorkspace(
                 title: title,
@@ -335,6 +335,12 @@ final class HiveComputerMirrorController {
                 _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             }
         }
+    }
+
+    /// Formats a mirror workspace title through the localized format resource
+    /// so creation and later topology/title updates use identical text.
+    private func localizedWorkspaceTitle(remoteTitle: String, computerName: String) -> String {
+        String(localized: "hive.mirror.workspaceTitle", defaultValue: "\(remoteTitle) — \(computerName)")
     }
 
     private func addMissingTerminals(

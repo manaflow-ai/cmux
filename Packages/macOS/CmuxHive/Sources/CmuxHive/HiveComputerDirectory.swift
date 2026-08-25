@@ -133,7 +133,8 @@ public final class HiveComputerDirectory {
             return
         }
         let task = Task { [weak self] in
-            await self?.performRefresh()
+            guard let self else { return }
+            await self.performRefresh()
         }
         refreshTask = task
         await task.value
@@ -390,6 +391,7 @@ public final class HiveComputerDirectory {
             return false
         }
         await reloadPairedRecords(scope: scope)
+        guard await isCurrentScope(scope, generation: scopeGeneration) else { return false }
         rebuild()
         return true
     }
@@ -402,6 +404,10 @@ public final class HiveComputerDirectory {
         scope: HiveAccountScope
     ) async -> HivePairOutcome {
         guard !routes.isEmpty else { return .noRoutes }
+        let generation = scopeGeneration
+        guard await isCurrentScope(scope, generation: generation) else {
+            return .accountMismatch
+        }
         do {
             try await pairedStore.upsert(
                 macDeviceID: macDeviceID,
@@ -416,7 +422,13 @@ public final class HiveComputerDirectory {
         } catch {
             return .storeFailed
         }
+        guard await isCurrentScope(scope, generation: generation) else {
+            return .accountMismatch
+        }
         await reloadPairedRecords(scope: scope)
+        guard await isCurrentScope(scope, generation: generation) else {
+            return .accountMismatch
+        }
         rebuild()
         return .paired(deviceID: macDeviceID)
     }
