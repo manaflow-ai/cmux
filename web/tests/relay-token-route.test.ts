@@ -20,7 +20,7 @@ const PAYLOAD: RelayPolicyPayload = {
   sequence: 4,
   iat: 1_700_000_000,
   nbf: 1_700_000_000,
-  exp: 1_700_000_300,
+  exp: 1_700_003_600,
   aud: "cmux-iroh-relay-policy",
   relay_protocol: "iroh-relay-v1",
   relays: [{
