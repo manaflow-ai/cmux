@@ -300,7 +300,14 @@ public final class HiveComputerDirectory {
         let claimTime = now()
         let matches = registryDevices.flatMap { device in
             device.instances
-                .filter { $0.hasRoutes && $0.activePairingCode(now: claimTime)?.code == code }
+                // Pairing-code claims use the registry snapshot directly. Keep
+                // the label-bearing `RegistryAppInstance` at this boundary;
+                // the settings row model intentionally omits labels because
+                // they are rendezvous metadata, not UI state.
+                .filter {
+                    !$0.routes.isEmpty
+                        && CmxPairingCode.active(in: $0.labels, now: claimTime)?.code == code
+                }
                 .map { (device: device, instance: $0) }
         }
         // Exactly one live match may claim; a 6-digit collision inside one

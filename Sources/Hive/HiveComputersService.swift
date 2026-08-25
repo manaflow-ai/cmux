@@ -84,12 +84,13 @@ final class HiveComputersService {
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
             },
-            // A registry row is rendezvous metadata, not cryptographic proof
-            // that the listener at its advertised Tailscale endpoint is the
-            // named Mac. Keep the bearer on loopback until a pinned
-            // device/endpoint binding is available; `mobile.host.status` may
-            // still probe the endpoint, but it cannot disclose the token.
-            stackAuthChannelTrust: .loopbackOnly,
+            // Registry-backed routes are admitted by the verified Tailscale
+            // transport factory and then bound to the expected host identity
+            // via `mobile.host.status`. Pasted/manual links remain
+            // loopback-only until they gain that registry provenance.
+            stackAuthChannelTrust: computer.isRegistryBacked
+                ? .loopbackAndTailscaleTunnel
+                : .loopbackOnly,
             expectedInstanceTag: best.instanceTag,
             requiresHostIdentity: computer.isRegistryBacked
         )

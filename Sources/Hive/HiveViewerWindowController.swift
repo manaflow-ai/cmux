@@ -94,11 +94,12 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
         guard let directory = HiveComputersService.shared.directory else {
             return Task {}
         }
-        return Task { @MainActor [weak self, weak session] in
+        return Task { @MainActor [weak self] in
+            var currentSession = session
             for await computers in directory.updates() {
-                guard let self, let session,
+                guard let self,
                       let entry = self.viewersByDeviceID[deviceID],
-                      entry.session === session else { return }
+                      entry.session === currentSession else { return }
                 guard let computer = computers.first(where: { $0.deviceID == deviceID }),
                       computer.isPaired,
                       let best = computer.bestPairingRoutes else {
@@ -120,10 +121,20 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
                         appearanceMode: appearanceMode
                     )
                 )
-                await session.disconnect()
-                return
+                await currentSession.disconnect()
+                currentSession = replacement
             }
         }
+    }
+
+    /// Close a standalone viewer and revoke its remote session, used when a
+    /// paired computer is explicitly forgotten from Settings.
+    func close(deviceID: String) async {
+        guard let entry = viewersByDeviceID.removeValue(forKey: deviceID) else { return }
+        entry.routeTask?.cancel()
+        entry.routeTask = nil
+        entry.window.close()
+        await entry.session.disconnect()
     }
 
     func windowWillClose(_ notification: Notification) {

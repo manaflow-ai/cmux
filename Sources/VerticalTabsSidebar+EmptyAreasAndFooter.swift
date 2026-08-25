@@ -141,6 +141,11 @@ struct HiveSidebarScopePicker: View {
 
     private func observeComputers() async {
         guard let directory = HiveComputersService.shared.directory else { return }
+        // The directory is composed before any particular settings pane is
+        // mounted. Refresh here so sidebar presentation discovers persisted
+        // pairings on a fresh launch instead of waiting for Settings ›
+        // Computers to be opened first.
+        await directory.refresh()
         for await merged in directory.updates() {
             let snapshot = merged
                 .filter { $0.isPaired && !$0.isThisComputer }

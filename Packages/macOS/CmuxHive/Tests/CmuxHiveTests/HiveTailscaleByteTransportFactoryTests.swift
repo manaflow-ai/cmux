@@ -31,8 +31,20 @@ struct HiveTailscaleByteTransportFactoryTests {
         }
     }
 
-    @Test func rejectsGenericStackBearerRequestsUntilPeerAdmissionIsProven() throws {
+    @Test func acceptsStackBearerRequestsForVerifiedTailnetHosts() throws {
         let route = try route(kind: .tailscale, host: "100.65.181.35")
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: "mac-b",
+            authorizationMode: .stackBearer
+        )
+        #expect(throws: Never.self) {
+            _ = try HiveTailscaleByteTransportFactory().makeTransport(for: request)
+        }
+    }
+
+    @Test func rejectsStackBearerRequestsForUnverifiedHosts() throws {
+        let route = try route(kind: .tailscale, host: "192.168.86.21")
         let request = CmxByteTransportRequest(
             route: route,
             expectedPeerDeviceID: "mac-b",
