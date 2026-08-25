@@ -17,15 +17,11 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
         guard remainingFileCount > 0, remainingByteCount > 0 else { return nil }
         remainingFileCount -= 1
         switch reader.read(at: url, maximumByteCount: remainingByteCount) {
-        case .contents(let contents):
-            let byteCount = contents.utf8.count
-            guard byteCount <= remainingByteCount else { return nil }
-            remainingByteCount -= byteCount
+        case .contents(let contents, consumedByteCount: byteCount):
+            remainingByteCount = max(0, remainingByteCount - byteCount)
             return contents
-        case .oversized:
-            remainingByteCount = 0
-            return nil
-        case .unavailable:
+        case .oversized(let byteCount), .unavailable(let byteCount):
+            remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
         }
     }

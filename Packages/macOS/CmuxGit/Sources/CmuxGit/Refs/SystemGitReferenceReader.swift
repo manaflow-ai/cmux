@@ -383,11 +383,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             at: configURL,
             maximumByteCount: Self.maximumReferenceStorageConfigByteCount
         ) {
-        case .contents(let contents):
+        case .contents(let contents, consumedByteCount: _):
             return (contents, false)
-        case .oversized:
+        case .oversized(consumedByteCount: _):
             return (nil, true)
-        case .unavailable:
+        case .unavailable(consumedByteCount: _):
             return (nil, false)
         }
     }
