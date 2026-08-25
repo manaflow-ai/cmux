@@ -26,6 +26,33 @@ struct BrowserCookieBuilderTests {
         #expect(cookie.isHTTPOnly)
     }
 
+    @Test("preserves host-only cookies when the domain is omitted")
+    func preservesHostOnlyCookie() throws {
+        let originURL = try #require(URL(string: "https://example.test/"))
+        let cookie = try #require(builder.makeCookie(
+            name: "__Host-session",
+            value: "secret",
+            originURL: originURL,
+            domain: nil,
+            path: "/",
+            secure: true,
+            expires: nil,
+            httpOnly: true
+        ))
+        let baseline = try #require(HTTPCookie(properties: [
+            .name: "__Host-session",
+            .value: "secret",
+            .originURL: originURL,
+            .path: "/",
+            .secure: "TRUE",
+        ]))
+
+        #expect(cookie.domain == baseline.domain)
+        #expect(cookie.path == "/")
+        #expect(cookie.isSecure)
+        #expect(cookie.isHTTPOnly)
+    }
+
     @Test("leaves ordinary cookies script-readable")
     func leavesOrdinaryCookiesScriptReadable() throws {
         let originURL = try #require(URL(string: "https://example.test/"))

@@ -60,7 +60,7 @@ public struct BrowserCookieBuilder: Sendable {
         }
 
         guard let responseURL = responseURL(for: cookie, originURL: originURL),
-              var setCookieHeader = setCookieHeader(for: cookie) else {
+              var setCookieHeader = setCookieHeader(for: cookie, includeDomain: domain != nil) else {
             return nil
         }
         setCookieHeader += "; HttpOnly"
@@ -82,9 +82,9 @@ public struct BrowserCookieBuilder: Sendable {
         return parsedCookie
     }
 
-    private func setCookieHeader(for cookie: HTTPCookie) -> String? {
+    private func setCookieHeader(for cookie: HTTPCookie, includeDomain: Bool) -> String? {
         var header = "\(cookie.name)=\(cookie.value)"
-        if !cookie.domain.isEmpty {
+        if includeDomain, !cookie.domain.isEmpty {
             header += "; Domain=\(cookie.domain)"
         }
         header += "; Path=\(cookie.path)"

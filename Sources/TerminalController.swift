@@ -10277,7 +10277,7 @@ class TerminalController {
         } else {
             originURL = fallbackURL
         }
-        let domain = (raw["domain"] as? String) ?? originURL?.host
+        let domain = raw["domain"] as? String
         let path = (raw["path"] as? String) ?? "/"
         let secure = v2Bool(raw, "secure") ?? false
         let expires: Date?
