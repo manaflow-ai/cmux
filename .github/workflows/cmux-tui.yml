@@ -79,6 +79,40 @@ jobs:
               ;;
           esac
 
+  msrv-check:
+    name: Rust MSRV (1.91)
+    needs: validate-inputs
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust 1.91
+        run: rustup toolchain install 1.91.0 --profile minimal
+
+      - name: cargo check with MSRV
+        working-directory: cmux-tui
+        run: cargo +1.91.0 check --workspace --locked
+
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
