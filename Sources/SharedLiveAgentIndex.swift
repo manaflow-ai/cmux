@@ -476,8 +476,14 @@ final class SharedLiveAgentIndex {
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
         var completedRefreshPasses = 0
+        let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
+            &+ Self.ownershipRefreshTimeoutNanoseconds
         while true {
             guard !Task.isCancelled else { return nil }
+            guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
+                preservePendingHookChangeAfterOwnershipRefreshFailure()
+                return nil
+            }
             if let refreshTask {
                 guard await awaitOwnershipRefreshTask(refreshTask, kind: .full) else {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
