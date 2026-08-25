@@ -42,7 +42,7 @@ struct CmuxConfigValidator: Sendable {
                 } else if !normalizedIDs.insert(normalizedID).inserted {
                     issues.append(issue("actions", "must not contain duplicate ids after trimming whitespace"))
                 } else {
-                    let canonicalID = canonicalBuiltInID(normalizedID)
+                    let canonicalID = canonicalBuiltInID(normalizedID) ?? normalizedID
                     if let existingID = canonicalIDs[canonicalID] {
                         issues.append(issue(
                             "actions",
@@ -102,7 +102,7 @@ struct CmuxConfigValidator: Sendable {
         case "builtin":
             requireNonBlankString(action["builtin"], path: path + ".builtin", into: &issues)
             if let builtin = action["builtin"] as? String,
-               !knownBuiltInIDs.contains(builtin) {
+               canonicalBuiltInID(builtin) == nil {
                 issues.append(issue(path + ".builtin", "unknown built-in action '\(builtin)'"))
             }
         case "command":
@@ -219,9 +219,10 @@ struct CmuxConfigValidator: Sendable {
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
     ) {
-        for key in ["name", "cwd", "color", "setup"] {
+        for key in ["name", "cwd", "setup"] {
             validateOptionalString(workspace[key], path: path + "." + key, into: &issues)
         }
+        validateWorkspaceColor(workspace["color"], path: path + ".color", into: &issues)
         if let env = workspace["env"] {
             if !((env as? Object)?.values.allSatisfy({ $0 is String }) ?? false) {
                 issues.append(issue(path + ".env", "must be an object whose values are strings"))
@@ -230,6 +231,21 @@ struct CmuxConfigValidator: Sendable {
         if let layout = workspace["layout"] {
             validateLayout(layout, path: path + ".layout", depth: 0, into: &issues)
         }
+    }
+
+    private func validateWorkspaceColor(_ rawColor: Any?, path: String, into issues: inout [CmuxConfigValidationIssue]) {
+        guard let rawColor else { return }
+        guard let color = rawColor as? String else {
+            issues.append(issue(path, "must be a color string"))
+            return
+        }
+        let trimmed = color.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        if hex.count == 6, UInt64(hex, radix: 16) != nil { return }
+        let defaultNames = ["Red", "Crimson", "Orange", "Amber", "Olive", "Green", "Teal", "Aqua", "Blue", "Navy", "Indigo", "Purple", "Magenta", "Rose", "Brown", "Charcoal"]
+        let customNames: [String] = (UserDefaults.standard.dictionary(forKey: "workspaceTabColor.colors") as? [String: String])?.keys.map { $0 } ?? []
+        if (defaultNames + customNames).contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return }
+        issues.append(issue(path, "must be a six-digit hex color or a known workspace color name"))
     }
 
     private func validateLayout(
@@ -388,7 +404,9 @@ struct CmuxConfigValidator: Sendable {
 
     private func validShortcutStroke(_ rawValue: String, allowUnbound: Bool) -> Bool {
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if allowUnbound, rawValue.isEmpty || ["none", "clear", "unbound", "disabled"].contains(normalized) {
+        if allowUnbound,
+           (rawValue.isEmpty || (normalized.isEmpty && rawValue != " ") ||
+            ["none", "clear", "unbound", "disabled"].contains(normalized)) {
             return true
         }
         let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
@@ -413,7 +431,7 @@ struct CmuxConfigValidator: Sendable {
             "mediaprevious", "media.previous", "media.previoustrack",
         ]
         let isFunctionKey = key.first == "f" && (1...20).contains(Int(key.dropFirst()) ?? 0)
-        return hasModifier && (key.count == 1 || namedKeys.contains(key) || isFunctionKey) ||
+        return hasModifier && (rawKey == " " || key.count == 1 || namedKeys.contains(key) || isFunctionKey) ||
             (!hasModifier && (key == "space" || rawKey == " "))
     }
 
@@ -445,7 +463,7 @@ struct CmuxConfigValidator: Sendable {
         value is NSNumber && !(value is Bool)
     }
 
-    private func canonicalBuiltInID(_ id: String) -> String {
+    private func canonicalBuiltInID(_ id: String) -> String? {
         switch id {
         case "cmux.newWorkspace", "newWorkspace":
             return "cmux.newWorkspace"
@@ -469,23 +487,8 @@ struct CmuxConfigValidator: Sendable {
         case "cmux.splitDown", "splitDown":
             return "cmux.splitDown"
         default:
-            return id
+            return nil
         }
-    }
-
-    private var knownBuiltInIDs: Set<String> {
-        [
-            "cmux.newWorkspace", "newWorkspace",
-            "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat",
-            "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
-            "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
-            "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm",
-            "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
-            "cmux.connectPhone", "connectPhone",
-            "cmux.newTerminal", "newTerminal", "cmux.newBrowser", "newBrowser",
-            "cmux.newSimulator", "newSimulator", "new-simulator", "simulator",
-            "cmux.splitRight", "splitRight", "cmux.splitDown", "splitDown",
-        ]
     }
 
     private func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {

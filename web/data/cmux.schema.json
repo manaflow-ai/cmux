@@ -2021,7 +2021,7 @@
       "properties": {
         "name": { "type": "string" },
         "cwd": { "type": "string" },
-        "color": { "type": "string" },
+        "color": { "$ref": "#/$defs/cmuxWorkspaceColor" },
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" }
@@ -2029,6 +2029,10 @@
         "setup": { "type": "string" },
         "layout": { "$ref": "#/$defs/cmuxLayoutNode" }
       }
+    },
+    "cmuxWorkspaceColor": {
+      "type": "string",
+      "description": "A six-digit hex color (with or without #) or a name from the user's current workspace color palette. Palette names are runtime state and cannot be enumerated by a static schema."
     },
     "cmuxLayoutNode": {
       "oneOf": [
