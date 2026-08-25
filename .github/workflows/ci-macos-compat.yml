@@ -164,6 +164,7 @@ jobs:
         run: |
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CMUXMobileCore
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
+          ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxNextTransport
 
       - name: Run mobile transport tests in the compatibility iOS Simulator
         if: matrix.run_mobile_transport_tests
