@@ -36,6 +36,7 @@ pub(crate) struct OwnerSpec {
     pub session: String,
     pub socket: PathBuf,
     pub state: Option<PathBuf>,
+    pub term: Option<String>,
 }
 
 /// A validated, client-ready owner.
@@ -244,6 +245,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     command.arg("--socket").arg(&spec.socket);
     if let Some(state) = &spec.state {
         command.arg("--state").arg(state);
+    }
+    if let Some(term) = &spec.term {
+        command.arg("--term").arg(term);
     }
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on

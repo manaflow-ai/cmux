@@ -2245,7 +2245,7 @@ fn detached_owner_launch_applicable(
     args.should_attach_existing(ws_addr, ws_token)
         && config.server.detached_owner
         && !args.ephemeral
-        && args.agent_browser_provider.is_none()
+        && !args.agent_browser_provider
         && !provider_owned
         && stdio_is_terminal
 }
@@ -2260,13 +2260,14 @@ fn start_detached_owner_session(
         session: args.session.clone(),
         socket: socket_path.clone(),
         state: args.state.clone(),
+        term: args.term.clone(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
         match error {
             local_owner::EnsureError::Spawn(error) => {
                 eprintln!("detached session owner startup failed: {error}");
-                anyhow::bail!("{}", messages.owner_spawn_failed())
+                anyhow::bail!("{}", messages.owner_spawn_failed(&error))
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
