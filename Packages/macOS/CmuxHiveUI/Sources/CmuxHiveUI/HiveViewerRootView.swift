@@ -95,15 +95,13 @@ public struct HiveViewerRootView: View {
 
     private func ensureTerminalSession(for selection: HiveViewerSelection?) {
         guard let selection, terminalSessions[selection] == nil,
-              let client = session.client else { return }
-        let terminal = HiveRemoteTerminalSession(
-            client: client,
+              let terminal = session.makeTerminalSession(
             workspaceID: selection.workspaceID,
             terminalID: selection.terminalID,
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
             }
-        )
+        ) else { return }
         terminalSessions[selection] = terminal
     }
 

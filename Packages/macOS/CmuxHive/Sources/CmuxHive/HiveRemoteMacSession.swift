@@ -38,6 +38,10 @@ public final class HiveRemoteMacSession {
     /// The currently selected route set; a changed registry/presence snapshot
     /// causes the app service to replace this session before reconnecting.
     public let routes: [CmxAttachRoute]
+    /// The registry instance tag this session was bound to, when available.
+    public let expectedInstanceTag: String?
+    /// Whether this session requires the authenticated host-identity gate.
+    public let requiresHostIdentity: Bool
 
     /// Connection lifecycle state.
     public private(set) var phase: Phase = .idle
@@ -48,11 +52,12 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
     @ObservationIgnored private let workspaceDecoder: HiveRemoteWorkspaceDecoder
     @ObservationIgnored private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
-    @ObservationIgnored private let expectedInstanceTag: String?
-    @ObservationIgnored private let requiresHostIdentity: Bool
     /// The connected RPC client terminal sessions share, `nil` until the
     /// first successful connect.
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
+    /// One surface-scoped render-grid router shared by all terminal sessions
+    /// attached to this Mac.
+    @ObservationIgnored public private(set) var renderGridRouter: HiveRemoteRenderGridRouter?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var workspaceRefreshTask: Task<Void, Never>?
@@ -89,11 +94,11 @@ public final class HiveRemoteMacSession {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
         self.routes = routes
+        self.expectedInstanceTag = expectedInstanceTag
+        self.requiresHostIdentity = requiresHostIdentity
         self.retryDelay = retryDelay
         self.workspaceDecoder = HiveRemoteWorkspaceDecoder()
         self.stackAuthChannelTrust = stackAuthChannelTrust
-        self.expectedInstanceTag = expectedInstanceTag
-        self.requiresHostIdentity = requiresHostIdentity
     }
 
     /// Start (or restart) the session: dial routes, fetch the workspace list,
@@ -121,6 +126,8 @@ public final class HiveRemoteMacSession {
         workspaceRefreshTask?.cancel()
         workspaceRefreshTask = nil
         workspaceRefreshPending = false
+        renderGridRouter?.stop()
+        renderGridRouter = nil
         if let client {
             await client.disconnect()
         }
@@ -134,15 +141,40 @@ public final class HiveRemoteMacSession {
         await workspaceRefreshTask?.value
     }
 
+    /// Creates a terminal session using this Mac's shared surface-scoped event
+    /// router. Returns `nil` until the initial RPC client is connected.
+    /// - Parameters:
+    ///   - workspaceID: The remote workspace containing the terminal.
+    ///   - terminalID: The remote terminal/surface identifier.
+    ///   - retryDelay: Backoff used while reattaching after a transport drop.
+    public func makeTerminalSession(
+        workspaceID: String,
+        terminalID: String,
+        retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void
+    ) -> HiveRemoteTerminalSession? {
+        guard let client else { return nil }
+        return HiveRemoteTerminalSession(
+            client: client,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            retryDelay: retryDelay,
+            renderGridRouter: renderGridRouter
+        )
+    }
+
     private func scheduleWorkspaceRefresh() {
         guard workspaceRefreshTask == nil else {
             workspaceRefreshPending = true
             return
         }
         workspaceRefreshTask = Task { [weak self] in
-            await self?.performWorkspaceRefresh()
             guard let self else { return }
+            await self.performWorkspaceRefresh()
             self.workspaceRefreshTask = nil
+            guard !Task.isCancelled else {
+                self.workspaceRefreshPending = false
+                return
+            }
             if self.workspaceRefreshPending {
                 self.workspaceRefreshPending = false
                 self.scheduleWorkspaceRefresh()
@@ -151,9 +183,11 @@ public final class HiveRemoteMacSession {
     }
 
     private func performWorkspaceRefresh() async {
-        guard let client else { return }
+        guard !Task.isCancelled, let client else { return }
         do {
-            setWorkspaces(try await fetchWorkspaces(client: client))
+            let refreshed = try await fetchWorkspaces(client: client)
+            guard !Task.isCancelled else { return }
+            setWorkspaces(refreshed)
         } catch {
             // Keep the stale list; the event loop's stream death drives the
             // visible reconnect state.
@@ -227,8 +261,11 @@ public final class HiveRemoteMacSession {
                     await candidate.disconnect()
                     return
                 }
+                renderGridRouter?.stop()
+                renderGridRouter = nil
                 if let previous = client { await previous.disconnect() }
                 client = candidate
+                renderGridRouter = HiveRemoteRenderGridRouter(client: candidate)
                 setWorkspaces(workspaces)
                 phase = .connected
                 startEventLoop(client: candidate)
@@ -303,7 +340,7 @@ public final class HiveRemoteMacSession {
                 // torn-down transport, which is the recovery path after a blip.
                 let subscribe = try MobileCoreRPCClient.requestData(
                     method: "mobile.events.subscribe",
-                    params: ["topics": ["workspace.updated"]]
+                    params: ["topics": ["workspace.updated", "terminal.render_grid"]]
                 )
                 _ = try await client.sendRequest(subscribe)
                 consecutiveFailures = 0

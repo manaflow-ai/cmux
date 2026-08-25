@@ -47,6 +47,7 @@ public final class HiveRemoteTerminalSession {
     @ObservationIgnored public private(set) var lastFullFrameBytes: Data?
 
     @ObservationIgnored private let client: MobileCoreRPCClient
+    @ObservationIgnored private let renderGridRouter: HiveRemoteRenderGridRouter?
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
     @ObservationIgnored private let renderGridDecoder: HiveRemoteRenderGridDecoder
     @ObservationIgnored private var attachTask: Task<Void, Never>?
@@ -73,12 +74,14 @@ public final class HiveRemoteTerminalSession {
         client: MobileCoreRPCClient,
         workspaceID: String,
         terminalID: String,
-        retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void
+        retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
+        renderGridRouter: HiveRemoteRenderGridRouter? = nil
     ) {
         self.client = client
         self.workspaceID = workspaceID
         self.terminalID = terminalID
         self.retryDelay = retryDelay
+        self.renderGridRouter = renderGridRouter
         self.renderGridDecoder = HiveRemoteRenderGridDecoder()
     }
 
@@ -235,15 +238,13 @@ public final class HiveRemoteTerminalSession {
     private func runAttachLoop() async {
         var consecutiveFailures = 0
         while !Task.isCancelled {
-            // Register the local listener BEFORE the replay so no frame
-            // emitted between the replay response and the subscription is lost.
-            let stream = await client.subscribe(to: ["terminal.render_grid"])
+            let stream: AsyncStream<MobileTerminalRenderGridFrame>
             do {
-                let subscribe = try MobileCoreRPCClient.requestData(
-                    method: "mobile.events.subscribe",
-                    params: ["topics": ["terminal.render_grid"]]
-                )
-                _ = try await client.sendRequest(subscribe)
+                // Register the local listener BEFORE the replay so no frame
+                // emitted between the replay response and the subscription is
+                // lost. A Mac session supplies one shared router; direct test
+                // clients retain the legacy per-session subscription path.
+                stream = try await subscribeToFrames()
                 try await requestReplay()
                 guard !Task.isCancelled else { return }
                 consecutiveFailures = 0
@@ -258,10 +259,7 @@ public final class HiveRemoteTerminalSession {
                 await retryDelay(consecutiveFailures)
                 continue
             }
-            for await envelope in stream {
-                guard let payload = envelope.payloadJSON,
-                      let frame = await decodeFrameOffMain(payload),
-                      frame.surfaceID == terminalID else { continue }
+            for await frame in stream {
                 guard !Task.isCancelled else { return }
                 enqueueFrame(frame)
             }
@@ -271,6 +269,39 @@ public final class HiveRemoteTerminalSession {
             consecutiveFailures += 1
             await retryDelay(consecutiveFailures)
         }
+    }
+
+    private func subscribeToFrames() async throws -> AsyncStream<MobileTerminalRenderGridFrame> {
+        if let renderGridRouter {
+            return renderGridRouter.stream(for: terminalID)
+        }
+
+        let envelopes = await client.subscribe(to: ["terminal.render_grid"])
+        let subscribe = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: ["topics": ["terminal.render_grid"]]
+        )
+        _ = try await client.sendRequest(subscribe)
+
+        let (stream, continuation) = AsyncStream<MobileTerminalRenderGridFrame>.makeStream(
+            bufferingPolicy: .bufferingNewest(256)
+        )
+        let decoder = renderGridDecoder
+        let terminalID = self.terminalID
+        let task = Task {
+            for await envelope in envelopes {
+                guard !Task.isCancelled,
+                      let payload = envelope.payloadJSON else { continue }
+                let frame = await Task.detached(priority: .userInitiated) {
+                    decoder.decodeFrame(payload)
+                }.value
+                guard let frame, frame.surfaceID == terminalID else { continue }
+                continuation.yield(frame)
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
     }
 
     private func requestReplay() async throws {
@@ -339,12 +370,4 @@ public final class HiveRemoteTerminalSession {
         frameBytesHandler?(bytes)
     }
 
-    /// Decode one `terminal.render_grid` event payload: either the wrapped
-    /// `{"render_grid": …}` form or the bare frame.
-    private func decodeFrameOffMain(_ payload: Data) async -> MobileTerminalRenderGridFrame? {
-        let decoder = renderGridDecoder
-        return await Task.detached(priority: .userInitiated) {
-            decoder.decodeFrame(payload)
-        }.value
-    }
 }

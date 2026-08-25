@@ -14,6 +14,13 @@ import Foundation
 /// Pure value type: the reduction is synchronous and deterministic, so frame
 /// application is unit-testable without any transport or view.
 public nonisolated struct HiveTerminalGridModel: Equatable, Sendable {
+    /// Upper bounds applied before allocating the row snapshot. A terminal
+    /// viewport larger than this is malformed for a viewer and must not be
+    /// allowed to turn a tiny hostile frame into an unbounded allocation.
+    public static let maximumColumns = 4_096
+    public static let maximumRows = 16_384
+    public static let maximumCellCount = 4_000_000
+
     /// One styled run of text within a row.
     public struct Span: Equatable, Sendable {
         /// Zero-based start column.
@@ -82,6 +89,9 @@ public nonisolated struct HiveTerminalGridModel: Equatable, Sendable {
         _ frame: MobileTerminalRenderGridFrame,
         allowingFullReset: Bool = false
     ) -> Bool {
+        guard Self.hasSafeDimensions(columns: frame.columns, rows: frame.rows) else {
+            return false
+        }
         let stylesByID = Dictionary(
             frame.styles.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -154,5 +164,14 @@ public nonisolated struct HiveTerminalGridModel: Equatable, Sendable {
             rowSpans.append(contentsOf: Array(repeating: [], count: newRows - rows))
         }
         rows = newRows
+    }
+
+    private static func hasSafeDimensions(columns: Int, rows: Int) -> Bool {
+        guard columns > 0, rows > 0,
+              columns <= maximumColumns,
+              rows <= maximumRows else {
+            return false
+        }
+        return rows <= maximumCellCount / columns
     }
 }

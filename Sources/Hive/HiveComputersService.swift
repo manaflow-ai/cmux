@@ -84,13 +84,12 @@ final class HiveComputersService {
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
             },
-            // Only registry-backed rows have authenticated device provenance
-            // for the encrypted Tailscale trust mode. Manual/pasted links keep
-            // the safe loopback-only policy, so they can never receive a Stack
-            // bearer token over an arbitrary tailnet endpoint.
-            stackAuthChannelTrust: computer.isRegistryBacked
-                ? .loopbackAndTailscaleTunnel
-                : .loopbackOnly,
+            // A registry row is rendezvous metadata, not cryptographic proof
+            // that the listener at its advertised Tailscale endpoint is the
+            // named Mac. Keep the bearer on loopback until a pinned
+            // device/endpoint binding is available; `mobile.host.status` may
+            // still probe the endpoint, but it cannot disclose the token.
+            stackAuthChannelTrust: .loopbackOnly,
             expectedInstanceTag: best.instanceTag,
             requiresHostIdentity: computer.isRegistryBacked
         )
@@ -106,9 +105,14 @@ final class HiveComputersService {
     /// pairing record or auth is not configured.
     func embeddedSession(deviceID: String) async -> HiveRemoteMacSession? {
         if let existing = embeddedSessions[deviceID] {
-            if let computer = directory?.computers.first(where: { $0.deviceID == deviceID }),
-               let best = computer.bestPairingRoutes,
-               best.routes != existing.routes {
+            let computer = directory?.computers.first(where: { $0.deviceID == deviceID })
+            let best = computer?.bestPairingRoutes
+            let bindingChanged = computer == nil
+                || computer?.isPaired != true
+                || best?.routes != existing.routes
+                || best?.instanceTag != existing.expectedInstanceTag
+                || computer?.isRegistryBacked != existing.requiresHostIdentity
+            if bindingChanged {
                 embeddedSessions.removeValue(forKey: deviceID)
                 await existing.disconnect()
             } else {

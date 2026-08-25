@@ -24,9 +24,11 @@ final class HiveComputerMirrorController {
     private init() {}
 
     private final class DeviceMirror {
+        let deviceID: String
         var computerName: String = ""
         weak var tabManager: TabManager?
         var reconcileTask: Task<Void, Never>?
+        var routeTask: Task<Void, Never>?
         var windowCloseObserver: NSObjectProtocol?
         /// Local mirror workspace id per remote workspace id.
         var workspaceIdByRemoteID: [String: UUID] = [:]
@@ -37,9 +39,21 @@ final class HiveComputerMirrorController {
         /// Remote terminal ids per remote workspace id (repaint scoping and
         /// dead-terminal pruning).
         var terminalIDsByRemoteWorkspaceID: [String: [String]] = [:]
+
+        init(deviceID: String) {
+            self.deviceID = deviceID
+        }
     }
 
-    private var mirrorsByDeviceID: [String: DeviceMirror] = [:]
+    /// Mirror ownership is per computer *and* per main-window TabManager.
+    /// Two windows may scope to the same computer without stealing each
+    /// other's workspaces.
+    private struct MirrorKey: Hashable {
+        let deviceID: String
+        let tabManagerID: ObjectIdentifier
+    }
+
+    private var mirrorsByKey: [MirrorKey: DeviceMirror] = [:]
 
     /// Last remote grid dimensions applied to one mirror surface (closure
     /// state; a class so the frame handler can mutate its capture).
@@ -60,7 +74,7 @@ final class HiveComputerMirrorController {
     /// the selected workspace's terminals only (a device-wide repaint storms
     /// replays on every click).
     func workspaceSelected(_ workspaceId: UUID) {
-        for mirror in mirrorsByDeviceID.values {
+        for mirror in mirrorsByKey.values {
             guard let remoteWorkspaceID = mirror.workspaceIdByRemoteID
                 .first(where: { $0.value == workspaceId })?.key else { continue }
             let terminalIDs = mirror.terminalIDsByRemoteWorkspaceID[remoteWorkspaceID] ?? []
@@ -83,9 +97,9 @@ final class HiveComputerMirrorController {
     /// The device a mirror workspace belongs to, or `nil` for local
     /// workspaces. Drives the sidebar's computer scope filter.
     func deviceID(forWorkspace workspaceId: UUID) -> String? {
-        for (deviceID, mirror) in mirrorsByDeviceID
+        for mirror in mirrorsByKey.values
         where mirror.workspaceIdByRemoteID.values.contains(workspaceId) {
-            return deviceID
+            return mirror.deviceID
         }
         return nil
     }
@@ -148,25 +162,31 @@ final class HiveComputerMirrorController {
     /// host's live topology.
     @discardableResult
     func attach(deviceID: String, into tabManager: TabManager) async -> UUID? {
-        if let existing = mirrorsByDeviceID[deviceID] {
+        let key = MirrorKey(deviceID: deviceID, tabManagerID: ObjectIdentifier(tabManager))
+        if let existing = mirrorsByKey[key] {
             if let firstId = existing.workspaceIdByRemoteID.values.first,
                let workspace = tabManager.workspacesById[firstId] {
                 tabManager.selectWorkspace(workspace)
                 return firstId
             }
-            await teardownMirror(deviceID: deviceID, mirror: existing)
-            mirrorsByDeviceID.removeValue(forKey: deviceID)
+            mirrorsByKey.removeValue(forKey: key)
+            let shouldDiscard = !mirrorsByKey.keys.contains { $0.deviceID == deviceID }
+            await teardownMirror(
+                deviceID: deviceID,
+                mirror: existing,
+                discardEmbeddedSession: shouldDiscard
+            )
         }
         guard let session = await HiveComputersService.shared.embeddedSession(deviceID: deviceID) else {
             cmuxDebugLog("hive.mirror.attach.noSession device=\(deviceID.prefix(8))")
             return nil
         }
-        let mirror = DeviceMirror()
+        let mirror = DeviceMirror(deviceID: deviceID)
         mirror.tabManager = tabManager
         mirror.computerName = HiveComputersService.shared.directory?.computers
             .first(where: { $0.deviceID == deviceID })?.displayName
             ?? session.displayName
-        mirrorsByDeviceID[deviceID] = mirror
+        mirrorsByKey[key] = mirror
         if let window = tabManager.window {
             mirror.windowCloseObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
@@ -184,6 +204,42 @@ final class HiveComputerMirrorController {
             for await workspaces in session.workspaceUpdates() {
                 guard let self, let mirror else { return }
                 self.reconcile(remote: workspaces, mirror: mirror, session: session)
+            }
+        }
+        if let directory = HiveComputersService.shared.directory {
+            mirror.routeTask = Task { @MainActor [weak self, weak mirror, weak tabManager] in
+                for await computers in directory.updates() {
+                    guard let self, let mirror, let tabManager else { return }
+                    let key = MirrorKey(
+                        deviceID: deviceID,
+                        tabManagerID: ObjectIdentifier(tabManager)
+                    )
+                    guard self.mirrorsByKey[key] === mirror else { return }
+                    guard let computer = computers.first(where: { $0.deviceID == deviceID }) else {
+                        continue
+                    }
+                    guard computer.isPaired, let best = computer.bestPairingRoutes else {
+                        await self.detach(deviceID: deviceID, from: tabManager)
+                        return
+                    }
+                    guard best.routes != session.routes
+                        || best.instanceTag != session.expectedInstanceTag
+                        || computer.isRegistryBacked != session.requiresHostIdentity else {
+                        continue
+                    }
+                    // Ask the service to replace the immutable session before
+                    // rebuilding this window's mirrors on the fresh routes.
+                    _ = await HiveComputersService.shared.embeddedSession(deviceID: deviceID)
+                    guard self.mirrorsByKey[key] === mirror else { return }
+                    self.mirrorsByKey.removeValue(forKey: key)
+                    await self.teardownMirror(
+                        deviceID: deviceID,
+                        mirror: mirror,
+                        discardEmbeddedSession: false
+                    )
+                    _ = await self.attach(deviceID: deviceID, into: tabManager)
+                    return
+                }
             }
         }
 
@@ -208,29 +264,51 @@ final class HiveComputerMirrorController {
 
     /// Detaches a computer's mirrors: stops the streams and closes the
     /// mirror workspaces.
-    func detach(deviceID: String, from _: TabManager) async {
-        guard let mirror = mirrorsByDeviceID.removeValue(forKey: deviceID) else { return }
-        await teardownMirror(deviceID: deviceID, mirror: mirror)
+    func detach(deviceID: String, from tabManager: TabManager) async {
+        let key = MirrorKey(deviceID: deviceID, tabManagerID: ObjectIdentifier(tabManager))
+        guard let mirror = mirrorsByKey.removeValue(forKey: key) else { return }
+        let shouldDiscard = !mirrorsByKey.keys.contains { $0.deviceID == deviceID }
+        await teardownMirror(deviceID: deviceID, mirror: mirror, discardEmbeddedSession: shouldDiscard)
     }
 
     /// Tear down every embedded mirror, used when account auth ends.
     func detachAll() async {
-        let mirrors = mirrorsByDeviceID
-        mirrorsByDeviceID.removeAll()
-        for (deviceID, mirror) in mirrors {
-            await teardownMirror(deviceID: deviceID, mirror: mirror)
+        let mirrors = Array(mirrorsByKey.values)
+        mirrorsByKey.removeAll()
+        var deviceIDs = Set<String>()
+        for mirror in mirrors {
+            deviceIDs.insert(mirror.deviceID)
+            await teardownMirror(
+                deviceID: mirror.deviceID,
+                mirror: mirror,
+                discardEmbeddedSession: false
+            )
+        }
+        for deviceID in deviceIDs {
+            await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
         }
     }
 
     /// Tear down one device's mirror regardless of which window owns it.
     func detach(deviceID: String) async {
-        guard let mirror = mirrorsByDeviceID.removeValue(forKey: deviceID) else { return }
-        await teardownMirror(deviceID: deviceID, mirror: mirror)
+        let keys = mirrorsByKey.keys.filter { $0.deviceID == deviceID }
+        guard !keys.isEmpty else { return }
+        let mirrors = keys.compactMap { mirrorsByKey.removeValue(forKey: $0) }
+        for mirror in mirrors {
+            await teardownMirror(deviceID: deviceID, mirror: mirror, discardEmbeddedSession: false)
+        }
+        await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
     }
 
-    private func teardownMirror(deviceID: String, mirror: DeviceMirror) async {
+    private func teardownMirror(
+        deviceID: String,
+        mirror: DeviceMirror,
+        discardEmbeddedSession: Bool
+    ) async {
         mirror.reconcileTask?.cancel()
         mirror.reconcileTask = nil
+        mirror.routeTask?.cancel()
+        mirror.routeTask = nil
         if let observer = mirror.windowCloseObserver {
             NotificationCenter.default.removeObserver(observer)
             mirror.windowCloseObserver = nil
@@ -247,7 +325,9 @@ final class HiveComputerMirrorController {
         mirror.workspaceIdByRemoteID.removeAll()
         mirror.panelIdByRemoteTerminalID.removeAll()
         mirror.terminalIDsByRemoteWorkspaceID.removeAll()
-        await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
+        if discardEmbeddedSession {
+            await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
+        }
     }
 
     // MARK: - Reconcile
@@ -257,7 +337,7 @@ final class HiveComputerMirrorController {
         mirror: DeviceMirror,
         session: HiveRemoteMacSession
     ) {
-        guard let tabManager = mirror.tabManager, let client = session.client else { return }
+        guard let tabManager = mirror.tabManager, session.client != nil else { return }
 
         let remoteIDs = Set(workspaces.map(\.id))
         // Remove mirrors whose remote workspace vanished (closed on host, or
@@ -310,7 +390,7 @@ final class HiveComputerMirrorController {
                         workspace.updateRemoteTmuxTabTitle(panelId: panelID, title: terminal.title)
                     }
                 }
-                addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, client: client)
+                addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, session: session)
                 continue
             }
             let title = localizedWorkspaceTitle(
@@ -330,7 +410,7 @@ final class HiveComputerMirrorController {
             workspace.isRemoteTmuxMirror = true
             mirror.workspaceIdByRemoteID[remote.id] = workspace.id
             let defaultPanelIds = Array(workspace.panels.keys)
-            addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, client: client)
+            addMissingTerminals(remote: remote, workspace: workspace, mirror: mirror, session: session)
             for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
                 _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             }
@@ -347,18 +427,17 @@ final class HiveComputerMirrorController {
         remote: HiveRemoteWorkspace,
         workspace: Workspace,
         mirror: DeviceMirror,
-        client: MobileCoreRPCClient
+        session: HiveRemoteMacSession
     ) {
         for (index, terminal) in remote.terminals.enumerated()
         where mirror.terminalsByRemoteID[terminal.id] == nil {
-            let terminalSession = HiveRemoteTerminalSession(
-                client: client,
+            guard let terminalSession = session.makeTerminalSession(
                 workspaceID: remote.id,
                 terminalID: terminal.id,
                 retryDelay: { @Sendable attempt in
                     await HiveReconnectBackoff().delay(attempt: attempt)
                 }
-            )
+            ) else { continue }
             let panelBox = HiveMirrorPanelBox()
             guard let panel = workspace.addRemoteTmuxDisplayPane(
                 remotePaneId: index,

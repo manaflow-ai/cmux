@@ -19,9 +19,15 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
     /// terminal tab in the main window behind it.
     static let windowIdentifier = "cmux.hiveViewerWindow"
 
-    private struct OpenViewer {
+    private final class OpenViewer {
         let window: NSWindow
-        let session: HiveRemoteMacSession
+        var session: HiveRemoteMacSession
+        var routeTask: Task<Void, Never>?
+
+        init(window: NSWindow, session: HiveRemoteMacSession) {
+            self.window = window
+            self.session = session
+        }
     }
 
     private var viewersByDeviceID: [String: OpenViewer] = [:]
@@ -54,9 +60,9 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
             return
         }
         let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        let root = HiveViewerRootView(session: session)
-            .cmuxAppearanceColorScheme(appearanceMode)
-        let hostingController = NSHostingController(rootView: root)
+        let hostingController = NSHostingController(
+            rootView: makeRootView(session: session, appearanceMode: appearanceMode)
+        )
         let window = NSWindow(contentViewController: hostingController)
         window.title = session.displayName
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
@@ -66,14 +72,65 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
-        viewersByDeviceID[deviceID] = OpenViewer(window: window, session: session)
+        let entry = OpenViewer(window: window, session: session)
+        viewersByDeviceID[deviceID] = entry
+        entry.routeTask = watchRoutes(deviceID: deviceID, session: session, appearanceMode: appearanceMode)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeRootView(
+        session: HiveRemoteMacSession,
+        appearanceMode: String?
+    ) -> some View {
+        HiveViewerRootView(session: session)
+            .cmuxAppearanceColorScheme(appearanceMode)
+    }
+
+    private func watchRoutes(
+        deviceID: String,
+        session: HiveRemoteMacSession,
+        appearanceMode: String?
+    ) -> Task<Void, Never> {
+        guard let directory = HiveComputersService.shared.directory else {
+            return Task {}
+        }
+        return Task { @MainActor [weak self, weak session] in
+            for await computers in directory.updates() {
+                guard let self, let session,
+                      let entry = self.viewersByDeviceID[deviceID],
+                      entry.session === session else { return }
+                guard let computer = computers.first(where: { $0.deviceID == deviceID }),
+                      computer.isPaired,
+                      let best = computer.bestPairingRoutes else {
+                    continue
+                }
+                guard best.routes != session.routes
+                    || best.instanceTag != session.expectedInstanceTag
+                    || computer.isRegistryBacked != session.requiresHostIdentity else {
+                    continue
+                }
+                guard let replacement = await HiveComputersService.shared.makeViewerSession(deviceID: deviceID) else {
+                    continue
+                }
+                replacement.connect()
+                entry.session = replacement
+                entry.window.contentViewController = NSHostingController(
+                    rootView: self.makeRootView(
+                        session: replacement,
+                        appearanceMode: appearanceMode
+                    )
+                )
+                await session.disconnect()
+                return
+            }
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow,
               let entry = viewersByDeviceID.first(where: { $0.value.window === window }) else { return }
         viewersByDeviceID.removeValue(forKey: entry.key)
+        entry.value.routeTask?.cancel()
         let session = entry.value.session
         Task { @MainActor in
             await session.disconnect()
@@ -85,6 +142,7 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
         let entries = viewersByDeviceID
         viewersByDeviceID.removeAll()
         for entry in entries.values {
+            entry.routeTask?.cancel()
             entry.window.close()
             await entry.session.disconnect()
         }

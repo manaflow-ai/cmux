@@ -25,6 +25,15 @@ public struct HiveTailscaleByteTransportFactory: CmxByteTransportFactory {
     /// - Throws: `CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable`
     ///   when the route is not a tailnet-classified tailscale host.
     public func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport {
+        // A generic Stack-bearer request is never enough to authorize a raw
+        // Tailscale TCP channel. The viewer must gain an authenticated,
+        // cryptographically bound transport-admission mode before this factory
+        // can carry account credentials; until then fail closed.
+        guard request.authorizationMode == .transportAdmission else {
+            throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
+                request.authorizationMode
+            )
+        }
         try makeVerifiedTransport(route: request.route)
     }
 
