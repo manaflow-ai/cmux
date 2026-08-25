@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -132,5 +133,60 @@ import Testing
         let snapshot = reader.snapshot(repository: intendedRepository)
 
         #expect(snapshot.checkedOutBranch == .branch(intendedBranch))
+    }
+
+    @Test func plumbingFallsBackWhenTheFirstGitCannotReadReftable() throws {
+        let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)
+        let repositoryRoot = fixture.root.appendingPathComponent("repository", isDirectory: true)
+        let worktree = fixture.root.appendingPathComponent("worktree", isDirectory: true)
+        let branch = "feature/reftable-fallback"
+
+        try fixture.git([
+            "init", "--ref-format=reftable", "--initial-branch=main", repositoryRoot.path,
+        ])
+        try fixture.git([
+            "-C", repositoryRoot.path,
+            "-c", "user.name=cmux-tests",
+            "-c", "user.email=cmux-tests@example.invalid",
+            "commit", "--allow-empty", "-m", "baseline",
+        ])
+        try fixture.git([
+            "-C", repositoryRoot.path,
+            "worktree", "add", "-b", branch, worktree.path,
+        ])
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: worktree.path)
+        )
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURLs: [
+                URL(fileURLWithPath: "/usr/bin/false"),
+                fixture.gitExecutableURL,
+            ]
+        )
+        let snapshot = SystemGitReferenceReader(runner: runner).snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .branch(branch))
+    }
+
+    @Test func nonRegularReferenceStorageConfigIsRejectedBeforeRead() throws {
+        let fixture = try GitRepositoryFixture()
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        let fifoResult = configURL.path.withCString { path in
+            mkfifo(path, mode_t(0o600))
+        }
+        #expect(fifoResult == 0)
+        defer {
+            configURL.path.withCString { path in
+                _ = Darwin.unlink(path)
+            }
+        }
+
+        let result = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [:])
+        ).boundedReferenceStorageConfig(at: configURL)
+
+        #expect(result.contents == nil)
+        #expect(!result.isOversized)
     }
 }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
@@ -9,19 +10,26 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// The bounded process runner used only for non-files reference storage.
     private let runner: any WorkspaceChangesGitRunning
+    private let storageProbe: any GitReferenceStorageProbing
 
     /// Creates a production reader backed by the system Git executable.
     init(
-        boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
+        boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
+        storageProbe: (any GitReferenceStorageProbing)? = nil
     ) {
         runner = SystemWorkspaceChangesGitRunner(
             boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
         )
+        self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
     }
 
     /// Creates a reader with an injected runner for deterministic tests.
-    init(runner: any WorkspaceChangesGitRunning) {
+    init(
+        runner: any WorkspaceChangesGitRunning,
+        storageProbe: (any GitReferenceStorageProbing)? = nil
+    ) {
         self.runner = runner
+        self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
     }
 
     /// Resolves refs using direct files or Git plumbing according to storage.
@@ -35,11 +43,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Reports whether this repository needs storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
         let hasReftableDirectory = [repository.gitDirectory, repository.commonDirectory].contains { directory in
-            var isDirectory: ObjCBool = false
             let path = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true).path
-            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                && isDirectory.boolValue
+            return storageProbe.isDirectory(atPath: path)
         }
         if hasReftableDirectory {
             return true
@@ -53,7 +59,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         return GitReferenceSnapshot(
             checkedOutBranch: GitMetadataService.gitCheckedOutBranch(repository: repository),
             headSignature: headSignature,
-            currentCommit: Self.currentCommit(fromHeadSignature: headSignature)
+            currentCommit: currentCommit(fromHeadSignature: headSignature)
         )
     }
 
@@ -90,7 +96,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             arguments: ["rev-parse", "--verify", "HEAD^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount
-        ).flatMap(Self.normalizedObjectID)
+        ).flatMap { normalizedObjectID($0) }
 
         let checkedOutBranch: GitCheckedOutBranch
         if symbolicReference != nil || currentCommit != nil {
@@ -157,7 +163,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             ],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount
-        ).flatMap(Self.normalizedObjectID)
+        ).flatMap { normalizedObjectID($0) }
     }
 
     /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
@@ -224,26 +230,52 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     }
 
     /// Reads at most the configured backend-detection limit from one config.
-    private func boundedReferenceStorageConfig(
+    nonisolated func boundedReferenceStorageConfig(
         at configURL: URL
     ) -> (contents: String?, isOversized: Bool) {
-        guard let handle = try? FileHandle(forReadingFrom: configURL) else {
+        let descriptor = Darwin.open(
+            configURL.path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
             return (nil, false)
         }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(
-            upToCount: Self.maximumReferenceStorageConfigByteCount + 1
-        ) else {
+        defer { Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             return (nil, false)
         }
-        guard data.count <= Self.maximumReferenceStorageConfigByteCount else {
-            return (nil, true)
+
+        var data = Data()
+        let readChunkByteCount = 64 * 1_024
+        data.reserveCapacity(min(Self.maximumReferenceStorageConfigByteCount, readChunkByteCount))
+        var buffer = [UInt8](repeating: 0, count: readChunkByteCount)
+        while data.count <= Self.maximumReferenceStorageConfigByteCount {
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
+            }
+            if count > 0 {
+                data.append(contentsOf: buffer.prefix(count))
+                if data.count > Self.maximumReferenceStorageConfigByteCount {
+                    return (nil, true)
+                }
+                continue
+            }
+            if count == 0 {
+                break
+            }
+            if errno == EINTR {
+                continue
+            }
+            return (nil, false)
         }
         return (String(data: data, encoding: .utf8), false)
     }
 
     /// Accepts only complete SHA-1 or SHA-256 object IDs.
-    private static func normalizedObjectID(_ value: String) -> String? {
+    private func normalizedObjectID(_ value: String) -> String? {
         let normalized = value.lowercased()
         guard normalized.count == 40 || normalized.count == 64,
               normalized.allSatisfy(\.isHexDigit) else {
@@ -253,7 +285,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     }
 
     /// Extracts the resolved object ID from a file-backed head signature.
-    private static func currentCommit(fromHeadSignature signature: String?) -> String? {
+    private func currentCommit(fromHeadSignature signature: String?) -> String? {
         guard let signature else { return nil }
         let value = signature.split(
             separator: "\n",

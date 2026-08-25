@@ -6,11 +6,13 @@ extension GitMetadataService {
     /// not inside a repository.
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        referenceReader: (any GitReferenceReading)? = nil
     ) -> [String]? {
         workspaceGitMetadataWatchDescriptor(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            referenceReader: referenceReader
         )?.watchedPaths
     }
 
@@ -20,13 +22,17 @@ extension GitMetadataService {
     /// event source but impose a much longer throttle before bounded Git status.
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        referenceReader: (any GitReferenceReading)? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
 
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+            repository: repository,
+            referenceReader: referenceReader
+        )
             + gitlinkMetadataWatchPaths(
                 repository: repository,
                 safetyConfiguration: safetyConfiguration
@@ -110,8 +116,14 @@ extension GitMetadataService {
     /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`,
     /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        referenceReader: (any GitReferenceReading)? = nil
     ) -> [String] {
+        let branchContext: GitConfigBranchContext = if let referenceReader {
+            .resolved(referenceReader.snapshot(repository: repository).branchName)
+        } else {
+            .fileBacked
+        }
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
@@ -120,7 +132,7 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
-        ] + gitConfigURLs(repository: repository).map(\.path)
+        ] + gitConfigURLs(repository: repository, branchContext: branchContext).map(\.path)
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
@@ -199,7 +211,9 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
+                repository: submoduleRepository
+            ))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,

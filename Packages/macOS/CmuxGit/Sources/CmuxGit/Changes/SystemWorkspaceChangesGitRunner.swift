@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Runs `/usr/bin/git` with optional locking disabled and repository scope isolated.
+/// Runs bounded Git commands with repository scope isolated.
 struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     private static let readChunkByteCount = 64 * 1024
     /// Ambient variables that can redirect Git away from the requested directory.
@@ -16,23 +16,43 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         "GIT_WORK_TREE",
     ]
 
-    private let executableURL: URL
+    private let executableURLs: [URL]
     private let environment: [String: String]
     private let boundedCommandWallTimeLimit: TimeInterval
 
     init(
-        executableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
+        executableURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
-        self.executableURL = executableURL
+        self.executableURLs = executableURL.map { [$0] }
+            ?? SystemGitExecutableResolver(environment: environment).executableURLs()
+        self.environment = Self.scopedEnvironment(environment)
+        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
+    }
+
+    /// Creates a runner with an ordered executable list. The next candidate is
+    /// tried when an earlier Git exits non-zero, which lets an older system Git
+    /// yield to a package-manager Git that understands reftable.
+    init(
+        executableURLs: [URL],
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        boundedCommandWallTimeLimit: TimeInterval = 30
+    ) {
+        self.executableURLs = executableURLs.isEmpty
+            ? SystemGitExecutableResolver(environment: environment).executableURLs()
+            : executableURLs
+        self.environment = Self.scopedEnvironment(environment)
+        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
+    }
+
+    private static func scopedEnvironment(_ environment: [String: String]) -> [String: String] {
         var scopedEnvironment = environment
         for key in Self.repositorySelectionEnvironmentKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
-        self.environment = scopedEnvironment
-        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
+        return scopedEnvironment
     }
 
     func run(arguments: [String], in directory: URL) throws -> WorkspaceChangesGitResult {
@@ -54,7 +74,10 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         let result = try execute(
             arguments: arguments,
             directory: directory,
-            maximumOutputByteCount: limit
+            maximumOutputByteCount: limit,
+            prepareAttempt: {
+                output.removeAll(keepingCapacity: true)
+            }
         ) { chunk in
             output.append(chunk)
         }
@@ -79,7 +102,11 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         let result = try execute(
             arguments: arguments,
             directory: directory,
-            maximumOutputByteCount: max(0, maximumOutputByteCount)
+            maximumOutputByteCount: max(0, maximumOutputByteCount),
+            prepareAttempt: {
+                try destinationHandle.seek(toOffset: 0)
+                try destinationHandle.truncate(atOffset: 0)
+            }
         ) { chunk in
             try destinationHandle.write(contentsOf: chunk)
         }
@@ -94,37 +121,66 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         arguments: [String],
         directory: URL,
         maximumOutputByteCount: Int64,
+        prepareAttempt: () throws -> Void,
         consume: (Data) throws -> Void
     ) throws -> (exitCode: Int32, wasTruncated: Bool) {
-        let process = try WorkspaceChangesGitProcess.spawn(
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            directory: directory,
-            wallTimeLimit: boundedCommandWallTimeLimit
-        )
-        let readResult: WorkspaceChangesGitProcess.ReadResult
-        do {
-            readResult = try process.readOutput(
-                maximumByteCount: maximumOutputByteCount,
-                chunkByteCount: Self.readChunkByteCount,
-                consume: consume
-            )
-        } catch {
-            process.terminateForBoundedRead()
-            _ = process.finish()
-            throw error
+        let deadline = DispatchTime.now() + boundedCommandWallTimeLimit
+        var lastResult: (exitCode: Int32, wasTruncated: Bool)?
+        var lastError: Error?
+
+        for executableURL in executableURLs {
+            guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else { break }
+            let now = DispatchTime.now()
+            guard now < deadline || lastResult == nil else { break }
+            let remainingNanoseconds = deadline > now
+                ? deadline.uptimeNanoseconds - now.uptimeNanoseconds
+                : 0
+            let remainingSeconds = Double(remainingNanoseconds) / 1_000_000_000
+
+            do {
+                try prepareAttempt()
+                let process = try WorkspaceChangesGitProcess.spawn(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    directory: directory,
+                    wallTimeLimit: remainingSeconds
+                )
+                let readResult: WorkspaceChangesGitProcess.ReadResult
+                do {
+                    readResult = try process.readOutput(
+                        maximumByteCount: maximumOutputByteCount,
+                        chunkByteCount: Self.readChunkByteCount,
+                        consume: consume
+                    )
+                } catch {
+                    process.terminateForBoundedRead()
+                    _ = process.finish()
+                    throw error
+                }
+                if readResult.wasTruncated || WorkspaceChangesCancellationSignal.isCurrentCancelled {
+                    process.terminateForBoundedRead()
+                }
+                let exit = process.finish()
+                let result = (
+                    exitCode: exit.exitCode,
+                    wasTruncated: readResult.wasTruncated
+                        || WorkspaceChangesCancellationSignal.isCurrentCancelled
+                        || exit.timedOut
+                        || exit.wasSignaled
+                )
+                lastResult = result
+                // A bounded read or cancellation is final. For a non-zero,
+                // non-truncated Git exit, try the next executable candidate.
+                if result.wasTruncated || result.exitCode == 0 {
+                    return result
+                }
+            } catch {
+                lastError = error
+            }
         }
-        if readResult.wasTruncated || WorkspaceChangesCancellationSignal.isCurrentCancelled {
-            process.terminateForBoundedRead()
-        }
-        let exit = process.finish()
-        return (
-            exitCode: exit.exitCode,
-            wasTruncated: readResult.wasTruncated
-                || WorkspaceChangesCancellationSignal.isCurrentCancelled
-                || exit.timedOut
-                || exit.wasSignaled
-        )
+
+        if let lastResult { return lastResult }
+        throw lastError ?? POSIXError(.ENOENT)
     }
 }

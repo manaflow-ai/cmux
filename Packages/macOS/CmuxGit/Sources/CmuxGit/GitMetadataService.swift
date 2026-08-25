@@ -167,7 +167,8 @@ public struct GitMetadataService: Sendable {
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
         Self.workspaceGitMetadataWatchedPaths(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            referenceReader: referenceReader
         )
     }
 
@@ -179,23 +180,28 @@ public struct GitMetadataService: Sendable {
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
         Self.workspaceGitMetadataWatchDescriptor(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            referenceReader: referenceReader
         )
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the
     /// repository enclosing `directory`.
     ///
-    /// Reads remote URLs straight from `config` (no `git` process), following
-    /// `include`/`includeIf`, and orders the result `upstream`, then `origin`,
-    /// then the rest, de-duplicated.
+    /// Reads remote URLs straight from `config`, following `include`/`includeIf`
+    /// with the same resolved branch context as Git. Orders the result
+    /// `upstream`, then `origin`, then the rest, de-duplicated.
     ///
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
+    @concurrent
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
-              let output = Self.gitRemoteVOutput(repository: repository) else {
+              let output = Self.gitRemoteVOutput(
+                  repository: repository,
+                  branchContext: .resolved(referenceReader.snapshot(repository: repository).branchName)
+              ) else {
             return []
         }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)

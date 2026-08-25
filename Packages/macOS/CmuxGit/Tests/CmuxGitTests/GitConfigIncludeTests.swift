@@ -2,6 +2,18 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
+private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
+    let branchName: String?
+
+    func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
+        GitReferenceSnapshot(
+            checkedOutBranch: branchName.map { GitCheckedOutBranch.branch($0) } ?? .detached,
+            headSignature: branchName,
+            currentCommit: nil
+        )
+    }
+}
+
 /// Migrated from the app target's `TabManagerPullRequestProbeTests` when the
 /// git/PR subsystem moved into `CmuxGit`. Exercises remote-slug derivation
 /// straight from `config`, including the `include`/`includeIf` rules.
@@ -87,6 +99,67 @@ import Testing
         """.write(to: fixture.gitDirectory.appendingPathComponent("conditional-remotes.inc"), atomically: true, encoding: .utf8)
 
         #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux", "austinwang/cmux"])
+    }
+
+    @Test func onBranchIncludesUseResolvedReferenceContext() throws {
+        let fixture = try GitRepositoryFixture()
+        try "ref: refs/heads/.invalid\n".write(
+            to: fixture.gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try fixture.writeConfig("""
+        [includeIf "onbranch:feature/**"]
+            path = branch-remotes.inc
+        """)
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("branch-remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let output = GitMetadataService.gitRemoteVOutput(
+            repository: repository,
+            branchContext: .resolved("feature/reftable-sidebar")
+        )
+
+        #expect(
+            GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output ?? "")
+                == ["manaflow-ai/cmux"]
+        )
+    }
+
+    @Test func metadataServiceThreadsResolvedBranchIntoConfigTraversal() async throws {
+        let fixture = try GitRepositoryFixture()
+        try "ref: refs/heads/.invalid\n".write(
+            to: fixture.gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try fixture.writeConfig("""
+        [includeIf "onbranch:feature/**"]
+            path = branch-remotes.inc
+        """)
+        let includedURL = fixture.gitDirectory.appendingPathComponent("branch-remotes.inc")
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            referenceReader: FixedGitReferenceReader(branchName: "feature/reftable-sidebar")
+        )
+        #expect(await service.repositorySlugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
+
+        let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
+        #expect(descriptor.watchedPaths.contains(includedURL.standardizedFileURL.path))
     }
 
     @Test func appliesIncludesInPlace() throws {

@@ -2,15 +2,20 @@ import Foundation
 
 extension GitMetadataService {
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
-    /// straight from the reachable config files (no `git` process). `nil` when
-    /// no remote URL is found.
-    nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+    /// straight from the reachable config files. `nil` when no remote URL is
+    /// found. A resolved branch context may have been obtained through Git
+    /// plumbing before the config files are traversed.
+    nonisolated static func gitRemoteVOutput(
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext = .fileBacked
+    ) -> String? {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         for configURL in gitRootConfigURLs(repository: repository) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
+                branchContext: branchContext,
                 seenConfigPaths: &seenConfigPaths,
                 lines: &lines
             )
@@ -29,7 +34,10 @@ extension GitMetadataService {
 
     /// Every config file reachable from the repository roots, following
     /// `include`/`includeIf` directives, de-duplicated by path.
-    nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+    nonisolated static func gitConfigURLs(
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext = .fileBacked
+    ) -> [URL] {
         var urls: [URL] = []
         var pendingURLs = gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
@@ -46,7 +54,8 @@ extension GitMetadataService {
                 contentsOf: gitIncludedConfigURLs(
                     fromConfig: config,
                     configURL: configURL,
-                    repository: repository
+                    repository: repository,
+                    branchContext: branchContext
                 )
             )
         }
@@ -91,6 +100,7 @@ extension GitMetadataService {
     nonisolated static func appendGitRemoteVLines(
         fromConfigURL configURL: URL,
         repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext,
         seenConfigPaths: inout Set<String>,
         lines: inout [String]
     ) {
@@ -114,7 +124,8 @@ extension GitMetadataService {
                     currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
                         condition,
                         repository: repository,
-                        configURL: configURL
+                        configURL: configURL,
+                        branchContext: branchContext
                     )
                 } else {
                     currentSectionAllowsIncludePath = false
@@ -149,6 +160,7 @@ extension GitMetadataService {
             appendGitRemoteVLines(
                 fromConfigURL: includeURL,
                 repository: repository,
+                branchContext: branchContext,
                 seenConfigPaths: &seenConfigPaths,
                 lines: &lines
             )
@@ -160,7 +172,8 @@ extension GitMetadataService {
     nonisolated static func gitIncludedConfigURLs(
         fromConfig config: String,
         configURL: URL,
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext = .fileBacked
     ) -> [URL] {
         var currentSectionAllowsPath = false
         var urls: [URL] = []
@@ -175,7 +188,8 @@ extension GitMetadataService {
                     currentSectionAllowsPath = gitConfigIncludeIfConditionMatches(
                         condition,
                         repository: repository,
-                        configURL: configURL
+                        configURL: configURL,
+                        branchContext: branchContext
                     )
                 } else {
                     currentSectionAllowsPath = false
@@ -339,7 +353,8 @@ extension GitMetadataService {
     nonisolated static func gitConfigIncludeIfConditionMatches(
         _ condition: String,
         repository: ResolvedGitRepository,
-        configURL: URL
+        configURL: URL,
+        branchContext: GitConfigBranchContext = .fileBacked
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
         if lowercasedCondition.hasPrefix("gitdir/i:") {
@@ -361,7 +376,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = gitBranchName(repository: repository) else { return false }
+            guard let branch = branchContext.branchName(for: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false

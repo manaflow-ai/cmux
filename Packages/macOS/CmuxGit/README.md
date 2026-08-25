@@ -2,9 +2,9 @@
 
 Reads a directory's Git metadata and workspace changes. Sidebar metadata parses
 file-backed refs directly and uses bounded Git plumbing for other reference
-backends such as reftable. Workspace changes use non-locking
-`/usr/bin/git` commands so committed, staged, unstaged, untracked, rename, and
-binary semantics match Git itself.
+backends such as reftable. Workspace changes use non-locking, bounded Git
+commands so committed, staged, unstaged, untracked, rename, and binary
+semantics match Git itself.
 
 It is a Layer-2 service package: `Sendable` value facades over filesystem and
 process boundaries, with actor isolation only for bounded caches. Its reads are
