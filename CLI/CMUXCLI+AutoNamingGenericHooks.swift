@@ -58,13 +58,10 @@ extension CMUXCLI {
         )
         if max(0, session.autoNameTitleReconciliationAttemptCount ?? 0)
                 >= ClaudeHookSessionStore.maxAutoNameTitleReconciliationAttempts {
-            let exhaustedEpoch = session.autoNameTitleReconciliationEpochLineCount
-                ?? observedProgress
-            // Keep an exhausted compact epoch quiet while its transcript stays
-            // at the same progress marker. Any later progress starts a new
-            // epoch; the detached pass clears the old budget on its ordinary
-            // (non-reseed) begin path.
-            return currentProgress != exhaustedEpoch
+            // Generic agents have no explicit compact lifecycle event from
+            // which to identify a new epoch. Keep the terminal bound quiet;
+            // Claude's explicit compact hook can mint a fresh generation.
+            return false
         }
         return currentProgress != observedProgress
     }
@@ -349,6 +346,7 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             expectedWorkspaceTitle: title,
             expectedPanelTitle: title,
+            reconciliationCAS: true,
             clearStatusOnApply: false,
             client: client,
             telemetryKey: telemetryKey,
@@ -408,6 +406,7 @@ extension CMUXCLI {
                         surfaceId: surfaceId,
                         expectedWorkspaceTitle: lastTitle,
                         expectedPanelTitle: lastTitle,
+                        reconciliationCAS: true,
                         clearStatusOnApply: false,
                         client: client,
                         telemetryKey: "\(telemetryKey).reconcile",

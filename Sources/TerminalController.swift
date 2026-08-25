@@ -4158,6 +4158,7 @@ class TerminalController {
         let hasExpectedWorkspaceTitle = params.keys.contains("expected_workspace_title")
         let expectedPanelTitleRaw = v2String(params, "expected_panel_title")
         let hasExpectedPanelTitle = params.keys.contains("expected_panel_title")
+        let reconciliationCAS = v2Bool(params, "reconciliation_cas") ?? false
         guard let titleRaw = v2String(params, "title"),
               !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !hasExpectedWorkspaceTitle
@@ -4204,6 +4205,13 @@ class TerminalController {
                       !(panelOnlyIfMultiple && workspace.panels.count < 2) else {
                     return false
                 }
+                if let expectedPanelTitle,
+                   workspace.panelTitle(panelId: resolvedPanelId) != expectedPanelTitle {
+                    // A remote window rename is authoritative for the whole
+                    // mirror. Block the workspace transaction too, so a stale
+                    // panel replay cannot emit `rename-session`.
+                    return true
+                }
                 guard workspace.panelCustomTitleSources[resolvedPanelId] == .auto else {
                     return true
                 }
@@ -4224,7 +4232,10 @@ class TerminalController {
             }()
             if workspace.effectiveCustomTitleSource == .user ||
                (expectedWorkspaceTitle != nil &&
-                workspace.title != expectedWorkspaceTitle) ||
+                (reconciliationCAS
+                    ? (workspace.effectiveCustomTitleSource != .auto
+                        || workspace.customTitle != expectedWorkspaceTitle)
+                    : workspace.title != expectedWorkspaceTitle)) ||
                remotePanelOwnershipBlocked {
                 // Manual ownership, a newer sibling-session auto-title, or an
                 // authoritative remote panel wins. Reconciliation may still
@@ -4239,6 +4250,11 @@ class TerminalController {
             }
             if let resolvedPanelId {
                 if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if reconciliationCAS,
+                          let expectedPanelTitle,
+                          (workspace.panelCustomTitleSources[resolvedPanelId] != .auto
+                            || workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle) {
                     panelApplySkipped = true
                 } else if let expectedPanelTitle,
                           workspace.panelTitle(panelId: resolvedPanelId) != expectedPanelTitle {

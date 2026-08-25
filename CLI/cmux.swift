@@ -429,19 +429,15 @@ final class ClaudeHookSessionStore {
                record.autoNameTitleReconciliationGeneration == nil,
                max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
                     >= Self.maxAutoNameTitleReconciliationAttempts {
-                let newEpoch = record.autoNameTitleReconciliationEpochLineCount.map {
-                    $0 != transcriptLineCount
-                } ?? false
-                if !newEpoch {
-                    return AutoNamingBeginOutcome(
-                        decision: decision,
-                        lastTitle: snapshot.lastTitle,
-                        observationGeneration: nil,
-                        reconciliationExhausted: true
-                    )
-                }
-                record.autoNameTitleReconciliationAttemptCount = nil
-                record.autoNameTitleReconciliationEpochLineCount = nil
+                // Ordinary shrink reconciliation has no explicit lifecycle
+                // event that can identify a new epoch. Keep the terminal bound
+                // until a fresh compact hook mints a new generation.
+                return AutoNamingBeginOutcome(
+                    decision: decision,
+                    lastTitle: snapshot.lastTitle,
+                    observationGeneration: nil,
+                    reconciliationExhausted: true
+                )
             }
             if isTranscriptReconciliation,
                record.autoNameTitleReconciliationEpochLineCount == nil {
