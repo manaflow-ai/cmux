@@ -16,6 +16,20 @@ cargo run -p cmux-tui -- --session agents
 
 The default session is `main`. Quitting a local TUI shuts down that in-process session and removes its socket.
 
+Use one command for the common interactive case. The owner lifecycle stays
+explicit when you split it across terminals:
+
+| Command | Behavior |
+| --- | --- |
+| `cmux` | Create or attach the interactive default `main` session. |
+| `cmux --session NAME` | Create or attach the named interactive session. |
+| `cmux server start --session NAME` | Start a headless owner only. |
+| `cmux attach --session NAME` | Attach an existing owner; it does not create one. |
+
+This differs from tmux or Zellij attach-or-create shortcuts by keeping server
+ownership and stop behavior explicit. Use the first two forms unless another
+terminal must own the server lifecycle.
+
 Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
