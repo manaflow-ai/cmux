@@ -70,31 +70,20 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let previousOrder = model.tabs.map(\.id)
 
         if !model.workspaceGroups.isEmpty {
-            guard let topLevelId = model.topLevelWorkspaceIds(for: [tab]).first else { return }
-            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
-            guard !pinnedTopLevelIds.contains(topLevelId) else { return }
             model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [tabId])
-            var desiredTopLevelIds = model.sidebarTopLevelWorkspaceIds()
-            guard let fromIndex = desiredTopLevelIds.firstIndex(of: topLevelId) else { return }
-            let pinnedCount = desiredTopLevelIds.reduce(into: 0) { count, id in
-                if pinnedTopLevelIds.contains(id) {
-                    count += 1
-                }
-            }
-            if fromIndex != pinnedCount {
-                let movedId = desiredTopLevelIds.remove(at: fromIndex)
-                desiredTopLevelIds.insert(movedId, at: min(pinnedCount, desiredTopLevelIds.count))
-            }
+            guard let desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsAfterNotificationMove(
+                for: tabId
+            ) else { return }
             model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
             model.syncWorkspaceGroupsOrderToAnchorOrder()
         } else {
-            guard let index = model.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-            let pinnedCount = model.tabs.filter { $0.isPinned }.count
-            guard index != pinnedCount else { return }
-            let tab = model.tabs[index]
-            guard !tab.isPinned else { return }
+            guard let desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsAfterNotificationMove(
+                for: tabId
+            ),
+            let destinationIndex = desiredTopLevelIds.firstIndex(of: tabId),
+            let index = model.tabs.firstIndex(where: { $0.id == tabId }) else { return }
             model.tabs.remove(at: index)
-            model.tabs.insert(tab, at: pinnedCount)
+            model.tabs.insert(tab, at: destinationIndex)
         }
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])

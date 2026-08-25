@@ -143,6 +143,14 @@ extension VerticalTabsSidebar {
                     groupId: groupId
                 )
             },
+            onInsertDividerAbove: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
+            },
+            onInsertDividerBelow: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
+            },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
                 presentSidebarWorkspaceGroupRenamePrompt(
@@ -443,6 +451,14 @@ extension VerticalTabsSidebar {
                     tabManager: tabManager,
                     groupId: groupId
                 )
+            },
+            onInsertDividerAbove: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
+            },
+            onInsertDividerBelow: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
             },
             onRename: { [weak tabManager, groupId = snapshot.groupId, currentName = snapshot.name] in
                 guard let tabManager else { return }

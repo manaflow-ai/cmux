@@ -13,6 +13,7 @@ import Foundation
 enum SidebarWorkspaceRenderItem {
     case groupHeader(groupId: UUID, anchorWorkspaceId: UUID)
     case workspace(workspaceId: UUID)
+    case divider(divider: WorkspaceSidebarDivider)
 
     var id: SidebarWorkspaceRenderItemID {
         switch self {
@@ -20,6 +21,8 @@ enum SidebarWorkspaceRenderItem {
             return .group(groupId)
         case .workspace(let workspaceId):
             return .workspace(workspaceId)
+        case .divider(let divider):
+            return .divider(divider.id)
         }
     }
 
@@ -29,16 +32,24 @@ enum SidebarWorkspaceRenderItem {
             return anchorWorkspaceId
         case .workspace(let workspaceId):
             return workspaceId
+        case .divider(let divider):
+            return divider.id
         }
     }
 
     static func renderItems(
         tabs: [Workspace],
-        groupsById: [UUID: WorkspaceGroup]
+        groupsById: [UUID: WorkspaceGroup],
+        dividers: [WorkspaceSidebarDivider] = []
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty else { return [] }
         var items: [SidebarWorkspaceRenderItem] = []
-        items.reserveCapacity(tabs.count + groupsById.count)
+        items.reserveCapacity(tabs.count + groupsById.count + dividers.count)
+        // Preserve the established tab-order projection (including the
+        // defensive behavior for legacy non-contiguous group runs), then add
+        // dividers at the end of each top-level block. Rebuilding groups from
+        // a dictionary would silently move a split legacy run ahead of an
+        // intervening ungrouped workspace.
         var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
         var collapsedByGroupId: [UUID: Bool] = [:]
@@ -62,7 +73,8 @@ enum SidebarWorkspaceRenderItem {
                     skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
                 }
             }
-            // Anchor workspaces are represented exclusively by the group header.
+            // Anchor workspaces are represented exclusively by the group
+            // header. Ordinary rows remain in their established tab order.
             if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
                 continue
             }
@@ -70,7 +82,44 @@ enum SidebarWorkspaceRenderItem {
                 items.append(.workspace(workspaceId: tab.id))
             }
         }
-        return items
+
+        guard !dividers.isEmpty else { return items }
+        let dividerByAnchor = Dictionary(
+            dividers.map { ($0.afterWorkspaceId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let topLevelIdByRenderIndex = items.map { item -> UUID in
+            switch item {
+            case .groupHeader(_, let anchorWorkspaceId):
+                return anchorWorkspaceId
+            case .workspace(let workspaceId):
+                if let tab = tabs.first(where: { $0.id == workspaceId }),
+                   let groupId = tab.groupId,
+                   let group = groupsById[groupId] {
+                    return group.anchorWorkspaceId
+                }
+                return workspaceId
+            case .divider(let divider):
+                // No divider exists in `items` yet; retain a total switch for
+                // future callers that may pass an already-projected list.
+                return divider.id
+            }
+        }
+        var lastIndexByTopLevelId: [UUID: Int] = [:]
+        for (index, topLevelId) in topLevelIdByRenderIndex.enumerated() {
+            lastIndexByTopLevelId[topLevelId] = index
+        }
+        var projected: [SidebarWorkspaceRenderItem] = []
+        projected.reserveCapacity(items.count + dividers.count)
+        for (index, item) in items.enumerated() {
+            projected.append(item)
+            let topLevelId = topLevelIdByRenderIndex[index]
+            if lastIndexByTopLevelId[topLevelId] == index,
+               let divider = dividerByAnchor[topLevelId] {
+                projected.append(.divider(divider: divider))
+            }
+        }
+        return projected
     }
 
     /// Workspace ids represented by ordinary rows, in their rendered order.

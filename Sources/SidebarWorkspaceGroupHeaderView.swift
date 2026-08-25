@@ -80,6 +80,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
+    let onInsertDividerAbove: () -> Void
+    let onInsertDividerBelow: () -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void
@@ -334,6 +336,20 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 contextMenuVisible = false
                 onContextMenuDisappear()
             }
+            Button(
+                String(
+                    localized: "sidebar.divider.insertAbove",
+                    defaultValue: "Insert Divider Above"
+                ),
+                action: onInsertDividerAbove
+            )
+            Button(
+                String(
+                    localized: "sidebar.divider.insertBelow",
+                    defaultValue: "Insert Divider Below"
+                ),
+                action: onInsertDividerBelow
+            )
             Divider()
             Button(
                 String(

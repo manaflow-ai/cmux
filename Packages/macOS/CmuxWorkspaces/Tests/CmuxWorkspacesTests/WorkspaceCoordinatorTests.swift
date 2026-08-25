@@ -138,6 +138,22 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func notificationBumpTreatsSidebarDividerAsSegmentBarrier() {
+        let (model, _, _, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let bumped = CoordinatorStubTab()
+        let destination = CoordinatorStubTab()
+        model.tabs = [first, second, bumped, destination]
+        _ = model.insertSidebarDivider(after: second.id)
+
+        reorder.moveTabToTopForNotification(destination.id)
+
+        #expect(model.tabs.map(\.id) == [first.id, second.id, destination.id, bumped.id])
+        #expect(model.sidebarDivider(after: second.id) != nil)
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host

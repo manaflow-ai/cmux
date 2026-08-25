@@ -658,6 +658,15 @@ private extension View {
                     _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
                 }
             }
+            Divider()
+            Button(
+                String(
+                    localized: "sidebar.divider.add",
+                    defaultValue: "Add Divider"
+                )
+            ) {
+                _ = tabManager.workspaces.insertSidebarDividerAtEnd()
+            }
         }
     }
 }

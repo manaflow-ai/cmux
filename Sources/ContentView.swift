@@ -11238,10 +11238,12 @@ struct VerticalTabsSidebar: View, Equatable {
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
+        let sidebarDividers: [WorkspaceSidebarDivider]
         let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let visibleSidebarRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11331,6 +11333,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let sidebarDividers = isPresented ? tabManager.sidebarDividers : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -11338,12 +11341,21 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            groupsById: workspaceGroupById,
+            dividers: sidebarDividers
         )
         let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
             from: workspaceRenderItems
         )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let visibleWorkspaceRowIds = workspaceRenderItems.compactMap { item in
+            switch item {
+            case .groupHeader(_, _), .workspace(_):
+                return item.rowWorkspaceId
+            case .divider:
+                return nil
+            }
+        }
+        let visibleSidebarRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
@@ -11389,10 +11401,12 @@ struct VerticalTabsSidebar: View, Equatable {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
+            sidebarDividers: sidebarDividers,
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            visibleSidebarRowIds: visibleSidebarRowIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -11811,7 +11825,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
-            workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
+            workspaceIds: isPresented ? renderContext.visibleSidebarRowIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
@@ -11968,6 +11982,11 @@ struct VerticalTabsSidebar: View, Equatable {
                     listSnapshot: listSnapshot,
                     renderContext: renderContext
                 )
+            case .divider(let divider):
+                return sidebarDividerTableConfiguration(
+                    divider: divider,
+                    renderContext: renderContext
+                )
             }
         }
     }
@@ -12003,6 +12022,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             createEmptyWorkspaceGroup: {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            },
+            createDivider: {
+                _ = tabManager.workspaces.insertSidebarDividerAtEnd()
             },
             beginWorkspaceDrag: { workspaceId in
                 dragState.beginDragging(tabId: workspaceId)
@@ -13642,6 +13664,11 @@ struct VerticalTabsSidebar: View, Equatable {
                             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                         )
                     }
+                case .divider(let divider):
+                    sidebarDividerRow(
+                        divider: divider,
+                        renderContext: renderContext
+                    )
                 }
             }
         }
@@ -13682,9 +13709,8 @@ struct VerticalTabsSidebar: View, Equatable {
                                 )
                             },
                             reorderTargetBridge: workspaceReorderDropTargetBridge,
-                            reorderTargets: renderContext.visibleWorkspaceRowIds.compactMap { workspaceId in
-                                guard let anchor = anchors[workspaceId],
-                                      renderContext.workspaceById[workspaceId] != nil else {
+                            reorderTargets: renderContext.visibleSidebarRowIds.compactMap { workspaceId in
+                                guard let anchor = anchors[workspaceId] else {
                                     return nil
                                 }
                                 let group = workspaceGroupsByAnchor[workspaceId]
@@ -13796,7 +13822,8 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
             return false
         }
-        if tabManager.tabs.contains(where: { $0.id == dragId }) {
+        if tabManager.tabs.contains(where: { $0.id == dragId })
+            || tabManager.sidebarDividers.contains(where: { $0.id == dragId }) {
             // Local drag whose state was cleared while the native session
             // kept running: the still-delivering drop callbacks prove the
             // drag is alive, so re-arm instead of rejecting every update
@@ -13819,6 +13846,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         let isSourceGroupAnchor = sourceManager.workspaceGroups.contains {
             $0.anchorWorkspaceId == dragId
+        }
+        guard !sourceManager.sidebarDividers.contains(where: { $0.id == dragId }) else {
+            return false
         }
         guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
             isLocalWorkspace: false,
@@ -13904,6 +13934,16 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceReorderDropPlan? {
         guard let draggedTabId = dragState.draggedTabId else { return nil }
+        if renderContext.sidebarDividers.contains(where: { $0.id == draggedTabId }) {
+            return sidebarDividerReorderDropPlan(
+                point: point,
+                targets: targets,
+                dividerId: draggedTabId,
+                renderContext: renderContext
+            )
+        }
+        let dividerIds = Set(renderContext.sidebarDividers.map(\.id))
+        let workspaceTargets = targets.filter { !dividerIds.contains($0.workspaceId) }
         let draggedBlockIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
             orderedWorkspaceIds: renderContext.tabs.map(\.id),
             selectedIds: selectedTabIds,
@@ -13929,7 +13969,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         isPinned: $0.isPinned
                     )
                 },
-                targets: targets.map {
+                targets: workspaceTargets.map {
                     SidebarWorkspaceReorderDropTarget(
                         workspaceId: $0.workspaceId,
                         groupId: $0.groupId,
@@ -13982,6 +14022,11 @@ struct VerticalTabsSidebar: View, Equatable {
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
             return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
+        case .moveDivider(afterWorkspaceId: let afterWorkspaceId):
+            return performSidebarDividerReorder(
+                dividerId: plan.draggedWorkspaceId,
+                afterWorkspaceId: afterWorkspaceId
+            )
         }
     }
 
@@ -14590,6 +14635,20 @@ struct VerticalTabsSidebar: View, Equatable {
             createGroup: { workspaceIds in
                 guard !workspaceIds.isEmpty else { return }
                 tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
+            },
+            insertDividerAbove: { workspaceIds in
+                guard workspaceIds.count == 1,
+                      let topLevelId = workspaceIds.first.flatMap({
+                          tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
+                      }) else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(before: topLevelId)
+            },
+            insertDividerBelow: { workspaceIds in
+                guard workspaceIds.count == 1,
+                      let topLevelId = workspaceIds.first.flatMap({
+                          tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0)
+                      }) else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(after: topLevelId)
             },
             addTargetsToGroup: { workspaceIds, groupId in
                 for workspaceId in workspaceIds {

@@ -28,10 +28,18 @@ public protocol WorkspacesHosting<Tab>: AnyObject {
     /// The `workspaceGroups` array is about to change (legacy `@Published
     /// workspaceGroups` willSet).
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup])
+    /// The persistent sidebar divider list is about to change.
+    func workspaceSidebarDividersWillChange(to newValue: [WorkspaceSidebarDivider])
     /// The selected workspace id is about to change (legacy `@Published
     /// selectedTabId` willSet; the host's DEBUG switch tracing lives here).
     func selectedWorkspaceIdWillChange(to newValue: UUID?)
     /// The selected workspace id changed (legacy `@Published selectedTabId`
     /// didSet; the host runs the legacy selection side effects).
     func selectedWorkspaceIdDidChange(from oldValue: UUID?)
+}
+
+public extension WorkspacesHosting {
+    /// Divider observation was added after the original workspace/group seam;
+    /// a default keeps lightweight test hosts source-compatible.
+    func workspaceSidebarDividersWillChange(to newValue: [WorkspaceSidebarDivider]) {}
 }

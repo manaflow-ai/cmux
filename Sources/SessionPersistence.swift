@@ -1881,6 +1881,16 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var iconSymbol: String? = nil
 }
 
+/// Persisted placement for one lightweight sidebar divider.
+///
+/// The anchor is an original workspace id; restore remaps it alongside the
+/// workspace snapshots so UUID rotation during collision recovery does not
+/// turn a divider into a stale leading/trailing row.
+struct SessionWorkspaceSidebarDividerSnapshot: Codable, Sendable, Equatable {
+    var id: UUID
+    var afterWorkspaceId: UUID
+}
+
 extension SessionWorkspaceSnapshot {
     var hasRestorablePanels: Bool {
         !panels.isEmpty || dock != nil
@@ -1897,6 +1907,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    var sidebarDividers: [SessionWorkspaceSidebarDividerSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

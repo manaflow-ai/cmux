@@ -17,6 +17,7 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// The window's workspaces in sidebar order.
     public var tabs: [Tab] = [] {
         willSet { host?.workspaceTabsWillChange(to: newValue) }
+        didSet { normalizeSidebarDividers() }
     }
 
     /// Named groupings of workspaces shown as collapsible sections in the
@@ -29,6 +30,22 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
                 uniquingKeysWith: { first, _ in first }
             )
             host?.workspaceGroupsWillChange(to: newValue)
+        }
+        didSet {
+            remapSidebarDividersForGroupAnchorChanges(from: oldValue)
+            normalizeSidebarDividers()
+        }
+    }
+
+    /// Persistent lightweight separators between top-level sidebar rows.
+    /// Leading, trailing, and duplicate placements are normalized by the
+    /// divider extension after every assignment.
+    public var sidebarDividers: [WorkspaceSidebarDivider] = [] {
+        willSet { host?.workspaceSidebarDividersWillChange(to: newValue) }
+        didSet {
+            if sidebarDividers != oldValue {
+                normalizeSidebarDividers()
+            }
         }
     }
 
@@ -54,5 +71,36 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// timing from the very first workspace insertion.
     public func attach(host: any WorkspacesHosting<Tab>) {
         self.host = host
+    }
+
+    /// Keeps a divider attached to a surviving group when its lifecycle
+    /// promotes a new anchor workspace. The remap runs after the new group
+    /// array is stored, so the divider observer can validate the replacement
+    /// against the new top-level row immediately.
+    private func remapSidebarDividersForGroupAnchorChanges(
+        from oldGroups: [WorkspaceGroup]
+    ) {
+        let oldAnchorsByGroupId = Dictionary(
+            oldGroups.map { ($0.id, $0.anchorWorkspaceId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let newAnchorsByGroupId = Dictionary(
+            workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var remapped = sidebarDividers
+        for index in remapped.indices {
+            guard let oldAnchor = oldAnchorsByGroupId.first(where: { _, anchor in
+                anchor == remapped[index].afterWorkspaceId
+            })?.key,
+            let newAnchor = newAnchorsByGroupId[oldAnchor],
+            newAnchor != remapped[index].afterWorkspaceId else {
+                continue
+            }
+            remapped[index].afterWorkspaceId = newAnchor
+        }
+        if remapped != sidebarDividers {
+            sidebarDividers = remapped
+        }
     }
 }

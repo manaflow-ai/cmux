@@ -267619,6 +267619,34 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
+    },
+    "sidebar.divider.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Divider" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を追加" } }
+      }
+    },
+    "sidebar.divider.insertAbove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Insert Divider Above" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上に区切り線を挿入" } }
+      }
+    },
+    "sidebar.divider.insertBelow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Insert Divider Below" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下に区切り線を挿入" } }
+      }
+    },
+    "sidebar.divider.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Divider" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を削除" } }
+      }
     }
   },
   "version": "1.0"

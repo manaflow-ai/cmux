@@ -62,6 +62,29 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotPersistsSidebarDividerPlacementAcrossRestore() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let thirdWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let dividerId = try XCTUnwrap(
+            manager.workspaces.insertSidebarDivider(after: firstWorkspace.id)
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedDivider = try XCTUnwrap(snapshot.sidebarDividers?.first)
+        XCTAssertEqual(persistedDivider.id, dividerId)
+        XCTAssertEqual(persistedDivider.afterWorkspaceId, firstWorkspace.id)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDivider = try XCTUnwrap(restored.sidebarDividers.first)
+        XCTAssertEqual(restoredDivider.id, dividerId)
+        XCTAssertEqual(restoredDivider.afterWorkspaceId, restored.tabs[0].id)
+        XCTAssertEqual(restored.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+    }
+
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

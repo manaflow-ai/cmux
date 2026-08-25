@@ -216,6 +216,14 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    /// Lightweight persistent separators between top-level sidebar rows.
+    /// Dividers are owned by `WorkspacesModel`; this forwarding accessor keeps
+    /// app-target callers on the same mutation path as tabs and groups.
+    var sidebarDividers: [WorkspaceSidebarDivider] {
+        get { workspaces.sidebarDividers }
+        set { workspaces.sidebarDividers = newValue }
+    }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -262,6 +270,12 @@ class TabManager: ObservableObject {
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         objectWillChange.send()
         workspaceGroupsPublisher.send(newValue)
+    }
+
+    /// Divider mutations participate in the same object-observation and
+    /// session-autosave invalidation path as workspace/group mutations.
+    func workspaceSidebarDividersWillChange(to newValue: [WorkspaceSidebarDivider]) {
+        objectWillChange.send()
     }
 
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
@@ -5899,6 +5913,11 @@ extension TabManager {
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
+        hasher.combine(sidebarDividers.count)
+        for divider in sidebarDividers {
+            hasher.combine(divider.id)
+            hasher.combine(divider.afterWorkspaceId)
+        }
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
@@ -6210,10 +6229,28 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        let restorableWorkspaceIds = Set(restorableTabs.map(\.id))
+        let validDividerAnchors = Set(
+            workspaces.sidebarTopLevelWorkspaceIdsForSidebar().dropLast()
+        )
+        let dividerSnapshots: [SessionWorkspaceSidebarDividerSnapshot]? = {
+            let snapshots = sidebarDividers.compactMap { divider -> SessionWorkspaceSidebarDividerSnapshot? in
+                guard restorableWorkspaceIds.contains(divider.afterWorkspaceId),
+                      validDividerAnchors.contains(divider.afterWorkspaceId) else {
+                    return nil
+                }
+                return SessionWorkspaceSidebarDividerSnapshot(
+                    id: divider.id,
+                    afterWorkspaceId: divider.afterWorkspaceId
+                )
+            }
+            return snapshots.isEmpty ? nil : snapshots
+        }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            sidebarDividers: dividerSnapshots
         )
     }
 
@@ -6443,6 +6480,30 @@ extension TabManager {
             workspace.groupId = nil
         }
         workspaceGroups = restoredGroups
+        var restoredWorkspaceIdsByOriginalId: [UUID: UUID] = [:]
+        for (originalId, workspace) in zip(restoredOriginalWorkspaceIds, newTabs) {
+            guard let originalId else { continue }
+            // A malformed snapshot may repeat an original id; retaining the
+            // first restored workspace is deterministic and avoids trapping
+            // in Dictionary(uniqueKeysWithValues:).
+            restoredWorkspaceIdsByOriginalId[originalId] =
+                restoredWorkspaceIdsByOriginalId[originalId] ?? workspace.id
+        }
+        sidebarDividers = (snapshot.sidebarDividers ?? []).compactMap { dividerSnapshot in
+            guard let restoredWorkspaceId = restoredWorkspaceIdsByOriginalId[dividerSnapshot.afterWorkspaceId] else {
+                return nil
+            }
+            // A group can promote a different member while its snapshot is
+            // being restored. Resolve the persisted workspace through the
+            // restored model so the divider follows the visible group row.
+            let restoredAnchorId = workspaces.sidebarTopLevelWorkspaceId(for: restoredWorkspaceId)
+                ?? restoredWorkspaceId
+            return WorkspaceSidebarDivider(
+                id: dividerSnapshot.id,
+                afterWorkspaceId: restoredAnchorId
+            )
+        }
+        workspaces.normalizeSidebarDividers()
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)

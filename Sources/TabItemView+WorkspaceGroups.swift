@@ -83,6 +83,28 @@ extension TabItemView {
                 }
             }
         }
+
+        Divider()
+
+        Button(
+            String(
+                localized: "sidebar.divider.insertAbove",
+                defaultValue: "Insert Divider Above"
+            )
+        ) {
+            actions.insertDividerAbove(targetIds)
+        }
+        .disabled(isMulti || targetIds.isEmpty)
+
+        Button(
+            String(
+                localized: "sidebar.divider.insertBelow",
+                defaultValue: "Insert Divider Below"
+            )
+        ) {
+            actions.insertDividerBelow(targetIds)
+        }
+        .disabled(isMulti || targetIds.isEmpty)
     }
 
     func promptNewWorkspaceGroup(workspaceIds: [UUID]) {

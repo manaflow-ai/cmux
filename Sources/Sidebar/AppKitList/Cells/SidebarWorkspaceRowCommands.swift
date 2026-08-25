@@ -391,7 +391,10 @@ struct SidebarWorkspaceRowMenuBuilder {
         let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleTargets = targetWorkspaces.filter { !existingAnchorIds.contains($0.id) }
         let eligibleTargetIds = eligibleTargets.map(\.id)
-        guard !eligibleTargetIds.isEmpty else { return }
+        guard !eligibleTargetIds.isEmpty else {
+            addDividerSection(to: menu, tabManager: tabManager)
+            return
+        }
 
         let groups = commands.workspaceGroupMenuSnapshot.items
         let moveToGroupMenuState = WorkspaceGroupMoveToMenuState(groups: groups)
@@ -442,6 +445,34 @@ struct SidebarWorkspaceRowMenuBuilder {
                 }
             })
         }
+        addDividerSection(to: menu, tabManager: tabManager)
+    }
+
+    private func addDividerSection(to menu: NSMenu, tabManager: TabManager) {
+        let topLevelId = targetIds.count == 1
+            ? targetIds.first.flatMap { tabManager.workspaces.sidebarTopLevelWorkspaceId(for: $0) }
+            : nil
+        let canInsertAbove = topLevelId.map {
+            tabManager.workspaces.canInsertSidebarDivider(before: $0)
+        } ?? false
+        let canInsertBelow = topLevelId.map {
+            tabManager.workspaces.canInsertSidebarDivider(after: $0)
+        } ?? false
+        menu.addItem(.separator())
+        menu.addItem(item(
+            String(localized: "sidebar.divider.insertAbove", defaultValue: "Insert Divider Above"),
+            enabled: canInsertAbove
+        ) { [weak tabManager] in
+            guard let tabManager, let topLevelId else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(before: topLevelId)
+        })
+        menu.addItem(item(
+            String(localized: "sidebar.divider.insertBelow", defaultValue: "Insert Divider Below"),
+            enabled: canInsertBelow
+        ) { [weak tabManager] in
+            guard let tabManager, let topLevelId else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(after: topLevelId)
+        })
     }
 
     private func todoTargetWorkspaces(_ tabManager: TabManager) -> [Workspace] {

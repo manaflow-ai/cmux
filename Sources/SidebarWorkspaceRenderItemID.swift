@@ -17,6 +17,12 @@ struct SidebarWorkspaceRenderItemID: Hashable {
         Self(kind: 2, uuid: uuid)
     }
 
+    static func divider(_ uuid: UUID) -> Self {
+        Self(kind: 3, uuid: uuid)
+    }
+
+    var isDivider: Bool { kind == 3 }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.kind == rhs.kind && lhs.uuid == rhs.uuid
     }

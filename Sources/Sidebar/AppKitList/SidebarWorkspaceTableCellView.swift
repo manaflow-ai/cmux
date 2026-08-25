@@ -68,6 +68,13 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) -> Bool {
+        let isDivider = row.id.isDivider
+        // Divider rows are purely spatial: keep them out of the AppKit table's
+        // VoiceOver traversal as well as the hosted SwiftUI subtree. The cell
+        // is reused for ordinary hosted rows, so restore the element flags on
+        // every configuration rather than only at initialization.
+        setAccessibilityElement(!isDivider)
+        hostingView.setAccessibilityElement(!isDivider)
         let didReconfigure = model.configure(
             row: row,
             isPointerHovering: isPointerHovering,

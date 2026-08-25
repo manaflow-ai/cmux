@@ -1286,7 +1286,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it is excluded here just as the SwiftUI sidebar accepts only .workspace
         // rows. Group lifecycle runs through the header's own menu (Ungroup /
         // Delete Group), not a middle-click on the header.
-        guard rows.indices.contains(row), !rows[row].isGroupHeader else { return }
+        guard rows.indices.contains(row),
+              !rows[row].isGroupHeader,
+              !rows[row].id.isDivider else { return }
         actions?.closeWorkspace(rows[row].workspaceId)
     }
 
@@ -1296,6 +1298,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func createEmptyWorkspaceGroup() {
         actions?.createEmptyWorkspaceGroup()
+    }
+
+    func createDivider() {
+        actions?.createDivider()
     }
 
     func emptyAreaMenu() -> NSMenu {
@@ -1315,11 +1321,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             item.keyEquivalentModifierMask = shortcut.modifierFlags
         }
         menu.addItem(item)
+        menu.addItem(NSMenuItem.separator())
+        let dividerItem = NSMenuItem(
+            title: String(localized: "sidebar.divider.add", defaultValue: "Add Divider"),
+            action: #selector(createDividerFromMenu),
+            keyEquivalent: ""
+        )
+        dividerItem.target = self
+        menu.addItem(dividerItem)
         return menu
     }
 
     @objc private func createEmptyWorkspaceGroupFromMenu() {
         createEmptyWorkspaceGroup()
+    }
+
+    @objc private func createDividerFromMenu() {
+        createDivider()
     }
 
     func pointerDidLeaveTable() {

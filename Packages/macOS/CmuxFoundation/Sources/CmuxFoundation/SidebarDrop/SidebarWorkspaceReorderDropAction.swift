@@ -12,4 +12,9 @@ public enum SidebarWorkspaceReorderDropAction: Equatable, Sendable {
     /// preserves the raw pointer slot so multi-selection commits can clamp each
     /// pin tier independently.
     case crossWindow(insertionIndex: Int, proposedInsertionIndex: Int)
+
+    /// Move a lightweight sidebar divider to the gap after a top-level row.
+    /// The dragged id remains in ``SidebarWorkspaceReorderDropPlan`` so the
+    /// shared AppKit/SwiftUI indicator pipeline can commit the exact plan.
+    case moveDivider(afterWorkspaceId: UUID)
 }
