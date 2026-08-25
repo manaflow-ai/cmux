@@ -6,6 +6,9 @@
 # which shares the same isolated-simulator resolution.
 #
 #   scripts/ios-sim-install.sh --tag <tag> --app <Debug-iphonesimulator/cmux.app>
+#                              [--auth-profile agent|personal]
+#                              [--expected-account <email>]
+#                              [--credentials-file <path>]
 #                              [--no-attach] [--no-sign-in] [--no-setup] [--no-launch]
 set -euo pipefail
 
@@ -21,16 +24,22 @@ NO_ATTACH=0
 NO_SIGN_IN=0
 NO_SETUP=0
 LAUNCH=1
+AUTH_PROFILE="agent"
+EXPECTED_ACCOUNT=""
+AUTH_CREDENTIALS_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
     --app) APP="${2:-}"; shift 2 ;;
+    --auth-profile) AUTH_PROFILE="${2:-}"; shift 2 ;;
+    --expected-account) EXPECTED_ACCOUNT="${2:-}"; shift 2 ;;
+    --credentials-file) AUTH_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
     --no-attach) NO_ATTACH=1; shift ;;
     --no-sign-in) NO_SIGN_IN=1; shift ;;
     --no-setup) NO_SETUP=1; shift ;;
     --no-launch) LAUNCH=0; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -66,6 +75,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
   else
     launch_args=(--tag "$TAG" --simulator-id "$SIM_UDID" --detach)
+    launch_args+=(--auth-profile "$AUTH_PROFILE")
+    [[ -n "$EXPECTED_ACCOUNT" ]] && launch_args+=(--expected-account "$EXPECTED_ACCOUNT")
+    [[ -n "$AUTH_CREDENTIALS_FILE" ]] && launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
     [[ "$NO_ATTACH" -eq 0 ]] && launch_args+=(--ensure-mac)
     if ! "$SCRIPT_DIR/mobile-dev-launch.sh" "${launch_args[@]}"; then
       echo "error: installed $BUNDLE_ID on $SIM_NAME, but signed setup failed; refusing an unpaired fallback launch" >&2

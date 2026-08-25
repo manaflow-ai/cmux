@@ -94,6 +94,35 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["type"] == .string("terminal"))
     }
 
+    @Test func paneBreakRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.break",
+            params: ["surface_id": .null]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func paneJoinRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.join",
+            params: [
+                "target_pane_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
     @Test func surfaceCreateRemotePayloadIdentifiesTmuxNewWindow() throws {
         let workspaceID = UUID()
         let (coordinator, context) = coordinator(createResolution: .routedToRemote(
@@ -143,6 +172,82 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(code == "invalid_params")
         #expect(message == "Dock placement supports only terminal and browser surfaces")
         #expect(data == .object(["type": .string("agentSession")]))
+    }
+
+    @Test func surfaceCloseRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceCloseRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceRespawnRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
+    }
+
+    @Test func surfaceRespawnRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
     }
 
     @Test func surfaceListIncludesLiveSimulatorIdentity() throws {
@@ -222,6 +327,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [
                 "command": .string("codex resume legacy"),
                 "kind": .string("codex"),
+                "source": .string("agent-hook"),
                 "permission_mode": .string("never"),
                 "launch_command": .object([
                     "launcher": .string("codex"),
@@ -233,23 +339,28 @@ struct ControlCommandCoordinatorSurfaceTests {
                     ]),
                     "working_directory": .string("/tmp/项目"),
                     "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "verification_home": .string("/tmp/launch-user"),
                     "captured_at": .double(42.5),
                     "source": .string("test"),
                 ]),
+                "resume_evidence_provenance": .string("tui"),
             ]
         ))
 
         let inputs = try #require(context.resumeSetInputs)
         #expect(inputs.permissionMode == "never")
+        #expect(inputs.source == "agent-hook")
         #expect(inputs.launchCommand == ControlAgentLaunchCommand(
             launcher: "codex",
             executablePath: "/opt/Codex Tools/codex",
             arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
             workingDirectory: "/tmp/项目",
             environment: ["CODEX_HOME": "/tmp/配置"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 42.5,
             source: "test"
         ))
+        #expect(inputs.resumeEvidenceProvenance == "tui")
     }
 
     @Test(
@@ -305,8 +416,29 @@ struct ControlCommandCoordinatorSurfaceTests {
             arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
             workingDirectory: "/tmp/日本語",
             environment: ["RESTORE_VALUE": "space value"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 21,
             source: "test"
+        )
+        let binding = ControlSurfaceResumeBinding(
+            name: nil,
+            kind: "codex",
+            command: "codex resume checkpoint",
+            cwd: "/tmp/日本語",
+            checkpointID: "checkpoint",
+            source: "agent-hook",
+            environment: ["RESTORE_VALUE": "space value"],
+            launchCommand: command,
+            permissionMode: "never",
+            autoResume: true,
+            approvalPolicyRawValue: nil,
+            approvalRecordID: nil,
+            executionLocationRawValue: "local",
+            remoteWorkspaceID: nil,
+            remoteSurfaceID: nil,
+            remotePTYSessionID: nil,
+            updatedAt: 21,
+            resumeEvidenceProvenance: "tui"
         )
         context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
             windowID: nil,
@@ -314,7 +446,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             paneID: nil,
             surfaceID: surfaceID,
             cleared: false,
-            binding: nil,
+            binding: binding,
             restoreRecord: ControlSurfaceRestoreRecord(
                 modeRawValue: "direct",
                 kind: "custom",
@@ -337,6 +469,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [:]
         ))
         guard case .ok(.object(let payload)) = result,
+              case .object(let resumeBinding)? = payload["resume_binding"],
               case .object(let record)? = payload["restore_record"],
               case .object(let launch)? = record["launch_command"] else {
             Issue.record("expected structured restore record")
@@ -348,7 +481,9 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
         #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
+        #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
     }
 
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
@@ -506,6 +641,83 @@ struct ControlCommandCoordinatorSurfaceTests {
             data: nil
         ))
         #expect(context.reportedGit == nil)
+    }
+
+    @Test func reportShellStateForwardsTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        context.reportShellStateResolution = .explicit(
+            surfaceID: surfaceID,
+            published: true
+        )
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "terminal_lifecycle_id": .string(
+                    terminalLifecycleID.uuidString
+                ),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(context.reportedShellState?.workspaceID == workspaceID)
+        #expect(context.reportedShellState?.requestedSurfaceID == surfaceID)
+        #expect(
+            context.reportedShellState?.terminalLifecycleID
+                == terminalLifecycleID
+        )
+        #expect(context.reportedShellState?.stateRawValue == "promptIdle")
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected shell-state report success")
+            return
+        }
+        #expect(payload["published"] == .bool(true))
+    }
+
+    @Test func reportShellStateRejectsMalformedTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Terminal session is out of date; restart the shell and try again",
+            data: nil
+        ))
+        #expect(context.reportedShellState == nil)
+    }
+
+    @Test func reportShellStateReturnsFallbackWhenContextIsUnavailable() {
+        let coordinator = ControlCommandCoordinator(context: nil)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Terminal session is out of date; restart the shell and try again",
+            data: nil
+        ))
     }
 
     @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {

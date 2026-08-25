@@ -5,6 +5,7 @@
 //! rendered from this crate matches what a real Ghostty surface would show.
 
 mod key;
+mod kitty;
 mod mouse;
 mod render;
 mod terminal;
@@ -13,15 +14,25 @@ mod terminal;
 pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
-pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
+pub use kitty::{
+    KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
+    KittyImageFormat, KittyPlacement, KittyPlacementAnchor, KittyPlacementKey,
+    MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
+    kitty_inflight_replay_limit_for_image_bytes,
+};
+pub use mouse::{
+    MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput, MouseWireFormat,
+};
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
-    ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty, RenderFrame,
-    RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
+    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal,
-    TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color, parse_palette_entry,
+    Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
+    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, parse_color,
+    parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

@@ -14,5 +14,24 @@ extension CMUXCLI {
         let preparedArgumentsWorkingDirectory: String?
         let permissionMode: String?
         let legacyCommand: String?
+
+        func repairingHermesCheckpoint(
+            _ checkpointID: String,
+            fallbackLaunchCommand: AgentLaunchCommand?
+        ) -> RestoreRecord {
+            RestoreRecord(
+                mode: mode,
+                kind: kind,
+                checkpointID: checkpointID,
+                source: source,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                launchCommand: launchCommand ?? fallbackLaunchCommand,
+                preparedArguments: nil,
+                preparedArgumentsWorkingDirectory: nil,
+                permissionMode: permissionMode,
+                legacyCommand: legacyCommand
+            )
+        }
     }
 }

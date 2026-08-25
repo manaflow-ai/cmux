@@ -2,6 +2,15 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+private struct VaultAgentProcessCandidate {
+    let process: CmuxTopProcessInfo
+    let workspaceID: UUID
+    let panelID: UUID
+    let observed: VaultObservedAgentProcess
+    let cwd: String?
+    let registration: CmuxVaultAgentRegistration
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -80,6 +89,7 @@ extension RestorableAgentSessionIndex {
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        let scopedProcesses = processSnapshot.cmuxScopedProcesses()
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
@@ -95,9 +105,10 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
+        var candidates: [VaultAgentProcessCandidate] = []
+        for process in scopedProcesses {
+            guard let workspaceID = process.cmuxWorkspaceID,
+                  let panelID = process.cmuxSurfaceID,
                   let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
@@ -109,11 +120,30 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
-                  registration.processDetectedSnapshotIsRestorable(for: observed),
+            guard let registration = processRegistry.matchingRegistration(for: observed) else {
+                continue
+            }
+            candidates.append(VaultAgentProcessCandidate(
+                process: process,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                observed: observed,
+                cwd: cwd,
+                registration: registration
+            ))
+        }
+
+        let nativeKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        for candidate in candidates {
+            let process = candidate.process
+            let observed = candidate.observed
+            let cwd = candidate.cwd
+            let registration = candidate.registration
+            guard registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
+                      cwd: cwd,
                       fileManager: fileManager
                   ) else {
                 continue
@@ -133,8 +163,11 @@ extension RestorableAgentSessionIndex {
                 ).normalized(arguments: observed.arguments)
                 executablePath = arguments.first ?? registration.defaultExecutable
             }
+            let kind = nativeKindIDs.contains(registration.id)
+                ? (RestorableAgentKind(rawValue: registration.id) ?? .custom(registration.id))
+                : .custom(registration.id)
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .custom(registration.id),
+                kind: kind,
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
@@ -146,7 +179,7 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            let key = PanelKey(workspaceId: candidate.workspaceID, panelId: candidate.panelID)
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
@@ -616,31 +649,80 @@ extension SurfaceResumeBindingIndex {
     static func processDetectedTmuxBindings(
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        ttyDeviceBindings: [PanelKey: Int64] = [:],
+        processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+        var selectedPIDByPanel: [PanelKey: Int] = [:]
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  process.isTerminalForegroundProcessGroup,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+        // A child such as `/usr/bin/ssh` is not guaranteed to retain the
+        // CMUX_* environment after the user's shell/launch tooling runs it.
+        // The terminal's controlling TTY is the authoritative pane identity,
+        // so use it as a fail-closed fallback when exactly one live panel owns
+        // the device. This keeps process detection scoped without guessing
+        // from titles or global process names.
+        let panelKeysByTTYDevice = Dictionary(grouping: ttyDeviceBindings) { $0.value }
+            .mapValues { $0.map(\.key) }
+
+        // The process snapshot is already indexed by PID.  Select the newest
+        // candidate per panel in one pass instead of sorting the entire system
+        // process table on every autosave.
+        for process in processSnapshot.processesByPID.values {
+            guard process.isTerminalForegroundProcessGroup,
+                  let panelKey = processDetectedPanelKey(
+                      for: process,
+                      panelKeysByTTYDevice: panelKeysByTTYDevice
+                  ),
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
-            guard let binding = TmuxResumeParser.binding(
+            let binding: SurfaceResumeBindingSnapshot?
+            if let tmuxBinding = TmuxResumeParser.binding(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments.arguments,
                 environment: processArguments.environment,
                 capturedAt: capturedAt
-            ) else {
+            ) {
+                binding = tmuxBinding
+            } else {
+                binding = TerminalSSHSessionDetector.resumeBinding(
+                    processName: process.name,
+                    processPath: process.path,
+                    arguments: processArguments.arguments,
+                    environment: processArguments.environment,
+                    capturedAt: capturedAt
+                )
+            }
+            guard let binding else { continue }
+            guard process.pid > (selectedPIDByPanel[panelKey] ?? Int.min) else {
                 continue
             }
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+            selectedPIDByPanel[panelKey] = process.pid
+            resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
         }
 
         return resolved
+    }
+
+    private static func processDetectedPanelKey(
+        for process: CmuxTopProcessInfo,
+        panelKeysByTTYDevice: [Int64: [PanelKey]]
+    ) -> PanelKey? {
+        if let workspaceId = process.cmuxWorkspaceID,
+           let panelId = process.cmuxSurfaceID {
+            return PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }
+        guard let ttyDevice = process.ttyDevice,
+              let candidates = panelKeysByTTYDevice[ttyDevice],
+              candidates.count == 1 else {
+            return nil
+        }
+        return candidates[0]
     }
 
     static func tmuxResumeBindingForTesting(
@@ -658,6 +740,7 @@ extension SurfaceResumeBindingIndex {
             capturedAt: capturedAt
         )
     }
+
 }
 
 private struct VaultAgentSessionIDResolution {
@@ -669,6 +752,7 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
+        cwd: String?,
         fileManager: FileManager
     ) -> VaultAgentSessionIDResolution? {
         switch self {
@@ -704,7 +788,26 @@ private extension CmuxVaultAgentSessionIDSource {
             if let session = process.arguments.grokResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
-            return nil
+            guard let sessionId = GrokSessionLocator(fileManager: fileManager).latestSessionID(
+                for: process,
+                registration: registration
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .persistedStore(let store):
+            guard registration.persistedSessionStoreCapability == store else {
+                return nil
+            }
+            guard let explicitSessionID = store.explicitSessionID(arguments: process.arguments) else {
+                // Fresh Hermes sessions are bound by the on_session_start hook. A cwd-only
+                // state.db row cannot prove ownership of this process and must fail closed.
+                return nil
+            }
+            return VaultAgentSessionIDResolution(
+                sessionId: explicitSessionID,
+                source: .explicit
+            )
         }
     }
 }

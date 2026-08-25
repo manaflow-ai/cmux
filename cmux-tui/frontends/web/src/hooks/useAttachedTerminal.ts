@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { CmuxTimeoutError } from "cmux/browser";
+import { CmuxTimeoutError } from "cmux/raw";
 import type {
   CmuxClient,
-  DecodedColorsChangedEvent,
+  ColorsChangedEvent,
   DecodedOutputEvent,
   DecodedResizedEvent,
   DecodedVtStateEvent,
   Id,
   OverflowEvent,
-} from "cmux/browser";
+} from "cmux/raw";
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
@@ -22,7 +22,7 @@ import {
   colorsToSelectionThemePatch,
 } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
-import { tryLoadWebglRenderer } from "../lib/webglRenderer";
+import { retagWebglDisplayP3, tryLoadWebglRenderer } from "../lib/webglRenderer";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -59,6 +59,9 @@ export function useAttachedTerminal({
     terminal.loadAddon(fit);
     terminal.open(host);
     const webgl = tryLoadWebglRenderer(terminal);
+    // Match desktop Ghostty's Display P3 presentation; no-op where the
+    // browser (or the DOM fallback renderer) cannot retag the buffer.
+    if (webgl !== null) retagWebglDisplayP3(host);
 
     const handleFocusIn = () => setFocused(true);
     const handleFocusOut = () => {
@@ -97,7 +100,7 @@ export function useAttachedTerminal({
     const writeTerminal = (data: string | Uint8Array) =>
       new Promise<void>((resolve) => terminal.write(data, resolve));
     const applyColors = async (
-      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
     ) => {
       const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
@@ -114,7 +117,7 @@ export function useAttachedTerminal({
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
     };
     const applyCursorDefaults = (
-      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
     ) => {
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
@@ -197,7 +200,7 @@ export function useAttachedTerminal({
               await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
             } else if (event.event === "colors-changed") {
-              const colors = event as DecodedColorsChangedEvent;
+              const colors = event as ColorsChangedEvent;
               applyCursorDefaults(colors);
               await applyColors(colors);
             } else if (event.event === "overflow") {

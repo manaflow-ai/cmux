@@ -10,6 +10,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         case routeContractVersion = "route_contract_version"
         case deviceID = "deviceId"
         case appInstanceID = "appInstanceId"
+        case clientNamespace
         case tag
         case platform
         case displayName
@@ -27,6 +28,8 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
     public let deviceID: String
     /// Stable app-instance UUID for this installation and tag.
     public let appInstanceID: String
+    /// Exact app namespace that owns this binding.
+    public let clientNamespace: String
     /// Safe build or app-instance tag.
     public let tag: String
     /// Device role used by grant policy.
@@ -53,6 +56,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
     public init(
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String = "legacy",
         tag: String,
         platform: CmxIrohPlatform,
         displayName: String? = nil,
@@ -66,6 +70,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
     ) throws {
         guard Self.isBrokerUUID(deviceID),
               Self.isBrokerUUID(appInstanceID),
+              Self.isSafeToken(clientNamespace, maximum: 255),
               Self.isSafeToken(tag, maximum: 64),
               (try? CmxIrohPeerIdentity(endpointID: endpointID)) != nil,
               (1...Int(Int32.max)).contains(identityGeneration),
@@ -89,6 +94,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         routeContractVersion = Self.currentRouteContractVersion
         self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.platform = platform
         self.displayName = displayName

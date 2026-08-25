@@ -11,7 +11,7 @@ import {
   exact,
   sessionId,
   workspaceId,
-} from "cmux/node";
+} from "cmux-sdk/node";
 
 const client = new NodeClient();
 const session = client.session(
@@ -88,7 +88,7 @@ stream with a recoverable gap and sends best-effort cancellation. Pass an
 Browser code uses the browser-safe entry:
 
 ```ts
-import { Client, WebSocketTransport } from "cmux/browser";
+import { Client, WebSocketTransport } from "cmux-sdk/browser";
 
 const client = new Client({
   transport: new WebSocketTransport("wss://example.test/cmux", {
@@ -97,15 +97,35 @@ const client = new Client({
 });
 ```
 
-The `cmux` and `cmux/browser` dependency graphs import no Node modules. The
-`cmux/node` entry adds Unix-socket discovery and transport.
-
-The generated protocol-v10 API and numeric mux identities are available only
-from `cmux/raw`:
+Omit `authToken` for first-use pairing. Requests remain buffered until the TUI
+approves the challenge and the server returns a reconnect credential:
 
 ```ts
-import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
+const transport = new WebSocketTransport("wss://example.test/cmux", {
+  onPairingChallenge: ({ code, peer }) => showPairingPrompt(code, peer),
+  onPairingCredential: (credential) => saveCredential(credential),
+});
 ```
+
+Use `onAuthenticationRejected` to remove a supplied `authToken` that the
+server rejects. First-use pairing denial or expiry closes that attempt without
+invoking the credential-rejection callback.
+
+The `cmux-sdk` and `cmux-sdk/browser` dependency graphs import no Node modules.
+The `cmux-sdk/node` entry adds Unix-socket discovery and transport.
+
+The generated protocol-v12 API and numeric mux identities are available only
+from `cmux-sdk/raw`:
+
+```ts
+import { CmuxClient, COMMAND_METADATA } from "cmux-sdk/raw";
+```
+
+Raw render graphics follow one budget chain: 10,000,000 decoded image bytes
+become at most 13,333,336 base64 characters. The 16,384-placement limit adds
+at most 7,258,113 JSON characters. Their 20,591,449-character subtotal leaves
+12,962,983 characters of the 33,554,432-character attach limit for image
+metadata, rows, and the JSON wrapper.
 
 Package verification builds all entry points, installs the tarball into a
 clean TypeScript consumer, and checks that browser imports cannot reach Node,

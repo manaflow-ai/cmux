@@ -103,11 +103,11 @@ struct FocusedPanelFlashShortcutTests {
         #expect(workspace.tmuxWorkspaceFlashPanelId == focusedPanel.id)
     }
 
-    @Test("User-initiated flashes use the notification ring accent")
-    func userInitiatedFlashUsesNotificationRingAccent() {
+    @Test("User-initiated flashes use the shared flash ring style")
+    func userInitiatedFlashUsesSharedFlashRingStyle() {
         #expect(
-            WorkspaceAttentionCoordinator.flashStyle(for: .userInitiated).accent ==
-                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+            WorkspaceAttentionCoordinator.flashStyle(for: .userInitiated) ==
+                WorkspaceAttentionCoordinator.flashRingStyle
         )
     }
 

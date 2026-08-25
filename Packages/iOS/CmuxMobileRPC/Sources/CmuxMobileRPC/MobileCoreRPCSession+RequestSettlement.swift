@@ -33,7 +33,7 @@ private extension MobileShellConnectionError {
         case .authorizationFailed, .accountMismatch, .rpcError:
             true
         case .invalidResponse, .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
-             .routeCleanupBlocked, .insecureManualRoute, .attachTicketExpired:
+             .routeCleanupBlocked, .connectAttemptGated, .insecureManualRoute, .attachTicketExpired:
             false
         }
     }

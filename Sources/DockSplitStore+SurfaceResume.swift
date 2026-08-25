@@ -8,6 +8,25 @@ extension DockSplitStore {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        // Keep the provenance comparison in the same MainActor mutation as the
+        // assignment; the managed hook binding remains authoritative while a
+        // process-detected binding is temporarily effective in the Dock.
+        // Mirrors managedAgentResumeBinding(panelId:) without its sync-on-read:
+        // a rejected incoming binding must not promote the effective binding to
+        // managed state as a side effect of this acceptance check.
+        let effectivePreviousBinding = surfaceResumeBindingsByPanelId[panelId]
+        let existingBinding: SurfaceResumeBindingSnapshot?
+        if let effectivePreviousBinding, effectivePreviousBinding.hasCompleteManagedSessionIdentity {
+            existingBinding = effectivePreviousBinding
+        } else {
+            existingBinding = managedAgentResumeBindingsByPanelId[panelId] ?? effectivePreviousBinding
+        }
+        guard binding.allowsCodexAgentHookReplacement(
+            of: existingBinding
+        ) else {
+            return false
+        }
+        let previousRestorableAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
         let cachedManagedBinding =
             detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding
         if binding.isAgentHookBinding,
@@ -60,6 +79,24 @@ extension DockSplitStore {
         } else if binding.isAgentHookBinding {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         }
+        // This transient cwd belongs to the binding restored at launch. Let a
+        // same-session hook refresh keep its cwd rescue, but never let it
+        // override a replacement session's structured restore record.
+        if let previous = effectivePreviousBinding,
+           previous.kind != binding.kind
+            || previous.checkpointId != binding.checkpointId
+            || previous.cwd != binding.cwd
+            || previous.launchCommand?.workingDirectory != binding.launchCommand?.workingDirectory
+            || (previous.launchCommand == nil && binding.launchCommand == nil
+                && previous.command != binding.command) {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        }
+        if let restorableAgent = binding.managedRestorableAgentSnapshot(
+            replacing: previousRestorableAgent
+        ) {
+            restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
+            restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
+        }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
     }
@@ -79,10 +116,8 @@ extension DockSplitStore {
     }
 
     private func clearRestoredAgentContinuationState(panelId: UUID) {
-        restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     @discardableResult

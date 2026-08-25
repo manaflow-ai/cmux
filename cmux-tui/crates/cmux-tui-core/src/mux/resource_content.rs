@@ -6,16 +6,237 @@ use std::collections::{HashMap, HashSet};
 use super::{Mux, ResourceMutationMetrics, ResourceMutationPlan};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
-use crate::resource::{ContentPublicId, PanePublicId, SplitPublicId, WorkspacePublicId};
+use crate::resource::{
+    ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
+    WorkspacePublicId,
+};
+use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
     WorkspaceMutation, WorkspaceRegistry,
 };
-use crate::{ResourceSelectors, ResourceTarget};
+use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 
 impl Mux {
+    pub(crate) fn resource_project_terminal_selected(
+        self: &std::sync::Arc<Self>,
+        selectors: ResourceSelectors,
+        destination: ResourceSelectors,
+        index: usize,
+        name: Option<String>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = json!({
+            "operation": "terminal.project",
+            "selectors": selectors,
+            "destination": destination,
+            "index": index,
+            "name": name,
+        });
+        let mux = std::sync::Arc::clone(self);
+        self.commit_resource_mutation_plan(
+            mutation,
+            "terminal.project",
+            &fingerprint,
+            None,
+            expected_revision,
+            move |state, registry| {
+                let source = mux
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        ResourceTarget::Terminal,
+                        &selectors,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let terminal_id = source
+                    .path
+                    .terminal
+                    .context("terminal selector omitted its public identity")?;
+                let terminal = state
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .cloned()
+                    .context("terminal has no live content runtime")?;
+                let destination = mux
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        ResourceTarget::Pane,
+                        &destination,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let pane = destination.pane.context("destination pane is not live")?;
+                let pane_id = destination.path.pane.context("destination omitted its pane id")?;
+                let topology = registry.resource_topology_snapshot()?;
+                let mut destination_pane = topology
+                    .panes
+                    .iter()
+                    .find(|candidate| candidate.public_id == pane_id)
+                    .cloned()
+                    .context("destination pane has no durable projection")?;
+                let host = mux
+                    .resource_terminal_host_identity(&terminal)
+                    .context("terminal omitted its durable host identity")?;
+                let host_id = host.terminal_id;
+                let tab_id = TabPublicId::random()?;
+                let surface_id = mux.next_id();
+                let content_id = ContentPublicId::Terminal(terminal_id.clone());
+                let projected = terminal.project_terminal(
+                    surface_id,
+                    TabResourceIdentity::new(tab_id.clone(), content_id.clone()),
+                )?;
+                projected.set_name(name.clone());
+
+                let mut tabs = ordered_tabs(&topology.tabs, &pane_id);
+                let focused = tabs.is_empty();
+                anyhow::ensure!(
+                    focused == destination_pane.active_tab.is_none(),
+                    "destination pane active-tab projection is inconsistent"
+                );
+                let final_index = index.min(tabs.len());
+                tabs.insert(
+                    final_index,
+                    RegistryTab {
+                        public_id: tab_id.clone(),
+                        pane_id: pane_id.clone(),
+                        position: final_index,
+                        content_id: content_id.clone(),
+                        name,
+                        browser_url: None,
+                        terminal_id: Some(host_id.clone()),
+                    },
+                );
+                reindex_tabs(&mut tabs, &pane_id);
+                let projected_tab = tabs[final_index].clone();
+                let tab_ids = tabs.iter().map(|tab| tab.public_id.clone()).collect::<Vec<_>>();
+                if focused {
+                    destination_pane.active_tab = Some(tab_id.clone());
+                }
+                let value = public_tab_value(&projected_tab, focused);
+                let result = json!({
+                    "tab":tab_id,
+                    "terminal":terminal_id,
+                    "value":value,
+                });
+                let mut all_tabs = topology
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.pane_id != pane_id)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                all_tabs.extend(tabs.iter().cloned());
+                let mut terminal_tab_order =
+                    terminal_tab_ids_in_canonical_order(all_tabs.iter().filter_map(|tab| {
+                        match &tab.content_id {
+                            ContentPublicId::Terminal(id) => Some((
+                                id.clone(),
+                                tab.pane_id.clone(),
+                                tab.position,
+                                tab.public_id.clone(),
+                            )),
+                            ContentPublicId::Browser(_) => None,
+                        }
+                    }));
+                let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
+                let durable = registry
+                    .terminal_record(&host_id)?
+                    .context("terminal projection has no durable host")?;
+                let terminal_value = public_terminal_snapshot(
+                    &terminal_id,
+                    &durable,
+                    Some(terminal.as_ref()),
+                    terminal_tab_ids,
+                )?;
+                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
+                for tab in &tabs {
+                    push_tab_delta(
+                        &mut deltas,
+                        tab,
+                        destination_pane.active_tab.as_ref() == Some(&tab.public_id),
+                    );
+                }
+                let sequence = deltas.len();
+                deltas.push(json!({
+                    "kind":"upsert",
+                    "sequence":sequence,
+                    "resource":"terminal",
+                    "id":terminal_id,
+                    "value":terminal_value,
+                }));
+
+                let mut patch_changes = Vec::with_capacity(if focused { 3 } else { 2 });
+                if focused {
+                    patch_changes.push(ResourceChange::UpsertPane(destination_pane));
+                }
+                patch_changes.push(ResourceChange::UpsertTab(projected_tab));
+                patch_changes.push(ResourceChange::SetTabOrder { pane_id, tab_ids });
+
+                state.surfaces.try_reserve(1)?;
+                state.resource_indexes.tabs.try_reserve(1)?;
+                state.resource_indexes.tab_ids.try_reserve(1)?;
+                state.resource_indexes.content_ids.try_reserve(1)?;
+                state.resource_indexes.tab_pane.try_reserve(1)?;
+                state.resource_indexes.content_placements.try_reserve(1)?;
+                let new_content_placements = if let Some(placements) =
+                    state.resource_indexes.content_placements.get_mut(&content_id)
+                {
+                    placements.try_reserve(1)?;
+                    None
+                } else {
+                    Some(vec![surface_id])
+                };
+                state
+                    .panes
+                    .get_mut(&pane)
+                    .context("destination pane disappeared")?
+                    .tabs
+                    .try_reserve(1)?;
+
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes: patch_changes },
+                    result,
+                    Value::Array(deltas),
+                    move |state| {
+                        state.surfaces.insert(surface_id, projected);
+                        let destination = state
+                            .panes
+                            .get_mut(&pane)
+                            .expect("reserved destination pane remains live");
+                        if focused {
+                            debug_assert!(destination.tabs.is_empty());
+                            destination.active_tab = 0;
+                        } else if final_index <= destination.active_tab {
+                            destination.active_tab += 1;
+                        }
+                        destination.tabs.insert(final_index, surface_id);
+                        state.resource_indexes.tabs.insert(tab_id.clone(), surface_id);
+                        state.resource_indexes.tab_ids.insert(surface_id, tab_id);
+                        if let Some(placements) = new_content_placements {
+                            state
+                                .resource_indexes
+                                .content_placements
+                                .insert(content_id.clone(), placements);
+                        } else {
+                            state
+                                .resource_indexes
+                                .content_placements
+                                .get_mut(&content_id)
+                                .expect("reserved terminal placement index remains live")
+                                .push(surface_id);
+                        }
+                        state.resource_indexes.content_ids.insert(surface_id, content_id);
+                        state.resource_indexes.tab_pane.insert(surface_id, pane);
+                        super::fence_layout_undo_for_tab_membership(state, &[pane]);
+                    },
+                ))
+            },
+        )
+    }
+
     pub(crate) fn resource_move_terminal_selected(
         self: &std::sync::Arc<Self>,
         selectors: ResourceSelectors,
@@ -64,14 +285,15 @@ impl Mux {
                     .terminal
                     .clone()
                     .context("terminal selector omitted its public identity")?;
+                let source_tab_id =
+                    source.path.tab.context("terminal move requires a projected tab")?;
                 let target_workspace_slot =
                     target.workspace.context("destination did not resolve a workspace")?;
                 let target_workspace_index = state
                     .workspace_index(target_workspace_slot)
                     .context("destination workspace disappeared")?;
-                let target_workspace = &state.workspaces[target_workspace_index];
-                let target_workspace_key = target_workspace.key.clone();
-                let target_workspace_id = target_workspace.public_id.clone();
+                let target_workspace_id =
+                    state.workspaces[target_workspace_index].public_id.clone();
                 let target_screen_slot =
                     target.screen.context("destination did not resolve a screen")?;
                 let target_screen_id =
@@ -83,9 +305,9 @@ impl Mux {
                 let source_tab = topology
                     .tabs
                     .iter()
-                    .find(|tab| tab.content_id == ContentPublicId::Terminal(terminal_id.clone()))
+                    .find(|tab| tab.public_id == source_tab_id)
                     .cloned()
-                    .context("terminal has no durable tab")?;
+                    .context("selected terminal view has no durable tab")?;
                 let terminal_surface = state
                     .surfaces
                     .get(&surface)
@@ -206,26 +428,6 @@ impl Mux {
                     });
                 }
 
-                let source_workspace_id =
-                    source.path.workspace.context("terminal source omitted its workspace id")?;
-                if source_workspace_id != target_workspace_id {
-                    let host_id = source_tab
-                        .terminal_id
-                        .as_deref()
-                        .context("terminal tab omitted its host id")?;
-                    let mut terminal = registry
-                        .terminal_snapshot()?
-                        .terminals
-                        .into_iter()
-                        .find(|terminal| terminal.terminal_id == host_id)
-                        .context("terminal has no durable host placement")?;
-                    terminal.workspace_key = target_workspace_key;
-                    changes.push(ResourceChange::UpsertTerminal {
-                        public_id: terminal_id.clone(),
-                        terminal,
-                    });
-                }
-
                 let mut target_screen = topology
                     .screens
                     .iter()
@@ -246,7 +448,7 @@ impl Mux {
                     active_screen: Some(target_screen_id),
                 });
                 changes.push(ResourceChange::SetActiveWorkspace {
-                    workspace_id: Some(target_workspace_id.clone()),
+                    workspace_id: Some(target_workspace_id),
                 });
 
                 let source_public = source_pane.public_id.clone();
@@ -339,17 +541,17 @@ impl Mux {
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: if source_public == target_public { 2 } else { 4 },
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
-                    terminal_queries: usize::from(source_workspace_id != target_workspace_id),
-                    changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 4,
+                    terminal_queries: 0,
+                    changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
                 }))
             },
         )?;
 
         if !commit.replayed
-            && let Some(terminal_id) = commit.result["terminal"].as_str()
-            && let Ok(terminal_id) = crate::resource::TerminalPublicId::parse(terminal_id)
-            && let Some(surface_id) = self.resource_surface_for_terminal(&terminal_id)
-            && let Some(surface) = self.surface(surface_id)
+            && let Some(tab_id) = commit.result["tab"].as_str()
+            && let Ok(tab_id) = TabPublicId::parse(tab_id)
+            && let Some(surface_id) =
+                self.with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
         {
             let path = {
                 let state = self.state.lock().unwrap();
@@ -357,14 +559,12 @@ impl Mux {
                     let (workspace_index, screen_index) = state.screen_of(target_pane)?;
                     Some((
                         target_pane,
-                        state.workspaces[workspace_index].key.clone(),
                         state.workspaces[workspace_index].id,
                         state.workspaces[workspace_index].screens[screen_index].id,
                     ))
                 })
             };
-            if let Some((target_pane, workspace_key, workspace, screen)) = path {
-                let _ = surface.persist_host_workspace(&workspace_key);
+            if let Some((target_pane, workspace, screen)) = path {
                 self.subscribers.update_surface_session_path(
                     surface_id,
                     workspace,
@@ -406,12 +606,19 @@ impl Mux {
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
         state.rebuild_resource_indexes();
+        state.ensure_tab_identity_coverage()?;
         ensure_split_public_ids(state)?;
+        let terminal_tab_order = ordered_terminal_tab_ids(state)?;
 
         let before_browsers = before
             .browsers
             .iter()
             .map(|browser| (browser.public_id.clone(), browser.clone()))
+            .collect::<HashMap<_, _>>();
+        let before_tabs = before
+            .tabs
+            .iter()
+            .map(|tab| (tab.public_id.clone(), tab.clone()))
             .collect::<HashMap<_, _>>();
         let before_pane_ordinals = before
             .panes
@@ -487,15 +694,10 @@ impl Mux {
                         .get(&pane_slot)
                         .with_context(|| format!("screen references missing pane {pane_slot}"))?;
                     live_panes.insert(pane.public_id.clone());
-                    let active_tab = pane.tabs.get(pane.active_tab).and_then(|surface| {
-                        state.resource_indexes.tab_ids.get(surface).cloned().or_else(|| {
-                            state
-                                .surfaces
-                                .get(surface)
-                                .and_then(|surface| surface.resource_identity())
-                                .map(|identity| identity.tab_id.clone())
-                        })
-                    });
+                    let active_tab = pane
+                        .tabs
+                        .get(pane.active_tab)
+                        .and_then(|slot| state.resource_indexes.tab_ids.get(slot).cloned());
                     let creation_ordinal =
                         before_pane_ordinals.get(&pane.public_id).copied().unwrap_or(pane.id);
                     changes.push(ResourceChange::UpsertPane(RegistryPane {
@@ -521,51 +723,68 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        let surface = state.surfaces.get(surface_slot).with_context(|| {
-                            format!("pane references missing surface {surface_slot}")
-                        })?;
-                        let identity = surface.resource_identity().with_context(|| {
-                            format!("pane surface {surface_slot} has no resource identity")
-                        })?;
+                        let surface = state.surfaces.get(surface_slot);
+                        let identity =
+                            tab_resource_identity(state, *surface_slot).with_context(|| {
+                                format!("pane surface {surface_slot} has no resource identity")
+                            })?;
+                        let before_tab = before_tabs.get(&identity.tab_id);
                         live_tabs.insert(identity.tab_id.clone());
                         tab_order.push(identity.tab_id.clone());
-                        let (browser_url, terminal_id) = match &identity.content_id {
+                        let (browser_url, terminal_id, first_terminal_placement) = match &identity
+                            .content_id
+                        {
                             ContentPublicId::Terminal(terminal_id) => {
-                                live_terminals.insert(terminal_id.clone());
-                                let host = self.resource_terminal_host_identity(surface).context(
-                                    "terminal surface omitted its durable host identity",
-                                )?;
-                                let terminal = terminal_records
-                                    .get(&host.terminal_id)
-                                    .cloned()
-                                    .context("terminal surface has no durable placement")?;
-                                changes.push(ResourceChange::UpsertTerminal {
-                                    public_id: terminal_id.clone(),
-                                    terminal,
-                                });
-                                (None, Some(host.terminal_id))
+                                let first_terminal_placement =
+                                    live_terminals.insert(terminal_id.clone());
+                                let runtime = state.terminal_catalog.get(terminal_id).or(surface);
+                                let host_id = runtime
+                                    .and_then(|surface| {
+                                        self.resource_terminal_host_identity(surface)
+                                            .map(|host| host.terminal_id)
+                                    })
+                                    .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
+                                    .context("terminal view omitted its durable host identity")?;
+                                if first_terminal_placement {
+                                    let terminal = terminal_records
+                                        .get(&host_id)
+                                        .cloned()
+                                        .context("terminal view has no durable host")?;
+                                    changes.push(ResourceChange::UpsertTerminal {
+                                        public_id: terminal_id.clone(),
+                                        terminal,
+                                    });
+                                }
+                                (None, Some(host_id), first_terminal_placement)
                             }
                             ContentPublicId::Browser(browser_id) => {
+                                // A browser view can also outlive its runtime,
+                                // so the durable row is the fallback rather
+                                // than a hard requirement.
                                 live_browsers.insert(browser_id.clone());
+                                let durable = before_browsers.get(browser_id).cloned();
                                 let url = surface
-                                    .browser_url()
-                                    .or_else(|| {
-                                        before_browsers
-                                            .get(browser_id)
-                                            .map(|browser| browser.url.clone())
-                                    })
+                                    .and_then(|surface| surface.browser_url())
+                                    .or_else(|| durable.as_ref().map(|browser| browser.url.clone()))
+                                    .or_else(|| before_tab.and_then(|tab| tab.browser_url.clone()))
                                     .unwrap_or_else(|| "about:blank".to_string());
-                                let (cols, rows) = surface.size();
-                                let live_status = surface.browser_status();
-                                let mut browser =
-                                    before_browsers.get(browser_id).cloned().unwrap_or_else(|| {
-                                        RegistryBrowser::recreate(
-                                            browser_id.clone(),
-                                            url.clone(),
-                                            cols.max(1),
-                                            rows.max(1),
-                                        )
-                                    });
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .as_ref()
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let live_status =
+                                    surface.and_then(|surface| surface.browser_status());
+                                let mut browser = durable.unwrap_or_else(|| {
+                                    RegistryBrowser::recreate(
+                                        browser_id.clone(),
+                                        url.clone(),
+                                        cols.max(1),
+                                        rows.max(1),
+                                    )
+                                });
                                 browser.url = url.clone();
                                 browser.cols = cols.max(1);
                                 browser.rows = rows.max(1);
@@ -575,17 +794,22 @@ impl Mux {
                                     }
                                     Some(BrowserStatus::Live) => RegistryBrowserStatus::Live,
                                     Some(BrowserStatus::Failed(_)) => RegistryBrowserStatus::Failed,
-                                    None if surface.is_dead() => RegistryBrowserStatus::Failed,
+                                    None if surface.is_some_and(|surface| surface.is_dead()) => {
+                                        RegistryBrowserStatus::Failed
+                                    }
                                     None => browser.status,
                                 };
-                                if let Some(source) = surface.browser_source() {
+                                if let Some(source) =
+                                    surface.and_then(|surface| surface.browser_source())
+                                {
                                     browser.source = match source {
                                         BrowserSource::External => RegistryBrowserSource::External,
                                         BrowserSource::Launched => RegistryBrowserSource::Launched,
+                                        BrowserSource::Provider => RegistryBrowserSource::External,
                                     };
                                 }
                                 changes.push(ResourceChange::UpsertBrowser(browser));
-                                (Some(url), None)
+                                (Some(url), None, false)
                             }
                         };
                         let tab = RegistryTab {
@@ -593,7 +817,9 @@ impl Mux {
                             pane_id: pane.public_id.clone(),
                             position,
                             content_id: identity.content_id.clone(),
-                            name: surface.name(),
+                            name: surface
+                                .and_then(|surface| surface.name())
+                                .or_else(|| before_tab.and_then(|tab| tab.name.clone())),
                             browser_url,
                             terminal_id,
                         };
@@ -610,34 +836,53 @@ impl Mux {
                                 "pane_id":tab.pane_id,
                                 "index":tab.position,
                                 "name":tab.name,
+                                "focused":pane.active_tab == position,
                                 "content_kind":content_kind,
                                 "content_id":tab.content_id.as_str(),
                             }),
                         ));
-                        let (cols, rows) = surface.size();
                         match &tab.content_id {
-                            ContentPublicId::Terminal(id) => {
-                                let mut value = json!({
-                                    "id":id,
-                                    "tab_id":tab.public_id,
-                                    "title":surface.title(),
-                                    "cols":cols.max(1),
-                                    "rows":rows.max(1),
-                                    "running":!surface.is_dead(),
-                                });
-                                if let Some(cwd) = surface.spawn_cwd() {
-                                    value["cwd"] = json!(cwd);
-                                }
+                            ContentPublicId::Terminal(id) if first_terminal_placement => {
+                                let runtime = state.terminal_catalog.get(id).or(surface);
+                                let durable = tab
+                                    .terminal_id
+                                    .as_deref()
+                                    .and_then(|host| terminal_records.get(host))
+                                    .context("terminal view has no durable host")?;
+                                let tab_ids =
+                                    terminal_tab_order.get(id).cloned().unwrap_or_default();
+                                let value = public_terminal_snapshot(
+                                    id,
+                                    durable,
+                                    runtime.map(std::sync::Arc::as_ref),
+                                    tab_ids,
+                                )?;
                                 public.push(("terminal", id.to_string(), value));
                             }
+                            ContentPublicId::Terminal(_) => {}
                             ContentPublicId::Browser(id) => {
-                                let status = surface.browser_status();
+                                let durable = before_browsers.get(id);
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let status = surface.and_then(|surface| surface.browser_status());
                                 let status_name = status
                                     .as_ref()
                                     .map(|status| status.as_str())
-                                    .unwrap_or(if surface.is_dead() { "failed" } else { "live" });
+                                    .unwrap_or(match surface {
+                                        Some(surface) if surface.is_dead() => "failed",
+                                        Some(_) => "live",
+                                        None => match durable.map(|browser| &browser.status) {
+                                            Some(RegistryBrowserStatus::Starting) => "starting",
+                                            Some(RegistryBrowserStatus::Live) => "live",
+                                            Some(RegistryBrowserStatus::Failed) | None => "failed",
+                                        },
+                                    });
                                 let source = surface
-                                    .browser_source()
+                                    .and_then(|surface| surface.browser_source())
                                     .map(|source| source.as_str())
                                     .or_else(|| {
                                         before_browsers.get(id).map(|browser| {
@@ -646,7 +891,7 @@ impl Mux {
                                                 RegistryBrowserSource::Launched => "launched",
                                                 RegistryBrowserSource::Unknown => {
                                                     match browser.launch {
-                                                        RegistryBrowserLaunch::Create => "launched",
+                                                        RegistryBrowserLaunch::Create => "external",
                                                         RegistryBrowserLaunch::Adopted => {
                                                             "external"
                                                         }
@@ -655,7 +900,7 @@ impl Mux {
                                             }
                                         })
                                     })
-                                    .unwrap_or("launched");
+                                    .unwrap_or("external");
                                 public.push((
                                     "browser",
                                     id.to_string(),
@@ -663,12 +908,13 @@ impl Mux {
                                         "id":id,
                                         "tab_id":tab.public_id,
                                         "url":tab.browser_url,
-                                        "title":surface.title(),
+                                        "title":surface.map(|surface| surface.title()),
                                         "loading":status_name == "starting",
                                         "source":source,
                                         "status":status_name,
                                         "error":status.and_then(|status| status.error()),
-                                        "frames_stalled":surface.browser_frames_stalled()
+                                        "frames_stalled":surface
+                                            .and_then(|surface| surface.browser_frames_stalled())
                                             .unwrap_or(false),
                                         "size":{
                                             "cols":cols.max(1),
@@ -686,6 +932,34 @@ impl Mux {
                 }
             }
         }
+        for (terminal_id, surface) in &state.terminal_catalog {
+            if !live_terminals.insert(terminal_id.clone()) {
+                continue;
+            }
+            let host = self
+                .resource_terminal_host_identity(surface)
+                .context("catalog terminal omitted its durable host identity")?;
+            let terminal = terminal_records
+                .get(&host.terminal_id)
+                .cloned()
+                .context("catalog terminal has no durable host")?;
+            changes
+                .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
+            let (cols, rows) = surface.size();
+            let mut value = json!({
+                "id":terminal_id,
+                "tab_id":Value::Null,
+                "tab_ids":[],
+                "title":surface.title(),
+                "cols":cols.max(1),
+                "rows":rows.max(1),
+                "running":!surface.is_dead(),
+            });
+            if let Some(cwd) = surface.spawn_cwd() {
+                value["cwd"] = json!(cwd);
+            }
+            public.push(("terminal", terminal_id.to_string(), value));
+        }
         changes.push(ResourceChange::SetWorkspaceOrder {
             workspace_ids: state
                 .workspaces
@@ -700,18 +974,27 @@ impl Mux {
                 .map(|workspace| workspace.public_id.clone()),
         });
 
+        let mut tombstoned_terminals = HashSet::new();
+        let mut tombstoned_browsers = HashSet::new();
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
-                changes.push(ResourceChange::TombstoneTab { tab_id: tab.public_id.clone() });
+                changes.push(ResourceChange::TombstoneTab {
+                    tab_id: tab.public_id.clone(),
+                    close_content: true,
+                });
             }
             match &tab.content_id {
-                ContentPublicId::Terminal(id) if !live_terminals.contains(id) => {
+                ContentPublicId::Terminal(id)
+                    if !live_terminals.contains(id) && tombstoned_terminals.insert(id.clone()) =>
+                {
                     changes.push(ResourceChange::TombstoneTerminal {
                         public_id: id.clone(),
                         expected_incarnation: None,
                     });
                 }
-                ContentPublicId::Browser(id) if !live_browsers.contains(id) => {
+                ContentPublicId::Browser(id)
+                    if !live_browsers.contains(id) && tombstoned_browsers.insert(id.clone()) =>
+                {
                     changes.push(ResourceChange::TombstoneBrowser { public_id: id.clone() });
                 }
                 _ => {}
@@ -751,12 +1034,15 @@ impl Mux {
                 "value":value,
             }));
         }
+        let mut deleted_content = HashSet::new();
         for tab in &before.tabs {
             let (kind, id) = match &tab.content_id {
                 ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
                 ContentPublicId::Browser(id) => ("browser", id.as_str()),
             };
-            if !live_keys.contains(&(kind.to_string(), id.to_string())) {
+            if !live_keys.contains(&(kind.to_string(), id.to_string()))
+                && deleted_content.insert((kind, id))
+            {
                 push_delete_delta(&mut deltas, kind, id);
             }
             if !live_keys.contains(&("tab".to_string(), tab.public_id.to_string())) {
@@ -791,6 +1077,38 @@ impl Mux {
         let mut state = self.state.lock().unwrap();
         self.resource_effect_projection_locked(&registry, &mut state, json!({}))
     }
+}
+
+/// Durable identity of one pane tab. The topology owns this, written once by
+/// `State::register_tab_identity`. Restored tabs exist before their host is
+/// adopted and an unadoptable host never gets a surface at all, so identity
+/// must never be read back out of live runtime state.
+fn tab_resource_identity(state: &State, surface_slot: SurfaceId) -> Option<TabResourceIdentity> {
+    Some(TabResourceIdentity::new(
+        state.resource_indexes.tab_ids.get(&surface_slot)?.clone(),
+        state.resource_indexes.content_ids.get(&surface_slot)?.clone(),
+    ))
+}
+
+fn ordered_terminal_tab_ids(
+    state: &State,
+) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+    let mut tabs = Vec::new();
+    for pane in state.panes.values() {
+        for (position, surface_slot) in pane.tabs.iter().enumerate() {
+            let identity = tab_resource_identity(state, *surface_slot)
+                .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
+            if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
+                tabs.push((
+                    terminal_id.clone(),
+                    pane.public_id.clone(),
+                    position,
+                    identity.tab_id.clone(),
+                ));
+            }
+        }
+    }
+    Ok(terminal_tab_ids_in_canonical_order(tabs))
 }
 
 fn registry_screen_from_live(
@@ -999,11 +1317,15 @@ fn move_deltas(
         push_pane_delta(&mut changes, target_pane, true);
     }
     for tab in source_tabs {
-        push_tab_delta(&mut changes, tab);
+        push_tab_delta(&mut changes, tab, source_pane.active_tab.as_ref() == Some(&tab.public_id));
     }
     if !same_pane {
         for tab in target_tabs {
-            push_tab_delta(&mut changes, tab);
+            push_tab_delta(
+                &mut changes,
+                tab,
+                target_pane.active_tab.as_ref() == Some(&tab.public_id),
+            );
         }
     }
     changes
@@ -1026,24 +1348,30 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
     }));
 }
 
-fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab) {
+fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
     let sequence = changes.len();
-    let content_kind = match &tab.content_id {
-        ContentPublicId::Terminal(_) => "terminal",
-        ContentPublicId::Browser(_) => "browser",
-    };
+    let value = public_tab_value(tab, focused);
     changes.push(json!({
         "kind": "upsert",
         "sequence": sequence,
         "resource": "tab",
         "id": tab.public_id,
-        "value": {
-            "id": tab.public_id,
-            "pane_id": tab.pane_id,
-            "index": tab.position,
-            "name": tab.name,
-            "content_kind": content_kind,
-            "content_id": tab.content_id.as_str(),
-        },
+        "value": value,
     }));
+}
+
+fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
+    let content_kind = match &tab.content_id {
+        ContentPublicId::Terminal(_) => "terminal",
+        ContentPublicId::Browser(_) => "browser",
+    };
+    json!({
+        "id": tab.public_id,
+        "pane_id": tab.pane_id,
+        "index": tab.position,
+        "name": tab.name,
+        "focused": focused,
+        "content_kind": content_kind,
+        "content_id": tab.content_id.as_str(),
+    })
 }

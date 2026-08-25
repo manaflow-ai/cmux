@@ -68,6 +68,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
+        // so restoring it keeps a restored agent on the account it launched with.
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
@@ -98,6 +101,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_HOME",
         "KIRO_LOG_LEVEL",
         "KIRO_LOG_NO_COLOR",
+        "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",

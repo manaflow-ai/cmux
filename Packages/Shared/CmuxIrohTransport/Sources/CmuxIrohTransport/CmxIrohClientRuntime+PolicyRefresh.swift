@@ -24,28 +24,36 @@ extension CmxIrohClientRuntime {
         scheduleRegistrationRefresh(revision: revision)
     }
 
-    func scheduleRegistrationRefresh(revision: UInt64) {
+    func scheduleRegistrationRefresh(
+        revision: UInt64,
+        requiresDiscovery: Bool = false
+    ) {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision else { return }
         guard registrationRefreshTask == nil else {
             registrationRefreshPending = true
+            registrationRefreshPendingRequiresDiscovery =
+                registrationRefreshPendingRequiresDiscovery || requiresDiscovery
             return
         }
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         let refreshID = UUID()
         registrationRefreshTaskID = refreshID
         registrationRefreshTask = Task { [weak self] in
             guard let self else { return .failed(.superseded) }
             return try await self.refreshRegistration(
                 revision: revision,
-                refreshID: refreshID
+                refreshID: refreshID,
+                requiresDiscovery: requiresDiscovery
             )
         }
     }
 
     func refreshRegistration(
         revision: UInt64,
-        refreshID: UUID
+        refreshID: UUID,
+        requiresDiscovery: Bool
     ) async throws -> CmxIrohLiveDiscoveryRefreshOutcome {
         defer {
             if lifecycleRevision == revision,
@@ -55,7 +63,12 @@ extension CmxIrohClientRuntime {
                 if registrationRefreshEnabled,
                    registrationRefreshPending,
                    lifecyclePhase == .active {
-                    scheduleRegistrationRefresh(revision: revision)
+                    let pendingRequiresDiscovery =
+                        registrationRefreshPendingRequiresDiscovery
+                    scheduleRegistrationRefresh(
+                        revision: revision,
+                        requiresDiscovery: pendingRequiresDiscovery
+                    )
                 }
             }
         }
@@ -68,9 +81,19 @@ extension CmxIrohClientRuntime {
         }
         do {
             let endpointID = try await connectivityEngine.localEndpointIdentity()
+            if !requiresDiscovery {
+                let state = try await registrationRefreshState(
+                    expectedEndpointID: endpointID
+                )
+                guard state.requiresPublication(
+                    after: lastRegistrationRefreshState,
+                    now: now()
+                ) else { return .refreshed }
+            }
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                allowReadOnlyRegistrationRefresh: requiresDiscovery
             )
             guard policy.binding.bindingID == previousBinding.bindingID else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
@@ -82,13 +105,15 @@ extension CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if policy.registration != nil,
-               let discovery = policy.discovery {
+            if let discovery = policy.discovery {
                 let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
                 if let routeRevision = discovery.revision {
-                    await connectivityEngine.didInstallRouteRevision(routeRevision)
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
                 }
                 liveDiscoveryGeneration &+= 1
                 return .refreshed
@@ -105,7 +130,7 @@ extension CmxIrohClientRuntime {
                 throw error
             }
             guard !CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) else {
+                .preservesVerifiedStateDuringRefresh(error) else {
                 // Keep the last exact verified binding while broker availability
                 // prevents a refresh.
                 return .failed(DiagnosticFailureKind.classify(error))

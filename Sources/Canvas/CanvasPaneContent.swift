@@ -33,6 +33,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     ///   - content: What to mount.
     ///   - panelId: The panel this content belongs to.
     ///   - container: The pane view's content container.
+    ///   - workspaceAttentionColor: The current pane flash and unread ring color.
     ///   - onFocusPanel: Invoked when the content reports keyboard focus
     ///     (terminal surfaces report via their `onFocus` hook).
     ///   - makeTerminalVisible: Applies terminal visibility after attaching
@@ -41,6 +42,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         content: CanvasPaneContent,
         panelId: UUID,
         container: NSView,
+        workspaceAttentionColor: WorkspaceAttentionColor,
         onFocusPanel: @escaping (UUID) -> Void,
         makeTerminalVisible: @MainActor (GhosttySurfaceScrollView) -> Void = { $0.setVisibleInUI(true) }
     ) {
@@ -59,6 +61,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+            hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)
@@ -125,12 +128,14 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         showsInactiveOverlay: Bool,
         inactiveOverlayColor: NSColor,
         inactiveOverlayOpacity: Double,
-        sessionContentWidthPresentation: SessionContentWidthPresentation
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        workspaceAttentionColor: WorkspaceAttentionColor
     ) {
         switch content {
         case .terminal(let panel, _):
             let hostedView = panel.hostedView
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+            hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
             hostedView.setActive(isFocused)
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,
@@ -140,6 +145,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         case .hosted(_, _, let presentation):
             presentation.setFocused(isFocused)
             presentation.setAllowsPointerInput(allowsPointerInput)
+            presentation.setWorkspaceAttentionColor(workspaceAttentionColor)
         }
     }
 

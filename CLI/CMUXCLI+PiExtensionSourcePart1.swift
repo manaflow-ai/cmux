@@ -1,6 +1,6 @@
 extension CMUXCLI {
     static let piExtensionSourcePart1 = #"""
-// cmux-pi-session-extension-marker v2
+// cmux-pi-session-extension-marker v3
 // Bridges Pi session lifecycle, tool telemetry, notifications, and resume bindings into cmux.
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -17,6 +17,7 @@ interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
   turnId: string;
+  suppressNotification: boolean;
 }
 
 interface SessionState {
@@ -33,13 +34,15 @@ interface CommandResult {
   stdout: string;
   stderr: string;
   error?: unknown;
+  reason?: CommandFailureReason;
+  timeoutMs: number;
+  elapsedMs: number;
   surfaceUnavailable?: boolean;
 }
 
 interface PiExtensionContextSnapshot {
   readonly sessionId: string | null;
   readonly cwd: string;
-  readonly notifyWarning?: () => void;
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -219,43 +222,84 @@ function looksLikePiScript(value: string): boolean {
   );
 }
 
-function normalizedLaunchArgv(): string[] {
-  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-  if (raw.length === 0) return [resolveExecutable("pi")];
-  if (looksLikePiExecutable(raw[0])) return raw;
-  if (raw.length > 1 && looksLikePiScript(raw[1])) {
-    return [resolveExecutable("pi"), ...raw.slice(2)];
-  }
-  return [resolveExecutable("pi"), ...raw.slice(1)];
+interface NormalizedLaunchArgvCache {
+  key: string;
+  argv: string[];
 }
 
+let normalizedLaunchArgvCache: NormalizedLaunchArgvCache | undefined;
+
+function normalizedLaunchArgv(): string[] {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  // Pi's argv and inherited PATH are stable for the lifetime of this extension.
+  // Memoize executable discovery so every hook subprocess does not synchronously
+  // stat the full PATH again. Keep the key dynamic for test harnesses and hosts
+  // that deliberately rewrite process argv at runtime.
+  const cacheKey = [process.env.PATH || "", ...raw].join("\0");
+  if (normalizedLaunchArgvCache?.key === cacheKey) {
+    return normalizedLaunchArgvCache.argv;
+  }
+
+  let argv: string[];
+  if (raw.length === 0) {
+    argv = [resolveExecutable("pi")];
+  } else if (looksLikePiExecutable(raw[0])) {
+    argv = raw;
+  } else if (raw.length > 1 && looksLikePiScript(raw[1])) {
+    argv = [resolveExecutable("pi"), ...raw.slice(2)];
+  } else {
+    argv = [resolveExecutable("pi"), ...raw.slice(1)];
+  }
+  normalizedLaunchArgvCache = { key: cacheKey, argv };
+  return argv;
+}
+
+interface DetectedPiVersionCache {
+  key: string;
+  version: string | null;
+}
+
+let detectedPiVersionCache: DetectedPiVersionCache | undefined;
+
 function detectedPiVersion(): string | null {
+  const cacheKey = [
+    process.cwd(),
+    ...process.argv.slice(0, 2).map((value) => String(value)),
+  ].join("\0");
+  if (detectedPiVersionCache?.key === cacheKey) {
+    return detectedPiVersionCache.version;
+  }
+
   const script = process.argv.slice(0, 2).find((value) => {
     const candidate = String(value);
     return looksLikePiScript(candidate) || looksLikePiExecutable(candidate);
   });
-  if (!script) return null;
-  let scriptPath = path.resolve(String(script));
-  try {
-    // npm launches through bin symlinks, so inspect the package containing the resolved script.
-    scriptPath = fs.realpathSync(scriptPath);
-  } catch (_) {}
-  let directory = path.dirname(scriptPath);
-  for (let depth = 0; depth < 8; depth += 1) {
+  let version: string | null = null;
+  if (script) {
+    let scriptPath = path.resolve(String(script));
     try {
-      const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
-      if (
-        packageJSON?.name === "@earendil-works/pi-coding-agent" ||
-        packageJSON?.name === "@mariozechner/pi-coding-agent"
-      ) {
-        return firstString(packageJSON.version);
-      }
+      // npm launches through bin symlinks, so inspect the package containing the resolved script.
+      scriptPath = fs.realpathSync(scriptPath);
     } catch (_) {}
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
+    let directory = path.dirname(scriptPath);
+    for (let depth = 0; depth < 8; depth += 1) {
+      try {
+        const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+        if (
+          packageJSON?.name === "@earendil-works/pi-coding-agent" ||
+          packageJSON?.name === "@mariozechner/pi-coding-agent"
+        ) {
+          version = firstString(packageJSON.version);
+          break;
+        }
+      } catch (_) {}
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
   }
-  return null;
+  detectedPiVersionCache = { key: cacheKey, version };
+  return version;
 }
 
 function supportsAgentSettled(): boolean {
@@ -306,6 +350,7 @@ function safeCmuxEnvKey(key: string): boolean {
   if (key.startsWith("CMUX_AGENT_LAUNCH_")) return !secretLikeEnvKey(key);
   if (key === "CMUX_AGENT_HOOK_STATE_DIR") return true;
   if (key === "CMUX_PI_CMUX_BIN" || key === "CMUX_PI_HOOKS_DISABLED") return true;
+  if (key === "CMUX_PI_HOOK_TIMEOUT_MS") return true;
   if (key === "CMUX_SURFACE_ID" || key === "CMUX_WORKSPACE_ID" || key === "CMUX_WINDOW_ID") return true;
   if (key === "CMUX_PANE_ID" || key === "CMUX_TAB_ID" || key === "CMUX_PANEL_ID") return true;
   if (key === "CMUX_SOCKET" || key === "CMUX_SOCKET_PATH") return true;
@@ -375,18 +420,38 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: unknown): string | undefined {
+interface AssistantCompletion {
+  lastAssistantMessage?: string;
+  suppressNotification: boolean;
+}
+
+function assistantCompletionFrom(event: unknown): AssistantCompletion {
   const messagesValue = objectValue(event, ["messages"]);
   const messages = Array.isArray(messagesValue) ? messagesValue : [];
+  let suppressNotification = false;
+  let inspectedLatestAssistant = false;
+  // Resolve text and interruption metadata in one reverse pass. agent_end may
+  // carry a large message array, so notification support must not rescan it.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
-    const typed = message as { role?: unknown; content?: unknown };
+    const typed = message as {
+      role?: unknown;
+      content?: unknown;
+      stopReason?: unknown;
+      cmuxSuppressNotification?: unknown;
+    };
     if (typed.role !== "assistant") continue;
+    if (!inspectedLatestAssistant) {
+      // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
+      // the marker preserves the interruption intent across that normalization.
+      suppressNotification = typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+      inspectedLatestAssistant = true;
+    }
     const text = firstString(textFromContent(typed.content));
-    if (text) return text;
+    if (text) return { lastAssistantMessage: text, suppressNotification };
   }
-  return undefined;
+  return { suppressNotification };
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {
@@ -398,17 +463,9 @@ function cwdFrom(ctx: ExtensionContext): string {
 }
 
 function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
-  let notifyWarning: (() => void) | undefined;
-  try {
-    const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } }).ui;
-    if (typeof ui?.notify === "function") {
-      notifyWarning = () => ui.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
-    }
-  } catch (_) {}
   return {
     sessionId: sessionIdFrom(ctx),
     cwd: cwdFrom(ctx),
-    notifyWarning,
   };
 }
 
@@ -466,16 +523,20 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-function warn(ctx: PiExtensionContextSnapshot | null, message: string, details: Record<string, unknown> = {}): void {
-  const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
-  try {
-    console.warn(JSON.stringify(payload));
-  } catch (_) {
-    console.warn(`[cmux-pi-extension] ${message}`);
-  }
-  try {
-    ctx?.notifyWarning?.();
-  } catch (_) {}
+async function warn(
+  _ctx: PiExtensionContextSnapshot | null,
+  message: string,
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  const payload = {
+    source: "cmux-pi-extension",
+    level: "warning",
+    message,
+    hook_name: "extension",
+    reason: "extension-error",
+    ...details,
+  };
+  await runPiHookDiagnosticWrite(() => appendPiHookDiagnostic(payload));
 }
 
 function cmuxExecutable(): string {

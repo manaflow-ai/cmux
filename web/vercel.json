@@ -19,6 +19,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/billing-reconcile",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/internal/vm/leases/revoke-expired",
       "schedule": "*/10 * * * *"
     },

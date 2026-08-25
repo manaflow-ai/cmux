@@ -135,6 +135,35 @@
     "faqFeatureA": "我們很想聽到你的回饋。在 GitHub 上提交一個 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>寄電子郵件給我們</mailLink>。"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "總覽",
+      "team": "團隊"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "coderouterLink": "開啟 coderouter",
+      "iosAppName": "iOS 應用程式",
+      "iosAppDescription": "透過 TestFlight（測試版）安裝 cmux iOS 應用程式。",
+      "iosLink": "開啟 iOS 應用程式"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
+      "title": "coderouter",
+      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。"
+    },
+    "accountMenu": {
+      "label": "帳戶選單",
+      "settings": "設定",
+      "billing": "帳單",
+      "signOut": "登出",
+      "signingOut": "正在登出…",
+      "signOutError": "無法登出，請再試一次。",
+      "organizationSwitchError": "無法切換組織，請再試一次。",
+      "signIn": "登入"
+    },
     "aiAccounts": {
       "metaTitle": "AI 帳戶 — cmux",
       "metaDescription": "管理 cmux 的團隊 AI 供應商帳戶。",
@@ -185,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -771,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"
     },
+    "claudeCodeTeams": {
+      "shimStep1": "在目前 surface 的暫存 shim 目錄中建立 tmux shim。路徑包含 surface UUID，且會隨面板及每次啟動而變更，因此無法提供固定路徑",
+      "shimStep2": "設定 TMUX 和 TMUX_PANE，以便在 Claude Teams 啟動工作階段中模擬 tmux",
+      "shimDiagnostic": "shim 只有在設定了 <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> 時才會將請求路由至 cmux；未設定時會透明地落到下一個真正的 tmux 可執行檔。因此，<which>which tmux</which> 無法告訴你 Claude Teams 的攔截是否正在作用。",
+      "envTmux": "執行 cmux claude-teams 的工作階段所使用的合成 tmux socket 路徑",
+      "envTmuxPane": "執行 cmux claude-teams 的工作階段所使用的合成 tmux pane 識別碼；在產生的 agent 面板中為空",
+      "envSurface": "目前 surface 的 UUID；在產生的 agent 面板內將它用作 surface 識別碼",
+      "envScope": "合成的 <tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane> 及相關 tmux 相容值描述的是執行 <command>cmux claude-teams</command> 的工作階段，而不是產生的面板。從 agent 面板內使用 <surface>CMUX_SURFACE_ID</surface> 並執行 <tree>cmux tree --json</tree>；輸出的 <caller>caller</caller> 物件會識別呼叫面板。",
+      "dirShimPath": "系統暫存目錄下每個 surface 各自的目錄（沒有固定路徑）",
+      "dirShim": "包含目前有效的 tmux shim，並針對該 surface 加到 PATH 最前面",
+      "dirStore": "用於持久儲存 tmux-compat 緩衝區、hook，以及分割位置/版面配置狀態",
+      "storeDetails": "分割路由鍵包括：",
+      "storeLastSplitSurface": "將每個工作區 UUID 對應到最近一次分割所建立的 surface UUID。它會初始化 agent 欄錨點，用來決定下一個 main-vertical 分割的落點。",
+      "storeMainVerticalLayouts": "將每個工作區 UUID 對應到 <mainSurfaceId>mainSurfaceId</mainSurfaceId>（主要或 leader surface）和 <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（agent 欄最底部的 surface）。後續隊友分割會以該欄為目標並向下堆疊。",
+      "storeTroubleshooting": "如果隊友面板出現在現有 surface 後方的分頁中，而不是旁邊的分割中，請檢查這些路由鍵。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入門指南",
@@ -867,6 +918,8 @@
       "concepts": "概念",
       "anchorTitle": "錨點工作區",
       "anchorDesc": "每個群組都恰好由一個稱為錨點的工作區擁有。側邊欄中的群組標頭即是錨點的呈現方式——它沒有獨立的列。點按標頭名稱區域會聚焦於錨點的面板；點按箭號則切換折疊狀態。",
+      "anchorNew": "群組的錨點在建立時一律是全新的工作區；無論將所選工作區分組或建立群組，都不會把任何現有工作區提升為錨點。（之後關閉錨點時，確實會提升群組中第一個仍保留的成員，請見下文。）將所選工作區分組時，錨點的工作目錄會繼承自第一個選取的工作區；透過 CLI 建立且未指定 --cwd 時，則繼承自目前使用中的工作區。",
+      "anchorClose": "關閉錨點工作區時，只會關閉該工作區，並將群組中第一個仍保留的成員（依群組順序仍存在的成員中最前面的一個）提升為新錨點，因此群組和其他成員會維持不變（獲提升的成員之後會在標頭顯示群組名稱）。當錨點是群組中唯一的工作區時，群組會被移除。若要將群組展開為未分組的工作區，請使用取消工作區群組；若要關閉群組中的所有工作區，請使用刪除群組。",
       "identityTitle": "群組識別",
       "identityDesc": "群組具有名稱、圖示（一個 SF Symbol，預設為 folder.fill），以及一個選用的自訂顏色。這些都獨立於錨點工作區本身的自訂設定。錨點的顏色和圖示在建立時會以群組為種子值，但之後可以各自不同。",
       "pinningTitle": "釘選",
@@ -968,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",
@@ -1405,7 +1459,16 @@
     "changelog": {
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
-      "metaTitle": "更新日誌"
+      "metaTitle": "更新日誌",
+      "versionTitle": "cmux {version} · 更新日誌",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "變更",
+        "fixed": "修正",
+        "removed": "移除",
+        "contributors": "貢獻者"
+      }
     },
     "navItems": {
       "gettingStarted": "入門指南",
@@ -1433,7 +1496,7 @@
       "metaTitle": "Dock",
       "metaDescription": "使用 Dock JSON 將自訂 TUI 控制項加入 cmux 右側邊欄。",
       "title": "Dock",
-      "intro": "Dock 可讓你將 TUI 控制項加入右側邊欄。每個控制項都是 JSON 中定義的命令，並會在自己的 Ghostty 終端區段中呈現。可用於 feed、日誌、佇列、git 狀態、開發伺服器，或團隊想放在每個 workspace 旁邊的任何 TUI。",
+      "intro": "Dock 可讓你將終端與瀏覽器控制項加入右側邊欄。終端控制項會在 Ghostty 支援的區段中執行命令，瀏覽器控制項則會嵌入網頁。可用於 feed、日誌、佇列、git 狀態、開發伺服器、儀表板，或團隊想放在每個 workspace 旁邊的參考頁面。",
       "configTitle": "設定",
       "configIntro": "cmux 會依下列順序尋找 Dock 設定：",
       "projectConfig": "用於目前 repo、最近的上層專案，以及巢狀專案目錄。",
@@ -1447,9 +1510,12 @@
       "descriptionHeader": "說明",
       "fieldId": "控制項的穩定唯一識別碼。保持簡短，且不要重複用於其他命令。",
       "fieldTitle": "顯示在 Dock 標頭中的標籤。",
-      "fieldCommand": "在 Dock 終端中執行的命令。它會在你的 login shell 中啟動。",
+      "fieldCommand": "要在 Dock 終端中執行的命令。終端控制項必填，並在登入 shell 中啟動。",
+      "fieldType": "選用的控制項類型：terminal（預設）或 browser。",
+      "fieldUrl": "要開啟的頁面。瀏覽器控制項必填。",
+      "fieldChrome": "選用的瀏覽器介面顯示設定。預設為 true；設為 false 會隱藏網址列與工具列，使「聚焦網址列」在該窗格中不生效，同時 cmux browser goto/reload 仍可使用。",
       "fieldCwd": "選用工作目錄。專案設定中的相對路徑會從專案根目錄解析，全域設定中的相對路徑會從家目錄解析。",
-      "fieldHeight": "選用的終端要求高度，單位為 points。沒有 height 的控制項會共用剩餘空間。",
+      "fieldHeight": "選用的控制項高度。未設定 height 的控制項會共用剩餘空間。",
       "fieldEnv": "只傳遞給該控制項的選用環境變數。",
       "sharingTitle": "與團隊分享",
       "sharingIntro": "當命令屬於 repo 時，Dock 設計為可透過 source control 分享。",
@@ -1459,7 +1525,7 @@
       "agentPromptTitle": "請 agent 協助設定",
       "agentPromptIntro": "當你希望 coding agent 建立 Dock 控制項時，請使用這段 prompt。它會要求 agent 執行 `cmux docs dock`、檢查專案，並在猜測前先提問。",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "工作階段還原",
@@ -3523,7 +3589,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
+    "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
+    "signedOutSignIn": "登入"
   },
   "platforms": {
     "macos": "macOS",
@@ -3557,7 +3625,6 @@
     "title": "適用於 {platform} 的 cmux",
     "tagline": "將 Chromium 瀏覽器與代理工作區整合在一起。",
     "logoAlt": "cmux App 圖示",
-    "portableCta": "可攜式 ZIP",
     "featuresTitle": "專為代理工作打造",
     "features": {
       "chromium": {
@@ -3579,7 +3646,7 @@
     },
     "installTitle": "安裝",
     "releaseTitle": "版本與更新",
-    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新穩定版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
+    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
     "sourceLink": "在 GitHub 上檢視原始碼",
     "otherPlatform": "適用於 {platform} 的 cmux",
     "macLink": "Mac 版 cmux 終端",
@@ -3589,6 +3656,7 @@
       "metaDescription": "下載 Windows x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
       "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和熟悉的 Windows 鍵盤操作。",
       "primaryCta": "下載安裝程式（.exe）",
+      "secondaryCta": "可攜式 ZIP",
       "requirements": "Windows 10 或更新版本 · x64",
       "installBody": "執行安裝程式並依照 Windows 提示操作。若想將 cmux 放在資料夾中而不進行全系統安裝，請選擇可攜式 ZIP。"
     },
@@ -3597,9 +3665,10 @@
       "metaTitle": "下載 Linux 版 cmux",
       "metaDescription": "下載 Linux x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
       "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和整合式終端介面。",
-      "primaryCta": "下載 .deb",
-      "requirements": "Debian 或 Ubuntu · x64",
-      "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+      "primaryCta": "下載支援自動更新的安裝程式（.run）",
+      "secondaryCta": "Debian 套件（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "執行一次使用者層級安裝程式。cmux 會在不需要 root 權限的情況下安裝到 ~/.local，並啟用經簽署的 App 內更新。若希望由套件管理員管理更新，請改選 Debian 套件。"
     }
   },
   "emails": {

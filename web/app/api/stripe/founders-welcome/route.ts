@@ -21,10 +21,6 @@ import {
 } from "./welcome-email";
 import { welcomeTriggerForMetadata } from "./welcome-trigger";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-// Stripe signs webhooks with a 5-minute default tolerance; reject older payloads
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 

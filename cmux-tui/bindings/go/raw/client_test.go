@@ -14,14 +14,17 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 91 {
-		t.Fatalf("generated commands = %d, want 91", len(commands))
+	if len(commands) != 103 {
+		t.Fatalf("generated commands = %d, want 103", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
 	commandNames := make(map[string]struct{}, len(commands))
@@ -51,8 +54,36 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 			t.Errorf("generated command inventory is missing %s", name)
 		}
 	}
-	if events := AllEventMetadata(); len(events) != 44 {
-		t.Fatalf("generated events = %d, want 44", len(events))
+	if events := AllEventMetadata(); len(events) != 46 {
+		t.Fatalf("generated events = %d, want 46", len(events))
+	}
+}
+
+type invalidCountWriter struct {
+	count int
+}
+
+func (w invalidCountWriter) Write([]byte) (int, error) {
+	return w.count, nil
+}
+
+func TestWriteAllRejectsInvalidWriterCounts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+	}{
+		{name: "negative", count: -1},
+		{name: "oversized", count: len([]byte("payload")) + 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := writeAll(invalidCountWriter{count: test.count}, []byte("payload"))
+			if err == nil {
+				t.Fatal("writeAll returned nil for invalid writer count")
+			}
+			if err.Error() != "writer returned an invalid count" {
+				t.Fatalf("writeAll error = %q, want invalid count error", err)
+			}
+		})
 	}
 }
 
@@ -136,6 +167,66 @@ func TestTypedCommandPreservesUint64RequestAndResult(t *testing.T) {
 	}
 	if result.WorkspaceRevision == nil || *result.WorkspaceRevision != ^uint64(0) {
 		t.Fatalf("workspace revision = %v", result.WorkspaceRevision)
+	}
+}
+
+func TestMintTerminalRendererByTerminalEncodesAndDispatchesExactRequest(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(MuxProtocolVersion)
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+	}
+	defer client.Close()
+
+	terminal := "term_0123456789abcdef0123456789abcdef"
+	ttl := uint64(5000)
+	requestSeen := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		decoder.UseNumber()
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requestSeen <- request
+		_ = json.NewEncoder(serverConn).Encode(map[string]any{
+			"id": request["id"],
+			"ok": true,
+			"data": map[string]any{
+				"endpoint":         "/tmp/terminal.sock",
+				"terminal_id":      "0123456789abcdef0123456789abcdef",
+				"incarnation":      "fedcba9876543210fedcba9876543210",
+				"token":            strings.Repeat("00", 32),
+				"rights":           7,
+				"protocol_version": 3,
+				"ttl_ms":           ttl,
+			},
+		})
+	}()
+
+	result, err := client.MintTerminalRendererByTerminal(
+		context.Background(),
+		terminal,
+		MintTerminalRendererByTerminalOptions{TtlMs: &ttl},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := <-requestSeen
+	if request["cmd"] != "mint-terminal-renderer-by-terminal" {
+		t.Fatalf("command = %#v", request["cmd"])
+	}
+	if request["terminal"] != terminal {
+		t.Fatalf("terminal = %#v", request["terminal"])
+	}
+	if got := request["ttl_ms"].(json.Number).String(); got != "5000" {
+		t.Fatalf("ttl_ms = %s", got)
+	}
+	if result.ProtocolVersion != 3 || result.TtlMs != ttl {
+		t.Fatalf("renderer grant = %#v", result)
 	}
 }
 
@@ -339,13 +430,253 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 	}
 }
 
+func TestClientSessionTriState(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	oldDial := dialUnixContext
+	t.Cleanup(func() { dialUnixContext = oldDial })
+	uid := fmt.Sprintf("cmux-tui-%d", os.Getuid())
+	for _, test := range []struct {
+		name    string
+		options Options
+		want    string
+	}{
+		{name: "omitted", options: Options{}, want: filepath.Join("/run/user-test", uid, "main.sock")},
+		{name: "non-empty", options: Options{Session: "agent"}, want: filepath.Join("/run/user-test", uid, "agent.sock")},
+		{name: "explicit empty", options: Options{SessionSet: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var paths []string
+			dialUnixContext = func(_ context.Context, path string) (net.Conn, error) {
+				paths = append(paths, path)
+				return nil, syscall.ENOENT
+			}
+			_, err := NewClient(test.options)
+			if test.want == "" {
+				if !errors.Is(err, ErrInvalidArgument) || len(paths) != 0 {
+					t.Fatalf("explicit empty result = (%v, %q), want invalid before dial", err, paths)
+				}
+				return
+			}
+			if err == nil || len(paths) != 1 || paths[0] != test.want {
+				t.Fatalf("result = (%v, %q), want one dial to %q", err, paths, test.want)
+			}
+		})
+	}
+}
+
+func TestNewClientDoesNotProbeLegacySocketForNormalRuntimePath(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "/tmp/ignored")
+	oldDial := dialUnixContext
+	t.Cleanup(func() { dialUnixContext = oldDial })
+	var deadlines []time.Time
+	dialUnixContext = func(ctx context.Context, _ string) (net.Conn, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("dial context has no deadline")
+		}
+		deadlines = append(deadlines, deadline)
+		return nil, syscall.ENOENT
+	}
+	_, err := NewClient(Options{Timeout: 5 * time.Millisecond})
+	if err == nil || len(deadlines) != 1 {
+		t.Fatalf("NewClient error = %v, dial attempts = %d, want one attempt", err, len(deadlines))
+	}
+}
+
+func TestLegacyFallbackRequiresExactHashedPathProvenance(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	session := "main"
+	uid := fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid())
+	leaf := sessionpath.Digest(session) + ".sock"
+	legacy := legacySocketPathForSession(session)
+	if got := legacySocketPathForResolvedSession(
+		filepath.Join("/run/user-test", uid, leaf), session,
+	); got != legacy {
+		t.Fatalf("exact hashed path fallback = %q, want %q", got, legacy)
+	}
+	for _, path := range []string{
+		filepath.Join("/run/user-test", fmt.Sprintf("cmux-tui-%d", os.Getuid()), "main.sock"),
+		filepath.Join("/run/user-test", uid+"-stale", leaf),
+		filepath.Join("/run/user-test", uid, sessionpath.Digest("other")+".sock"),
+	} {
+		if got := legacySocketPathForResolvedSession(path, session); got != "" {
+			t.Fatalf("untrusted path %q installed fallback %q", path, got)
+		}
+	}
+}
+
 func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	for _, session := range []string{"", ".", "..", "../other", "contains space", "a/b"} {
+	for _, session := range []string{
+		"",
+		".",
+		"..",
+		"../other",
+		"a/b",
+		"a\\b",
+		"bad\x00name",
+		"bad\nname",
+		"bad\u0085name",
+		"bad\u2028name",
+		"bad\u2029name",
+	} {
 		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)
 		}
+	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xff, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("malformed UTF-8 session was accepted")
+	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xed, 0xa0, 0x80, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("UTF-8 surrogate session was accepted")
+	}
+}
+
+func TestDefaultSocketPathEmptySessionIsolated(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	if got, want := DefaultSocketPath(""), DefaultSocketPath("main"); got == want {
+		t.Fatalf("empty compatibility path = %q, must not alias main path", got)
+	}
+}
+
+func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	for _, session := range []string{
+		"contains space",
+		"名前",
+		"_leading",
+		"-leading",
+		".leading",
+		"legacy:colon",
+	} {
+		path, err := ResolveSocketPath("", session)
+		if err != nil {
+			t.Fatalf("session %q rejected: %v", session, err)
+		}
+		if !strings.HasSuffix(path, "/"+session+".sock") {
+			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
+		}
+	}
+}
+
+func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/501")
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/run/user/501",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
+	)
+	if path != want {
+		t.Fatalf("long session path = %q, want %q", path, want)
+	}
+	if !unixSocketPathFits(path) {
+		t.Fatalf("long session path exceeds sockaddr_un: %q", path)
+	}
+	bindDir, err := os.MkdirTemp("/tmp", "cmux-go-long-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(bindDir) })
+	leafLength := len([]byte(path)) - len([]byte(bindDir)) - 1
+	if leafLength <= len(".sock") {
+		t.Fatalf("temporary bind path cannot reach the canonical byte length: %q", path)
+	}
+	bindPath := filepath.Join(bindDir, strings.Repeat("x", leafLength-len(".sock"))+".sock")
+	if len([]byte(bindPath)) != len([]byte(path)) {
+		t.Fatalf("temporary bind path length = %d, want %d", len([]byte(bindPath)), len([]byte(path)))
+	}
+	listener, err := net.Listen("unix", bindPath)
+	if err != nil {
+		t.Fatalf("bind long session path %q: %v", bindPath, err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(bindPath)
+	})
+}
+
+func TestUnixSocketPathCapacityMatchesSupportedUnixFamilies(t *testing.T) {
+	for _, goos := range []string{"darwin", "dragonfly", "freebsd", "netbsd", "openbsd"} {
+		if got := unixSocketPathCapacity(goos); got != 104 {
+			t.Fatalf("%s Unix socket path capacity = %d, want 104", goos, got)
+		}
+	}
+	for _, goos := range []string{"linux", "solaris"} {
+		if got := unixSocketPathCapacity(goos); got != 108 {
+			t.Fatalf("%s Unix socket path capacity = %d, want 108", goos, got)
+		}
+	}
+}
+
+func TestNonASCIILongSessionUsesSharedUTF8SHA256Digest(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/501")
+	session := strings.Repeat("名前", 100)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/run/user/501",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock",
+	)
+	if path != want {
+		t.Fatalf("non-ASCII long session path = %q, want %q", path, want)
+	}
+}
+
+func TestHashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/tmp/"+strings.Repeat("x", 200))
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+	) + string(filepath.Separator)
+	if !strings.HasPrefix(path, wantPrefix) {
+		t.Fatalf("hashed fallback path = %q, want prefix %q", path, wantPrefix)
+	}
+}
+
+func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	first := DefaultSocketPath("../escape")
+	second := DefaultSocketPath("../escape")
+	if first != second {
+		t.Fatalf("invalid compatibility paths differ: %q != %q", first, second)
+	}
+	if (!strings.Contains(first, "/cmux-tui-invalid-") &&
+		!strings.Contains(first, "/tmp/cmux-tui-invalid-")) ||
+		!strings.HasSuffix(first, ".sock") || strings.Contains(first, "escape") {
+		t.Fatalf("invalid compatibility path is not an isolated digest leaf: %q", first)
 	}
 }
 

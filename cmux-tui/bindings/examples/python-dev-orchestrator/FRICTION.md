@@ -16,7 +16,7 @@ in the deterministic fake server.
 
 ## Ergonomic gaps
 
-The v1 endpoint exposes one local machine and session. The consumer still
+The v2 endpoint exposes one local machine and session. The consumer still
 validates their typed IDs instead of treating user labels as identity.
 
 1. **E1:** Names are intentionally non-unique, but `find_*_by_name()` returns an

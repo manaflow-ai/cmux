@@ -14,20 +14,40 @@ use serde::{Deserialize, Serialize};
 
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 4;
+pub const LAUNCH_ACTIVATION_PROTOCOL_VERSION: u16 = 4;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
+pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 const EXIT_PAYLOAD_VERSION: u16 = 1;
 const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
 const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
 pub const MAX_EXIT_REASON_BYTES: usize = 4096;
+const LAUNCH_FAILURE_PAYLOAD_VERSION: u16 = 1;
+const LAUNCH_FAILURE_PAYLOAD_HEADER_LEN: usize = 2 * size_of::<u16>();
+pub const MAX_LAUNCH_FAILURE_MESSAGE_BYTES: usize = 4096;
 /// The live Output or Resized payload is not independently renderable. Its
 /// immediately following sequenced frame must be Colors, and consumers must
 /// apply both before publishing terminal state.
 pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 /// ClientHello opt-in and HostHello acknowledgement for targeted ViewerSize
-/// control responses. This handshake-only flag lets v1 peers negotiate the
+/// control responses. This handshake-only flag lets compatible peers negotiate the
 /// optimization without exposing an unknown ResizeAck to legacy renderers.
 pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
+/// ClientHello opt-in and HostHello acknowledgement for the smart terminal
+/// stream. Smart clients receive an explicit Snapshot/Colors/Ready barrier,
+/// followed by retained and live raw PTY Output frames from a source cursor
+/// that is independent of the authoritative host parser's cursor. Their
+/// Resized payload is cols:u16 + rows:u16, optionally followed by cell pixel
+/// width:u16 + height:u16, and carries no Colors pair.
+///
+/// Legacy renderers do not set this bit and retain the existing normalized,
+/// parser-ordered stream and coupled color semantics.
+pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
+/// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
+/// send `Activate` after its daemon has durably committed public topology.
+pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -124,15 +144,15 @@ impl TerminalExit {
     }
 }
 
-/// Wait for the native child hidden behind portable-pty without collapsing
-/// Unix signal/core information into portable-pty's display-only status.
+/// Wait for the native child hidden behind cmux-pty without collapsing Unix
+/// signal/core information into its display-only fallback status.
 ///
-/// portable-pty's Unix backend returns `std::process::Child`, so failure to
-/// downcast is an alternate backend and becomes an explicit unknown outcome.
+/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
+/// is an alternate backend and becomes an explicit unknown outcome.
 pub(crate) fn wait_for_native_child_status(
-    child: &mut (dyn portable_pty::Child + Send + Sync),
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
-    let child: &mut dyn portable_pty::Child = child;
+    let child: &mut dyn cmux_pty::Child = child;
     if let Some(child) = child.downcast_mut::<std::process::Child>() {
         return match child.wait() {
             Ok(status) => TerminalExit::from_exit_status(&status),
@@ -240,6 +260,96 @@ pub fn decode_terminal_exit(payload: &[u8]) -> Result<TerminalExit, ProtocolErro
     Ok(TerminalExit { outcome, exited_at_ms })
 }
 
+/// Machine-readable category for a terminal host that could not publish a
+/// launched PTY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum HostLaunchFailureKind {
+    PtyCapacityExhausted = 1,
+    LaunchFailed = 2,
+}
+
+impl HostLaunchFailureKind {
+    pub const fn reason_code(self) -> &'static str {
+        match self {
+            Self::PtyCapacityExhausted => "pty_capacity_exhausted",
+            Self::LaunchFailed => "terminal_launch_failed",
+        }
+    }
+}
+
+impl TryFrom<u16> for HostLaunchFailureKind {
+    type Error = ProtocolError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            value if value == Self::PtyCapacityExhausted as u16 => Ok(Self::PtyCapacityExhausted),
+            value if value == Self::LaunchFailed as u16 => Ok(Self::LaunchFailed),
+            _ => Err(ProtocolError::MalformedLaunchFailurePayload),
+        }
+    }
+}
+
+/// Bounded launch failure returned on the bootstrap pipe before the hidden
+/// host exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostLaunchFailure {
+    pub kind: HostLaunchFailureKind,
+    pub message: String,
+}
+
+impl HostLaunchFailure {
+    pub fn bounded(kind: HostLaunchFailureKind, mut message: String) -> Self {
+        if message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+            let mut end = MAX_LAUNCH_FAILURE_MESSAGE_BYTES;
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.truncate(end);
+        }
+        Self { kind, message }
+    }
+}
+
+impl fmt::Display for HostLaunchFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostLaunchFailure {}
+
+pub fn encode_host_launch_failure(failure: &HostLaunchFailure) -> Result<Vec<u8>, ProtocolError> {
+    if failure.message.is_empty() || failure.message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let mut payload = Vec::with_capacity(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + failure.message.len());
+    payload.extend_from_slice(&LAUNCH_FAILURE_PAYLOAD_VERSION.to_le_bytes());
+    payload.extend_from_slice(&(failure.kind as u16).to_le_bytes());
+    payload.extend_from_slice(failure.message.as_bytes());
+    Ok(payload)
+}
+
+pub fn decode_host_launch_failure(payload: &[u8]) -> Result<HostLaunchFailure, ProtocolError> {
+    if !(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + 1
+        ..=LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + MAX_LAUNCH_FAILURE_MESSAGE_BYTES)
+        .contains(&payload.len())
+    {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let version = u16::from_le_bytes(payload[0..2].try_into().expect("fixed version slice"));
+    if version != LAUNCH_FAILURE_PAYLOAD_VERSION {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let kind = HostLaunchFailureKind::try_from(u16::from_le_bytes(
+        payload[2..4].try_into().expect("fixed kind slice"),
+    ))?;
+    let message = std::str::from_utf8(&payload[LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..])
+        .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
+        .to_string();
+    Ok(HostLaunchFailure { kind, message })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum MessageKind {
@@ -264,6 +374,23 @@ pub enum MessageKind {
     ResizeAck = 16,
     /// Targeted response to `ClearHistory`; payload is one status byte.
     ClearHistoryAck = 17,
+    /// Targeted response to `SetCellPixelSize`; payload is the committed
+    /// cell width:u16 + height:u16.
+    CellPixelSizeAck = 18,
+    /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
+    /// four-field resource limit tuple.
+    KittyGraphicsLimitsAck = 19,
+    /// Bootstrap-pipe response when the host could not create its PTY or
+    /// child. The bounded UTF-8 payload preserves the owning process's error
+    /// instead of making the launcher infer failure from EOF.
+    LaunchFailed = 20,
+    /// Targeted confirmation that `Terminate` reached the authoritative host.
+    /// The PTY group shutdown continues asynchronously after this receipt.
+    TerminateAck = 21,
+    /// Targeted source fence for a daemon that will detach from a persistent
+    /// host. Every live frame admitted before this receipt is queued before it,
+    /// and this client is removed from live publication before the receipt.
+    DetachAck = 22,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -278,6 +405,19 @@ pub enum MessageKind {
     /// authoritative parser, or encode the optional key on the alternate
     /// screen. New hosts advertise support in their durable discovery record.
     ClearHistory = 107,
+    /// Protocol-v2 admin request: cell width:u16 + height:u16. The host
+    /// commits both its PTY and authoritative Ghostty parser before replying.
+    SetCellPixelSize = 108,
+    /// Protocol-v3 admin request: image bytes, in-flight bytes, image count,
+    /// and placement count as four little-endian u64 values.
+    SetKittyGraphicsLimits = 109,
+    /// Protocol-v4 launch-owner request. A newly launched host keeps its PTY
+    /// reader behind a bounded kernel-buffer barrier until the daemon has
+    /// durably committed the terminal's public topology.
+    Activate = 110,
+    /// Admin request for a final source-ordered receipt before a daemon closes
+    /// its persistent-host connection.
+    Detach = 111,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -302,6 +442,11 @@ impl TryFrom<u16> for MessageKind {
             15 => Ok(Self::Capability),
             16 => Ok(Self::ResizeAck),
             17 => Ok(Self::ClearHistoryAck),
+            18 => Ok(Self::CellPixelSizeAck),
+            19 => Ok(Self::KittyGraphicsLimitsAck),
+            20 => Ok(Self::LaunchFailed),
+            21 => Ok(Self::TerminateAck),
+            22 => Ok(Self::DetachAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -310,6 +455,10 @@ impl TryFrom<u16> for MessageKind {
             105 => Ok(Self::MintCapability),
             106 => Ok(Self::SetDefaults),
             107 => Ok(Self::ClearHistory),
+            108 => Ok(Self::SetCellPixelSize),
+            109 => Ok(Self::SetKittyGraphicsLimits),
+            110 => Ok(Self::Activate),
+            111 => Ok(Self::Detach),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -363,6 +512,7 @@ pub enum ProtocolError {
     PayloadTooLarge { len: usize, max: usize },
     Truncated { expected: usize, actual: usize },
     MalformedExitPayload,
+    MalformedLaunchFailurePayload,
     DecoderFailed,
 }
 
@@ -386,6 +536,9 @@ impl fmt::Display for ProtocolError {
                 write!(f, "truncated terminal-host frame: expected {expected} bytes, got {actual}")
             }
             Self::MalformedExitPayload => write!(f, "malformed terminal-host exit payload"),
+            Self::MalformedLaunchFailurePayload => {
+                write!(f, "malformed terminal-host launch-failure payload")
+            }
             Self::DecoderFailed => write!(f, "terminal-host decoder is unusable after an error"),
         }
     }
@@ -436,6 +589,23 @@ fn parse_header(bytes: &[u8], max_payload: usize) -> Result<Header, ProtocolErro
     let request_id = u64::from_le_bytes(bytes[16..24].try_into().expect("fixed request-id slice"));
     let sequence = u64::from_le_bytes(bytes[24..32].try_into().expect("fixed sequence slice"));
     Ok(Header { version, kind, flags, payload_len, request_id, sequence })
+}
+
+/// Validate an encoded CMTH header and return its declared payload length.
+///
+/// Async readers can use this after reading exactly [`HEADER_LEN`] bytes so
+/// the wire layout remains owned by this module.
+pub fn frame_payload_len(
+    encoded_header: &[u8],
+    max_payload: usize,
+) -> Result<usize, ProtocolError> {
+    if encoded_header.len() != HEADER_LEN {
+        return Err(ProtocolError::Truncated {
+            expected: HEADER_LEN,
+            actual: encoded_header.len(),
+        });
+    }
+    Ok(parse_header(encoded_header, max_payload.min(MAX_FRAME_PAYLOAD))?.payload_len)
 }
 
 fn encode_header(frame: &Frame, max_payload: usize) -> Result<[u8; HEADER_LEN], ProtocolError> {
@@ -622,6 +792,37 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex, mpsc};
+
+    /// Test-only stand-in for a direct pipe reader. The bounded queue models
+    /// the byte pump, while the mutex is the single parser owner.
+    struct PipeBytePump {
+        tx: Option<mpsc::SyncSender<Vec<u8>>>,
+        rx: mpsc::Receiver<Vec<u8>>,
+        decoder: Arc<Mutex<FrameDecoder>>,
+    }
+
+    impl PipeBytePump {
+        fn new(capacity: usize) -> Self {
+            let (tx, rx) = mpsc::sync_channel(capacity);
+            Self {
+                tx: Some(tx),
+                rx,
+                decoder: Arc::new(Mutex::new(FrameDecoder::new(MAX_FRAME_PAYLOAD))),
+            }
+        }
+
+        fn close(&mut self) {
+            self.tx.take();
+        }
+
+        fn parse_next(&self) -> Result<Option<Vec<Frame>>, ProtocolError> {
+            match self.rx.recv() {
+                Ok(bytes) => self.decoder.lock().unwrap().push(&bytes).map(Some),
+                Err(_) => self.decoder.lock().unwrap().finish().map(|()| None),
+            }
+        }
+    }
 
     fn sample_frame() -> Frame {
         Frame {
@@ -641,7 +842,7 @@ mod tests {
             encoded,
             vec![
                 b'C', b'M', b'T', b'H', // magic
-                0x01, 0x00, // version
+                0x04, 0x00, // version
                 0x06, 0x00, // output
                 0x44, 0x33, 0x22, 0x11, // flags
                 0x03, 0x00, 0x00, 0x00, // payload length
@@ -676,11 +877,131 @@ mod tests {
     }
 
     #[test]
+    fn direct_pipe_pump_handles_split_ansi_and_utf8_then_eof() {
+        let mut frame = Frame::new(MessageKind::Output, b"\x1b[31mCafe ".to_vec());
+        frame.payload.extend_from_slice("é\x1b[0m".as_bytes());
+        let encoded = encode_frame(&frame).unwrap();
+        let mut pump = PipeBytePump::new(3);
+        let tx = pump.tx.as_ref().unwrap();
+        tx.send(encoded[..3].to_vec()).unwrap();
+        tx.send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
+        tx.send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
+
+        assert!(pump.parse_next().unwrap().unwrap().is_empty());
+        assert!(pump.parse_next().unwrap().unwrap().is_empty());
+        assert_eq!(pump.parse_next().unwrap().unwrap(), vec![frame]);
+        pump.close();
+        assert_eq!(pump.parse_next().unwrap(), None);
+    }
+
+    #[test]
+    fn direct_pipe_pump_queue_is_bounded_and_parser_access_is_serialized() {
+        let pump = PipeBytePump::new(1);
+        pump.tx.as_ref().unwrap().try_send(vec![1]).unwrap();
+        assert!(pump.tx.as_ref().unwrap().try_send(vec![2]).is_err());
+
+        let decoder = Arc::clone(&pump.decoder);
+        let first = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());
+        let decoder = Arc::clone(&pump.decoder);
+        let second = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());
+        assert_eq!(first.join().unwrap(), 0);
+        assert_eq!(second.join().unwrap(), 0);
+    }
+
+    #[test]
     fn clear_history_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::ClearHistoryAck as u16, 17);
         assert_eq!(MessageKind::try_from(17).unwrap(), MessageKind::ClearHistoryAck);
         assert_eq!(MessageKind::ClearHistory as u16, 107);
         assert_eq!(MessageKind::try_from(107).unwrap(), MessageKind::ClearHistory);
+    }
+
+    #[test]
+    fn kitty_graphics_limits_have_stable_additive_message_kinds() {
+        assert_eq!(MessageKind::KittyGraphicsLimitsAck as u16, 19);
+        assert_eq!(MessageKind::try_from(19).unwrap(), MessageKind::KittyGraphicsLimitsAck);
+        assert_eq!(MessageKind::SetKittyGraphicsLimits as u16, 109);
+        assert_eq!(MessageKind::try_from(109).unwrap(), MessageKind::SetKittyGraphicsLimits);
+    }
+
+    #[test]
+    fn terminate_receipt_has_a_stable_additive_message_kind() {
+        assert_eq!(MessageKind::TerminateAck as u16, 21);
+        assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
+        assert_eq!(MessageKind::DetachAck as u16, 22);
+        assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
+        assert_eq!(MessageKind::Terminate as u16, 104);
+        assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
+    }
+
+    #[test]
+    fn launch_failure_has_a_stable_bounded_wire_format() {
+        assert_eq!(MessageKind::LaunchFailed as u16, 20);
+        assert_eq!(MessageKind::try_from(20).unwrap(), MessageKind::LaunchFailed);
+
+        let failure = HostLaunchFailure::bounded(
+            HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let payload = encode_host_launch_failure(&failure).unwrap();
+        assert_eq!(decode_host_launch_failure(&payload).unwrap(), failure);
+        assert_eq!(failure.kind.reason_code(), "pty_capacity_exhausted");
+        let error = anyhow::Error::new(failure);
+        assert_eq!(
+            error.downcast_ref::<HostLaunchFailure>().map(|failure| failure.kind),
+            Some(HostLaunchFailureKind::PtyCapacityExhausted)
+        );
+
+        let oversized = format!("{}é", "x".repeat(MAX_LAUNCH_FAILURE_MESSAGE_BYTES));
+        let bounded = HostLaunchFailure::bounded(HostLaunchFailureKind::LaunchFailed, oversized);
+        assert!(bounded.message.len() <= MAX_LAUNCH_FAILURE_MESSAGE_BYTES);
+        assert!(bounded.message.is_char_boundary(bounded.message.len()));
+        assert_eq!(
+            decode_host_launch_failure(&encode_host_launch_failure(&bounded).unwrap()).unwrap(),
+            bounded
+        );
+
+        let mut wrong_version = payload.clone();
+        wrong_version[..2].copy_from_slice(&(LAUNCH_FAILURE_PAYLOAD_VERSION + 1).to_le_bytes());
+        assert!(matches!(
+            decode_host_launch_failure(&wrong_version),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+
+        let mut unknown_kind = payload.clone();
+        unknown_kind[2..4].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(matches!(
+            decode_host_launch_failure(&unknown_kind),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+
+        let mut invalid_utf8 = payload;
+        *invalid_utf8.last_mut().unwrap() = 0xff;
+        assert!(matches!(
+            decode_host_launch_failure(&invalid_utf8),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+        assert!(matches!(
+            decode_host_launch_failure(&[0; LAUNCH_FAILURE_PAYLOAD_HEADER_LEN]),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+        assert!(matches!(
+            decode_host_launch_failure(&vec![
+                0;
+                LAUNCH_FAILURE_PAYLOAD_HEADER_LEN
+                    + MAX_LAUNCH_FAILURE_MESSAGE_BYTES
+                    + 1
+            ]),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+    }
+
+    #[test]
+    fn launch_activation_has_a_stable_additive_message_kind() {
+        assert_eq!(MessageKind::Activate as u16, 110);
+        assert_eq!(MessageKind::try_from(110).unwrap(), MessageKind::Activate);
+        assert_eq!(MessageKind::Detach as u16, 111);
+        assert_eq!(MessageKind::try_from(111).unwrap(), MessageKind::Detach);
     }
 
     #[test]
@@ -768,21 +1089,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn portable_pty_native_child_retains_real_exit_and_signal_status() {
+    fn cmux_pty_native_child_retains_real_exit_and_signal_status() {
         fn run(script: &str) -> TerminalExitOutcome {
-            let pty = portable_pty::native_pty_system()
-                .openpty(portable_pty::PtySize {
-                    rows: 24,
-                    cols: 80,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                })
-                .unwrap();
-            let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+            let pty = cmux_pty::open(cmux_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+            let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
-            let mut child = pty.slave.spawn_command(command).unwrap();
-            drop(pty.slave);
-            wait_for_native_child_status(child.as_mut()).outcome
+            let mut spawned = pty.spawn(command).unwrap();
+            wait_for_native_child_status(spawned.child.as_mut()).outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });
@@ -822,6 +1141,34 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge { len: 65, max: 64 })
         ));
         assert_eq!(decoder.buffered_len(), HEADER_LEN);
+    }
+
+    #[test]
+    fn async_header_helper_owns_payload_length_validation() {
+        let encoded = encode_frame(&sample_frame()).unwrap();
+        assert_eq!(frame_payload_len(&encoded[..HEADER_LEN], 64).unwrap(), 3);
+        assert!(matches!(
+            frame_payload_len(&encoded[..HEADER_LEN - 1], 64),
+            Err(ProtocolError::Truncated { expected: HEADER_LEN, actual })
+                if actual == HEADER_LEN - 1
+        ));
+
+        let mut oversized = encoded[..HEADER_LEN].to_vec();
+        oversized[12..16].copy_from_slice(&65u32.to_le_bytes());
+        assert!(matches!(
+            frame_payload_len(&oversized, 64),
+            Err(ProtocolError::PayloadTooLarge { len: 65, max: 64 })
+        ));
+
+        oversized[12..16]
+            .copy_from_slice(&u32::try_from(MAX_FRAME_PAYLOAD + 1).unwrap().to_le_bytes());
+        assert!(matches!(
+            frame_payload_len(&oversized, usize::MAX),
+            Err(ProtocolError::PayloadTooLarge {
+                len,
+                max: MAX_FRAME_PAYLOAD,
+            }) if len == MAX_FRAME_PAYLOAD + 1
+        ));
     }
 
     #[test]

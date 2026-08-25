@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces
@@ -31,24 +32,33 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        // The AppKit controller applies the current unread snapshot after row
+        // construction, keeping this root projection outside Observation.
+        let unreadSnapshot = SidebarUnreadSnapshot()
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
+                    partial + unreadSnapshot.unreadCount(forWorkspaceId: workspaceId)
                 }
             }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+            return unreadSnapshot.unreadCount(forWorkspaceId: group.anchorWorkspaceId)
         }()
         let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
-        let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
-        let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(forWorkspaceIds: anchorIds)
+        let anchorHasLatestNotification = unreadSnapshot
+            .summary(forWorkspaceId: group.anchorWorkspaceId)
+            .hasLatestNotification
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
-        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -90,7 +100,8 @@ extension VerticalTabsSidebar {
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
         let actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
@@ -203,7 +214,39 @@ extension VerticalTabsSidebar {
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: actions,
-            environment: renderContext.environment
+            environment: renderContext.environment,
+            unreadDependencyWorkspaceIds: Set(memberWorkspaceIds)
+                .union([group.anchorWorkspaceId]),
+            unreadRebuild: {
+                [model, anchorWorkspaceId = group.anchorWorkspaceId,
+                 isCollapsed = group.isCollapsed, memberWorkspaceIds,
+                 nonAnchorMemberIds] snapshot in
+                // Membership and collapse are structural row inputs, so their
+                // changes rebuild this configuration. Reuse the render context's
+                // indexed members instead of rescanning every tab per unread row.
+                var fresh = model
+                fresh.anchorUnreadCount = isCollapsed
+                    ? memberWorkspaceIds.reduce(0) {
+                        $0 + snapshot.unreadCount(forWorkspaceId: $1)
+                    }
+                    : snapshot.unreadCount(forWorkspaceId: anchorWorkspaceId)
+                fresh.canMarkRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: [anchorWorkspaceId]
+                )
+                fresh.canMarkUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: [anchorWorkspaceId]
+                )
+                fresh.hasLatestNotifications = snapshot
+                    .summary(forWorkspaceId: anchorWorkspaceId)
+                    .hasLatestNotification
+                fresh.canMarkAllRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                return fresh
+            }
         )
     }
 
@@ -211,10 +254,11 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
+        unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
+        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
@@ -244,13 +288,12 @@ extension VerticalTabsSidebar {
             }
             return unreadSummariesByWorkspaceId[group.anchorWorkspaceId]?.unreadCount ?? 0
         }()
-        let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
-        }
-        let canMarkAnchorUnread = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: [group.anchorWorkspaceId]
+        )
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: [group.anchorWorkspaceId]
+        )
         let anchorHasLatestNotification = notificationIndex.hasNotification(
             workspaceId: group.anchorWorkspaceId
         )
@@ -258,12 +301,12 @@ extension VerticalTabsSidebar {
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
-        }
-        let canMarkAllUnread = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let rowId = SidebarWorkspaceRenderItemID.group(group.id)
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(

@@ -104,29 +104,31 @@ public final class GeneratedModelTest {
 
     private static void literalPresenceRemainsExact() {
         LinkedHashMap<String, Object> raw = new LinkedHashMap<>();
+        raw.put("already_exited", false);
+        raw.put("exit", null);
         raw.put("generation", "generation-1");
         raw.put("key", "workspace-key");
-        raw.put("lifecycle", null);
-        raw.put("pane", 1L);
+        raw.put("lifecycle", "running");
+        raw.put("pane", null);
         raw.put("registry_id", "registry-1");
         raw.put("replayed", false);
-        raw.put("screen", 2L);
-        raw.put("surface", 3L);
-        raw.put("terminal_id", null);
+        raw.put("screen", null);
+        raw.put("surface", null);
+        raw.put("terminal_id", "term_0123456789abcdef0123456789abcdef");
         raw.put("terminal_incarnation", null);
         raw.put("terminal_revision", 4L);
-        raw.put("workspace", 5L);
+        raw.put("workspace", null);
 
         TerminalPlacement placement = TerminalPlacement.fromWire(raw);
-        check(placement.lifecycle() == null, "required nullable literal decodes null");
+        check(placement.lifecycle() == TerminalLifecycle.RUNNING, "terminal lifecycle decodes");
+        check(placement.surface() == null, "nullable early-exit placement decodes null");
         check(
-            placement.toWire().containsKey("lifecycle")
-                && placement.toWire().get("lifecycle") == null,
-            "required nullable literal serializes null"
+            placement.toWire().containsKey("exit") && placement.toWire().get("exit") == null,
+            "required nullable exit serializes null"
         );
         check(
             TerminalPlacement.fromWire(placement.toWire()).equals(placement),
-            "required nullable literal round trip"
+            "terminal placement lifecycle round trip"
         );
 
         OverflowEvent overflow = OverflowEvent.fromWire(

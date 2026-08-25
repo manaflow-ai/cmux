@@ -27,6 +27,7 @@ struct MobileHostServiceSettingsTests {
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
         let automatic = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: false,
             legacyListenerRunning: false
         )
@@ -34,6 +35,7 @@ struct MobileHostServiceSettingsTests {
         #expect(!automatic.startsLegacyListener)
 
         let tailscaleCompatible = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: false
         )
@@ -41,11 +43,24 @@ struct MobileHostServiceSettingsTests {
         #expect(tailscaleCompatible.startsLegacyListener)
 
         let alreadyListening = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: true
         )
         #expect(alreadyListening.activatesIroh)
         #expect(!alreadyListening.startsLegacyListener)
+    }
+
+    @Test func managedRemoteControlPolicyOverridesEveryTransport() {
+        // Even a user who explicitly enabled the legacy listener gets no
+        // transport while the MDM policy is enforced.
+        let disabled = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: true,
+            legacyListenerEnabled: true,
+            legacyListenerRunning: false
+        )
+        #expect(!disabled.activatesIroh)
+        #expect(!disabled.startsLegacyListener)
     }
 
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
@@ -107,6 +122,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -126,6 +142,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -301,7 +318,12 @@ struct MobileHostTransportRouteCompositionTests {
                   "identity_generation":1,
                   "pairing_enabled":true,
                   "capabilities":["mobile-rpc-v1","multistream-v1"],
-                  "path_hints":[],
+                  "path_hints":[{
+                    "kind":"relay_url",
+                    "value":"https://relay.example.com/",
+                    "source":"native",
+                    "privacy_scope":"public_internet"
+                  }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }
                 """.utf8
@@ -316,10 +338,15 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
         MobileHostPublicStatusCache.update(
-            irohIdentity: binding.endpointID,
-            pathHints: binding.pathHints
+            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
         )
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        let routes = MobileHostPublicStatusCache.snapshot()
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        guard case let .peer(_, pathHints) = routes.first?.endpoint else {
+            Issue.record("Expected the cached Iroh route to retain broker path hints")
+            return
+        }
+        #expect(pathHints == binding.pathHints)
 
         MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])

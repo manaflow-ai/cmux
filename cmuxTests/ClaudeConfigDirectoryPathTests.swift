@@ -56,11 +56,11 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(root.appendingPathComponent(".claude").path))
 
         let command = try XCTUnwrap(
-            makeClaudeSessionEntry(fileURL: transcriptURL).resumeCommand
+            makeClaudeSessionEntry(fileURL: transcriptURL).copyResumeCommand
         )
 
         XCTAssertFalse(command.contains("CLAUDE_CONFIG_DIR="))
-        XCTAssertTrue(command.hasPrefix("cd /tmp/repo && "))
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && "))
         XCTAssertTrue(command.contains(
             AgentResumeArgv.claudeWrapperShellExecutableToken
                 .replacingOccurrences(of: "'", with: "'\\''") + " --resume session-123"
@@ -113,7 +113,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             makeClaudeSessionEntry(
                 fileURL: transcriptURL,
                 configDirectoryForResume: resumeConfigDir
-            ).resumeCommand
+            ).copyResumeCommand
         )
 
         XCTAssertTrue(command.contains("CLAUDE_CONFIG_DIR=\(configDir.path)"))

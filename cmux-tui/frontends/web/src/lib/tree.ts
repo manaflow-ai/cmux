@@ -1,4 +1,4 @@
-import type { Id, Layout, LivePane, Screen, Tab, Tree } from "cmux/browser";
+import type { Id, Layout, LivePane, Screen, Tab, Tree } from "cmux/raw";
 import { t } from "../i18n";
 import type { LocalSelectionState } from "./localSelection";
 
@@ -50,7 +50,7 @@ export function treeToViewModel(
     const displayRawScreen = selectedRawScreen ?? workspace.screens[0];
     const displayPaneId = selectedRawScreen ? selection.selectedPaneId : null;
     const activeRawPane = displayRawScreen ? livePane(displayRawScreen, displayPaneId) : null;
-    const activeTab = activeRawPane?.tabs[activeRawPane.active_tab];
+    const activeTab = activeRawPane?.tabs[Number(activeRawPane.active_tab)];
     const title = activeRawPane?.name || activeTab?.name || activeTab?.title || t("shell");
     const subtitle = workspace.screens.length > 1
       ? t("workspaceSubtitle", { title, count: workspace.screens.length })
@@ -63,7 +63,7 @@ export function treeToViewModel(
       screens: workspace.screens.map((screen, screenIndex) => {
         const screenSelected = workspaceSelected && screen.id === selection.selectedScreenId;
         const pane = livePane(screen, screenSelected ? selection.selectedPaneId : null);
-        const tab = pane?.tabs[pane.active_tab] ?? null;
+        const tab = pane?.tabs[Number(pane.active_tab)] ?? null;
         const panes = screen.panes.filter((candidate): candidate is LivePane => "tabs" in candidate);
         return {
           id: screen.id,

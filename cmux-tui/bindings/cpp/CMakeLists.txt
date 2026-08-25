@@ -27,6 +27,8 @@ target_include_directories(cmux_tui_sdk
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 set_target_properties(cmux_tui_sdk PROPERTIES
     CXX_EXTENSIONS OFF
@@ -72,6 +74,7 @@ install(FILES
 
 if(CMUX_BUILD_TESTS)
     enable_testing()
+    target_compile_definitions(cmux_tui_sdk PRIVATE CMUX_CPP_TESTING=1)
     add_executable(cmux_cpp_tests
         tests/test_main.cpp
         tests/test_attachment.cpp
@@ -85,6 +88,8 @@ if(CMUX_BUILD_TESTS)
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)
     target_compile_features(cmux_cpp_tests PRIVATE cxx_std_20)
+    target_compile_definitions(cmux_cpp_tests PRIVATE CMUX_CPP_TESTING=1)
+    target_include_directories(cmux_cpp_tests PRIVATE src)
     if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
         target_compile_options(cmux_cpp_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

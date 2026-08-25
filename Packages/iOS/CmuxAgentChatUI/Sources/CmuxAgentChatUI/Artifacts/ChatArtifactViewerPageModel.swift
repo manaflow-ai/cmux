@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import Foundation
 import Observation
@@ -107,7 +108,10 @@ final class ChatArtifactViewerPageModel {
             setSearchSummary: { self.setSearchSummary($0) },
             selectPreviousSearchResult: { self.selectPreviousSearchResult() },
             selectNextSearchResult: { self.selectNextSearchResult() },
-            dismissSearch: { self.dismissSearch() },
+            dismissSearch: {
+                self.dismissSearch()
+                loader.recordDiagnostic(.artifactSearchChanged, count: 0)
+            },
             setGoToLineText: { self.setGoToLineText($0) },
             goToLine: { self.goToLine($0) },
             dismissGoToLine: { self.dismissGoToLine() },
@@ -119,13 +123,14 @@ final class ChatArtifactViewerPageModel {
         retryGeneration += 1
     }
 
-    func toggleSearch() {
+    func toggleSearch(loader: ChatArtifactLoader) {
         if isSearchPresented {
             dismissSearch()
         } else {
             dismissGoToLine()
             isSearchPresented = true
         }
+        loader.recordDiagnostic(.artifactSearchChanged, count: isSearchPresented ? 1 : 0)
     }
 
     func dismissSearch() {
@@ -206,11 +211,23 @@ final class ChatArtifactViewerPageModel {
 
     #if os(iOS)
     func prepareShare(loader: ChatArtifactLoader) async {
-        await prepareFileAction(loader: loader, presentation: ChatArtifactFileActionPresentation.share)
+        await prepareFileAction(
+            loader: loader,
+            started: .artifactShareStarted,
+            succeeded: .artifactShareSucceeded,
+            failed: .artifactShareFailed,
+            presentation: ChatArtifactFileActionPresentation.share
+        )
     }
 
     func prepareSave(loader: ChatArtifactLoader) async {
-        await prepareFileAction(loader: loader, presentation: ChatArtifactFileActionPresentation.save)
+        await prepareFileAction(
+            loader: loader,
+            started: .artifactSaveStarted,
+            succeeded: .artifactSaveSucceeded,
+            failed: .artifactSaveFailed,
+            presentation: ChatArtifactFileActionPresentation.save
+        )
     }
 
     func setFileActionPresentation(_ presentation: ChatArtifactFileActionPresentation?) {
@@ -218,14 +235,22 @@ final class ChatArtifactViewerPageModel {
     }
 
     func setShowsFileActionError(_ isPresented: Bool) {
-        fileActionState.showsError = isPresented
+        if isPresented {
+            fileActionState.failure = fileActionState.failure ?? .loadFailed
+        } else {
+            fileActionState.failure = nil
+        }
     }
 
     private func prepareFileAction(
         loader: ChatArtifactLoader,
+        started: DiagnosticAppEventKind,
+        succeeded: DiagnosticAppEventKind,
+        failed: DiagnosticAppEventKind,
         presentation: (URL) -> ChatArtifactFileActionPresentation
     ) async {
         guard !fileActionState.isRunning else { return }
+        loader.recordDiagnostic(started)
         fileActionState.isRunning = true
         defer { fileActionState.isRunning = false }
         do {
@@ -235,10 +260,16 @@ final class ChatArtifactViewerPageModel {
             )
             try Task.checkCancellation()
             fileActionState.presentation = presentation(fileURL)
+            loader.recordDiagnostic(succeeded)
         } catch is CancellationError {
+            loader.recordDiagnostic(failed, failure: .cancelled)
             return
         } catch {
-            fileActionState.showsError = true
+            fileActionState.failure = (error as? ChatArtifactError) ?? .loadFailed
+            loader.recordDiagnostic(
+                failed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
         }
     }
     #endif

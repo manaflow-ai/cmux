@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -25,16 +26,19 @@ import Testing
         ]
         #expect(!store.supportsChatArtifactFolders)
         #expect(!store.supportsTerminalArtifactList)
+        #expect(!store.supportsPanelArtifacts)
         #expect(!store.supportsIrohArtifactLane)
 
         store.supportedHostCapabilities.formUnion([
             "chat.artifact.folders.v1",
             "terminal.artifact.list.v1",
             "iroh.artifact_lane.v1",
+            "panel.artifact.v1",
         ])
         #expect(store.supportsChatArtifactFolders)
         #expect(store.supportsTerminalArtifactList)
         #expect(store.supportsIrohArtifactLane)
+        #expect(store.supportsPanelArtifacts)
     }
 
     @Test func workspaceMutationCapabilitiesAreVersionAndTicketGated() async throws {
@@ -137,6 +141,191 @@ import Testing
         #expect(await router.count(of: "workspace.group.action") == 0)
         #expect(await router.count(of: "workspace.create") == 0)
         #expect(await router.count(of: "workspace.group.create") == 0)
+    }
+
+    @Test func expiredMacWideTicketKeepsAdvertisedCreateActionsDiscoverable() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.create_in_group.v1",
+                "workspace.group_create.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+
+        connected.clock.advance(by: 2)
+
+        #expect(connected.store.supportsWorkspaceCreateInGroup)
+        #expect(connected.store.supportsWorkspaceGroupCreate)
+    }
+
+    @Test func accountAuthorizedGroupRenameSurvivesExpiredMacWideTicket() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.group_actions.v1",
+                "workspace.mutations.account_auth.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+        let store = connected.store
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let scopedGroupID = MobileWorkspaceGroupPreview.ID(
+            rawValue: "test-mac\u{1F}group-a"
+        )
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: scopedGroupID,
+                remoteGroupID: "group-a",
+                macDeviceID: "test-mac",
+                name: "Before",
+                anchorWorkspaceID: workspaceID
+            ),
+        ]
+
+        connected.clock.advance(by: 2)
+
+        guard case .success = await store.renameWorkspaceGroup(id: scopedGroupID, title: "  yu  ") else {
+            return #expect(Bool(false), "same-account group rename should outlive the route ticket")
+        }
+        let requests = await connected.router.groupActions()
+        #expect(requests.count == 1)
+        #expect(requests.first?.groupID == "group-a")
+        #expect(requests.first?.action == "rename")
+        #expect(requests.first?.title == "yu")
+        let authorization = await connected.router.authorization(for: "workspace.group.action")
+        #expect(authorization.count == 1)
+        #expect(authorization.first?.attachToken == nil)
+        #expect(authorization.first?.stackAccessToken == "test-stack-token")
+    }
+
+    @Test func accountAuthorizedGroupRenameIgnoresCurrentWorkspaceScopedRouteTicket() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.group_actions.v1",
+            "workspace.mutations.account_auth.v1",
+        ])
+        let store = connected.store
+        let workspaceID = try #require(store.workspaces.first?.id)
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(id: "group-a", name: "Before", anchorWorkspaceID: workspaceID),
+        ]
+
+        #expect(store.supportsWorkspaceGroupActions)
+        #expect(store.workspaces.first?.actionCapabilities.supportsGroupActions == true)
+        guard case .success = await store.renameWorkspaceGroup(id: "group-a", title: "yu") else {
+            return #expect(Bool(false), "same-account group rename should not be narrowed by a saved route ticket")
+        }
+        let authorization = await connected.router.authorization(for: "workspace.group.action")
+        #expect(authorization.count == 1)
+        #expect(authorization.first?.attachToken == nil)
+        #expect(authorization.first?.stackAccessToken == "test-stack-token")
+    }
+
+    @Test func taskComposerEntrypointStaysAvailableWithNoConnectedMac() {
+        let store = MobileShellComposite.preview()
+        // With no Mac connected there is no capability snapshot to consult, so
+        // the New Task entrypoint must stay visible; the composer itself warns
+        // that no Mac is connected. Hiding here made the button vanish whenever
+        // the phone was offline or between reconnects.
+        #expect(store.supportsTaskComposer)
+    }
+
+    @Test func taskComposerEntrypointFollowsConnectedMacCapability() async throws {
+        let capable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.task_create.v1",
+        ])
+        #expect(capable.store.supportsTaskComposer)
+
+        // A connected Mac that does not advertise task creation (remote flag
+        // off or an older build) is authoritative: the entrypoint hides.
+        let incapable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(!incapable.store.supportsTaskComposer)
+    }
+
+    @Test func taskComposerEntrypointFollowsSecondaryMacCapability() throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        let ticket = try ticket(
+            clock: clock,
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal"
+        )
+        let route = try #require(ticket.routes.first)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let key = MacPairingKey(macDeviceID: "test-mac", instanceTag: nil)
+
+        // A connected control secondary without task creation is the only
+        // live Mac, and its snapshot is authoritative: the entrypoint hides.
+        let incapable = SecondaryMacSubscription(
+            macDeviceID: "test-mac",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+        store.secondaryMacSubscriptions[key] = incapable
+        #expect(store.hasAnyConnectedMac)
+        #expect(!store.supportsTaskComposer)
+        store.secondaryMacSubscriptions[key] = nil
+        incapable.cancel()
+
+        // A capable secondary shows the entrypoint even though the
+        // foreground connection is down.
+        let capable = SecondaryMacSubscription(
+            macDeviceID: "test-mac",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["workspace.task_create.v1"],
+            actionCapabilities: .none
+        )
+        store.secondaryMacSubscriptions[key] = capable
+        #expect(store.supportsTaskComposer)
+        store.secondaryMacSubscriptions[key] = nil
+        capable.cancel()
+    }
+
+    @Test func hasAnyConnectedMacTracksForegroundSession() async throws {
+        let offline = MobileShellComposite.preview()
+        #expect(!offline.hasAnyConnectedMac)
+
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(connected.store.hasAnyConnectedMac)
     }
 
     @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {

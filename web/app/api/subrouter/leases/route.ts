@@ -1,15 +1,9 @@
-import { cloudDb } from "../../../../db/client";
-import { jsonResponse } from "../../../../services/vms/routeHelpers";
-import type {
-  SubrouterCredentialLeaseInput,
-} from "../../../../services/subrouter/client";
 import { readBoundedJsonRecord } from "../../../../services/subrouter/boundedJson";
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
-import { getTenantForTeam } from "../../../../services/subrouter/tenants";
+import type { SubrouterCredentialLeaseInput } from "../../../../services/subrouter/types";
+import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 
@@ -22,14 +16,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
 
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      context.team.teamId,
-      { tenantKeySecret: context.config.tenantKeySecret },
+    const tenant = await context.client.exchangeTeam(
+      context.accessToken,
+      context.team,
     );
-    if (!tenant) {
-      return jsonResponse({ error: "no_shared_accounts" }, 404);
-    }
     const lease = await context.client.createCredentialLease(
       tenant.tenantKey,
       body.value,
@@ -44,8 +34,8 @@ export async function POST(request: Request): Promise<Response> {
         "content-type": "application/json",
       },
     });
-  } catch (err) {
-    return subrouterErrorResponse(err);
+  } catch (error) {
+    return subrouterErrorResponse(error);
   }
 }
 
@@ -58,13 +48,9 @@ async function readLeaseInput(
   const parsed = await readBoundedJsonRecord(request, MAX_REQUEST_BYTES);
   if (!parsed.ok) return parsed;
   const value = parsed.value;
-
   const provider = value.provider;
   const sessionId = normalizedString(value.sessionId, 512);
-  if (
-    (provider !== "codex" && provider !== "claude") ||
-    !sessionId
-  ) {
+  if ((provider !== "codex" && provider !== "claude") || !sessionId) {
     return { ok: false, status: 400 };
   }
   const agentType = normalizedString(value.agentType, 64);

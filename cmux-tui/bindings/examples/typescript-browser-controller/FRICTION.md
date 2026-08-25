@@ -30,4 +30,4 @@ Reconnect limits, resync delay, correlation keys, DOM-event coordinate
 mapping, and whether a completed attachment should reopen are application
 policy.
 
-The source imports only `cmux/browser` and uses no low-level or private API.
+The source imports only `cmux-sdk/browser` and uses no low-level or private API.

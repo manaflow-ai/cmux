@@ -1,3 +1,4 @@
+internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
 internal import Foundation
 
@@ -6,6 +7,22 @@ extension MobileShellComposite {
     /// Whether authenticated host status belongs to this iOS build's audience.
     func macBuildIsCompatible(instanceTag: String?) -> Bool {
         buildCompatibilityPolicy?.allows(instanceTag: instanceTag) ?? true
+    }
+
+    /// Whether authenticated host status belongs to this build, including the
+    /// narrow 0.64.17 Tailscale compatibility boundary.
+    func authenticatedMacBuildIsCompatible(
+        instanceTag: String?,
+        clientNamespace: String? = nil,
+        macAppVersion: String?,
+        client: MobileCoreRPCClient
+    ) -> Bool {
+        buildCompatibilityPolicy?.allowsAuthenticatedHost(
+            instanceTag: instanceTag,
+            clientNamespace: clientNamespace,
+            macAppVersion: macAppVersion,
+            usesLocallyAuthorizedTailscaleRoute: client.usesLocallyAuthorizedTailscaleRoute
+        ) ?? true
     }
 
     /// Removes registry app instances this iOS build is not allowed to use.

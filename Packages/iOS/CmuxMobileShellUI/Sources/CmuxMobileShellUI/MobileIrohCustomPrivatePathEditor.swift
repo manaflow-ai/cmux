@@ -29,7 +29,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
         existing = path
         self.availableMacs = availableMacs
         self.onSave = onSave
-        let selectedMacDeviceID = path?.macDeviceID ?? availableMacs.first?.id ?? ""
+        let selectedMacDeviceID = path?.id ?? availableMacs.first?.id ?? ""
         let addressesText = path?.addresses.joined(separator: "\n") ?? ""
         _selectedMacDeviceID = State(initialValue: selectedMacDeviceID)
         _addressesText = State(initialValue: addressesText)
@@ -50,7 +50,10 @@ struct MobileIrohCustomPrivatePathEditor: View {
                                 "mobile.iroh.private.custom.mac",
                                 defaultValue: "Mac"
                             ),
-                            value: displayName(existing.macDisplayName)
+                            value: MacAppInstanceDisplayFormatter().displayName(
+                                existing.macDisplayName,
+                                instanceTag: existing.instanceTag
+                            )
                         )
                     } else {
                         Picker(
@@ -61,7 +64,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
                             selection: $selectedMacDeviceID
                         ) {
                             ForEach(availableMacs) { mac in
-                                Text(displayName(mac.displayName))
+                                Text(pickerLabel(mac))
                                     .tag(mac.id)
                             }
                         }
@@ -91,6 +94,14 @@ struct MobileIrohCustomPrivatePathEditor: View {
                         "mobile.iroh.private.custom.addresses.footer",
                         defaultValue: "Enter one IPv4 or IPv6 address per line, without a port. cmux combines it with the Mac's current broker-authenticated Iroh UDP port."
                     ))
+                    if let mac = availableMacs.first(where: { $0.id == selectedMacDeviceID }),
+                       !mac.supportsPrivatePaths {
+                        Text(L10n.string(
+                            "mobile.iroh.private.custom.macUpdateRequired",
+                            defaultValue: "Update cmux on this Mac before using private addresses."
+                        ))
+                        .foregroundStyle(.orange)
+                    }
                 }
             }
             .navigationTitle(existing == nil
@@ -113,7 +124,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
                     Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
                         save()
                     }
-                    .disabled(!validation.canSave || isSaving)
+                    .disabled(!validation.canSave || isSaving || !selectedMacSupportsPrivatePaths)
                 }
             }
             .onChange(of: addressesText) { _, _ in refreshValidation() }
@@ -143,10 +154,23 @@ struct MobileIrohCustomPrivatePathEditor: View {
         )
     }
 
-    private func displayName(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        return L10n.string("mobile.iroh.private.custom.unnamedMac", defaultValue: "Mac")
+    private var selectedMacSupportsPrivatePaths: Bool {
+        availableMacs.first(where: { $0.id == selectedMacDeviceID })?.supportsPrivatePaths ?? false
+    }
+
+    private func pickerLabel(
+        _ mac: CmxIrohSettingsSnapshot.PrivateNetworkMac
+    ) -> String {
+        let name = MacAppInstanceDisplayFormatter().displayName(
+            mac.displayName,
+            instanceTag: mac.instanceTag
+        )
+        guard !mac.supportsPrivatePaths else { return name }
+        let format = L10n.string(
+            "mobile.iroh.private.custom.macUpdateRequiredFormat",
+            defaultValue: "%@ (Update cmux)"
+        )
+        return String(format: format, name)
     }
 
     private func save() {
@@ -154,7 +178,8 @@ struct MobileIrohCustomPrivatePathEditor: View {
         let mac = availableMacs.first { $0.id == selectedMacDeviceID }
         let displayName = existing?.macDisplayName ?? mac?.displayName ?? ""
         let draft = CmxIrohCustomPrivatePathDraft(
-            macDeviceID: selectedMacDeviceID,
+            macDeviceID: mac?.macDeviceID ?? selectedMacDeviceID,
+            instanceTag: mac?.instanceTag,
             macDisplayName: displayName,
             addresses: validation.addresses,
             isEnabled: isEnabled

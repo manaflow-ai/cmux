@@ -36,6 +36,11 @@ struct FocusHistoryScopeTests {
         try body(TabManager(settings: settings))
     }
 
+    /// Delivers the broadcaster's pending payload after each focus mutation the test observes.
+    private func settleFocusBroadcasts() {
+        FocusSurfaceBroadcaster.shared.flush()
+    }
+
     @Test func panesAndTabsSettingNavigatesWithinWorkspacePanels() throws {
         try withPaneHistoryManager { manager in
             let workspace = try #require(manager.selectedWorkspace)
@@ -44,10 +49,13 @@ struct FocusHistoryScopeTests {
             let secondPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
             workspace.focusPanel(firstPanelId)
+            settleFocusBroadcasts()
             workspace.focusPanel(secondPanelId)
+            settleFocusBroadcasts()
 
             #expect(manager.canNavigateBack)
             manager.navigateBack()
+            settleFocusBroadcasts()
             #expect(workspace.focusedPanelId == firstPanelId)
             #expect(manager.canNavigateForward)
         }
@@ -61,8 +69,9 @@ struct FocusHistoryScopeTests {
             let fallbackPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
             workspace.focusPanel(closedPanelId)
+            settleFocusBroadcasts()
             _ = workspace.closePanel(closedPanelId, force: true)
-            drainMainQueue()
+            settleFocusBroadcasts()
 
             #expect(workspace.focusedPanelId == fallbackPanelId)
             #expect(!manager.canNavigateBack)
@@ -81,7 +90,9 @@ struct FocusHistoryScopeTests {
             let fallbackPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
             workspace.focusPanel(closedPanelId)
+            settleFocusBroadcasts()
             workspace.focusPanel(fallbackPanelId)
+            settleFocusBroadcasts()
             #expect(manager.canNavigateBack)
             let revision = manager.focusHistoryRevision
 
@@ -102,7 +113,9 @@ struct FocusHistoryScopeTests {
             )
 
             workspace.focusPanel(leftPanelId)
+            settleFocusBroadcasts()
             workspace.focusPanel(rightPanel.id)
+            settleFocusBroadcasts()
             #expect(manager.canNavigateBack)
             let revision = manager.focusHistoryRevision
 
@@ -122,6 +135,7 @@ struct FocusHistoryScopeTests {
 
             let firstPanelId = try #require(workspace.panels.keys.first { $0 != secondPanelId })
             workspace.focusPanel(firstPanelId)
+            settleFocusBroadcasts()
             let revision = manager.focusHistoryRevision
 
             NotificationCenter.default.post(
@@ -132,7 +146,7 @@ struct FocusHistoryScopeTests {
                     GhosttyNotificationKey.surfaceId: secondSurfaceId.uuid,
                 ]
             )
-            drainMainQueue()
+            settleFocusBroadcasts()
 
             #expect(manager.focusHistoryRevision > revision)
         }
@@ -167,7 +181,9 @@ struct FocusHistoryScopeTests {
         let secondPanelId = try #require(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
         firstWorkspace.focusPanel(firstPanelId)
+        settleFocusBroadcasts()
         firstWorkspace.focusPanel(secondPanelId)
+        settleFocusBroadcasts()
 
         #expect(!manager.canNavigateBack)
         #expect(!manager.navigateBack())
@@ -192,7 +208,9 @@ struct FocusHistoryScopeTests {
         let firstPanelId = try #require(workspace.focusedPanelId)
         let secondPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         workspace.focusPanel(firstPanelId)
+        settleFocusBroadcasts()
         workspace.focusPanel(secondPanelId)
+        settleFocusBroadcasts()
         #expect(manager.canNavigateBack)
 
         let enabledRevision = manager.focusHistoryRevision
@@ -221,6 +239,6 @@ struct FocusHistoryScopeTests {
         restored.restoreSessionSnapshot(snapshot)
 
         let restoredWorkspace = try #require(restored.tabs.first)
-        #expect(restoredWorkspace.dockSplit.focusHistoryIncludesPanesAndTabs)
+        #expect(restoredWorkspace.requiredDockSplitForTesting.focusHistoryIncludesPanesAndTabs)
     }
 }

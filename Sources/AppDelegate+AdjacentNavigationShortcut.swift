@@ -7,22 +7,46 @@ extension AppDelegate {
         let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager
             ?? tabManager
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            if performFocusedDockShortcut(.selectNextSurface, event: event) { return true }
+            if performFocusedDockShortcut(
+                .selectNextSurface,
+                action: .nextSurface,
+                event: event
+            ) {
+                return true
+            }
             routedTabs?.selectNextSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            if performFocusedDockShortcut(.selectPreviousSurface, event: event) { return true }
+            if performFocusedDockShortcut(
+                .selectPreviousSurface,
+                action: .prevSurface,
+                event: event
+            ) {
+                return true
+            }
             routedTabs?.selectPreviousSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
-            if performFocusedDockShortcut(.moveSurface(offset: -1), event: event) { return true }
+            if performFocusedDockShortcut(
+                .moveSurface(offset: -1),
+                action: .moveSurfaceLeft,
+                event: event
+            ) {
+                return true
+            }
             routedTabs?.selectedWorkspace?.moveSelectedSurface(by: -1)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceRight) {
-            if performFocusedDockShortcut(.moveSurface(offset: 1), event: event) { return true }
+            if performFocusedDockShortcut(
+                .moveSurface(offset: 1),
+                action: .moveSurfaceRight,
+                event: event
+            ) {
+                return true
+            }
             routedTabs?.selectedWorkspace?.moveSelectedSurface(by: 1)
             return true
         }
@@ -59,8 +83,17 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         allowMissingDestinationSplit: Bool = true
     ) -> Bool {
-        guard focusedDockStoreForShortcut(preferredWindow: preferredWindow) == nil else {
-            return false
+        if let dock = focusedDockStoreForShortcut(
+            action: movement.shortcutAction,
+            preferredWindow: preferredWindow
+        ) {
+            return dock.performShortcutCommand(
+                .moveSurfaceToPane(
+                    movement,
+                    allowMissingDestinationSplit:
+                        allowMissingDestinationSplit
+                )
+            )
         }
         return tabManager?.selectedWorkspace?.moveFocusedSurface(
             to: movement,

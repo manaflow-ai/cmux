@@ -84,7 +84,8 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -218,6 +219,7 @@ extension ControlCommandCoordinator {
             "launch_command": controlAgentLaunchCommandPayload(binding.launchCommand),
             "permission_mode": orNull(binding.permissionMode),
             "auto_resume": .bool(binding.autoResume),
+            "resume_evidence_provenance": orNull(binding.resumeEvidenceProvenance),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
             "execution_location": .string(binding.executionLocationRawValue),
@@ -233,7 +235,7 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "source"] {
+        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -271,6 +273,7 @@ extension ControlCommandCoordinator {
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
             environment: stringMap(object, "environment"),
+            verificationHome: rawString(object, "verification_home"),
             capturedAt: doubleValue(object["captured_at"]),
             source: rawString(object, "source")
         )
@@ -289,6 +292,7 @@ extension ControlCommandCoordinator {
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),
             "environment": environment,
+            "verification_home": orNull(command.verificationHome),
             "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
             "source": orNull(command.source),
         ])
@@ -321,53 +325,8 @@ extension ControlCommandCoordinator {
         switch value {
         case .double(let value): value
         case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
         default: nil
-        }
-    }
-
-    // MARK: - report_tty
-
-    /// `surface.report_tty` — record a reported TTY name.
-    func surfaceReportTTY(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let workspaceID = uuid(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        let requestedSurfaceID = uuid(params, "surface_id")
-        if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-        guard let ttyName = rawString(params, "tty_name")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing tty_name", data: nil)
-        }
-
-        let resolution = context?.controlSurfaceReportTTY(
-            workspaceID: workspaceID,
-            requestedSurfaceID: requestedSurfaceID,
-            ttyName: ttyName
-        ) ?? .workspaceNotFound
-        let requestedSurfaceData = surfaceReportSurfaceFields(
-            workspaceID: workspaceID,
-            requestedSurfaceID: requestedSurfaceID
-        )
-        switch resolution {
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: .object(requestedSurfaceData))
-        case .surfaceNotFound:
-            return .err(code: "not_found", message: "Surface not found", data: .object(requestedSurfaceData))
-        case .pending:
-            var payload = requestedSurfaceData
-            payload["tty_name"] = .string(ttyName)
-            payload["pending"] = .bool(true)
-            return .ok(.object(payload))
-        case .recorded(let surfaceID):
-            return .ok(.object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "tty_name": .string(ttyName),
-            ]))
         }
     }
 
@@ -434,6 +393,16 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        let terminalLifecycleID = uuid(params, "terminal_lifecycle_id")
+        if hasNonNull(params, "terminal_lifecycle_id"), terminalLifecycleID == nil {
+            return .err(
+                code: "invalid_params",
+                message: context?
+                    .controlSurfaceInvalidTerminalLifecycleIDError()
+                    ?? "Terminal session is out of date; restart the shell and try again",
+                data: nil
+            )
+        }
         let rawState = rawString(params, "state")
             ?? rawString(params, "shell_state")
             ?? rawString(params, "activity")
@@ -445,6 +414,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlSurfaceReportShellState(
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
+            terminalLifecycleID: terminalLifecycleID,
             stateRawValue: stateRawValue
         ) ?? .pending
         switch resolution {

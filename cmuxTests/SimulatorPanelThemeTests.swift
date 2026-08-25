@@ -14,6 +14,25 @@ import Testing
 @MainActor
 @Suite("Simulator panel visibility", .serialized)
 struct SimulatorPanelVisibilityTests {
+    @Test("Mobile demand starts a hidden Simulator panel")
+    func mobileDemandStartsHiddenPanel() async {
+        let client = SimulatorThemePaneClient(devices: [])
+        let panel = SimulatorPanel(client: client)
+        let consumerID = UUID()
+        defer {
+            panel.setMobileFrameDemand(false, consumerID: consumerID)
+            panel.close()
+        }
+
+        panel.setMobileFrameDemand(true, consumerID: consumerID)
+
+        for _ in 0..<100 {
+            if await client.discoveryCount > 0 { break }
+            await Task.yield()
+        }
+        #expect(await client.discoveryCount == 1)
+    }
+
     @Test("A surviving Simulator host keeps framebuffer publication active")
     func survivingHostKeepsFramebufferActive() async throws {
         let device = SimulatorDevice(
@@ -215,6 +234,22 @@ struct CanvasSimulatorPointerOwnershipTests {
         #expect(!presentation.isFocused)
         presentation.setFocused(true)
         #expect(presentation.isFocused)
+    }
+
+    @Test("Hosted canvas presentation carries attention color changes")
+    func hostedPresentationCarriesAttentionColor() {
+        let initialColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
+        let updatedColor = WorkspaceAttentionColor(configuredHex: "#33AA55")
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: false,
+            allowsPointerInput: true,
+            pointerInputOwner: NSView(frame: .zero),
+            workspaceAttentionColor: initialColor
+        )
+
+        #expect(presentation.workspaceAttentionColor == initialColor)
+        presentation.setWorkspaceAttentionColor(updatedColor)
+        #expect(presentation.workspaceAttentionColor == updatedColor)
     }
 
     @Test("An overlapping pointer entry belongs only to the frontmost pane")

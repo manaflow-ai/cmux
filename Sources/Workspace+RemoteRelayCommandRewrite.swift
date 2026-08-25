@@ -74,10 +74,28 @@ extension Workspace {
               var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return (commandLine, nil)
         }
-        let method = request["method"] as? String
+        let method = (request["method"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if remoteWorkspaceID != nil, let method {
+            // The local parser trims method names before dispatch. Normalize
+            // the signed envelope to that same value so surrounding wire
+            // whitespace cannot produce a MAC mismatch.
+            request["method"] = method
+        }
 
         var didRewrite = false
-        if var params = request["params"] as? [String: Any] {
+        var params = request["params"] as? [String: Any] ?? [:]
+        if remoteWorkspaceID != nil {
+            // These fields are relay-owned provenance.  Drop values supplied
+            // by the remote process before applying aliases and stamping the
+            // authenticated owner below; otherwise a caller could smuggle a
+            // second owner/authentication value into the local socket.
+            params.removeValue(forKey: "_cmux_remote_workspace_id")
+            params.removeValue(forKey: "_cmux_remote_relay_authentication_code")
+            params.removeValue(forKey: "_cmux_remote_relay_request_authentication_code")
+            didRewrite = true
+        }
+        if !params.isEmpty || request["params"] != nil || remoteWorkspaceID != nil {
             params = Self.remappedRemoteRelayValue(
                 params,
                 key: nil,
@@ -85,12 +103,28 @@ extension Workspace {
                 surfaceAliases: surfaceAliases,
                 didRewrite: &didRewrite
             ) as? [String: Any] ?? params
-            if method == "surface.resume.set",
-               let remoteWorkspaceID {
+            if let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
                 didRewrite = true
             }
             request["params"] = params
+        }
+
+        // A caller notification carries a preferred workspace/surface.  Once
+        // those selectors are present, normalize it to the membership-confined
+        // target method used by the cloud relay; the caller resolver otherwise
+        // has permission to fall back to globally focused state.
+        if remoteWorkspaceID != nil,
+           method == "notification.create_for_caller",
+           let preferredWorkspace = params["preferred_workspace_id"],
+           let preferredSurface = params["preferred_surface_id"] {
+            params["workspace_id"] = preferredWorkspace
+            params["surface_id"] = preferredSurface
+            params.removeValue(forKey: "preferred_workspace_id")
+            params.removeValue(forKey: "preferred_surface_id")
+            request["method"] = "notification.create_for_target"
+            request["params"] = params
+            didRewrite = true
         }
 
         guard didRewrite,

@@ -1,4 +1,4 @@
-//! Operation-specific protocol-v1 mutation plans.
+//! Operation-specific protocol-v2 mutation plans.
 //!
 //! Plan construction validates input, allocates every new value, and reserves
 //! the exact in-memory capacities before SQLite commits. The post-commit step

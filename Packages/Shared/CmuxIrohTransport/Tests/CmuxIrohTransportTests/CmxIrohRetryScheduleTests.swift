@@ -63,4 +63,28 @@ struct CmxIrohRetryScheduleTests {
             jitterUnitInterval: 1
         ) == 750)
     }
+
+    @Test
+    func relayPolicyScheduleIsCauseAwareOnEveryPlatform() {
+        let authorization = CmxIrohRetrySchedule.relayPolicy(
+            for: .authorizationFailed
+        )
+        #expect(authorization.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 2)
+        #expect(authorization.delay(
+            failureCount: 20,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 120)
+
+        let connectivity = CmxIrohRetrySchedule.relayPolicy(for: .offline)
+        #expect(connectivity.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 30)
+    }
 }

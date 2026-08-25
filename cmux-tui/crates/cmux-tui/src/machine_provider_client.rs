@@ -28,19 +28,19 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
     AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
-    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
-    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
-    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
-    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
-    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
-    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
-    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
-    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+    ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
+    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
+    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
+    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
+    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
+    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
+    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
+    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
+    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
+    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
     WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
     WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
@@ -54,7 +54,9 @@ use serde_json::Value;
 use zeroize::Zeroize;
 
 #[cfg(unix)]
-use crate::session::{RemoteMessageReader, RemoteMessageWriter, RemoteTransport};
+use crate::session::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteTransport, RemoteTransportAbort,
+};
 
 #[cfg(unix)]
 #[path = "machine_provider_transport.rs"]
@@ -1020,7 +1022,8 @@ impl ProviderClient {
         drop(deadline);
         Ok(RemoteTransport::new(
             Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
-            Box::new(BoundedRemoteWriter { inner: writer, guard }),
+            Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
+            Arc::new(ProviderRemoteAbort { guard }),
         ))
     }
 
@@ -1055,7 +1058,10 @@ impl ProviderClient {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
-        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let requested = vec![
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+            CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+        ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
                 NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
@@ -1356,6 +1362,15 @@ fn read_bounded_frame<R: BufRead>(
     reader: &mut R,
     limit: usize,
 ) -> Result<Option<Vec<u8>>, FrameReadFailure> {
+    read_bounded_frame_with_progress(reader, limit, &mut |_| {})
+}
+
+#[cfg(unix)]
+fn read_bounded_frame_with_progress<R: BufRead>(
+    reader: &mut R,
+    limit: usize,
+    on_progress: &mut dyn FnMut(&[u8]),
+) -> Result<Option<Vec<u8>>, FrameReadFailure> {
     let mut frame = Vec::new();
     loop {
         let available = reader.fill_buf().map_err(FrameReadFailure::Io)?;
@@ -1369,6 +1384,7 @@ fn read_bounded_frame<R: BufRead>(
             }
             frame.extend_from_slice(&available[..newline]);
             reader.consume(newline + 1);
+            on_progress(&frame);
             if frame.last() == Some(&b'\r') {
                 frame.pop();
             }
@@ -1381,6 +1397,7 @@ fn read_bounded_frame<R: BufRead>(
         let consumed = available.len();
         frame.extend_from_slice(available);
         reader.consume(consumed);
+        on_progress(&frame);
     }
 }
 
@@ -1414,8 +1431,19 @@ struct BoundedRemoteReader {
 #[cfg(unix)]
 impl RemoteMessageReader for BoundedRemoteReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        let frame = read_bounded_frame(&mut self.inner, MAX_TRANSPORT_FRAME_BYTES)
-            .map_err(frame_read_io_error)?;
+        self.receive_with_progress(&mut |_| {})
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<String>> {
+        let frame = read_bounded_frame_with_progress(
+            &mut self.inner,
+            MAX_TRANSPORT_FRAME_BYTES,
+            on_progress,
+        )
+        .map_err(frame_read_io_error)?;
         frame
             .map(|bytes| {
                 String::from_utf8(bytes)
@@ -1429,6 +1457,19 @@ impl RemoteMessageReader for BoundedRemoteReader {
 struct BoundedRemoteWriter {
     inner: Box<dyn Write + Send>,
     guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+struct ProviderRemoteAbort {
+    guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+impl RemoteTransportAbort for ProviderRemoteAbort {
+    fn abort(&self) -> io::Result<()> {
+        self.guard.close();
+        Ok(())
+    }
 }
 
 #[cfg(unix)]
@@ -2464,11 +2505,22 @@ mod tests {
             accept_hello(&mut stream, &mut reader, "provider-secret");
             let request: RequestEnvelope = read_test_frame(&mut reader);
             assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
-            stream
-                .write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])
-                .expect("write oversized frame");
-            stream.write_all(b"\n").expect("finish oversized frame");
-            stream.flush().expect("flush oversized frame");
+            let accept_rejection_close = |result: io::Result<()>| {
+                if let Err(error) = result {
+                    assert!(
+                        matches!(
+                            error.kind(),
+                            io::ErrorKind::BrokenPipe
+                                | io::ErrorKind::ConnectionAborted
+                                | io::ErrorKind::ConnectionReset
+                        ),
+                        "write oversized frame: {error}"
+                    );
+                }
+            };
+            accept_rejection_close(stream.write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1]));
+            accept_rejection_close(stream.write_all(b"\n"));
+            accept_rejection_close(stream.flush());
         });
 
         let (provider, _) = ProviderClient::connect_authenticated(

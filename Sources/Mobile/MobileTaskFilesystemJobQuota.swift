@@ -2,7 +2,7 @@ import os
 
 /// Admits a bounded number of mobile task filesystem jobs without queueing
 /// additional work when the host is already saturated.
-nonisolated final class MobileTaskFilesystemJobQuota: Sendable {
+final class MobileTaskFilesystemJobQuota: Sendable {
     private let maximumConcurrentJobs: Int
     // lint:allow lock - async handlers need synchronous fail-fast admission
     // and synchronous `defer` release so cancellation cannot leak capacity.

@@ -13,8 +13,16 @@ public struct FileDiffPageView: View {
     let onLoadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile
     let onCopy: @MainActor @Sendable (String) -> Void
     let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
+    var initialScrollRowID: String?
     @State var loadState: FileDiffLoadState = .loading
-    @State var scrollRowID: String?
+    @State var rowTracker = ScrollRowTracker(topRowID: nil)
+    /// Row to anchor on the next one-shot restore. Captured explicitly (from
+    /// the pager at mount, from the live tracker when a refresh re-arms the
+    /// restore) because the tracker itself is overwritten by every visibility
+    /// callback, including the ones that fire for the unrestored top of the
+    /// list before `onAppear` runs.
+    @State var pendingRestoreRowID: String?
+    @State private var didRestoreScroll = false
     @State private var magnificationStart: Double?
     @State var previewRevision: FileDiffPreviewRevision = .current
     @State var expansionState = DiffExpansionState()
@@ -40,6 +48,9 @@ public struct FileDiffPageView: View {
             }
             .onDisappear {
                 cancelPageTasks()
+                // Unmount can arrive while a fling is still settling; persist
+                // the row here since no further idle phase will report it.
+                onScrollRowIDChanged(rowTracker.topRowID)
             }
     }
     @ViewBuilder
@@ -94,32 +105,49 @@ public struct FileDiffPageView: View {
             let gutterWidth = DiffGutterLayout(
                 maximumLineNumber: presentation.maximumLineNumber
             ).measuredWidth(fontSize: fontSize)
-            ScrollView {
-                let continuation = FileDiffContinuation(
-                    lineBudget: lineBudget,
-                    document: document,
-                    reachedTransportCeiling: reachedTransportCeiling
-                )
-                LazyVStack(spacing: 0) {
-                    ForEach(presentation.rows) { row in
-                        diffRow(row, gutterWidth: gutterWidth)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    let continuation = FileDiffContinuation(
+                        lineBudget: lineBudget,
+                        document: document,
+                        reachedTransportCeiling: reachedTransportCeiling
+                    )
+                    LazyVStack(spacing: 0) {
+                        ForEach(presentation.rows) { row in
+                            diffRow(row, gutterWidth: gutterWidth)
+                        }
+                        if continuation.shouldShowFooter {
+                            FileDiffContinuationFooter(
+                                continuation: continuation,
+                                state: continuationLoadState,
+                                onShowMore: showMore
+                            )
+                        }
                     }
-                    if continuation.shouldShowFooter {
-                        FileDiffContinuationFooter(
-                            continuation: continuation,
-                            state: continuationLoadState,
-                            onShowMore: showMore
-                        )
+                    .scrollTargetLayout()
+                }
+                .modifier(SettledScrollRowReporter(
+                    tracker: rowTracker,
+                    rowOrderIndex: presentation.rowOrderIndex,
+                    onSettled: onScrollRowIDChanged
+                ))
+                .refreshable { await load(forceRefresh: true) }
+                .simultaneousGesture(magnifyGesture)
+                .onAppear {
+                    // One-shot programmatic restore; after this the scroll
+                    // offset has a single owner (the scroll view's physics).
+                    guard !didRestoreScroll else { return }
+                    didRestoreScroll = true
+                    guard let restoreRowID = pendingRestoreRowID else { return }
+                    proxy.scrollTo(restoreRowID, anchor: .top)
+                    // LazyVStack can only estimate the offset of a row it has
+                    // not realized yet; re-apply once after the first layout
+                    // pass so the anchor lands on the realized row.
+                    Task { @MainActor in
+                        proxy.scrollTo(restoreRowID, anchor: .top)
                     }
                 }
-                .scrollTargetLayout()
             }
-            .scrollPosition(id: $scrollRowID, anchor: .top)
-            .onChange(of: scrollRowID) {
-                onScrollRowIDChanged(scrollRowID)
-            }
-            .refreshable { await load(forceRefresh: true) }
-            .simultaneousGesture(magnifyGesture)
         }
     }
     @ViewBuilder
@@ -181,7 +209,16 @@ public struct FileDiffPageView: View {
         cancelContinuationTask()
         let generation = requestGeneration.begin()
         resetExpansion()
-        loadState = .loading
+        switch loadState {
+        case .loading:
+            break
+        case .failed, .loaded(_):
+            // Refresh keeps the user's place: restore to where they are now,
+            // not to the row persisted when the page originally mounted.
+            pendingRestoreRowID = rowTracker.topRowID ?? pendingRestoreRowID
+            didRestoreScroll = false
+        }
+        publishLoadState(.loading)
         continuationLoadState = .idle
         do {
             let maxLines = lineBudget == FileDiffContinuation.defaultLineBudget
@@ -191,17 +228,29 @@ public struct FileDiffPageView: View {
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
             reachedTransportCeiling = false
-            loadState = .loaded(presentation)
+            publishLoadState(.loaded(presentation))
         } catch is CancellationError {
             guard requestGeneration.isCurrent(generation),
                   RecoverableCancellationErrorPolicy().shouldPublishFailure(
                       taskIsCancelled: Task.isCancelled
                   ) else { return }
-            loadState = .failed
+            publishLoadState(.failed)
         } catch {
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
-            loadState = .failed
+            publishLoadState(.failed)
+        }
+    }
+
+    /// Publishes a load-state change without animating the structural swap,
+    /// so a load that lands while a page slide is in flight replaces the
+    /// placeholder crisply instead of crossfading with it.
+    @MainActor
+    private func publishLoadState(_ newState: FileDiffLoadState) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            loadState = newState
         }
     }
 

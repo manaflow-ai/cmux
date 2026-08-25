@@ -1,6 +1,6 @@
 //! Protocol-10 conformance adapter for the public Rust SDK.
 
-use cmux_client::raw::{
+use cmux_sdk::raw::{
     AttachBuilder, BrowserBackRequest, COMMANDS, Client as CmuxClient, ClientConfig,
     CloseWorkspaceRequest, CreateTerminalRequest, EVENTS, Error as CmuxError, Event,
     MarkWorkspacesProviderManagedRequest, Optional, PairingResponseRequest, Pane, PingRequest,
@@ -146,7 +146,7 @@ fn nullable_literal(request: &Request) -> Result<Value, CmuxError> {
         key: Optional::Value("workspace-key".into()),
         ..CreateTerminalRequest::default()
     })?;
-    Ok(json!({"lifecycle": placement.lifecycle.into_option()}))
+    Ok(json!({"lifecycle": placement.lifecycle}))
 }
 
 fn optional_non_null_response(request: &Request) -> Result<Value, CmuxError> {
@@ -184,7 +184,7 @@ fn surface(request: &Request) -> Result<u64, CmuxError> {
 fn open_stream(
     client: &mut CmuxClient,
     request: &Request,
-) -> Result<cmux_client::raw::Stream, CmuxError> {
+) -> Result<cmux_sdk::raw::Stream, CmuxError> {
     match request.stream.as_str() {
         "subscribe-coarse" => SubscriptionBuilder::coarse().open(client),
         "subscribe-deltas" => SubscriptionBuilder::deltas().open(client),
@@ -288,9 +288,9 @@ fn event_value(event: Event) -> Value {
             "url": value.url,
             "title": value.title,
             "status": match value.status {
-                cmux_client::raw::BrowserStateEventStatus::Starting => "starting",
-                cmux_client::raw::BrowserStateEventStatus::Live => "live",
-                cmux_client::raw::BrowserStateEventStatus::Failed => "failed",
+                cmux_sdk::raw::BrowserStateEventStatus::Starting => "starting",
+                cmux_sdk::raw::BrowserStateEventStatus::Live => "live",
+                cmux_sdk::raw::BrowserStateEventStatus::Failed => "failed",
             },
             "frames_stalled": value.frames_stalled,
         }),
@@ -466,7 +466,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
                 .all(|pair| pair[0].is_some_and(|left| pair[1].is_some_and(|right| left < right)));
 
         Ok(json!({
-            "identified": identity.protocol == 10,
+            "identified": identity.protocol == 12,
             "workspace_created": workspace > 0,
             "terminal_created": terminal_created,
             "marker_sent": true,
@@ -484,7 +484,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
     result
 }
 
-fn find_surface(tree: &cmux_client::raw::Tree, surface: u64) -> Option<(u64, bool)> {
+fn find_surface(tree: &cmux_sdk::raw::Tree, surface: u64) -> Option<(u64, bool)> {
     for workspace in &tree.workspaces {
         for screen in &workspace.screens {
             for pane in &screen.panes {

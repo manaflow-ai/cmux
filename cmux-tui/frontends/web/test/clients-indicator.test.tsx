@@ -1,25 +1,25 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ClientsIndicator } from "../src/components/ClientsIndicator";
-import type { ClientInfo } from "cmux/browser";
+import type { ClientInfo } from "cmux/raw";
 
 const clients: ClientInfo[] = [
   {
-    client: 1,
+    client: 1n,
     transport: "ws",
     name: "Laptop",
     kind: "web",
-    connected_seconds: 10,
-    attached: [7],
-    sizes: [{ surface: 7, cols: 126, rows: 38, size_participating: true }],
+    connected_seconds: 10n,
+    attached: [7n],
+    sizes: [{ surface: 7n, cols: 126, rows: 38, size_participating: true }],
     self: true,
   },
   {
-    client: 2,
+    client: 2n,
     transport: "unix",
     name: null,
     kind: "tui",
-    connected_seconds: 4,
+    connected_seconds: 4n,
     attached: [],
     sizes: [],
     self: false,
@@ -41,7 +41,7 @@ describe("ClientsIndicator", () => {
     expect(screen.getAllByRole("menuitem")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
-    expect(onDetach).toHaveBeenCalledWith(2);
+    expect(onDetach).toHaveBeenCalledWith(2n);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 

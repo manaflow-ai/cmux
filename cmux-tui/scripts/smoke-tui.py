@@ -3,8 +3,25 @@ import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfil
 BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INVENTORY = os.path.join(ROOT, "spec", "inventory.json")
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def write_all(fd, data):
+    """Write all bytes to the PTY, preserving short-write progress."""
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("PTY write made no progress")
+        view = view[written:]
+
+
+def expected_protocol():
+    with open(INVENTORY, "r", encoding="utf-8") as f:
+        return json.load(f)["mux_protocol"]
 
 
 def sgr_commands(parameters):
@@ -54,16 +71,16 @@ def fallback_socket_path():
     return os.path.join(base, f"cmux-tui-{os.getuid()}", f"{SESSION}.sock")
 
 def wait_for_control_socket(server, seconds=15):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     output = []
     assert server.stdout is not None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         if server.poll() is not None:
             rest = server.stdout.read() or ""
             if rest:
                 output.append(rest)
             break
-        wait = min(0.1, max(0.0, deadline - time.time()))
+        wait = min(0.1, max(0.0, deadline - time.monotonic()))
         readable, _, _ = select.select([server.stdout], [], [], wait)
         if not readable:
             continue
@@ -74,8 +91,8 @@ def wait_for_control_socket(server, seconds=15):
         match = CONTROL_SOCKET_RE.search(line.strip())
         if match:
             path = match.group(1)
-            socket_deadline = time.time() + 5
-            while time.time() < socket_deadline:
+            socket_deadline = time.monotonic() + 5
+            while time.monotonic() < socket_deadline:
                 if os.path.exists(path):
                     return path
                 if server.poll() is not None:
@@ -140,15 +157,42 @@ def tree():
 def active_screen(ws):
     return next(s for s in ws["screens"] if s["active"])
 
+def tree_has_surface(workspaces):
+    return any(
+        tab
+        for workspace in workspaces
+        for screen in workspace["screens"]
+        for pane in screen["panes"]
+        for tab in pane["tabs"]
+    )
+
 def send_prefix_t_until_tab_count(count):
     last = None
     for _ in range(5):
         last = active_screen(tree()[0])
         if len(last["panes"][0]["tabs"]) >= count:
             return last
-        os.write(fd, b"\x02t")
+        write_all(fd, b"\x02t")
         drain(0.8)
     raise AssertionError(last)
+
+def wait_for_pane_count(count, seconds=15):
+    deadline = time.monotonic() + seconds
+    last = None
+    while time.monotonic() < deadline:
+        drain(0.2)
+        workspaces = tree()
+        if workspaces:
+            last = active_screen(workspaces[0])
+            if len(last["panes"]) == count:
+                return last
+    rendered = render_text_snapshot(output)
+    surfaces = [tab["surface"] for pane in last["panes"] for tab in pane["tabs"]] if last else []
+    screens = {
+        surface: rpc({"id": 998, "cmd": "read-screen", "surface": surface})["data"]["text"]
+        for surface in surfaces
+    }
+    raise AssertionError({"tree": last, "render": rendered, "screens": screens})
 
 SOCK = discover_socket_path()
 
@@ -188,7 +232,10 @@ if pid == 0:
     os.environ["HOME"] = tmpdir.name
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
-    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
+    # The smoke process owns every terminal it creates. Keep them in-process
+    # so a failed assertion or forced teardown cannot leave durable terminal
+    # hosts after TemporaryDirectory removes the test state.
+    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK, "--ephemeral"])
 
 # Set a real window size
 import fcntl, termios, struct
@@ -198,6 +245,7 @@ os.kill(pid, signal.SIGWINCH)
 output = b""
 probe_pending = b""
 probe_answers = {10: 0, 11: 0}
+keyboard_probe_answers = 0
 
 def answer_host_color_queries(chunk):
     global probe_pending
@@ -220,30 +268,34 @@ def answer_host_color_queries(chunk):
         end, terminator, term_len = min(ends, key=lambda e: e[0])
         seq = probe_pending[:end]
         if seq == b"\x1b]10;?":
-            os.write(fd, b"\x1b]10;rgb:d8d8/d9d9/dada" + terminator)
+            write_all(fd, b"\x1b]10;rgb:d8d8/d9d9/dada" + terminator)
             probe_answers[10] += 1
         elif seq == b"\x1b]11;?":
-            os.write(fd, b"\x1b]11;rgb:1313/1414/1515" + terminator)
+            write_all(fd, b"\x1b]11;rgb:1313/1414/1515" + terminator)
             probe_answers[11] += 1
         probe_pending = probe_pending[end + term_len:]
 
 def drain(seconds):
-    global output
-    end = time.time() + seconds
-    while time.time() < end:
+    global output, keyboard_probe_answers
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
         r, _, _ = select.select([fd], [], [], 0.1)
         if r:
             try:
                 chunk = os.read(fd, 65536)
                 output += chunk
+                keyboard_queries = output.count(b"\x1b[?u")
+                while keyboard_probe_answers < keyboard_queries:
+                    write_all(fd, b"\x1b[?29u")
+                    keyboard_probe_answers += 1
                 answer_host_color_queries(chunk)
             except OSError:
                 break
 
-def wait_screen_contains(surface_id, needle, seconds=15):
-    deadline = time.time() + seconds
+def wait_screen_contains(surface_id, needle, seconds=45):
+    deadline = time.monotonic() + seconds
     last = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         screen = rpc({"id": 300, "cmd": "read-screen", "surface": surface_id})
         last = screen["data"]["text"]
@@ -251,10 +303,22 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
+def wait_any_screen_contains(surface_ids, needle, seconds=45):
+    deadline = time.monotonic() + seconds
+    last = {}
+    while time.monotonic() < deadline:
+        drain(0.2)
+        for surface_id in surface_ids:
+            screen = rpc({"id": 301, "cmd": "read-screen", "surface": surface_id})
+            last[surface_id] = screen["data"]["text"]
+            if needle in last[surface_id]:
+                return surface_id
+    raise AssertionError({surface: text[-500:] for surface, text in last.items()})
+
 def wait_render_contains(needle, seconds=15):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         last = render_text_snapshot(output)
         if needle in last:
@@ -262,18 +326,18 @@ def wait_render_contains(needle, seconds=15):
     raise AssertionError(last[-1200:])
 
 def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = ""
     absent_since = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         last = render_text_snapshot(output)
         if needle in last:
             absent_since = None
             continue
         if absent_since is None:
-            absent_since = time.time()
-        elif time.time() - absent_since >= stable_seconds:
+            absent_since = time.monotonic()
+        elif time.monotonic() - absent_since >= stable_seconds:
             return last
     raise AssertionError(last[-1200:])
 
@@ -466,19 +530,37 @@ def assert_snapshot_parser_controls():
 
 assert_snapshot_parser_controls()
 
-deadline = time.time() + 15
-while not os.path.exists(SOCK) and time.time() < deadline:
+deadline = time.monotonic() + 15
+while not os.path.exists(SOCK) and time.monotonic() < deadline:
     drain(0.2)
 assert os.path.exists(SOCK), f"socket missing at {SOCK}"
-drain(1.0)
+
+# The production interactive path starts a daemon and then attaches through
+# its control socket. The socket can become visible before the client has
+# completed host probing and created the initial workspace, so wait for both
+# milestones instead of assigning them an arbitrary one-second budget.
+initial_tree = []
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    drain(0.2)
+    initial_tree = tree()
+    if (
+        probe_answers[10] > 0
+        and probe_answers[11] > 0
+        and keyboard_probe_answers > 0
+        and tree_has_surface(initial_tree)
+    ):
+        break
 assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
+assert keyboard_probe_answers > 0, "host keyboard protocol was not negotiated"
+assert tree_has_surface(initial_tree), "interactive client did not create its initial surface"
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 10, ident
+assert ident["data"]["protocol"] == expected_protocol(), ident
 print("identify ok:", ident["data"])
 
-ws0 = tree()[0]
+ws0 = initial_tree[0]
 assert ws0["name"] == "0", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
@@ -494,6 +576,30 @@ size = panes[0]["tabs"][0]["size"]
 assert size == {"cols": 75, "rows": 27}, size
 print("initial surface spawned at final size ok")
 
+# Ghostty emits these CSI-u sequences after accepting cmux's enhanced keyboard
+# flags: Ctrl-b, then Shift-5 with '%' as both shifted and associated text.
+write_all(fd, b"\x1b[98;5u\x1b[53:37;2;37u")
+screen0 = wait_for_pane_count(2)
+assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
+drain(0.8)
+idle_output_start = len(output)
+drain(1.0)
+idle_output_bytes = len(output) - idle_output_start
+rendered = render_text_snapshot(output)
+assert "Ctrl-b ›" not in rendered, rendered
+assert idle_output_bytes == 0, (
+    "split settled but the TUI kept repainting the outer cursor",
+    idle_output_bytes,
+    rendered,
+)
+print("enhanced prefix-% horizontal split and stable cursor ok")
+
+# Close the newly focused pane through the same enhanced input path so the
+# remaining smoke cases retain their one-pane geometry.
+write_all(fd, b"\x1b[98;5u\x1b[120:88;2;88u")
+wait_for_pane_count(1)
+print("enhanced prefix-X close pane ok")
+
 # The tab bar is always visible: a single-tab pane still shows its
 # numbered tab and the + button in the top border.
 drain(0.5)
@@ -504,18 +610,18 @@ print("always-on tab bar with numbered tab ok")
 
 wait_render_contains("SIDEBAR-MARKER")
 print("sidebar plugin marker rendered ok")
-os.write(fd, b"\x02S")
+write_all(fd, b"\x02S")
 drain(0.5)
-os.write(fd, b"plugin-echo-ok\r")
+write_all(fd, b"plugin-echo-ok\r")
 # The plugin awk-prefixes forwarded lines, so this string can only appear if
 # prefix-S focused the plugin and keys were forwarded to its PTY (a shell
 # echo of the raw text would not carry the PLUGIN: prefix).
 wait_render_contains("PLUGIN:plugin-echo-ok")
 print("sidebar plugin focus and key echo ok")
-os.write(fd, b"\x02S")
+write_all(fd, b"\x02S")
 drain(0.5)
 # Focus must be back on the pane: run a shell command and require its output.
-os.write(fd, b"echo back-to-pane-$((40 + 2))\r")
+write_all(fd, b"echo back-to-pane-$((40 + 2))\r")
 wait_render_contains("back-to-pane-42")
 print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
@@ -523,36 +629,36 @@ with open(config_path, "w", encoding="utf-8") as f:
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
 wait_render_excludes("SIDEBAR-MARKER")
 print("sidebar plugin config reload falls back to default workspaces sidebar ok")
-os.write(fd, b"\x02S")
+write_all(fd, b"\x02S")
 drain(0.4)
-os.write(fd, b"\t")
+write_all(fd, b"\t")
 # The files view roots at the pane spawn cwd (HOME=tmpdir); the cwd follow
 # runs on a 2s cadence, so wait event-driven for the seeded marker.
 wait_render_contains(sidebar_marker)
 print("focused sidebar Tab toggles workspaces to files ok")
-os.write(fd, b"\t")
+write_all(fd, b"\t")
 drain(0.5)
-assert "workspaces" in render_text_snapshot(output), output[-1200:]
+assert "+ new workspace" in render_text_snapshot(output), output[-1200:]
 os.write(fd, b"\x02S")
 drain(0.4)
 
 # Prefix-B creates a browser tab immediately and focuses its in-pane
 # omnibar. The dead CDP endpoint keeps this Chrome-free and fast.
 before_tabs = len(panes[0]["tabs"])
-os.write(fd, b"\x02B")
+write_all(fd, b"\x02B")
 drain(0.8)
 screen0 = active_screen(tree()[0])
 tabs = screen0["panes"][0]["tabs"]
 assert len(tabs) == before_tabs + 1, screen0
 assert tabs[-1]["kind"] == "browser", tabs
-os.write(fd, b"example.com")
+write_all(fd, b"example.com")
 drain(0.5)
 text = render_text_snapshot(output)
 assert "example.com" in text, text[-800:]
-os.write(fd, b"\x1b")
+write_all(fd, b"\x1b")
 drain(0.5)
 # Close the browser tab without closing its containing pane.
-os.write(fd, b"\x02x")
+write_all(fd, b"\x02x")
 drain(0.8)
 screen0 = active_screen(tree()[0])
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
@@ -565,12 +671,12 @@ assert "rgb:" not in screen["data"]["text"], screen["data"]["text"][-500:]
 print("host color probe replies did not leak to shell ok")
 
 # Type a command into the shell via the TUI's stdin path (real keystrokes).
-os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")
+write_all(fd, b"printf 'smoke-marker-%s\\n' ok\r")
 wait_screen_contains(surface_id, "smoke-marker-ok")
 print("keystroke -> pty -> ghostty screen ok")
 
 color_output_start = len(output)
-os.write(
+write_all(
     fd,
     b"printf '\\033[31mCF1\\033[93mCF2\\033[38;5;196mCF3\\033[48;5;236mCF4\\033[0m\\n'\r",
 )
@@ -593,10 +699,11 @@ try:
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
     # Generous deadline: the shell may still be consuming the pasted
-    # heredoc and the TUI coalesces frames (this raced at 2s).
-    end = time.time() + 8
-    while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
-        r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
+    # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
+    # still fails on saturated CI runners).
+    end = time.monotonic() + 30
+    while time.monotonic() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
+        r, _, _ = select.select([fd], [], [], max(0, end - time.monotonic()))
         if not r:
             break
         data += os.read(fd, 128)
@@ -606,25 +713,25 @@ finally:
 print(data.decode('ascii', 'ignore').replace('\\x1b', '<ESC>').replace('\\x07', '<BEL>'))
 PY
 """
-os.write(fd, inner_osc_query.replace("\n", "\r").encode())
+write_all(fd, inner_osc_query.replace("\n", "\r").encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
 print("inner OSC 11 query receives seeded background ok")
-os.write(fd, b"\x03")
+write_all(fd, b"\x03")
 drain(0.4)
 
 # Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
 # Pane content starts at column 24 (sidebar 22 + left border 1; SGR
 # 1-based) and row offset 1 for the top border. On release the TUI must
 # copy the selection to the host clipboard as an OSC 52 sequence.
-os.write(fd, b"clear; printf 'smoke-marker-%s\\n' ok\r")
+write_all(fd, b"clear; printf 'smoke-marker-%s\\n' ok\r")
 wait_screen_contains(surface_id, "smoke-marker-ok")
 lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
 vrow = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l)
 row = vrow + 2  # +1 top border, +1 SGR 1-based
 col0 = 24 + lines[vrow].index("smoke-marker-ok")
-os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
-os.write(fd, f"\x1b[<32;{col0 + 14};{row}M".encode())
-os.write(fd, f"\x1b[<0;{col0 + 14};{row}m".encode())
+write_all(fd, f"\x1b[<0;{col0};{row}M".encode())
+write_all(fd, f"\x1b[<32;{col0 + 14};{row}M".encode())
+write_all(fd, f"\x1b[<0;{col0 + 14};{row}m".encode())
 drain(1.0)
 import base64
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
@@ -636,23 +743,28 @@ drain(1.7)
 assert "Copied" not in render_text_snapshot(output), output[-1200:]
 print("drag-select -> OSC52 clipboard copy ok")
 
-os.write(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
+write_all(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
 wait_screen_contains(surface_id, "sel-line-80")
-assert rpc({"id": 101, "cmd": "scroll-surface", "surface": surface_id, "delta": -24})["ok"]
+# Scroll the interactive projection itself. The control API owns a separate
+# compatibility viewport and must not move this frontend-local view.
+for _ in range(8):
+    write_all(fd, b"\x1b[<64;24;10M")
 drain(0.4)
-before_scroll = rpc({"id": 102, "cmd": "read-screen", "surface": surface_id})["data"]["text"]
+before_scroll = render_text_snapshot(output)
+before_numbers = [int(value) for value in re.findall(r"sel-line-(\d+)", before_scroll)]
+assert before_numbers and max(before_numbers) < 80, before_scroll
 lines = before_scroll.splitlines()
-vrow = next(i for i, l in enumerate(lines) if "sel-line-" in l)
-start_col = 24 + lines[vrow].index("sel-line-")
-start_row = vrow + 2
+vrow = next(i for i, line in enumerate(lines) if "sel-line-" in line)
+start_col = lines[vrow].index("sel-line-") + 1
+start_row = vrow + 1
 bottom_row = 28
-os.write(fd, f"\x1b[<0;{start_col};{start_row}M".encode())
-held_output_start = len(output)
-os.write(fd, f"\x1b[<32;{start_col + 10};{bottom_row}M".encode())
+write_all(fd, f"\x1b[<0;{start_col};{start_row}M".encode())
+write_all(fd, f"\x1b[<32;{start_col + 10};{bottom_row}M".encode())
 drain(0.9)
-held_render = output[held_output_start:].decode("utf-8", "replace")
-assert re.search(r"sel-line-(2[0-9]|3[0-9]|4[0-9])", held_render), held_render[-2000:]
-os.write(fd, f"\x1b[<0;{start_col + 10};{bottom_row}m".encode())
+held_render = render_text_snapshot(output)
+held_numbers = [int(value) for value in re.findall(r"sel-line-(\d+)", held_render)]
+assert held_numbers and min(held_numbers) > min(before_numbers), held_render
+write_all(fd, f"\x1b[<0;{start_col + 10};{bottom_row}m".encode())
 drain(0.6)
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after auto-scroll drag-select"
@@ -670,30 +782,35 @@ assert len(panes) == 1, screen0
 assert len(panes[0]["tabs"]) == 3, screen0
 assert panes[0]["active_tab"] == 2, screen0
 
-# Alt-n: smart split. In this 75x27 content geometry, width > 2*height,
-# so the visually longer axis is horizontal and the split is right.
-os.write(fd, b"\x1bn")
+# Ctrl-b %: explicit horizontal split. Keep this as a literal byte sequence
+# so the smoke test covers the real prefix parser and production remote client.
+write_all(fd, b"\x02%")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes = screen0["panes"]
 assert len(panes) == 2, screen0
 assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
-print("alt-n smart split ok")
+print("prefix-% horizontal split ok")
 
 left_pane = panes[0]
 right_pane = panes[1]
 tab_order = [t["surface"] for t in left_pane["tabs"]]
-os.write(fd, b"\x1b[<0;41;1M\x1b[<32;24;1M\x1b[<0;24;1m")
+write_all(fd, b"\x1b[<0;41;1M\x1b[<32;24;1M\x1b[<0;24;1m")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes_by_id = {p["id"]: p for p in screen0["panes"]}
 left_pane = panes_by_id[left_pane["id"]]
 right_pane = panes_by_id[right_pane["id"]]
 reordered = [t["surface"] for t in left_pane["tabs"]]
-assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (tab_order, reordered, screen0)
+assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (
+    tab_order,
+    reordered,
+    screen0,
+    render_text_snapshot(output),
+)
 print("tab drag reorder within pane ok")
 
-os.write(fd, b"\x1b[<0;24;1M\x1b[<32;42;1M\x1b[<0;42;1m")
+write_all(fd, b"\x1b[<0;24;1M\x1b[<32;42;1M\x1b[<0;42;1m")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes_by_id = {p["id"]: p for p in screen0["panes"]}
@@ -703,7 +820,7 @@ assert end_reordered == [tab_order[0], tab_order[1], tab_order[2]], (tab_order, 
 print("tab drag past last chip inserts at end ok")
 
 moving_surface = left_pane["tabs"][0]["surface"]
-os.write(fd, b"\x1b[<0;27;1M\x1b[<32;63;1M\x1b[<0;63;1m")
+write_all(fd, b"\x1b[<0;27;1M\x1b[<32;63;1M\x1b[<0;63;1m")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes_by_id = {p["id"]: p for p in screen0["panes"]}
@@ -715,7 +832,7 @@ left_pane = panes_by_id[left_pane["id"]]
 right_pane = panes_by_id[right_pane["id"]]
 content_surface = left_pane["tabs"][0]["surface"]
 right_before = [t["surface"] for t in right_pane["tabs"]]
-os.write(fd, b"\x1b[<0;27;1M\x1b[<32;82;8M\x1b[<0;82;8m")
+write_all(fd, b"\x1b[<0;27;1M\x1b[<32;82;8M\x1b[<0;82;8m")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes_by_id = {p["id"]: p for p in screen0["panes"]}
@@ -732,7 +849,7 @@ assert len(screen0["panes"]) == 3, screen0
 print("socket-driven split visible ok")
 
 # Prefix + c: new screen in the workspace; it becomes active with 1 pane.
-os.write(fd, b"\x02c")
+write_all(fd, b"\x02c")
 drain(1.0)
 ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
@@ -746,13 +863,28 @@ print("prefix-c new screen ok")
 # back. Status bar row is the last row (30). The bar starts after the
 # sidebar (col 23 SGR) with " screens " (9 cols), so entry 0 starts at
 # col 32.
-os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
+shared_screen = active_screen(ws0)["id"]
+write_all(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
 drain(1.0)
 ws0 = tree()[0]
-assert ws0["screens"][0]["active"], ws0
-print("status-bar screen click switches ok")
+assert active_screen(ws0)["id"] == shared_screen, ws0
+local_screen = ws0["screens"][0]
+local_surfaces = {
+    tab["surface"] for pane in local_screen["panes"] for tab in pane["tabs"]
+}
+all_surfaces = [
+    tab["surface"]
+    for screen in ws0["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+]
+write_all(fd, b"printf 'screen-zero-local-focus\\n'\r")
+local_surface = wait_any_screen_contains(all_surfaces, "screen-zero-local-focus")
+assert local_surface in local_surfaces, (local_surface, local_surfaces, ws0)
+wait_render_contains("screen-zero-local-focus")
+print("status-bar screen click switches client-local focus ok")
 
-# Rename the active screen over the socket; the status bar redraws with it.
+# Rename the locally selected screen over the socket; the status bar redraws with it.
 screen_id = ws0["screens"][0]["id"]
 assert rpc({"id": 7, "cmd": "rename-screen", "screen": screen_id, "name": "smoke-scr"})["ok"]
 drain(1.0)
@@ -763,25 +895,26 @@ print("rename screen visible in status bar ok")
 # Rename the pane and workspace over the socket; the TUI must redraw with
 # the new names.
 ws0 = tree()[0]
-target_pane = active_screen(ws0)["panes"][0]["id"]
+local_screen = next(screen for screen in ws0["screens"] if screen["id"] == screen_id)
+target_pane = local_screen["active_pane"]
 ws_id = ws0["id"]
 assert rpc({"id": 8, "cmd": "rename-pane", "pane": target_pane, "name": "smoke-pane"})["ok"]
 assert rpc({"id": 9, "cmd": "rename-workspace", "workspace": ws_id, "name": "smoke-ws"})["ok"]
 drain(1.0)
 ws0 = tree()[0]
 assert ws0["name"] == "smoke-ws", ws0
-assert active_screen(ws0)["panes"][0]["name"] == "smoke-pane", ws0
+local_screen = next(screen for screen in ws0["screens"] if screen["id"] == screen_id)
+assert next(pane for pane in local_screen["panes"] if pane["id"] == target_pane)["name"] == "smoke-pane", ws0
 text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
 
-# Sidebar rendered: header + new-workspace row are sidebar-only strings.
-assert "workspaces" in text, text[-500:]
+# Sidebar rendered: the new-workspace row is a sidebar-only string.
 assert "+ new workspace" in text, text[-500:]
 print("sidebar rendered ok")
 
 # Prefix-W: create a second workspace; it becomes active.
-os.write(fd, b"\x02W")
+write_all(fd, b"\x02W")
 drain(1.0)
 workspaces = tree()
 assert len(workspaces) == 2, workspaces
@@ -793,23 +926,47 @@ print("prefix-W new workspace ok")
 # row 1 blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2
 # (SGR mouse coordinates are 1-based).
 original_ws = ws_id
-os.write(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
+write_all(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
 drain(1.0)
 workspaces = tree()
 assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] != original_ws] + [original_ws], workspaces
 print("sidebar workspace drag reorder ok")
 
 # Click the moved original workspace's sidebar entry.
-os.write(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
+shared_workspace = next(workspace["id"] for workspace in workspaces if workspace["active"])
+write_all(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
 drain(1.0)
 workspaces = tree()
-assert workspaces[1]["active"] and workspaces[1]["id"] == original_ws, workspaces
-print("sidebar click switches workspace ok")
+assert workspaces[1]["id"] == original_ws, workspaces
+assert next(workspace["id"] for workspace in workspaces if workspace["active"]) == shared_workspace
+original_workspace = next(workspace for workspace in workspaces if workspace["id"] == original_ws)
+original_surfaces = {
+    tab["surface"]
+    for screen in original_workspace["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+}
+all_surfaces = [
+    tab["surface"]
+    for workspace in workspaces
+    for screen in workspace["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+]
+# Sidebar clicks intentionally retain rail keyboard focus. Click visible pane
+# content before typing so the marker proves which workspace the client shows.
+write_all(fd, b"\x1b[<0;81;6M\x1b[<0;81;6m")
+drain(0.5)
+write_all(fd, b"printf 'workspace-local-focus\\n'\r")
+workspace_surface = wait_any_screen_contains(all_surfaces, "workspace-local-focus")
+assert workspace_surface in original_surfaces, (workspace_surface, original_surfaces, workspaces)
+wait_render_contains("workspace-local-focus")
+print("sidebar click switches client-local workspace focus ok")
 
 # A workspace context menu overlaps the active sidebar row. The menu must
 # repaint the cell style, not inherit the sidebar active background.
 output = b""
-os.write(fd, b"\x1b[<2;2;6M\x1b[<2;2;6m")
+write_all(fd, b"\x1b[<2;2;6M\x1b[<2;2;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename workspace" in text, text[-800:]
@@ -819,7 +976,7 @@ assert "├" in text, text[-800:]
 styles = render_style_snapshot(output)
 overlap = styles[6][2]  # item 1: non-selected menu row over the active workspace subtitle row.
 assert overlap["bg"] == 237 and not overlap["bold"] and not overlap["dim"], (overlap, text[-800:])
-os.write(fd, b"\x1b")
+write_all(fd, b"\x1b")
 drain(0.4)
 print("sidebar-overlapping menu repaints menu background ok")
 
@@ -827,7 +984,7 @@ print("sidebar-overlapping menu repaints menu background ok")
 # of the sidebar and borders): the menu opens at the press cell and must
 # stay open after release in place.
 output = b""
-os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
+write_all(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
@@ -852,7 +1009,7 @@ assert "├" in menu_lines[15], menu_lines[4:19]
 assert "Copy tab id" in menu_lines[16], menu_lines[4:19]
 assert "Copy pane id" in menu_lines[17], menu_lines[4:19]
 output = b""
-os.write(fd, b"\x1b[<34;81;17M\x1b[<2;81;17m")
+write_all(fd, b"\x1b[<34;81;17M\x1b[<2;81;17m")
 drain(0.8)
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after menu copy"
@@ -871,7 +1028,7 @@ tabs_before = sum(
     for s in w["screens"]
     for p in s["panes"]
 )
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;10M\x1b[<2;81;10m")
+write_all(fd, b"\x1b[<2;81;6M\x1b[<34;81;10M\x1b[<2;81;10m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])
@@ -883,20 +1040,20 @@ assert tabs_after == tabs_before + 1, (tabs_before, tabs_after, tree())
 print("right-drag menu row activation ok")
 
 # Open the menu normally again and left-click "Rename tab".
-os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
+write_all(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
-os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
+write_all(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
 # A centered rename dialog opens (title, input, and shortcut buttons).
 text = output.decode("utf-8", "replace")
 assert "[ Clear ^C ]" in text and "[ Cancel esc ]" in text and "[ OK ⏎ ]" in text, text[-800:]
-os.write(fd, b"tab\x01my-\x1bf-ok")
+write_all(fd, b"tab\x01my-\x1bf-ok")
 drain(0.5)
 output = b""
-os.write(fd, b"\x1b[<0;65;17M\x1b[<0;65;17m")
+write_all(fd, b"\x1b[<0;65;17M\x1b[<0;65;17m")
 drain(1.0)
 tab_names = [
     t.get("name")
@@ -918,7 +1075,7 @@ tabs_before = sum(
     for p in s["panes"]
 )
 # "Close tab" is the second row, directly below "Rename tab".
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
+write_all(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])
@@ -930,9 +1087,9 @@ assert tabs_after == tabs_before - 1, (tabs_before, tabs_after, tree())
 print("right-click menu -> close tab ok")
 
 # Prefix + d: quit.
-os.write(fd, b"\x02d")
-deadline = time.time() + 5
-while time.time() < deadline:
+write_all(fd, b"\x02d")
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
     done, status = os.waitpid(pid, os.WNOHANG)
     if done:
         print("clean quit, status", status)

@@ -27,14 +27,6 @@ async function sendHook(
     context,
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
-  if (!result.ok && !result.surfaceUnavailable) {
-    warn(context, "cmux hook command failed", {
-      subcommand,
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
   return result.ok;
 }
 
@@ -206,14 +198,7 @@ async function ensureResumeBinding(
     "--",
     ...resumeArgv,
   ], cwd, undefined, context);
-  if (!set.ok && !set.surfaceUnavailable) {
-    warn(context, "failed to set Pi resume binding", {
-      status: set.status,
-      stderr_available: set.stderr.trim().length > 0,
-      error_available: set.error !== undefined,
-    });
-    return;
-  }
+  if (!set.ok && !set.surfaceUnavailable) return;
   if (set.surfaceUnavailable) return;
 
   const verification = await dispatcher.run(
@@ -225,7 +210,11 @@ async function ensureResumeBinding(
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
   if (!resumeBindingMatches(verified, sessionId)) {
-    warn(context, "Pi resume binding did not verify after write", { session_id: sessionId });
+    await warn(context, "Pi resume binding did not verify after write", {
+      session_id: sessionId,
+      hook_name: "surface-resume-get",
+      reason: "verification-failure",
+    });
   }
 }
 
@@ -238,7 +227,7 @@ async function clearResumeBinding(
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
   const cwd = context.cwd;
-  const result = await dispatcher.run([
+  await dispatcher.run([
     "--json",
     "surface",
     "resume",
@@ -249,14 +238,6 @@ async function clearResumeBinding(
     "--source",
     "agent-hook",
   ], cwd, undefined, context);
-  if (result.surfaceUnavailable) return;
-  if (!result.ok) {
-    warn(context, "failed to clear Pi resume binding", {
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
 }
 
 type PiFeedEventName =
@@ -283,53 +264,72 @@ function isTerminalFeedEvent(eventName: PiFeedEventName): boolean {
   return eventName === "PostToolUse" || eventName === "SubagentStop";
 }
 
-function sendFeed(
+function prepareFeedDispatch(
   dispatcher: PiCmuxCommandDispatcher,
   sessionStates: Map<string, SessionState>,
   eventName: PiFeedEventName,
   context: PiExtensionContextSnapshot,
   event: unknown,
-): void {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
+): (() => void) | undefined {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return undefined;
   const sessionId = context.sessionId;
-  if (!sessionId) return;
-  if (!dispatcher.canDispatch(sessionId)) return;
-  const target = surfaceTargetArgs(dispatcher, sessionId);
-  if (!target) return;
+  if (!sessionId) return undefined;
+  if (!dispatcher.canDispatch(sessionId)) return undefined;
   const state = stateFor(sessionStates, sessionId);
-  if (state.stopped) return;
+  if (state.stopped) return undefined;
   const cwd = context.cwd;
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
   const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
-  const projectionState: PiFeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
-  const payload: HookExtra = {
-    session_id: utf8Prefix(sessionId, 256),
-    cwd: utf8Prefix(cwd, 2048),
-    hook_event_name: eventName,
-    event: eventName,
-    turn_id: utf8Prefix(currentTurnId(sessionStates, sessionId, event), 256),
-  };
-  const boundedToolCallId = utf8Prefix(toolCallId, 256);
-  if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
-  const boundedToolName = utf8Prefix(toolName, 256);
-  if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   const toolInput = objectValue(event, ["args", "input"]);
-  if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
-  if (isTerminalFeedEvent(eventName)) {
-    const toolResult = objectValue(event, ["result", "details", "content"]);
+  const terminal = isTerminalFeedEvent(eventName);
+  const toolResult = terminal
+    ? objectValue(event, ["result", "details", "content"])
+    : undefined;
+  const isError = terminal ? objectValue(event, ["isError", "is_error"]) : undefined;
+  return () => {
+    const target = surfaceTargetArgs(dispatcher, sessionId);
+    if (!target) return;
+
+    // Pi invokes tool lifecycle handlers on its UI event loop. Keep those
+    // callbacks lightweight by traversing and bounding tool payloads only in
+    // the already-detached lifecycle task.
+    const projectionState: PiFeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
+    const payload: HookExtra = {
+      session_id: utf8Prefix(sessionId, 256),
+      cwd: utf8Prefix(cwd, 2048),
+      hook_event_name: eventName,
+      event: eventName,
+      turn_id: utf8Prefix(turnId, 256),
+    };
+    const boundedToolCallId = utf8Prefix(toolCallId, 256);
+    if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
+    const boundedToolName = utf8Prefix(toolName, 256);
+    if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+    if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
     if (toolResult !== undefined) {
       payload.tool_result = projectPiFeedValue(toolResult, projectionState, 0, false);
     }
-    const isError = objectValue(event, ["isError", "is_error"]);
     if (isError !== undefined) payload.is_error = projectPiFeedValue(isError, projectionState);
-  }
-  dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
-    args: ["hooks", "feed", "--source", "pi", "--event", eventName, ...target],
-    cwd,
-    payload,
-    context,
-    terminal: isTerminalFeedEvent(eventName),
-    onFailure: () => { state.feedDeliveryFailed = true; },
+    dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
+      args: ["hooks", "feed", "--source", "pi", "--event", eventName, ...target],
+      cwd,
+      payload,
+      context,
+      terminal,
+      onFailure: () => { state.feedDeliveryFailed = true; },
+    });
+  };
+}
+
+async function warnFeedDeliveryDropped(
+  context: PiExtensionContextSnapshot,
+  sessionId: string,
+): Promise<void> {
+  await warn(context, "cmux feed delivery dropped", {
+    session_id: sessionId,
+    hook_name: "feed",
+    reason: "dispatch-dropped",
   });
 }
 
@@ -338,21 +338,22 @@ async function publishPendingCompletion(
   sessionStates: Map<string, SessionState>,
   context: PiExtensionContextSnapshot,
   sessionId: string,
+  completion: PendingCompletion,
 ): Promise<void> {
-  const completion = settleTurn(sessionStates, sessionId);
-  if (!completion) return;
   await dispatcher.finishFeedForSession(sessionId);
   const state = stateFor(sessionStates, sessionId);
   const feedDelivered = !state.feedDeliveryFailed;
   state.feedDeliveryFailed = false;
-  if (!feedDelivered) {
-    warn(context, "cmux hook command failed", { session_id: sessionId });
-  }
+  if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
   };
-  if (feedDelivered) {
+  if (completion.suppressNotification) {
+    // Stop normally creates cmux's native fallback notification when no explicit
+    // notification was routed. Mark intentional interruption as already handled.
+    stopPayload.cmux_notification_routed = true;
+  } else if (feedDelivered) {
     const notificationRouted = await sendHook(dispatcher, "notification", context, {
       message: completion.lastAssistantMessage || "Task completed",
       turn_id: completion.turnId,
@@ -363,11 +364,79 @@ async function publishPendingCompletion(
   await sendHook(dispatcher, "stop", context, stopPayload);
 }
 
+// A stalled lifecycle hook may run for its full configured timeout while Pi
+// keeps emitting tool events. Bound the pending tasks a session can stack
+// behind it so bursts cannot pin unbounded event payloads: droppable Feed
+// preparation is shed first and surfaces as a dropped delivery at completion.
+const maximumPiLifecycleBacklogTasks = 32;
+
+interface PiLifecycleQueue {
+  enqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void>;
+  tryEnqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): boolean;
+}
+
+function createPiLifecycleQueue(): PiLifecycleQueue {
+  const tails = new Map<string, Promise<void>>();
+  const pendingCounts = new Map<string, number>();
+  const enqueue = (
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> => {
+    pendingCounts.set(sessionId, (pendingCounts.get(sessionId) || 0) + 1);
+    const previous = tails.get(sessionId) || Promise.resolve();
+    let tracked: Promise<void>;
+    tracked = previous
+      .then(operation)
+      .then(() => undefined)
+      .catch((error) => {
+        const errorMessage = error instanceof Error ? error.message : undefined;
+        return warn(context, "cmux lifecycle task failed", {
+          hook_name: "lifecycle-task",
+          reason: "extension-error",
+          error_available: error !== undefined,
+          error_message: utf8Prefix(errorMessage, 512),
+        });
+      })
+      .finally(() => {
+        const remaining = (pendingCounts.get(sessionId) || 1) - 1;
+        if (remaining > 0) pendingCounts.set(sessionId, remaining);
+        else pendingCounts.delete(sessionId);
+        if (tails.get(sessionId) === tracked) tails.delete(sessionId);
+      });
+    tails.set(sessionId, tracked);
+    return tracked;
+  };
+  return {
+    enqueue,
+    tryEnqueue(sessionId, context, operation) {
+      if ((pendingCounts.get(sessionId) || 0) >= maximumPiLifecycleBacklogTasks) return false;
+      void enqueue(sessionId, context, operation);
+      return true;
+    },
+  };
+}
+
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const dispatcher = new PiCmuxCommandDispatcher();
   const sessionStates = new Map<string, SessionState>();
+  const lifecycleTasks = createPiLifecycleQueue();
 
-  pi.on("session_start", async (_event, ctx) => {
+  const enqueueLifecycleTask = (
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> => lifecycleTasks.enqueue(sessionId, context, operation);
+
+  pi.on("session_start", (_event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (sessionId) {
@@ -376,64 +445,91 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.feedDeliveryFailed = false;
       state.stopped = false;
     }
-    const ok = await sendHook(dispatcher, "session-start", context);
-    if (ok && sessionId) await ensureResumeBinding(dispatcher, context, sessionId);
+    if (!sessionId) return;
+    enqueueLifecycleTask(sessionId, context, async () => {
+      const ok = await sendHook(dispatcher, "session-start", context);
+      if (ok) await ensureResumeBinding(dispatcher, context, sessionId);
+    });
   });
 
-  pi.on("before_agent_start", async (event, ctx) => {
+  pi.on("before_agent_start", (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
-    const turnId = sessionId ? beginTurn(sessionStates, sessionId, event) : undefined;
-    await sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId });
+    if (!sessionId) return;
+    const turnId = beginTurn(sessionStates, sessionId, event);
+    enqueueLifecycleTask(sessionId, context, () => (
+      sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId })
+    ));
   });
 
-  pi.on("tool_execution_start", async (event, ctx) => {
+  const enqueueFeed = (
+    eventName: PiFeedEventName,
+    event: unknown,
+    ctx: ExtensionContext,
+  ): void => {
     const context = snapshotContext(ctx);
-    const eventName = isSubagentTool(event) ? "SubagentStart" : "PreToolUse";
-    sendFeed(dispatcher, sessionStates, eventName, context, event);
+    const sessionId = context.sessionId;
+    if (!sessionId) return;
+    const dispatch = prepareFeedDispatch(dispatcher, sessionStates, eventName, context, event);
+    if (!dispatch) return;
+    if (!lifecycleTasks.tryEnqueue(sessionId, context, dispatch)) {
+      // A shed completion must fail visibly instead of reporting delivery.
+      if (isTerminalFeedEvent(eventName)) stateFor(sessionStates, sessionId).feedDeliveryFailed = true;
+    }
+  };
+
+  pi.on("tool_execution_start", (event, ctx) => {
+    enqueueFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", event, ctx);
   });
 
-  pi.on("tool_execution_end", async (event, ctx) => {
-    const context = snapshotContext(ctx);
-    const eventName = isSubagentTool(event) ? "SubagentStop" : "PostToolUse";
-    sendFeed(dispatcher, sessionStates, eventName, context, event);
+  pi.on("tool_execution_end", (event, ctx) => {
+    enqueueFeed(isSubagentTool(event) ? "SubagentStop" : "PostToolUse", event, ctx);
   });
 
-  pi.on("session_before_compact", async (event, ctx) => {
-    const context = snapshotContext(ctx);
-    sendFeed(dispatcher, sessionStates, "PreCompact", context, event);
+  pi.on("session_before_compact", (event, ctx) => {
+    enqueueFeed("PreCompact", event, ctx);
   });
 
-  pi.on("session_compact", async (event, ctx) => {
-    const context = snapshotContext(ctx);
-    sendFeed(dispatcher, sessionStates, "PostCompact", context, event);
+  pi.on("session_compact", (event, ctx) => {
+    enqueueFeed("PostCompact", event, ctx);
   });
 
-  pi.on("agent_end", async (event, ctx) => {
+  pi.on("agent_end", (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (!sessionId) return;
     const state = stateFor(sessionStates, sessionId);
-    const message = lastAssistantMessage(event);
+    const assistantCompletion = assistantCompletionFrom(event);
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
-      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
+      lastAssistantMessage: assistantCompletion.lastAssistantMessage || state.pendingCompletion?.lastAssistantMessage,
       notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
       turnId: currentTurnId(sessionStates, sessionId, event),
+      suppressNotification: assistantCompletion.suppressNotification,
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
     if (!supportsAgentSettled()) {
-      await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
+      const completion = settleTurn(sessionStates, sessionId);
+      if (completion) {
+        enqueueLifecycleTask(sessionId, context, () => (
+          publishPendingCompletion(dispatcher, sessionStates, context, sessionId, completion)
+        ));
+      }
     }
   });
 
-  pi.on("agent_settled", async (_event, ctx) => {
+  pi.on("agent_settled", (_event, ctx) => {
     const context = snapshotContext(ctx);
     const isIdle = ctx.isIdle();
     const sessionId = context.sessionId;
     if (!sessionId || !isIdle) return;
     // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
-    await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
+    const completion = settleTurn(sessionStates, sessionId);
+    if (completion) {
+      enqueueLifecycleTask(sessionId, context, () => (
+        publishPendingCompletion(dispatcher, sessionStates, context, sessionId, completion)
+      ));
+    }
   });
 
   pi.on("session_shutdown", async (event, ctx) => {
@@ -449,16 +545,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       };
     }
-    await dispatcher.finishFeedForSession(sessionId);
-    const feedDelivered = !state.feedDeliveryFailed;
-    state.feedDeliveryFailed = false;
-    if (!feedDelivered) warn(context, "cmux hook command failed", { session_id: sessionId });
-    if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
-    try {
-      await clearResumeBinding(dispatcher, context, sessionId);
-    } finally {
-      releaseSessionRuntime(dispatcher, sessionStates, sessionId);
-    }
+    await enqueueLifecycleTask(sessionId, context, async () => {
+      await dispatcher.finishFeedForSession(sessionId);
+      const feedDelivered = !state.feedDeliveryFailed;
+      state.feedDeliveryFailed = false;
+      if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
+      if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
+      try {
+        await clearResumeBinding(dispatcher, context, sessionId);
+      } finally {
+        releaseSessionRuntime(dispatcher, sessionStates, sessionId);
+      }
+    });
   });
 }
 """#

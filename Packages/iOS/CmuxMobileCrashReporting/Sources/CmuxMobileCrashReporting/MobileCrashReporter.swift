@@ -1,4 +1,4 @@
-public import CmuxMobileAnalytics
+public import CMUXMobileCore
 import CmuxSentryReporting
 import Foundation
 public import Sentry
@@ -6,7 +6,7 @@ public import Sentry
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///
 /// ``MobileCrashReporter`` intentionally reuses
-/// ``CmuxMobileAnalytics/AnalyticsConsentProviding`` so crash telemetry and
+/// ``CMUXMobileCore/AnalyticsConsentProviding`` so crash telemetry and
 /// analytics obey one opt-out source. `sendDefaultPii` is disabled and every
 /// outgoing event, breadcrumb, and structured log is redacted by the shared
 /// `SentryEventScrubber` (CmuxSentryReporting) before it leaves the device.
@@ -40,6 +40,8 @@ public struct MobileCrashReporter {
     ///   - consent: The shared analytics/crash telemetry opt-out gate.
     ///   - arguments: Process arguments used to gate the DEBUG-only test crash.
     ///     Defaults to `ProcessInfo.processInfo.arguments`.
+    ///   - prepareLocale: Process-locale initialization performed before Sentry
+    ///     starts any background work.
     ///   - start: The Sentry start function. Tests inject this closure so they
     ///     can assert the consent gate without starting the real SDK.
     ///   - crash: The DEBUG-only test crash function. Tests inject this closure
@@ -51,6 +53,10 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
+        prepareLocale: () -> Void = {
+            _ = Locale.current
+            _ = NSLocale.preferredLanguages
+        },
         start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
         purgeCache: (@Sendable () -> Void)? = nil,
@@ -62,6 +68,12 @@ public struct MobileCrashReporter {
         // and CI sessions would all send deliberate crashes and hangs to the
         // shared Sentry project.
         guard !isTestRun(environment: environment) else { return }
+        // Foundation lazily initializes process locale through setlocale().
+        // Sentry also starts a background `sentry-init` thread that reads
+        // locale environment state. Completing Foundation's initialization on
+        // the composition-root actor first prevents that thread from racing
+        // libghostty's own locale initialization when its first surface mounts.
+        prepareLocale()
         let cachePurger = self.cachePurger
         let purgeCache = purgeCache ?? { cachePurger.purge() }
 

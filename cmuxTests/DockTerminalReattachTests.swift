@@ -176,7 +176,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -204,7 +204,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -295,6 +295,13 @@ extension DockSocketLifecycleTests {
 
         let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
         #expect(attachedPanelId == panel.id)
+        let attachedTabId = try #require(
+            store.surfaceId(forPanelId: panel.id)
+        )
+        #expect(
+            store.bonsplitController.tab(attachedTabId)?
+                .hasCustomTitle == true
+        )
         panel.displayTitle = "Current Dock Title"
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
@@ -307,6 +314,166 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == sessionDirectory)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
+    }
+
+    @Test("Clearing a transferred Dock title does not resurrect stale metadata")
+    @MainActor
+    func clearingTransferredDockTitleStaysCleared() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        panel.displayTitle = "Current Dock Title"
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(
+            store.bonsplitController.allPaneIds.first
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            cachedTitle: "Stale Dock Title",
+            customTitle: "Pinned Agent",
+            customTitleSource: .user
+        )
+
+        _ = try #require(
+            store.attachDetachedSurface(
+                detached,
+                inPane: rootPane,
+                focus: false
+            )
+        )
+        #expect(
+            store.setDockPanelCustomTitle(
+                panelId: panel.id,
+                title: nil
+            )
+        )
+        let snapshot = try #require(
+            store.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panel.id }
+        )
+        #expect(snapshot.customTitle == nil)
+        #expect(snapshot.title == panel.displayTitle)
+
+        let roundTripped = try #require(
+            store.detachSurface(panelId: panel.id)
+        )
+        #expect(roundTripped.customTitle == nil)
+        #expect(roundTripped.title == panel.displayTitle)
+        roundTripped.panel.close()
+    }
+
+    @Test("Dock shell preexec retains a manual agent restore binding")
+    @MainActor
+    func dockShellPreexecRetainsManualAgentRestoreBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "grok-dock-manual-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-grok-dock-manual"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(sessionId)",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .manualResumeAvailable,
+            shellActivityState: .promptIdle,
+            resumeBinding: binding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        store.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+
+        #expect(store.restoredAgentLifecycle.snapshotsByPanelId[panel.id] == nil)
+        let retainedBinding = try #require(store.surfaceResumeBinding(panelId: panel.id))
+        #expect(retainedBinding.checkpointId == sessionId)
+        #expect(retainedBinding.autoResume == false)
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+        #expect(store.surfaceResumeBinding(panelId: panel.id) == nil)
+    }
+
+    @Test("Dock completion for an older restored session preserves a replacement binding")
+    @MainActor
+    func dockOlderRestoredSessionCompletionPreservesReplacementBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let restoredSessionId = "grok-dock-restored-\(UUID().uuidString)"
+        let replacementSessionId = "grok-dock-replacement-\(UUID().uuidString)"
+        let restoredAgent = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: restoredSessionId,
+            workingDirectory: "/tmp/cmux-grok-dock-restored",
+            launchCommand: nil
+        )
+        let restoredBinding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(restoredSessionId)",
+            checkpointId: restoredSessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: restoredAgent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            shellActivityState: .commandRunning,
+            resumeBinding: restoredBinding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let replacementBinding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(replacementSessionId)",
+            checkpointId: replacementSessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        store.surfaceResumeBindingsByPanelId[panel.id] = replacementBinding
+        store.managedAgentResumeBindingsByPanelId[panel.id] = replacementBinding
+
+        store.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
+
+        let retainedBinding = try #require(store.surfaceResumeBinding(panelId: panel.id))
+        #expect(retainedBinding.checkpointId == replacementSessionId)
+        #expect(retainedBinding.autoResume == true)
     }
 
     @Test("Dock transfer drops a restored snapshot superseded by a live hook session")
@@ -1504,7 +1671,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))

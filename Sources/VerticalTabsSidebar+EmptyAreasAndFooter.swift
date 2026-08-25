@@ -51,9 +51,10 @@ struct SidebarAccountButtonPresentation: Equatable {
 
     static func resolve(
         isSignedIn: Bool,
-        prefersProfileIcon: Bool
+        prefersProfileIcon: Bool,
+        hasProfilePicture: Bool = false
     ) -> SidebarAccountButtonPresentation {
-        if isSignedIn, !prefersProfileIcon {
+        if isSignedIn, hasProfilePicture, !prefersProfileIcon {
             return SidebarAccountButtonPresentation(
                 visual: .profilePicture,
                 size: SidebarFooterButtonMetrics.profilePictureSize
@@ -198,7 +199,7 @@ struct SidebarFooterCircularIcon: View {
             pointSize: style.pointSize,
             weight: style.weight
         )
-        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -257,10 +258,14 @@ struct SidebarAccountMenuButton: View {
 #endif
     }
 
-    private func presentation(isSignedIn: Bool) -> SidebarAccountButtonPresentation {
+    private func presentation(
+        isSignedIn: Bool,
+        hasProfilePicture: Bool
+    ) -> SidebarAccountButtonPresentation {
         let presentation = SidebarAccountButtonPresentation.resolve(
             isSignedIn: isSignedIn,
-            prefersProfileIcon: prefersProfileIcon
+            prefersProfileIcon: prefersProfileIcon,
+            hasProfilePicture: hasProfilePicture
         )
 #if DEBUG
         if !presentation.showsProfilePicture {
@@ -277,7 +282,10 @@ struct SidebarAccountMenuButton: View {
         let identity = accountFlow?.currentIdentity
         let isSignedIn = identity != nil
         let buttonTitle = isSignedIn ? title : signInTitle
-        let presentation = presentation(isSignedIn: isSignedIn)
+        let presentation = presentation(
+            isSignedIn: isSignedIn,
+            hasProfilePicture: identity?.avatarURL != nil
+        )
         Button {
             if isSignedIn {
                 isPopoverPresented.toggle()
@@ -422,7 +430,8 @@ struct SidebarAccountAvatar: View {
                 avatarURL: avatarURL,
                 displayName: displayName,
                 email: email,
-                size: size
+                size: size,
+                loadingSystemName: signedOutSystemName
             )
         } else {
             SidebarFooterCircularIcon(
@@ -437,7 +446,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
@@ -452,27 +461,32 @@ struct SidebarMobileConnectButton: View {
     }
 
     var body: some View {
-        Button {
-            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
-                tabManager: tabManager,
-                debugSource: "sidebar.mobileConnect"
-            )
-        } label: {
-            CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(
-                    width: SidebarFooterButtonMetrics.buttonSize,
-                    height: SidebarFooterButtonMetrics.buttonSize
+        // Hidden under a managed remote-control disable: pairing cannot open
+        // (chokepoint in performMobileConnectWorkspaceAction), so showing the
+        // button would be a dead affordance.
+        if MobileRemoteControlPolicy.isEnabled {
+            Button {
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.mobileConnect"
                 )
+            } label: {
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
+                    .foregroundStyle(.secondary)
+                    .frame(
+                        width: SidebarFooterButtonMetrics.buttonSize,
+                        height: SidebarFooterButtonMetrics.buttonSize
+                    )
+            }
+            .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(
+                width: SidebarFooterButtonMetrics.buttonSize,
+                height: SidebarFooterButtonMetrics.buttonSize
+            )
+            .safeHelp(title)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("SidebarMobileConnectButton")
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(
-            width: SidebarFooterButtonMetrics.buttonSize,
-            height: SidebarFooterButtonMetrics.buttonSize
-        )
-        .safeHelp(title)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("SidebarMobileConnectButton")
     }
 }
 
@@ -594,7 +608,7 @@ struct SidebarEmptyArea: View {
                         debugSource: "sidebar.emptyArea.remoteTmux"
                     )
                 } else {
-                    tabManager.addWorkspace(placementOverride: .end)
+                    tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]

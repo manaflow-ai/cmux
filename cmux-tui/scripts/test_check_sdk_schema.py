@@ -61,6 +61,30 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<TerminalKeyInput>",
         )
 
+    def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
+        fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
+
+        self.assertEqual(set(fields), {
+            "operation",
+            "origin",
+            "receipt",
+            "idempotency_key",
+            "selectors",
+            "selector_fallbacks",
+            "pane",
+            "workspace",
+            "argv",
+            "cwd",
+            "url",
+            "width",
+            "cols",
+            "rows",
+        })
+        self.assertEqual(
+            CHECKER._runtime_type_shape(fields["selectors"].rust_type),
+            "ref<ResourceSelectors>",
+        )
+
     def test_missing_command_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
         document["commands"].pop("ping")

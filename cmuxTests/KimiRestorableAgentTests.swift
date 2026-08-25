@@ -279,3 +279,188 @@ struct KimiRestorableAgentTests {
         #expect(resumeCommand.hasPrefix("cd -- '\(runtimeWorkingDirectory.path)'"))
     }
 }
+
+@Suite("Restorable agent persisted kind decoding")
+struct RestorableAgentPersistedKindDecodingTests {
+    @Test("Registry-owned persisted binding kinds match live custom snapshots", arguments: registryOwnedCases)
+    func registryOwnedPersistedBindingKindMatchesLiveCustomSnapshot(_ testCase: KindCase) throws {
+        let sessionId = "session-\(testCase.id)"
+        let launchDirectory = "/tmp/cmux-\(testCase.id)-launch"
+        let runtimeDirectory = "/tmp/cmux-\(testCase.id)-runtime"
+        let liveSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(testCase.id),
+            sessionId: sessionId,
+            workingDirectory: launchDirectory,
+            launchCommand: nil,
+            registration: testCase.registration
+        )
+        let persistedBinding = try Self.decodedBinding(
+            kind: testCase.id,
+            sessionId: sessionId,
+            cwd: runtimeDirectory
+        )
+
+        let compatible = Workspace.restorableAgentForSessionRestore(
+            liveSnapshot,
+            resumeBinding: persistedBinding
+        )
+        #expect(compatible?.kind == liveSnapshot.kind)
+        #expect(compatible?.kind == .custom(testCase.id))
+
+        let retargeted = Workspace.resumeBindingForSessionRestore(
+            persistedBinding,
+            restorableAgent: liveSnapshot
+        )
+        let expectedDirectory = testCase.kind.cwdNamespacing == .byDirectory ? launchDirectory : runtimeDirectory
+        #expect(retargeted?.cwd == expectedDirectory)
+    }
+
+    @Test("Native persisted binding kinds still match native snapshots", arguments: nativeCases)
+    func nativePersistedBindingKindMatchesNativeSnapshot(_ testCase: KindCase) throws {
+        let sessionId = "session-\(testCase.id)"
+        let launchDirectory = "/tmp/cmux-\(testCase.id)-launch"
+        let runtimeDirectory = "/tmp/cmux-\(testCase.id)-runtime"
+        let liveSnapshot = SessionRestorableAgentSnapshot(
+            kind: testCase.kind,
+            sessionId: sessionId,
+            workingDirectory: launchDirectory,
+            launchCommand: nil,
+            registration: testCase.registration
+        )
+        let persistedBinding = try Self.decodedBinding(
+            kind: testCase.id,
+            sessionId: sessionId,
+            cwd: runtimeDirectory
+        )
+
+        let compatible = Workspace.restorableAgentForSessionRestore(
+            liveSnapshot,
+            resumeBinding: persistedBinding
+        )
+        #expect(compatible?.kind == liveSnapshot.kind)
+
+        let retargeted = Workspace.resumeBindingForSessionRestore(
+            persistedBinding,
+            restorableAgent: liveSnapshot
+        )
+        let expectedDirectory = testCase.kind.cwdNamespacing == .byDirectory ? launchDirectory : runtimeDirectory
+        #expect(retargeted?.cwd == expectedDirectory)
+    }
+
+    @Test("Kimi hook-store snapshots match persisted Kimi resume bindings")
+    func kimiHookStoreSnapshotMatchesPersistedBindingKind() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-kimi-restore-of-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let launchDirectory = root.appendingPathComponent("launch-repo", isDirectory: true)
+        let runtimeDirectory = root.appendingPathComponent("runtime-worktree", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: launchDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: runtimeDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "72124c21-7b09-40a1-a98f-718164c46431"
+        let store = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    sessionId: [
+                        "sessionId": sessionId,
+                        "workspaceId": workspaceId.uuidString,
+                        "surfaceId": panelId.uuidString,
+                        "cwd": runtimeDirectory.path,
+                        "launchCommand": [
+                            "launcher": "kimi",
+                            "executablePath": "/Users/example/.local/bin/kimi",
+                            "arguments": ["/Users/example/.local/bin/kimi"],
+                            "workingDirectory": launchDirectory.path,
+                            "capturedAt": 1_750_000_000.0,
+                            "source": "test",
+                        ],
+                        "isRestorable": true,
+                        "updatedAt": 1_750_000_000.0,
+                    ],
+                ],
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try store.write(
+            to: stateDirectory.appendingPathComponent("kimi-hook-sessions.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let liveSnapshot = try #require(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fileManager)
+                .snapshot(workspaceId: workspaceId, panelId: panelId)
+        )
+        #expect(liveSnapshot.kind == .custom("kimi"))
+        #expect(liveSnapshot.registration?.id == "kimi")
+
+        let persistedBinding = try Self.decodedBinding(
+            kind: "kimi",
+            sessionId: sessionId,
+            cwd: runtimeDirectory.path
+        )
+        let compatible = Workspace.restorableAgentForSessionRestore(
+            liveSnapshot,
+            resumeBinding: persistedBinding
+        )
+
+        #expect(compatible?.kind == liveSnapshot.kind)
+    }
+
+    private static func decodedBinding(
+        kind: String,
+        sessionId: String,
+        cwd: String
+    ) throws -> SurfaceResumeBindingSnapshot {
+        let persisted = SurfaceResumeBindingSnapshot(
+            kind: kind,
+            command: "'\(kind)' '--resume' '\(sessionId)'",
+            cwd: cwd,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        return try JSONDecoder().decode(
+            SurfaceResumeBindingSnapshot.self,
+            from: JSONEncoder().encode(persisted)
+        )
+    }
+
+    struct KindCase: Sendable, CustomTestStringConvertible {
+        let id: String
+        let kind: RestorableAgentKind
+        let registration: CmuxVaultAgentRegistration?
+
+        var testDescription: String { id }
+    }
+
+    private static let registryOwnedCases: [KindCase] = [
+        KindCase(id: "pi", kind: .custom("pi"), registration: .builtInPi),
+        KindCase(id: "grok", kind: .custom("grok"), registration: .builtInGrok),
+        KindCase(id: "antigravity", kind: .custom("antigravity"), registration: .builtInAntigravity),
+        KindCase(id: "kimi", kind: .custom("kimi"), registration: .builtInKimi),
+        KindCase(
+            id: "ollama",
+            kind: .custom("ollama"),
+            registration: CmuxVaultAgentRegistration(
+                id: "ollama",
+                name: "Custom Ollama",
+                detect: CmuxVaultAgentDetectRule(processName: "ollama"),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "custom-ollama --resume {{sessionId}}"
+            )
+        ),
+    ]
+
+    private static let nativeCases: [KindCase] = [
+        KindCase(id: "claude", kind: .claude, registration: nil),
+        KindCase(id: "codex", kind: .codex, registration: nil),
+        KindCase(id: "opencode", kind: .opencode, registration: nil),
+    ]
+}

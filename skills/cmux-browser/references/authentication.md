@@ -83,6 +83,6 @@ fi
 Never commit state files; they contain auth tokens. Take credentials from environment variables. Clear state after sensitive tasks:
 
 ```bash
-cmux browser surface:7 cookies clear
+cmux browser surface:7 cookies clear --all
 rm -f ./auth-state.json
 ```

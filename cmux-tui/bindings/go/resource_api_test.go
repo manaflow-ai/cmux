@@ -67,6 +67,54 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestSessionJournalOptionsValidation(t *testing.T) {
+	tail := JournalStartTail
+	invalidStart := JournalStart("latest")
+	secret := JournalSensitivitySecret
+	invalidSensitivity := JournalSensitivity("private")
+	invalidClass := JournalClass("transition")
+	emptyRegex := &JournalRegexFilter{}
+	invalidFieldRegex := &JournalRegexFilter{
+		Pattern: "agent\\.",
+		Field:   JournalRegexField("unknown"),
+	}
+	tests := map[string]SessionJournalOptions{
+		"cursor and start": {
+			Cursor: &Cursor{Generation: "generation", Revision: Decimal(1)},
+			Start:  &tail,
+		},
+		"invalid start": {Start: &invalidStart},
+		"secret sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &secret},
+		},
+		"invalid sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &invalidSensitivity},
+		},
+		"invalid class": {
+			Filter: &JournalFilter{Classes: []JournalClass{invalidClass}},
+		},
+		"empty subject": {
+			Filter: &JournalFilter{Subjects: []JournalSubjectFilter{{}}},
+		},
+		"empty regex": {
+			Filter: &JournalFilter{Regex: emptyRegex},
+		},
+		"invalid regex field": {
+			Filter: &JournalFilter{Regex: invalidFieldRegex},
+		},
+	}
+	for name, options := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := options.validate(); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("validate() error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+	if err := (SessionJournalOptions{}).validate(); err != nil {
+		t.Fatalf("zero-value options rejected: %v", err)
+	}
+}
+
 func TestIdempotencyKeysMatchDurableIdentifierContract(t *testing.T) {
 	for name, value := range map[string]string{
 		"empty":           "",
@@ -170,6 +218,50 @@ func TestBrowserPointerInputsEncodeRequiredDecimalToken(t *testing.T) {
 	requireParam(t, wheel, "pointer_frame_seq", "42")
 }
 
+func TestTerminalProjectEncodesDestinationAndDecodesEveryView(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	name := "mirror"
+	terminal := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	projected, err := terminal.Project(context.Background(), TerminalProjectOptions{
+		DestinationWorkspace: SelectID(testWorkspaceID),
+		DestinationScreen:    SelectID(testScreenID),
+		DestinationPane:      SelectID(testPaneID),
+		Index:                2,
+		Name:                 &name,
+	})
+	if err != nil {
+		t.Fatalf("project terminal: %v", err)
+	}
+	snapshot, ok := projected.Value.Cached()
+	if !ok || snapshot.ID != TabID("tab_0000000000000000000000000000000a") ||
+		snapshot.ContentID != testTerminalID || snapshot.PaneID != testPaneID {
+		t.Fatalf("projected terminal snapshot = %#v, cached = %v", snapshot, ok)
+	}
+	projectedRoute := projected.Value.route.params()
+	if projectedRoute["workspace"] != string(testWorkspaceID) ||
+		projectedRoute["screen"] != string(testScreenID) ||
+		projectedRoute["pane"] != string(testPaneID) ||
+		projectedRoute["tab"] != string(snapshot.ID) {
+		t.Fatalf("projected tab route = %#v", projectedRoute)
+	}
+	if _, present := projectedRoute["terminal"]; present {
+		t.Fatalf("projected tab retained source terminal route = %#v", projectedRoute)
+	}
+
+	request := <-requests
+	if request["operation"] != "terminal.project" {
+		t.Fatalf("operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "destination_workspace", string(testWorkspaceID))
+	requireParam(t, request, "destination_screen", string(testScreenID))
+	requireParam(t, request, "destination_pane", string(testPaneID))
+	requireParam(t, request, "index", float64(2))
+	requireParam(t, request, "name", name)
+}
+
 func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	for name, raw := range map[string]json.RawMessage{
 		"external origin": json.RawMessage(
@@ -203,10 +295,47 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("invalid copy mode error = %T %v", err, err)
 	}
-	terminal, err := decodeValue[TerminalSnapshot](
+	legacyAttached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"title":"legacy","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"legacy attached terminal snapshot",
+	)
+	if err != nil || len(legacyAttached.TabIDs) != 1 {
+		t.Fatalf("legacy attached terminal = %#v, %v", legacyAttached, err)
+	}
+	legacyDetached, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":null,`+
+				`"title":"legacy","cols":80,"rows":24,`+
+				`"running":true,"lifecycle":"running"}`,
+		),
+		"legacy detached terminal snapshot",
+	)
+	if err != nil || legacyDetached.TabIDs == nil || len(legacyDetached.TabIDs) != 0 {
+		t.Fatalf("legacy detached terminal = %#v, %v", legacyDetached, err)
+	}
+	dualPlacement, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
+				`"title":"dual","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"dual terminal placement",
+	)
+	if err != nil || len(dualPlacement.TabIDs) != 1 {
+		t.Fatalf("dual terminal placement = %#v, %v", dualPlacement, err)
+	}
+	terminal, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":false,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -228,7 +357,7 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -339,6 +468,53 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 		),
 	); err == nil {
 		t.Fatal("zero terminal exit signal was accepted")
+	}
+}
+
+func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
+	const tabID = "tab_00000000000000000000000000000006"
+	tests := []struct {
+		name       string
+		selected   any
+		projected  []any
+		omitTabID  bool
+		omitTabIDs bool
+	}{
+		{name: "missing legacy and multiview identities", omitTabID: true, omitTabIDs: true},
+		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
+		{name: "empty selected identity", selected: "", projected: []any{""}},
+		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+		{name: "null multiview identities", selected: tabID, projected: nil},
+		{
+			name:      "inconsistent legacy alias",
+			selected:  "tab_11111111111111111111111111111111",
+			projected: []any{tabID},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fields := map[string]any{
+				"id":        "term_00000000000000000000000000000007",
+				"title":     "job",
+				"cols":      80,
+				"rows":      24,
+				"running":   true,
+				"lifecycle": "running",
+			}
+			if !test.omitTabID {
+				fields["tab_id"] = test.selected
+			}
+			if !test.omitTabIDs {
+				fields["tab_ids"] = test.projected
+			}
+			raw, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeValue[TerminalSnapshot](raw, "terminal snapshot"); !errors.Is(err, ErrProtocol) {
+				t.Fatalf("malformed terminal identity error = %T %v", err, err)
+			}
+		})
 	}
 }
 
@@ -576,6 +752,65 @@ func TestTerminalWaitExitAbortDrainsFalseRaceBeforeReuse(t *testing.T) {
 	}
 }
 
+func TestTerminalWaitAbortDrainsResponseFirstFalseRaceBeforeReuse(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	waitSeen := make(chan struct{})
+	targetSent := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		wait := readRequest(t, reader)
+		close(waitSeen)
+		cancel := readRequest(t, reader)
+		writeSuccess(t, serverSide, wait["id"], map[string]any{
+			"matched": true,
+			"text":    "raced",
+		})
+		close(targetSent)
+		<-releaseCancel
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{
+			"canceled": false,
+		})
+		ping := readRequest(t, reader)
+		writeSuccess(t, serverSide, ping["id"], pingResult())
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	terminal := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := terminal.Wait(
+			waitContext,
+			TerminalWaitOptions{Pattern: "ready"},
+		)
+		waitDone <- err
+	}()
+	<-waitSeen
+	cancelWait()
+	<-targetSent
+	select {
+	case err := <-waitDone:
+		t.Fatalf("wait returned before cancel response drain: %v", err)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(releaseCancel)
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	if _, err := client.Session(SelectID(testSessionID)).
+		Ping(context.Background(), SessionPingOptions{}); err != nil {
+		t.Fatalf("ping after response-first race: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTerminalWaitCleanupFailureClosesButPreservesAbort(t *testing.T) {
 	for _, testCase := range []struct {
 		name         string
@@ -656,6 +891,66 @@ func TestTerminalWaitCleanupFailureClosesButPreservesAbort(t *testing.T) {
 				t.Fatalf("closed connection reuse took %s", elapsed)
 			}
 		})
+	}
+}
+
+func TestTerminalWaitCleanupDeadlineFailClosesButPreservesAbort(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	waitSeen := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		_ = readRequest(t, reader)
+		close(waitSeen)
+		cancel := readRequest(t, reader)
+		if cancel["operation"] != "request.cancel" {
+			serverDone <- fmt.Errorf(
+				"cancel operation = %#v",
+				cancel["operation"],
+			)
+			return
+		}
+		if err := serverSide.SetReadDeadline(
+			time.Now().Add(2 * time.Second),
+		); err != nil {
+			serverDone <- err
+			return
+		}
+		var byte [1]byte
+		_, err := serverSide.Read(byte[:])
+		if err == nil {
+			serverDone <- errors.New("cleanup timeout did not close the connection")
+			return
+		}
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := client.Session(SelectID(testSessionID)).
+			Terminal(SelectID(testTerminalID)).
+			Wait(waitContext, TerminalWaitOptions{Pattern: "ready"})
+		waitDone <- err
+	}()
+	<-waitSeen
+	started := time.Now()
+	cancelWait()
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Fatalf("request cleanup exceeded its deadline: %s", elapsed)
+	}
+	select {
+	case <-client.done:
+	default:
+		t.Fatal("request cleanup timeout did not close the connection")
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1017,6 +1312,30 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	}
 }
 
+func TestPaneSplitEncodesViewportWidth(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	pane := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID)).
+		Pane(SelectID(testPaneID))
+	width := 0.5
+
+	if _, err := pane.Split(context.Background(), PaneSplitOptions{
+		Direction:     DirectionRight,
+		ViewportWidth: &width,
+	}); err != nil {
+		t.Fatalf("split pane: %v", err)
+	}
+	request := <-requests
+	if request["operation"] != "pane.split" {
+		t.Fatalf("split operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "direction", string(DirectionRight))
+	requireParam(t, request, "viewport_width", width)
+}
+
 func TestScreenLayoutUndoEncodesConfirmationToken(t *testing.T) {
 	client, requests := pipeClient(t, nil, 1)
 	defer client.Close(context.Background()) //nolint:errcheck
@@ -1055,7 +1374,7 @@ func TestStructuredErrorsAndNoImplicitRetry(t *testing.T) {
 		request := readRequest(t, reader)
 		requests.Add(1)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol": "cmux.protocol/1",
+			"protocol": "cmux.protocol/2",
 			"type":     "response",
 			"id":       request["id"],
 			"ok":       false,
@@ -1213,7 +1532,7 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 			},
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "18",
@@ -1225,7 +1544,7 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 
 		cancel := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -1270,6 +1589,68 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 	}
 }
 
+func TestJournalRecordSequenceMatchesEnvelopeCursor(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	release := make(chan struct{})
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{"stream_id": streamID})
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/2",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "1",
+			"cursor": map[string]any{
+				"generation": string(testSessionID),
+				"revision":   "1",
+			},
+			"item": map[string]any{
+				"sequence":                   "2",
+				"event_id":                   "event_mismatched_cursor",
+				"schema_version":             1,
+				"kind":                       "agent.turn.completed",
+				"class":                      "observation",
+				"replay":                     "advisory",
+				"occurred_at_ms":             "1",
+				"committed_at_ms":            "2",
+				"producer":                   map[string]any{"kind": "agent_adapter", "id": "cmux_agents"},
+				"authority":                  nil,
+				"causation_id":               nil,
+				"correlation_id":             nil,
+				"causation_depth":            0,
+				"subjects":                   []any{},
+				"sensitivity":                "metadata",
+				"payload":                    map[string]any{},
+				"resource_revision":          nil,
+				"previous_resource_revision": nil,
+			},
+		})
+		<-release
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	stream, err := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID)).
+		Journal(context.Background(), SessionJournalOptions{})
+	if err != nil {
+		t.Fatalf("open journal: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "journal sequence must match") {
+		t.Fatalf("mismatched journal cursor error = %T %v", err, err)
+	}
+	close(release)
+}
+
 func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 	const requestTimeout = 10 * time.Millisecond
 	clientSide, serverSide := net.Pipe()
@@ -1288,7 +1669,7 @@ func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 		defer timer.Stop()
 		<-timer.C
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "1",
@@ -1300,7 +1681,7 @@ func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 
 		cancel := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -1437,7 +1818,7 @@ func TestFailedStreamOpenCancelsDispatchedRoute(t *testing.T) {
 				})
 				secondCancel := readRequest(t, reader)
 				writeEnvelope(t, serverSide, map[string]any{
-					"protocol":  "cmux.protocol/1",
+					"protocol":  "cmux.protocol/2",
 					"type":      "stream_end",
 					"stream_id": secondStreamID,
 					"reason":    "canceled",
@@ -1778,7 +2159,7 @@ func TestRejectedStreamOpenDoesNotCancelOrClose(t *testing.T) {
 		reader := bufio.NewReader(serverSide)
 		open := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol": "cmux.protocol/1",
+			"protocol": "cmux.protocol/2",
 			"type":     "response",
 			"id":       open["id"],
 			"ok":       false,
@@ -2374,9 +2755,9 @@ func TestFailedStreamOpenCleanupTimeoutClosesConnection(t *testing.T) {
 
 func TestResponseEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	valid := map[string]string{
-		"success": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"success": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":true,"result":null}`,
-		"failure": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"failure": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed",` +
 			`"details":null,"retryable":false}}`,
@@ -2392,43 +2773,43 @@ func TestResponseEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	structuredError := `{"code":"resource.failed","message":"failed",` +
 		`"details":{},"retryable":false}`
 	invalid := map[string]string{
-		"unknown top-level field": `{"protocol":"cmux.protocol/1",` +
+		"unknown top-level field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true,` +
 			`"result":{},"extra":true}`,
 		"missing protocol": `{"type":"response","id":"request-1",` +
 			`"ok":true,"result":{}}`,
 		"null protocol": `{"protocol":null,"type":"response",` +
 			`"id":"request-1","ok":true,"result":{}}`,
-		"wrong type": `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+		"wrong type": `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 			`"id":"request-1","ok":true,"result":{}}`,
-		"missing id": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"missing id": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"ok":true,"result":{}}`,
-		"empty id": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"empty id": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"","ok":true,"result":{}}`,
-		"missing ok": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"missing ok": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","result":{}}`,
-		"null ok": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"null ok": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":null,"result":{}}`,
-		"success missing result": `{"protocol":"cmux.protocol/1",` +
+		"success missing result": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true}`,
-		"success with error": `{"protocol":"cmux.protocol/1",` +
+		"success with error": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true,` +
 			`"result":{},"error":` + structuredError + `}`,
-		"failure missing error": `{"protocol":"cmux.protocol/1",` +
+		"failure missing error": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false}`,
-		"failure with result": `{"protocol":"cmux.protocol/1",` +
+		"failure with result": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,` +
 			`"result":{},"error":` + structuredError + `}`,
-		"null error": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"null error": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":false,"error":null}`,
-		"error unknown field": `{"protocol":"cmux.protocol/1",` +
+		"error unknown field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","details":{},` +
 			`"retryable":false,"extra":true}}`,
-		"error missing field": `{"protocol":"cmux.protocol/1",` +
+		"error missing field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","retryable":false}}`,
-		"error null retryable": `{"protocol":"cmux.protocol/1",` +
+		"error null retryable": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","details":{},` +
 			`"retryable":null}}`,
@@ -2451,25 +2832,25 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	}{
 		"item without cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"0","item":null}`,
 		},
 		"item with cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":"2"},"item":{}}`,
 		},
 		"canceled end": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":{"generation":"g","revision":"2"},` +
 				`"recovery":"reopen"}`,
 		},
 		"error end": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed",` +
 				`"details":null,"retryable":true}}`,
@@ -2492,110 +2873,110 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	}{
 		"item unknown top-level field": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"item":{},"extra":true}`,
 		},
 		"item missing stream id": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"sequence":"1","item":{}}`,
 		},
 		"item number sequence": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":1,"item":{}}`,
 		},
 		"item missing item": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1"}`,
 		},
 		"item null cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":null,"item":{}}`,
 		},
 		"item cursor missing revision": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g"},"item":{}}`,
 		},
 		"item cursor number revision": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":2},"item":{}}`,
 		},
 		"item cursor unknown field": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":"2","extra":true},` +
 				`"item":{}}`,
 		},
 		"end unknown top-level field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"extra":true}`,
 		},
 		"end missing reason": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `"}`,
 		},
 		"end unknown reason": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"future"}`,
 		},
 		"end null cursor": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":null}`,
 		},
 		"end strict cursor": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":{"generation":"g","revision":"2","extra":true}}`,
 		},
 		"end null recovery": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"recovery":null}`,
 		},
 		"end null error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":null}`,
 		},
 		"end error unknown field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed","details":{},` +
 				`"retryable":true,"extra":true}}`,
 		},
 		"end error missing field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed","retryable":true}}`,
 		},
 		"error reason missing error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error"}`,
 		},
 		"non-error reason with error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled","error":{` +
 				`"code":"stream.failed","message":"failed",` +
 				`"details":{},"retryable":true}}`,
@@ -2616,6 +2997,11 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 
 func TestTypedStreamEndAndCancellation(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
+	wrappedClient := &blockedFullWriteReturnConn{
+		Conn:      clientSide,
+		delivered: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
 	cancelRequests := make(chan int, 1)
 	go func() {
 		defer serverSide.Close()
@@ -2626,7 +3012,7 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 			"stream_id": streamID,
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "18446744073709551615",
@@ -2641,7 +3027,7 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 			},
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "error",
@@ -2656,14 +3042,48 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 	}()
 	client, err := NewClient(context.Background(), ClientOptions{
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
-			return clientSide, nil
+			return wrappedClient, nil
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
-	stream, err := session.Events(context.Background(), SessionEventsOptions{})
+	type openResult struct {
+		stream *Stream[SessionEvent]
+		err    error
+	}
+	openDone := make(chan openResult, 1)
+	go func() {
+		stream, openErr := session.Events(context.Background(), SessionEventsOptions{})
+		openDone <- openResult{stream: stream, err: openErr}
+	}()
+	select {
+	case <-wrappedClient.delivered:
+	case <-time.After(time.Second):
+		t.Fatal("stream-open frame was not delivered")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		client.mu.Lock()
+		closed := client.closed
+		client.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("client did not observe EOF after the complete stream")
+		}
+		runtime.Gosched()
+	}
+	close(wrappedClient.release)
+	var stream *Stream[SessionEvent]
+	select {
+	case result := <-openDone:
+		stream, err = result.stream, result.err
+	case <-time.After(time.Second):
+		t.Fatal("stream open did not finish after releasing the write")
+	}
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
 	}
@@ -2695,6 +3115,86 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 	}
 }
 
+func TestAcknowledgedStreamOpenSurvivesTerminalTransportClose(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	releaseWrite := make(chan struct{})
+	heldClientSide := &heldWriteReturnConn{
+		Conn:    clientSide,
+		release: releaseWrite,
+		timeout: 5 * time.Second,
+	}
+	go func() {
+		defer serverSide.Close()
+		open := readRequest(t, bufio.NewReader(serverSide))
+		streamID := requestParams(t, open)["stream_id"]
+		var batch bytes.Buffer
+		encoder := json.NewEncoder(&batch)
+		for _, envelope := range []map[string]any{
+			{
+				"protocol": "cmux.protocol/2",
+				"type":     "response",
+				"id":       open["id"],
+				"ok":       true,
+				"result":   map[string]any{"stream_id": streamID},
+			},
+			{
+				"protocol":  "cmux.protocol/2",
+				"type":      "stream_end",
+				"stream_id": streamID,
+				"reason":    "completed",
+			},
+		} {
+			if err := encoder.Encode(envelope); err != nil {
+				t.Errorf("encode server batch: %v", err)
+				return
+			}
+		}
+		if _, err := serverSide.Write(batch.Bytes()); err != nil {
+			t.Errorf("write server batch: %v", err)
+		}
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return heldClientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		<-client.done
+		close(releaseWrite)
+	}()
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	stream, err := session.Events(context.Background(), SessionEventsOptions{})
+	if err != nil {
+		t.Fatalf("open acknowledged stream: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	var end *StreamEndError
+	if !errors.As(err, &end) || end.Reason != "completed" {
+		t.Fatalf("stream end = %T %#v", err, err)
+	}
+}
+
+type heldWriteReturnConn struct {
+	net.Conn
+	release <-chan struct{}
+	timeout time.Duration
+}
+
+func (c *heldWriteReturnConn) Write(value []byte) (int, error) {
+	count, err := c.Conn.Write(value)
+	if err == nil && count == len(value) {
+		select {
+		case <-c.release:
+		case <-time.After(c.timeout):
+			return count, context.DeadlineExceeded
+		}
+	}
+	return count, err
+}
+
 func TestCancelPreservesOpeningRouteAndServerEnd(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	cancelRequests := make(chan map[string]any, 1)
@@ -2711,7 +3211,7 @@ func TestCancelPreservesOpeningRouteAndServerEnd(t *testing.T) {
 		cancelParams := requestParams(t, cancel)
 		cancelRequests <- cancelParams
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -2775,7 +3275,7 @@ func TestExplicitCancelWaitsForResponseAndEndInEitherOrder(t *testing.T) {
 					"stream_id": streamID,
 				})
 				writeEnvelope(t, serverSide, map[string]any{
-					"protocol":  "cmux.protocol/1",
+					"protocol":  "cmux.protocol/2",
 					"type":      "stream_item",
 					"stream_id": streamID,
 					"sequence":  "1",
@@ -2786,7 +3286,7 @@ func TestExplicitCancelWaitsForResponseAndEndInEitherOrder(t *testing.T) {
 				cancel := readRequest(t, reader)
 				writeEnd := func() {
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
@@ -2920,7 +3420,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "wrong_id":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": "stream_ffffffffffffffffffffffffffffffff",
 						"reason":    "canceled",
@@ -2928,7 +3428,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "wrong_reason":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "completed",
@@ -2936,7 +3436,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "malformed_end":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
@@ -2945,7 +3445,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "malformed_item":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -2953,13 +3453,13 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "post_end_malformed_item":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
 					})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -2968,13 +3468,13 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					writeSuccessOrClosed(t, serverSide, cancel["id"])
 				case "post_end_valid_item":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
 					})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -2989,7 +3489,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					writeSuccessOrClosed(t, serverSide, cancel["id"])
 				case "response_extra":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -2998,7 +3498,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "response_both":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -3007,7 +3507,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "response_null":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -3126,7 +3626,7 @@ func TestFirstExplicitCancelCallerOwnsCancellationContext(t *testing.T) {
 			return
 		}
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3238,7 +3738,7 @@ func TestExplicitCancelStaleItemDripUsesOneTotalDeadline(t *testing.T) {
 		cancel := readRequest(t, reader)
 		writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 		encoded, err := json.Marshal(map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "1",
@@ -3320,7 +3820,7 @@ func TestPreCanceledExplicitCancelCanBeRetried(t *testing.T) {
 		cancel := readRequest(t, reader)
 		close(cancelSeen)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3574,6 +4074,7 @@ func TestCancelDeliveryRace(t *testing.T) {
 func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	serverResult := make(chan error, 1)
+	overflowDone := make(chan struct{})
 	go func() {
 		defer serverSide.Close()
 		reader := bufio.NewReader(serverSide)
@@ -3591,8 +4092,14 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 			)
 			return
 		}
+		select {
+		case <-overflowDone:
+		case <-time.After(time.Second):
+			serverResult <- fmt.Errorf("overflow delivery did not finish before cancellation response")
+			return
+		}
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3651,7 +4158,6 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 
 	start := make(chan struct{})
 	cancelDone := make(chan error, 1)
-	overflowDone := make(chan struct{})
 	go func() {
 		<-start
 		cancelDone <- stream.Cancel(context.Background())
@@ -3851,7 +4357,7 @@ func pipeClient(
 			requests <- request
 			result := map[string]any{}
 			switch request["operation"] {
-			case "workspace.run":
+			case "workspace.run", "pane.split":
 				result = createdPathResult()
 			case "browser.input.mouse", "browser.input.wheel":
 				result = map[string]any{
@@ -3945,6 +4451,21 @@ func pipeClient(
 						"source_session": "codex-task-42",
 					},
 				}
+			case "terminal.project":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "17",
+					"replayed":   false,
+					"value": map[string]any{
+						"id":           "tab_0000000000000000000000000000000a",
+						"pane_id":      testPaneID,
+						"name":         "mirror",
+						"index":        2,
+						"focused":      false,
+						"content_kind": "terminal",
+						"content_id":   testTerminalID,
+					},
+				}
 			}
 			writeSuccess(t, serverSide, request["id"], result)
 		}
@@ -3995,7 +4516,7 @@ func readRequest(t *testing.T, reader *bufio.Reader) map[string]any {
 func writeSuccess(t *testing.T, conn net.Conn, id any, result map[string]any) {
 	t.Helper()
 	writeEnvelope(t, conn, map[string]any{
-		"protocol": "cmux.protocol/1",
+		"protocol": "cmux.protocol/2",
 		"type":     "response",
 		"id":       id,
 		"ok":       true,
@@ -4006,7 +4527,7 @@ func writeSuccess(t *testing.T, conn net.Conn, id any, result map[string]any) {
 func writeSuccessOrClosed(t *testing.T, conn net.Conn, id any) {
 	t.Helper()
 	encoded, err := json.Marshal(map[string]any{
-		"protocol": "cmux.protocol/1",
+		"protocol": "cmux.protocol/2",
 		"type":     "response",
 		"id":       id,
 		"ok":       true,

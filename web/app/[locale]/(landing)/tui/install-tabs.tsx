@@ -138,6 +138,17 @@ export function TuiInstallTabs({
             aria-label={copied ? copiedLabel : copyLabel}
             title={copied ? copiedLabel : copyLabel}
             onClick={() => {
+              void fetch("/api/install-events", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  event: "command_copied",
+                  product: "tui",
+                  platform,
+                  method: platform === "unix" ? "curl" : "powershell",
+                }),
+                keepalive: true,
+              }).catch(() => undefined);
               void navigator.clipboard.writeText(commands[platform]).then(() => {
                 setCopied(true);
                 window.setTimeout(() => setCopied(false), 1500);

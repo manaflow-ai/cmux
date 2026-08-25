@@ -1,17 +1,9 @@
+import CmuxNotifications
 import SwiftUI
 
 struct SidebarWorkspaceTableContextMenuActions {
     let didOpen: () -> Void
     let didClose: () -> Void
-}
-
-/// Mutable, non-observed holder for the last-built table rows. The sidebar
-/// container freezes row building against it during interactive divider
-/// drags (rows cannot change while the resizer owns the mouse), so
-/// per-width-tick body evals skip the row-projection prelude.
-@MainActor
-final class SidebarAppKitFrozenRowsBox {
-    var rows: [SidebarWorkspaceTableRowConfiguration]?
 }
 
 /// Immutable description of one AppKit-owned sidebar row.
@@ -39,6 +31,12 @@ struct SidebarWorkspaceTableRowConfiguration {
     /// pump (metadata/branch/PR updates repaint one cell, no container render).
     let appKitWorkspaceRowWorkspace: Workspace?
     let appKitWorkspaceRowRebuild: (@MainActor () -> SidebarWorkspaceRowModel)?
+    /// Workspace ids whose unread summaries affect this row, plus factories
+    /// that repaint only the matching AppKit cell from the latest atomic
+    /// unread snapshot. They are intentionally excluded from row equality.
+    let appKitUnreadDependencyWorkspaceIds: Set<UUID>
+    let appKitWorkspaceUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)?
+    let appKitGroupHeaderUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)?
 
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
@@ -69,6 +67,9 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = []
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.environment = environment
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = isEquivalentValue
@@ -97,6 +98,9 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = []
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = { value in
             guard let value = value as? Content else { return false }
@@ -107,7 +111,9 @@ struct SidebarWorkspaceTableRowConfiguration {
     init(
         groupHeaderModel: SidebarGroupHeaderRowModel,
         actions: SidebarGroupHeaderRowActions,
-        environment: SidebarWorkspaceTableEnvironmentSnapshot
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
+        unreadDependencyWorkspaceIds: Set<UUID> = [],
+        unreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)? = nil
     ) {
         self.id = .group(groupHeaderModel.groupId)
         self.workspaceId = groupHeaderModel.anchorWorkspaceId
@@ -122,6 +128,9 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = unreadDependencyWorkspaceIds
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = unreadRebuild
         self.equivalenceValue = groupHeaderModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
@@ -136,7 +145,8 @@ struct SidebarWorkspaceTableRowConfiguration {
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         workspace: Workspace? = nil,
-        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil
+        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil,
+        unreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)? = nil
     ) {
         self.id = .workspace(workspaceRowModel.workspaceId)
         self.workspaceId = workspaceRowModel.workspaceId
@@ -151,6 +161,9 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = actions
         self.appKitWorkspaceRowWorkspace = workspace
         self.appKitWorkspaceRowRebuild = rebuild
+        self.appKitUnreadDependencyWorkspaceIds = [workspaceRowModel.workspaceId]
+        self.appKitWorkspaceUnreadRebuild = unreadRebuild
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.equivalenceValue = workspaceRowModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarWorkspaceRowModel else { return false }
@@ -161,6 +174,37 @@ struct SidebarWorkspaceTableRowConfiguration {
     func hasEquivalentContent(to other: Self) -> Bool {
         environment.hasEquivalentPresentation(to: other.environment)
             && isEquivalentValue(other.equivalenceValue)
+    }
+
+    func applyingUnreadSnapshot(_ snapshot: SidebarUnreadSnapshot) -> Self {
+        if let rebuild = appKitWorkspaceUnreadRebuild,
+           let actions = appKitWorkspaceRowActions {
+            let model = rebuild(snapshot)
+            guard model != appKitWorkspaceRowModel else { return self }
+            return Self(
+                workspaceRowModel: model,
+                actions: actions,
+                groupId: groupId,
+                isPinned: isPinned,
+                environment: environment,
+                workspace: appKitWorkspaceRowWorkspace,
+                rebuild: appKitWorkspaceRowRebuild,
+                unreadRebuild: rebuild
+            )
+        }
+        if let rebuild = appKitGroupHeaderUnreadRebuild,
+           let actions = appKitGroupHeaderActions {
+            let model = rebuild(snapshot)
+            guard model != appKitGroupHeaderModel else { return self }
+            return Self(
+                groupHeaderModel: model,
+                actions: actions,
+                environment: environment,
+                unreadDependencyWorkspaceIds: appKitUnreadDependencyWorkspaceIds,
+                unreadRebuild: rebuild
+            )
+        }
+        return self
     }
 
     /// Keeps the immutable paint model while dropping every live action,

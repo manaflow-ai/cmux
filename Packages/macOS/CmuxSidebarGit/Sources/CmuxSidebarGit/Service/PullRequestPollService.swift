@@ -33,7 +33,7 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Dependencies
 
     // Resolves slugs for candidate seeds (stateless CmuxGit reader).
-    let gitMetadataService: GitMetadataService
+    let gitMetadataService: any GitRepositoryDiscovering
     // Fetches and matches GitHub PRs (stateless CmuxGit pipeline).
     let probeService: PullRequestProbeService
     // Drives the poll deadline and mobile-host deferral sleeps.
@@ -67,7 +67,7 @@ public final class PullRequestPollService: PullRequestProbing {
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
     public init(
-        gitMetadataService: GitMetadataService,
+        gitMetadataService: any GitRepositoryDiscovering,
         probeService: PullRequestProbeService,
         clock: any GitPollClock = SystemGitPollClock(),
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,

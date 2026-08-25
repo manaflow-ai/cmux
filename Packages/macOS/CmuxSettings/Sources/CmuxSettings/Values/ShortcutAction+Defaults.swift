@@ -63,9 +63,11 @@ extension ShortcutAction {
         case .switchRightSidebarToSessions: return ShortcutStroke(key: "3", control: true)
         case .switchRightSidebarToFeed: return ShortcutStroke(key: "4", control: true)
         case .switchRightSidebarToDock: return ShortcutStroke(key: "5", control: true)
+        case .switchRightSidebarToMachines: return ShortcutStroke(key: "6", control: true)
         case .triggerFlash: return ShortcutStroke(key: "h", command: true, shift: true)
         case .nextSidebarTab: return ShortcutStroke(key: "]", command: true, control: true)
         case .prevSidebarTab: return ShortcutStroke(key: "[", command: true, control: true)
+        case .nextSidebarTabInGroup, .prevSidebarTabInGroup: return nil
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
         case .renameTab: return ShortcutStroke(key: "r", command: true)
@@ -89,6 +91,8 @@ extension ShortcutAction {
         case .focusRight: return ShortcutStroke(key: "→", command: true, option: true)
         case .focusUp: return ShortcutStroke(key: "↑", command: true, option: true)
         case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
+        case .focusPreviousPane: return nil
+        case .focusNextPane: return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)

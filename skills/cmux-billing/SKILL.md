@@ -23,10 +23,12 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 - Per-branch Docker Postgres ports collide with other agents' containers. Use `--db-port` and never stop containers you did not create.
 - `/app-pricing` requires `cmux_app=1`. `cmux_scheme` threads the native deeplink return scheme; `cmux-dev-*` schemes are honored only for localhost requests.
 - Repeat dogfood: use a private window for a fresh anonymous buyer, and `web/scripts/stripe/dev-reset.sh <email>` to un-Pro a signed-in dev account before retesting checkout.
+- Fake payment, two ways: `web/scripts/stripe/dev-grant.sh <email>` writes `cmuxPlan: "pro"` directly (instant, no checkout; undo with dev-reset). For the full checkout path at $0, enter promotion code `CMUXDEV100` in test-mode checkout — a 100%-off forever coupon in the test account; `allow_promotion_codes` is already set on checkout sessions.
+- Newer Stripe CLI prints `stripe config --list` as `key=value` (older builds used `key = 'value'`); dev-stack.sh and dev-reset.sh accept both. If key extraction fails, re-run `stripe login`.
 
 ## Test-mode resources
 
-Product `prod_UpIQRE6cj0nFjs`. Lookup keys `cmux-pro-monthly` ($30/mo) and `cmux-pro-yearly` ($240/yr). Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
+Product `prod_UpIQRE6cj0nFjs`. New checkouts use `cmux-pro-monthly` ($30/mo) and `cmux-pro-yearly-288` ($288/yr, equivalent to $24/mo). Keep `cmux-pro-yearly` ($240/yr) active for grandfathered subscriptions. Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
 
 ## Feature flags
 

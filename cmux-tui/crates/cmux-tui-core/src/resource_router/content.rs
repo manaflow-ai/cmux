@@ -12,7 +12,10 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
-use super::{ParsedResourceRequest, required_string, resource_operation_error, validation_error};
+use super::{
+    ParsedResourceRequest, required_string, resolve_terminal_wait_exit_id,
+    resource_operation_error, validation_error,
+};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
 use crate::mux::ResourceEffectProjection;
@@ -47,6 +50,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalProcessGet
             | ResourceOperation::TerminalViewportScroll
             | ResourceOperation::TerminalMove
+            | ResourceOperation::TerminalProject
             | ResourceOperation::TerminalClose
             | ResourceOperation::BrowserNavigate
             | ResourceOperation::BrowserBack
@@ -74,6 +78,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
+        ResourceOperation::TerminalProject => terminal_project(mux, request),
         ResourceOperation::TerminalInputWrite
         | ResourceOperation::TerminalInputKeys
         | ResourceOperation::TerminalInputMouse
@@ -143,7 +148,7 @@ fn terminal_state_read(
         .map_err(resource_operation_error)?
         .map_err(|error| resource_operation_error(error.into()))?;
     Ok(json!({
-        "state_base64":base64::engine::general_purpose::STANDARD.encode(state),
+        "state_base64":base64::engine::general_purpose::STANDARD.encode(state.bytes),
         "cols":cols,
         "rows":rows,
     }))
@@ -250,9 +255,7 @@ fn terminal_wait_exit(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = optional_decimal(&request.fields, "timeout_ms")?.map(Duration::from_millis);
     mux.wait_for_terminal_exit(&terminal_id, timeout).map_err(resource_operation_error)
 }
@@ -309,6 +312,7 @@ fn terminal_process_get(
         "pid":pid,
         "argv":argv,
         "children":children,
+        "foreground_cwd":crate::platform::foreground_cwd(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
@@ -379,7 +383,7 @@ fn execute_terminal_effect(
         "terminal.history.clear" => {
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
-        "terminal.viewport.scroll" => terminal_scroll_viewport(&surface, &fields),
+        "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
         "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
@@ -392,7 +396,7 @@ fn execute_terminal_effect(
     }
 
     if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_surface_close_effect(
+        let commit = mux.commit_resource_terminal_close_effect(
             surface_id,
             &prepared.idempotency_key,
             &prepared.operation,
@@ -573,19 +577,19 @@ fn targeted_browser_effect_projection(
         .find(|candidate| &candidate.public_id == browser_id)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("browser has no durable metadata"))?;
-    let mut tab = topology
+    let mut matching_tabs = topology
         .tabs
         .iter()
-        .find(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()))
+        .filter(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()));
+    let mut tab = matching_tabs
+        .next()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
+    anyhow::ensure!(matching_tabs.next().is_none(), "browser has multiple durable tabs");
     let content_id = ContentPublicId::Browser(browser_id.clone());
     let surface_id = state
-        .resource_indexes
-        .content
-        .get(&content_id)
-        .copied()
-        .ok_or_else(|| anyhow::anyhow!("browser has no live surface slot"))?;
+        .single_placement_of_content(&content_id)
+        .ok_or_else(|| anyhow::anyhow!("browser must have exactly one live surface slot"))?;
     let surface = state
         .surfaces
         .get(&surface_id)
@@ -604,6 +608,7 @@ fn targeted_browser_effect_projection(
         browser.source = match source {
             BrowserSource::External => RegistryBrowserSource::External,
             BrowserSource::Launched => RegistryBrowserSource::Launched,
+            BrowserSource::Provider => RegistryBrowserSource::External,
         };
     }
     browser.status = match &status {
@@ -697,6 +702,37 @@ fn terminal_move(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value
     super::mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
+fn terminal_project(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let mutation = resource_mutation(&request)?;
+    let destination = destination_selectors(mux, &request)?;
+    let index = required_u64(&request.fields, "index")?;
+    let name = request.fields.get("name").and_then(Value::as_str).map(str::to_string);
+    let commit = mux
+        .resource_project_terminal_selected(
+            request.selectors,
+            destination,
+            usize::try_from(index).map_err(|_| {
+                validation_error("terminal projection index exceeds usize", json!({"index":index}))
+            })?,
+            name,
+            super::expected_revision(&request.fields)?,
+            &mutation,
+        )
+        .map_err(resource_operation_error)?;
+    let value =
+        commit.result.get("value").filter(|value| value.is_object()).cloned().ok_or_else(|| {
+            ResourceError::operation_failed(
+                "terminal.project",
+                "terminal could not be added to the destination; refresh the session and try again",
+                json!({}),
+            )
+        })?;
+    super::mutation_result(mux, value, commit.revision, commit.replayed)
+}
+
 fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
     let bytes = match (fields.get("text"), fields.get("bytes_base64")) {
         (Some(Value::String(text)), None) => text.as_bytes().to_vec(),
@@ -719,6 +755,7 @@ fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
 }
 
 fn terminal_scroll_viewport(
+    mux: &Mux,
     surface: &Surface,
     fields: &Map<String, Value>,
 ) -> Result<(), ActionFailure> {
@@ -729,8 +766,7 @@ fn terminal_scroll_viewport(
             json!({"delta_rows":delta_rows}),
         ))
     })?;
-    surface
-        .scroll_delta(delta_rows)
+    mux.scroll_surface_viewport(surface, delta_rows)
         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
 
@@ -1013,7 +1049,7 @@ fn browser_surface_for_id(
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {
     mux.with_state(|state| {
         let surface_id =
-            *state.resource_indexes.content.get(&ContentPublicId::Browser(browser_id.clone()))?;
+            state.single_placement_of_content(&ContentPublicId::Browser(browser_id.clone()))?;
         let surface = state.surfaces.get(&surface_id)?.clone();
         (surface.kind() == SurfaceKind::Browser).then_some((surface_id, surface))
     })
@@ -1565,7 +1601,7 @@ mod tests {
         let mut params = serde_json::to_value(selectors).unwrap().as_object().unwrap().clone();
         params.extend(fields.as_object().unwrap().clone());
         let mut envelope = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":format!("test-{operation}"),
             "operation":operation,
@@ -1594,6 +1630,7 @@ mod tests {
             ResourceOperation::TerminalProcessGet,
             ResourceOperation::TerminalViewportScroll,
             ResourceOperation::TerminalMove,
+            ResourceOperation::TerminalProject,
             ResourceOperation::TerminalClose,
             ResourceOperation::BrowserNavigate,
             ResourceOperation::BrowserBack,
@@ -1611,6 +1648,197 @@ mod tests {
         assert!(!handles(ResourceOperation::BrowserAttach));
         assert!(!handles(ResourceOperation::TerminalViewerResize));
         assert!(!handles(ResourceOperation::BrowserViewerResize));
+    }
+
+    #[test]
+    fn one_terminal_can_be_detached_reprojected_and_closed_explicitly() {
+        let (mux, original, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let terminal = initial["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap();
+        let original_tab = terminal["tab_ids"][0].as_str().unwrap().to_string();
+        let pane_id = initial["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["id"] == original_tab)
+            .unwrap()["pane_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pane = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            pane: Some(pane_id.clone()),
+            ..ResourceSelectors::default()
+        };
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.create_terminal",
+                &pane,
+                json!({}),
+                Some("terminal-multiview-keeper"),
+            ),
+        )
+        .unwrap();
+
+        let destination = public_session_snapshot(&mux).unwrap();
+        let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
+        let screen_id = destination["screens"][0]["id"].as_str().unwrap();
+        let active_before_projection = mux.active_surface();
+        let projected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                    "name":"mirror",
+                }),
+                Some("terminal-multiview-project"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(projected["value"]["focused"], false);
+        assert_eq!(mux.active_surface(), active_before_projection);
+        let projected_tab = projected["value"]["id"].as_str().unwrap().to_string();
+        let placements = mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec()
+        });
+        assert_eq!(placements.len(), 2);
+        let mirror = mux.surface(placements[1]).unwrap();
+        assert!(original.shares_terminal_runtime(&mirror));
+        let terminal = public_session_snapshot(&mux).unwrap()["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap()
+            .clone();
+        assert_eq!(terminal["tab_ids"].as_array().unwrap().len(), 2);
+
+        for (index, tab) in [original_tab, projected_tab].into_iter().enumerate() {
+            let tab_selectors = ResourceSelectors {
+                machine: Some("current".into()),
+                session: Some("current".into()),
+                tab: Some(tab),
+                ..ResourceSelectors::default()
+            };
+            super::super::topology::dispatch(
+                &mux,
+                parsed_request(
+                    "tab.close",
+                    &tab_selectors,
+                    json!({}),
+                    Some(&format!("terminal-multiview-detach-{index}")),
+                ),
+            )
+            .unwrap();
+        }
+
+        let detached = public_session_snapshot(&mux).unwrap();
+        let terminal = detached["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap();
+        assert!(terminal["tab_id"].is_null());
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert!(mux.surface(original.id).is_some());
+        assert!(
+            dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)
+                .is_ok()
+        );
+
+        let reprojected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                }),
+                Some("terminal-multiview-reproject"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(reprojected["value"]["content_id"], terminal_id.as_str());
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":2,
+                    "name":"second mirror",
+                }),
+                Some("terminal-multiview-second-reproject"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .len()),
+            2
+        );
+
+        let before_close = mux.with_state(|state| state.resource_revision);
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("terminal-multiview-explicit-close"),
+            ),
+        )
+        .unwrap();
+        let close_events = mux.resource_events_after(before_close).unwrap();
+        assert_eq!(close_events.batches.len(), 1);
+        let close_changes = close_events.batches[0].changes.as_array().unwrap();
+        assert_eq!(
+            close_changes
+                .iter()
+                .filter(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "terminal"
+                        && change["id"] == terminal_id.as_str()
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            close_changes
+                .iter()
+                .filter(|change| change["kind"] == "delete" && change["resource"] == "tab")
+                .count(),
+            2
+        );
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != terminal_id.as_str())
+        );
+        assert!(mux.surface(original.id).is_none());
     }
 
     #[test]
@@ -1724,8 +1952,8 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("terminal close stranded an unbounded exit wait")
             .unwrap_err();
-        assert_eq!(error.code, "operation.failed");
-        assert!(error.message.contains("is not live"), "{error:?}");
+        assert_eq!(error.code, "terminal.closed");
+        assert_eq!(error.details["terminal_id"], public_id.as_str());
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
     }
@@ -1734,11 +1962,11 @@ mod tests {
     fn terminal_wait_exit_latches_one_public_event_without_host_identity() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
         let durable = mux.terminal_registry_snapshot().unwrap();
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
         let incarnation = internal.incarnation.as_deref().unwrap_or_default();
-
         let pending = dispatch(
             &mux,
             parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
@@ -1782,14 +2010,26 @@ mod tests {
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let changes = events.batches[0].changes.as_array().unwrap();
-        assert_eq!(changes.len(), 1);
         assert_eq!(changes[0]["kind"], "upsert");
         assert_eq!(changes[0]["sequence"], 0);
         assert_eq!(changes[0]["resource"], "terminal");
         assert_eq!(changes[0]["id"], public_id.as_str());
         assert_eq!(changes[0]["value"]["lifecycle"], "exited");
         assert_eq!(changes[0]["value"]["exit"]["outcome"], exited["outcome"]);
-        let public_json = serde_json::to_string(&changes[0]).unwrap();
+        assert!(changes.iter().enumerate().all(|(sequence, change)| {
+            change["sequence"].as_u64() == u64::try_from(sequence).ok()
+        }));
+        assert!(changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "tab"
+                && change["id"] == tab_id.as_str()
+        }));
+        assert!(!changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+        }));
+        let public_json = serde_json::to_string(changes).unwrap();
         assert!(!public_json.contains("\"incarnation\""));
         assert!(!public_json.contains(internal_id));
         assert!(incarnation.is_empty() || !public_json.contains(incarnation));
@@ -1800,10 +2040,93 @@ mod tests {
             .unwrap()
             .iter()
             .find(|terminal| terminal["id"] == public_id.as_str())
-            .unwrap();
+            .expect("exited terminal receipt remains publicly addressable");
         assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
-        surface.kill();
+        assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: true,
+            },
+            exited_at_ms: 3_456_789,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+
+        let exited = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(
+            exited["outcome"],
+            json!({"kind":"signal","signal":libc::SIGTERM,"core_dumped":true})
+        );
+        assert_eq!(exited["exited_at"], "3456789");
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminals = snapshot["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        let terminal = &terminals[0];
+        assert_eq!(terminal["id"], public_id.as_str());
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["running"], false);
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(terminal["exit"]["exited_at"], exited["exited_at"]);
+        let events = mux.resource_events_after(before).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        let exit_changes = events.batches[0].changes.as_array().unwrap();
+        let exit_upsert = exit_changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("exit batch omitted the terminal upsert");
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert!(!exit_changes.iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+                && change["kind"] == "delete"
+        }));
+
+        let mut stale_nested = selectors.clone();
+        stale_nested.pane = Some("pane_00000000000000000000000000000001".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &stale_nested, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
+
+        let mut unknown = selectors;
+        unknown.terminal = Some("term_ffffffffffffffffffffffffffffffff".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &unknown, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
     }
 
     #[test]
@@ -2012,6 +2335,8 @@ mod tests {
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
         assert!(process.get("cwd").is_none_or(Value::is_string));
+        let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
+        assert!(foreground.is_null() || foreground.is_string());
     }
 
     #[test]
@@ -2093,21 +2418,22 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+    fn terminal_viewport_scroll_uses_one_bounded_receipt_and_one_journal_outcome() {
         let (mux, surface, selectors) = terminal_fixture(None);
-        let bottom = surface
+        surface
             .try_with_terminal(|terminal| {
                 for index in 0..20 {
                     terminal.vt_write(format!("line-{index}\r\n").as_bytes());
                 }
-                terminal.scrollbar().expect("fixture has scrollback")
             })
             .unwrap();
+        let bottom = surface.view_scrollbar().expect("fixture has scrollback");
         assert!(!bottom.scrolled_back());
 
         let revision = mux.with_state(|state| state.resource_revision);
         let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
         let event_epoch = mux.resource_event_epoch();
+        let journal_head = mux.session_journal_after(0, 1).unwrap().head_sequence;
         let mutation_count = mux.resource_mutation_count_for_test().unwrap();
         let request = || {
             parsed_request(
@@ -2125,16 +2451,27 @@ mod tests {
         assert_eq!(first["value"], json!({}));
         assert_eq!(first["revision"], revision.to_string());
         assert_eq!(first["replayed"], false);
-        let after_first = surface
-            .try_with_terminal(|terminal| terminal.scrollbar().expect("fixture has scrollback"))
-            .unwrap();
+        let after_first = surface.view_scrollbar().expect("fixture has scrollback");
         assert!(after_first.scrolled_back());
         assert!(after_first.offset < bottom.offset);
+        assert_eq!(
+            surface
+                .try_with_terminal(|terminal| {
+                    terminal.scrollbar().expect("fixture has scrollback")
+                })
+                .unwrap(),
+            bottom,
+            "a backend projection must not change the shared compatibility viewport"
+        );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+        let journal = mux.session_journal_after(journal_head, 2).unwrap();
+        assert_eq!(journal.records.len(), 1);
+        assert_eq!(journal.records[0].kind, "terminal.viewport.scroll.effect.succeeded");
+        let effect_sequence = journal.records[0].sequence;
 
         let replay = dispatch(&mux, request()).unwrap();
         assert_eq!(replay["value"], first["value"]);
@@ -2142,16 +2479,13 @@ mod tests {
         assert_eq!(replay["revision"], first["revision"]);
         assert_eq!(replay["replayed"], true);
         assert_eq!(
-            surface
-                .try_with_terminal(|terminal| {
-                    terminal.scrollbar().expect("fixture has scrollback")
-                })
-                .unwrap(),
+            surface.view_scrollbar().expect("fixture has scrollback"),
             after_first,
             "receipt replay must not apply the viewport delta twice"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
+        assert!(mux.session_journal_after(effect_sequence, 1).unwrap().records.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
         let closed = dispatch(

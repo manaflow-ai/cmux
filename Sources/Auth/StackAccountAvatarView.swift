@@ -7,6 +7,7 @@ struct StackAccountAvatarView: View {
     let displayName: String
     let email: String
     let size: CGFloat
+    var loadingSystemName: String? = nil
 
     var body: some View {
         Group {
@@ -14,6 +15,13 @@ struct StackAccountAvatarView: View {
                 AsyncImage(url: avatarURL) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
+                    } else if phase.error == nil, let loadingSystemName {
+                        CmuxSystemSymbolImage(
+                            systemName: loadingSystemName,
+                            pointSize: size,
+                            weight: .regular
+                        )
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     } else {
                         fallback
                     }
@@ -30,20 +38,24 @@ struct StackAccountAvatarView: View {
 
     private var fallback: some View {
         ZStack {
-            Circle().fill(Color.accentColor.opacity(0.18))
+            Circle().fill(fallbackForegroundColor.opacity(0.18))
             if let initial {
                 Text(verbatim: initial)
                     .cmuxFont(size: max(8, size * 0.4), weight: .semibold)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(fallbackForegroundColor)
             } else {
                 CmuxSystemSymbolImage(
                     systemName: "person.fill",
                     pointSize: max(8, size * 0.45),
                     weight: .medium
                 )
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(fallbackForegroundColor)
             }
         }
+    }
+
+    private var fallbackForegroundColor: Color {
+        loadingSystemName == nil ? Color.accentColor : Color(nsColor: .secondaryLabelColor)
     }
 
     private var initial: String? {

@@ -1058,43 +1058,56 @@ fn leaf_without_crossing_dir(
 pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect) {
     match dir {
         SplitDir::Right => {
-            let a_w = ((area.width as f32) * ratio).round() as u16;
-            let a_w = a_w.clamp(1, area.width.saturating_sub(1).max(1));
-            (Rect { width: a_w, ..area }, Rect { x: area.x + a_w, width: area.width - a_w, ..area })
+            let (first_width, second_width) = split_extent(area.width, ratio);
+            (
+                Rect { width: first_width, ..area },
+                Rect { x: area.x.saturating_add(first_width), width: second_width, ..area },
+            )
         }
         SplitDir::Down => {
-            let a_h = ((area.height as f32) * ratio).round() as u16;
-            let a_h = a_h.clamp(1, area.height.saturating_sub(1).max(1));
+            let (first_height, second_height) = split_extent(area.height, ratio);
             (
-                Rect { height: a_h, ..area },
-                Rect { y: area.y + a_h, height: area.height - a_h, ..area },
+                Rect { height: first_height, ..area },
+                Rect { y: area.y.saturating_add(first_height), height: second_height, ..area },
             )
         }
     }
 }
 
+fn split_extent(extent: u16, ratio: f32) -> (u16, u16) {
+    if extent == 0 {
+        return (0, 0);
+    }
+    let first = ((f32::from(extent)) * ratio).round() as u16;
+    let first = first.clamp(1, extent.saturating_sub(1).max(1));
+    (first, extent - first)
+}
+
+fn split_virtual_extent(extent: u64, ratio: f32) -> (u64, u64) {
+    if extent == 0 {
+        return (0, 0);
+    }
+    let first = ((extent as f64) * f64::from(ratio)).round() as u64;
+    let first = first.clamp(1, extent.saturating_sub(1).max(1));
+    (first, extent - first)
+}
+
 fn split_virtual_sides(area: VirtualRect, dir: SplitDir, ratio: f32) -> (VirtualRect, VirtualRect) {
     match dir {
         SplitDir::Right => {
-            let first_width = ((area.width as f64) * f64::from(ratio)).round() as u64;
-            let first_width = first_width.clamp(1, area.width.saturating_sub(1).max(1));
+            let (first_width, second_width) = split_virtual_extent(area.width, ratio);
             (
                 VirtualRect { width: first_width, ..area },
-                VirtualRect {
-                    x: area.x.saturating_add(first_width),
-                    width: area.width - first_width,
-                    ..area
-                },
+                VirtualRect { x: area.x.saturating_add(first_width), width: second_width, ..area },
             )
         }
         SplitDir::Down => {
-            let first_height = ((f32::from(area.height)) * ratio).round() as u16;
-            let first_height = first_height.clamp(1, area.height.saturating_sub(1).max(1));
+            let (first_height, second_height) = split_extent(area.height, ratio);
             (
                 VirtualRect { height: first_height, ..area },
                 VirtualRect {
                     y: area.y.saturating_add(first_height),
-                    height: area.height - first_height,
+                    height: second_height,
                     ..area
                 },
             )
@@ -1125,6 +1138,28 @@ mod tests {
         // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(40, 0), Some(2));
+    }
+
+    #[test]
+    fn zero_extent_terminal_splits_preserve_empty_rect() {
+        for dir in [SplitDir::Right, SplitDir::Down] {
+            let area = Rect { x: u16::MAX, y: u16::MAX, width: 0, height: 0 };
+            let (first, second) = split_sides(area, dir, 0.5);
+
+            assert_eq!(first, area);
+            assert_eq!(second, area);
+        }
+    }
+
+    #[test]
+    fn zero_extent_virtual_splits_preserve_empty_rect() {
+        for dir in [SplitDir::Right, SplitDir::Down] {
+            let area = VirtualRect { x: u64::MAX, y: u16::MAX, width: 0, height: 0 };
+            let (first, second) = split_virtual_sides(area, dir, 0.5);
+
+            assert_eq!(first, area);
+            assert_eq!(second, area);
+        }
     }
 
     #[test]

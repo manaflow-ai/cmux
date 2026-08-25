@@ -48,7 +48,7 @@ impl ResourceTarget {
     }
 }
 
-/// Flat selectors from one `cmux.protocol/1` request. Machine and session are
+/// Flat selectors from one `cmux.protocol/2` request. Machine and session are
 /// optional here because machine-list and machine-scoped operations have
 /// shallower routing requirements. Structural session resources require both.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,7 +269,14 @@ pub(crate) fn resolve_resource_selectors(
     let target_tab = match target {
         ResourceTarget::Terminal => {
             let raw = selectors.terminal.as_deref().expect("target selector checked");
-            let (slot, id) = resolve_terminal(state, raw, supplied_tab)?;
+            let (slot, id) = resolve_terminal(
+                state,
+                raw,
+                supplied_tab,
+                supplied_pane,
+                supplied_screen,
+                supplied_workspace,
+            )?;
             target_terminal = Some(id);
             Some(slot)
         }
@@ -309,6 +316,57 @@ pub(crate) fn resolve_resource_selectors(
         ResourceTarget::Workspace => supplied_workspace,
         _ => None,
     };
+
+    // A terminal is a session-owned content resource, so it remains
+    // addressable after its last tab has been detached. Topology ancestors
+    // are present only when this resolution selected a concrete view.
+    if target == ResourceTarget::Terminal && target_pane.is_none() {
+        let terminal_id =
+            target_terminal.as_ref().expect("resolved terminal target omitted its public identity");
+        if let Some(pane) = supplied_pane {
+            return Err(wrong_parent(
+                "target",
+                terminal_id.as_str(),
+                "pane",
+                public_pane_id(state, pane)?.to_string(),
+                None,
+            ));
+        }
+        if let Some(screen) = supplied_screen {
+            return Err(wrong_parent(
+                "target",
+                terminal_id.as_str(),
+                "screen",
+                public_screen_id(state, screen)?.to_string(),
+                None,
+            ));
+        }
+        if let Some(workspace) = supplied_workspace {
+            return Err(wrong_parent(
+                "target",
+                terminal_id.as_str(),
+                "workspace",
+                public_workspace_id(state, workspace)?.to_string(),
+                None,
+            ));
+        }
+        return Ok(ResolvedResourceSlots {
+            path: ResolvedResourcePath {
+                machine,
+                session: Some(session),
+                workspace: None,
+                screen: None,
+                pane: None,
+                tab: None,
+                terminal: target_terminal,
+                browser: None,
+            },
+            workspace: None,
+            screen: None,
+            pane: None,
+            tab: None,
+        });
+    }
 
     let target_workspace = require_resolved_slot(target_workspace, "workspace")?;
     validate_supplied_parent(
@@ -715,15 +773,38 @@ fn resolve_terminal(
     state: &State,
     raw: &str,
     parent: Option<SurfaceId>,
+    pane: Option<PaneId>,
+    screen: Option<ScreenId>,
+    workspace: Option<WorkspaceId>,
 ) -> Result<(SurfaceId, TerminalPublicId), ResourceError> {
     match Selector::parse(raw)? {
         Selector::Id(id) => {
             let id = TerminalPublicId::parse(id)?;
-            let slot = state
-                .resource_indexes
-                .content
-                .get(&ContentPublicId::Terminal(id.clone()))
-                .copied()
+            let content_id = ContentPublicId::Terminal(id.clone());
+            let slot = parent
+                .filter(|parent| {
+                    state.resource_indexes.content_ids.get(parent) == Some(&content_id)
+                })
+                .or_else(|| {
+                    state.resource_indexes.content_placements.get(&content_id).and_then(
+                        |placements| {
+                            placements
+                                .iter()
+                                .copied()
+                                .find(|placement| {
+                                    placement_matches_scope(
+                                        state, *placement, pane, screen, workspace,
+                                    )
+                                })
+                                // Keep a concrete out-of-scope placement so
+                                // the normal parent validator reports
+                                // selector.wrong_parent instead of hiding a
+                                // live terminal as not found.
+                                .or_else(|| placements.first().copied())
+                        },
+                    )
+                })
+                .or_else(|| state.terminal_catalog.get(&id).map(|surface| surface.id))
                 .ok_or_else(|| ResourceError::not_found("terminal", raw))?;
             validate_content_parent(state, "terminal", id.as_str(), parent, slot)?;
             Ok((slot, id))
@@ -752,6 +833,27 @@ fn resolve_terminal(
     }
 }
 
+fn placement_matches_scope(
+    state: &State,
+    placement: SurfaceId,
+    pane: Option<PaneId>,
+    screen: Option<ScreenId>,
+    workspace: Option<WorkspaceId>,
+) -> bool {
+    let actual_pane = state.resource_indexes.tab_pane.get(&placement).copied();
+    if pane.is_some_and(|pane| actual_pane != Some(pane)) {
+        return false;
+    }
+    let actual_screen =
+        actual_pane.and_then(|pane| state.resource_indexes.pane_screen.get(&pane).copied());
+    if screen.is_some_and(|screen| actual_screen != Some(screen)) {
+        return false;
+    }
+    let actual_workspace = actual_screen
+        .and_then(|screen| state.resource_indexes.screen_workspace.get(&screen).copied());
+    workspace.is_none_or(|workspace| actual_workspace == Some(workspace))
+}
+
 fn resolve_browser(
     state: &State,
     raw: &str,
@@ -761,10 +863,7 @@ fn resolve_browser(
         Selector::Id(id) => {
             let id = BrowserPublicId::parse(id)?;
             let slot = state
-                .resource_indexes
-                .content
-                .get(&ContentPublicId::Browser(id.clone()))
-                .copied()
+                .single_placement_of_content(&ContentPublicId::Browser(id.clone()))
                 .ok_or_else(|| ResourceError::not_found("browser", raw))?;
             validate_content_parent(state, "browser", id.as_str(), parent, slot)?;
             Ok((slot, id))

@@ -1,7 +1,7 @@
 import { render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CmuxClient, DecodedAttachEvent } from "cmux/browser";
+import type { CmuxClient, DecodedAttachEvent } from "cmux/raw";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
 const fitDimensions = { cols: 80, rows: 24 };
@@ -95,7 +95,7 @@ function Harness({ client }: { client: CmuxClient }) {
   const onError = useCallback((error: Error) => {
     throw error;
   }, []);
-  const { terminalRef } = useAttachedTerminal({ client, surface: 7, onError });
+  const { terminalRef } = useAttachedTerminal({ client, surface: 7n, onError });
   return <div className="terminal-stage"><div ref={terminalRef} /></div>;
 }
 
@@ -115,11 +115,11 @@ describe("attached terminal sizing", () => {
     };
     const streams = [
       new TestStream([
-        { event: "vt-state", surface: 7, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
-        { event: "overflow", scope: "surface", surface: 7, error: "subscriber fell behind" },
+        { event: "vt-state", surface: 7n, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
+        { event: "overflow", scope: "surface", surface: 7n, error: "subscriber fell behind" },
       ]),
       new TestStream([
-        { event: "vt-state", surface: 7, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
+        { event: "vt-state", surface: 7n, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
       ]),
     ];
     const client = {
@@ -133,10 +133,10 @@ describe("attached terminal sizing", () => {
 
     await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2));
-    expect(client.resizeSurface).toHaveBeenNthCalledWith(1, 7, 80, 24);
-    expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7, 80, 24);
+    expect(client.resizeSurface).toHaveBeenNthCalledWith(1, 7n, 80, 24);
+    expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7n, 80, 24);
     view.unmount();
-    expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7);
+    expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n);
   });
 
   it("releases sizing when the attach consumer terminates", async () => {
@@ -147,7 +147,7 @@ describe("attached terminal sizing", () => {
     };
     const client = {
       attachSurface: vi.fn(async () => new TestStream([
-        { event: "detached", surface: 7 },
+        { event: "detached", surface: 7n },
       ])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
@@ -156,7 +156,7 @@ describe("attached terminal sizing", () => {
 
     render(<Harness client={client} />);
 
-    await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7));
+    await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n));
   });
 
   it("applies sparse palette overrides after replay and on color changes", async () => {
@@ -168,7 +168,7 @@ describe("attached terminal sizing", () => {
     const stream = new GatedTestStream([
       {
         event: "vt-state",
-        surface: 7,
+        surface: 7n,
         cols: 80,
         rows: 24,
         data: new Uint8Array([1]),
@@ -180,7 +180,7 @@ describe("attached terminal sizing", () => {
       },
       {
         event: "colors-changed",
-        surface: 7,
+        surface: 7n,
         fg: null,
         bg: null,
         cursor: null,
@@ -190,7 +190,7 @@ describe("attached terminal sizing", () => {
       },
       {
         event: "resized",
-        surface: 7,
+        surface: 7n,
         cols: 100,
         rows: 30,
         data: new Uint8Array([2]),
@@ -248,16 +248,16 @@ describe("attached terminal sizing", () => {
       attachSurface: vi.fn(async () => new TestStream([
         {
           event: "vt-state",
-          surface: 7,
+          surface: 7n,
           cols: 80,
           rows: 24,
           data: new Uint8Array(),
           colors: { palette: { "4": "#112233" } },
         },
-        { event: "output", surface: 7, data: new Uint8Array([0x1b, 0x63]) },
+        { event: "output", surface: 7n, data: new Uint8Array([0x1b, 0x63]) },
         {
           event: "colors-changed",
-          surface: 7,
+          surface: 7n,
           fg: null,
           bg: null,
           cursor: null,
@@ -294,7 +294,7 @@ describe("attached terminal sizing", () => {
       attachSurface: vi.fn(async () => new TestStream([
         {
           event: "vt-state",
-          surface: 7,
+          surface: 7n,
           cols: 80,
           rows: 24,
           data: new Uint8Array([1]),
@@ -331,7 +331,7 @@ describe("attached terminal sizing", () => {
       attachSurface: vi.fn(async () => new TestStream([
         {
           event: "vt-state",
-          surface: 7,
+          surface: 7n,
           cols: 80,
           rows: 24,
           data: new Uint8Array(),
@@ -339,7 +339,7 @@ describe("attached terminal sizing", () => {
         },
         {
           event: "colors-changed",
-          surface: 7,
+          surface: 7n,
           fg: "#112233",
           bg: "#223344",
           cursor: "#334455",
@@ -347,7 +347,7 @@ describe("attached terminal sizing", () => {
           selection_fg: null,
           palette: {},
         },
-        { event: "output", surface: 7, data: restoreForeground },
+        { event: "output", surface: 7n, data: restoreForeground },
       ])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),

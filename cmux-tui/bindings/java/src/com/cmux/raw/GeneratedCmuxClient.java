@@ -98,6 +98,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_FOCUS, request.toWire());
+        return ClientFocusResult.fromWire(result);
+    }
+
     public final EmptyResult closePane(ClosePaneRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_PANE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -133,6 +138,11 @@ public abstract class GeneratedCmuxClient {
         return CopyResult.fromWire(result);
     }
 
+    public final Object createSurfaceWithReceipt(CreateSurfaceWithReceiptRequest request) throws CmuxException {
+        Object result = execute(Commands.CREATE_SURFACE_WITH_RECEIPT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final TerminalPlacement createTerminal(CreateTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_TERMINAL, request.toWire());
         return TerminalPlacement.fromWire(result);
@@ -141,6 +151,11 @@ public abstract class GeneratedCmuxClient {
     public final WorkspaceMutationResult createWorkspace(CreateWorkspaceRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_WORKSPACE, request.toWire());
         return WorkspaceMutationResult.fromWire(result);
+    }
+
+    public final AttachedViewOutcomeResult detachAttachedView(DetachAttachedViewRequest request) throws CmuxException {
+        Object result = execute(Commands.DETACH_ATTACHED_VIEW, request.toWire());
+        return AttachedViewOutcomeResult.fromWire(result);
     }
 
     public final EmptyResult detachClient(DetachClientRequest request) throws CmuxException {
@@ -163,6 +178,16 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderSnapshot.fromWire(result);
+    }
+
+    public final GetCellPixelsResult getCellPixels() throws CmuxException {
+        Object result = execute(Commands.GET_CELL_PIXELS, Map.of());
+        return GetCellPixelsResult.fromWire(result);
+    }
+
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
@@ -176,6 +201,11 @@ public abstract class GeneratedCmuxClient {
     public final IdsResult ids(IdsRequest request) throws CmuxException {
         Object result = execute(Commands.IDS, request.toWire());
         return IdsResult.fromWire(result);
+    }
+
+    public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
+        Object result = execute(Commands.JOURNAL_FRONTEND_EVENT, request.toWire());
+        return JournalFrontendEventResult.fromWire(result);
     }
 
     public final ListAgentsResult listAgents(ListAgentsRequest request) throws CmuxException {
@@ -205,6 +235,11 @@ public abstract class GeneratedCmuxClient {
 
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
+        return MintTerminalRendererResult.fromWire(result);
+    }
+
+    public final MintTerminalRendererResult mintTerminalRendererByTerminal(MintTerminalRendererByTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.MINT_TERMINAL_RENDERER_BY_TERMINAL, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
     }
 
@@ -293,6 +328,16 @@ public abstract class GeneratedCmuxClient {
         return ReadScrollbackResult.fromWire(result);
     }
 
+    public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
+        Object result = execute(Commands.REGISTER_BROWSER_PROVIDER, request.toWire());
+        return BrowserProviderSnapshot.fromWire(result);
+    }
+
+    public final AttachedViewOutcomeResult releaseAttachedViewSize(ReleaseAttachedViewSizeRequest request) throws CmuxException {
+        Object result = execute(Commands.RELEASE_ATTACHED_VIEW_SIZE, request.toWire());
+        return AttachedViewOutcomeResult.fromWire(result);
+    }
+
     public final EmptyResult releaseSurfaceSize(ReleaseSurfaceSizeRequest request) throws CmuxException {
         Object result = execute(Commands.RELEASE_SURFACE_SIZE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -331,6 +376,16 @@ public abstract class GeneratedCmuxClient {
     public final ReportAgentResult reportAgent(ReportAgentRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_AGENT, request.toWire());
         return ReportAgentResult.fromWire(result);
+    }
+
+    public final EmptyResult reportFocus(ReportFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.REPORT_FOCUS, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final AttachedViewResizeResult resizeAttachedView(ResizeAttachedViewRequest request) throws CmuxException {
+        Object result = execute(Commands.RESIZE_ATTACHED_VIEW, request.toWire());
+        return AttachedViewResizeResult.fromWire(result);
     }
 
     public final ResizeSurfaceResult resizeSurface(ResizeSurfaceRequest request) throws CmuxException {
@@ -450,6 +505,11 @@ public abstract class GeneratedCmuxClient {
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
         return LayoutUndoResult.fromWire(result);
+    }
+
+    public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderUnregisterResult.fromWire(result);
     }
 
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {

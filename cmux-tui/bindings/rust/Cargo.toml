@@ -1,10 +1,10 @@
 [package]
-name = "cmux-client"
+name = "cmux-sdk"
 version = "1.0.0"
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 license.workspace = true
-description = "Rust client for the cmux-tui terminal multiplexer control protocol"
+description = "Typed Rust SDK for the cmux terminal multiplexer"
 repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/rust"
 publish = true
@@ -21,3 +21,6 @@ libc = { workspace = true }
 getrandom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]

@@ -1,6 +1,7 @@
-import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
+
+export const instant = false;
 
 export default function HandlerLayout({
   children,
@@ -12,15 +13,11 @@ export default function HandlerLayout({
   }
 
   const stackServerApp = getStackServerApp();
-  return (
-    <Suspense>
-      {stackServerApp ? (
-        <StackProvider app={stackServerApp}>
-          <StackTheme>{children}</StackTheme>
-        </StackProvider>
-      ) : (
-        children
-      )}
-    </Suspense>
+  return stackServerApp ? (
+    <StackProvider app={stackServerApp}>
+      <StackTheme>{children}</StackTheme>
+    </StackProvider>
+  ) : (
+    children
   );
 }

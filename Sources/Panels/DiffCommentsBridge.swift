@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxDiffComments
 import Foundation
 import WebKit
 
@@ -166,7 +167,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                     registerPending(comment, repoRoot: repoRoot, workspaceId: workspace.id)
                 }
             }
-            return ["comments": comments.map(Self.commentJSON)]
+            let payload = DiffCommentPayload()
+            return ["comments": comments.map(payload.json)]
         case "comments.save":
             guard let commentParams = params["comment"] as? [String: Any],
                   let comment = Self.comment(fromJSON: commentParams) else {
@@ -176,7 +178,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let workspace = try? resolveWorkspace(for: webView) {
                 registerPending(saved, repoRoot: repoRoot, workspaceId: workspace.id)
             }
-            return ["comment": Self.commentJSON(saved)]
+            return ["comment": DiffCommentPayload().json(saved)]
         case "comments.delete":
             guard let rawId = params["id"] as? String, let id = UUID(uuidString: rawId) else {
                 throw BridgeError.invalidRequest("Missing comment id")
@@ -223,26 +225,6 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     // MARK: - JSON mapping
-
-    nonisolated private static func commentJSON(_ comment: DiffComment) -> [String: Any] {
-        let formatter = ISO8601DateFormatter()
-        var json: [String: Any] = [
-            "id": comment.id.uuidString,
-            "filePath": comment.filePath,
-            "side": comment.side,
-            "startLine": comment.startLine,
-            "endLine": comment.endLine,
-            "lineText": comment.lineText,
-            "message": comment.message,
-            "submissionText": comment.submissionText ?? "",
-            "createdAt": formatter.string(from: comment.createdAt),
-            "updatedAt": formatter.string(from: comment.updatedAt)
-        ]
-        if let endSide = comment.endSide {
-            json["endSide"] = endSide
-        }
-        return json
-    }
 
     nonisolated private static func comment(fromJSON json: [String: Any]) -> DiffComment? {
         guard let filePath = json["filePath"] as? String, !filePath.isEmpty,

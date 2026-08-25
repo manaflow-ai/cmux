@@ -42,11 +42,20 @@ fn socket_path() -> PathBuf {
     ))
 }
 
+fn scaled_test_duration(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .max(1);
+    duration.saturating_mul(scale)
+}
+
 fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
     let value: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(value["protocol"], "cmux.protocol/1");
+    assert_eq!(value["protocol"], "cmux.protocol/2");
     assert_eq!(value["type"], "request");
     assert!(value["id"].is_string());
     assert!(value["params"].is_object());
@@ -58,7 +67,7 @@ fn success(stream: &mut UnixStream, request: &Value, result: Value) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": true,
@@ -73,7 +82,7 @@ fn failure(stream: &mut UnixStream, request: &Value, code: &str, message: &str, 
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": false,
@@ -195,7 +204,7 @@ fn session_snapshot(revision: &str) -> Value {
 fn terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL,
-        "tab_id": TAB,
+        "tab_ids": [TAB],
         "title": "fixture",
         "cwd": "/tmp",
         "cols": 80,
@@ -283,7 +292,8 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
                 "machine": "current",
                 "session": SESSION,
                 "name": "",
-                "initial_content": "empty"
+                "initial_content": "empty",
+                "expected_revision": "16"
             })
         );
         success(
@@ -343,7 +353,7 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
                 initial_content: InitialContent::Empty,
                 correlation_key: None,
             },
-            MutationOptions::new("create-key").unwrap(),
+            MutationOptions::new("create-key").unwrap().with_expected_revision(16),
         )
         .unwrap();
     assert_eq!(created.resource.id().unwrap().as_str(), WORKSPACE_A);
@@ -381,11 +391,14 @@ fn every_created_path_operation_sends_a_validated_correlation_key() {
             let request = request(&mut reader);
             assert_eq!(request["operation"], operation);
             assert_eq!(request["params"]["correlation_key"], "creation-correlation");
+            if operation == "pane.split" {
+                assert_eq!(request["params"]["viewport_width"], 0.5);
+            }
             writeln!(
                 stream,
                 "{}",
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": request["id"],
                     "ok": false,
@@ -453,7 +466,10 @@ fn every_created_path_operation_sends_a_validated_correlation_key() {
     .err()
     .unwrap();
     pane.split_with(
-        SplitOptions::new(Direction::Right).correlation_key("creation-correlation").unwrap(),
+        SplitOptions::new(Direction::Right)
+            .viewport_width(0.5)
+            .correlation_key("creation-correlation")
+            .unwrap(),
         MutationOptions::new("correlation-6").unwrap(),
     )
     .err()
@@ -648,7 +664,7 @@ fn structured_errors_retain_all_protocol_fields() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -694,7 +710,7 @@ fn layout_undo_confirmation_token_and_details_are_typed() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -764,7 +780,7 @@ fn indeterminate_mutations_preserve_recovery_details_and_are_never_retried() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -952,7 +968,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "0",
@@ -970,7 +986,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "1",
@@ -995,7 +1011,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "2",
@@ -1015,7 +1031,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1072,6 +1088,10 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
 fn acknowledged_stream_remains_open_past_the_request_timeout() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let request_timeout = scaled_test_duration(Duration::from_millis(250));
+    let idle_delay = request_timeout.saturating_mul(2);
+    let (release_first_half, wait_for_first_half) = mpsc::channel();
+    let (release_second_half, wait_for_second_half) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -1083,9 +1103,9 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
 
         // The request deadline bounds only opening the stream. An acknowledged
         // stream may remain healthy and idle for longer than that deadline.
-        thread::sleep(Duration::from_millis(150));
+        wait_for_first_half.recv().unwrap();
         let item = serde_json::to_vec(&json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": "0",
@@ -1095,7 +1115,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         let midpoint = item.len() / 2;
         stream.write_all(&item[..midpoint]).unwrap();
         stream.flush().unwrap();
-        thread::sleep(Duration::from_millis(150));
+        wait_for_second_half.recv().unwrap();
         stream.write_all(&item[midpoint..]).unwrap();
         stream.write_all(b"\n").unwrap();
 
@@ -1106,7 +1126,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1116,16 +1136,22 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let mut events = client
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())
         .unwrap();
+    let release = thread::spawn(move || {
+        thread::sleep(idle_delay);
+        release_first_half.send(()).unwrap();
+        thread::sleep(idle_delay);
+        release_second_half.send(()).unwrap();
+    });
     let item = events.recv().unwrap().unwrap();
     assert!(matches!(item.value, SessionEvent::Unknown { .. }));
+    release.join().unwrap();
     events.cancel().unwrap();
     client.close().unwrap();
     server.join().unwrap();
@@ -1148,7 +1174,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": terminal_stream_id,
                 "sequence": "0",
@@ -1156,7 +1182,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             })
         )
         .unwrap();
-        success(&mut terminal_stream, &terminal_open, json!({"stream_id": terminal_stream_id}));
+        success(
+            &mut terminal_stream,
+            &terminal_open,
+            json!({"stream_id": terminal_stream_id, "attachment_lease": "terminal-lease"}),
+        );
 
         let terminal_resize = request(&mut terminal_reader);
         assert_eq!(terminal_resize["operation"], "terminal.viewer.resize");
@@ -1166,6 +1196,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
                 "machine": "current",
                 "session": SESSION,
                 "terminal": TERMINAL,
+                "attachment_lease": "terminal-lease",
                 "cols": 100,
                 "rows": 30
             })
@@ -1174,7 +1205,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": terminal_stream_id,
                 "sequence": "1",
@@ -1185,7 +1216,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
         success(
             &mut terminal_stream,
             &terminal_resize,
-            json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+            json!({
+                "accepted": true,
+                "size": {"cols": 100, "rows": 30},
+                "outcome": "applied"
+            }),
         );
 
         let terminal_release = request(&mut terminal_reader);
@@ -1195,10 +1230,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             json!({
                 "machine": "current",
                 "session": SESSION,
-                "terminal": TERMINAL
+                "terminal": TERMINAL,
+                "attachment_lease": "terminal-lease"
             })
         );
-        success(&mut terminal_stream, &terminal_release, json!({}));
+        success(&mut terminal_stream, &terminal_release, json!({"outcome": "applied"}));
 
         let terminal_cancel = request(&mut terminal_reader);
         assert_eq!(terminal_cancel["operation"], "stream.cancel");
@@ -1207,7 +1243,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": terminal_stream_id,
                 "reason": "canceled"
@@ -1220,7 +1256,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
         let browser_open = request(&mut browser_reader);
         assert_eq!(browser_open["operation"], "browser.attach");
         let browser_stream_id = browser_open["params"]["stream_id"].as_str().unwrap().to_string();
-        success(&mut browser_stream, &browser_open, json!({"stream_id": browser_stream_id}));
+        success(
+            &mut browser_stream,
+            &browser_open,
+            json!({"stream_id": browser_stream_id, "attachment_lease": "browser-lease"}),
+        );
 
         let browser_resize = request(&mut browser_reader);
         assert_eq!(browser_resize["operation"], "browser.viewer.resize");
@@ -1230,6 +1270,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
                 "machine": "current",
                 "session": SESSION,
                 "browser": BROWSER,
+                "attachment_lease": "browser-lease",
                 "width_px": 1280,
                 "height_px": 720
             })
@@ -1239,7 +1280,8 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             &browser_resize,
             json!({
                 "accepted": true,
-                "size": {"width_px": 1280, "height_px": 720}
+                "size": {"width_px": 1280, "height_px": 720},
+                "outcome": "applied"
             }),
         );
 
@@ -1250,10 +1292,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             json!({
                 "machine": "current",
                 "session": SESSION,
-                "browser": BROWSER
+                "browser": BROWSER,
+                "attachment_lease": "browser-lease"
             })
         );
-        success(&mut browser_stream, &browser_release, json!({}));
+        success(&mut browser_stream, &browser_release, json!({"outcome": "applied"}));
 
         let browser_cancel = request(&mut browser_reader);
         assert_eq!(browser_cancel["operation"], "stream.cancel");
@@ -1262,7 +1305,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             browser_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": browser_stream_id,
                 "reason": "canceled"
@@ -1316,7 +1359,7 @@ fn pre_ack_stream_limits_close_and_isolate_the_control_connection() {
 
             let item = |sequence: &str, blob: &str| {
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": sequence,
@@ -1389,7 +1432,7 @@ fn explicit_cancel_is_deadline_bounded_and_closes_after_uncertain_cleanup() {
             stream,
             "{}",
             json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":"0",
@@ -1460,7 +1503,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                             stream,
                             "{}",
                             json!({
-                                "protocol":"cmux.protocol/1",
+                                "protocol":"cmux.protocol/2",
                                 "type":"stream_end",
                                 "stream_id":stream_id,
                                 "reason":"canceled",
@@ -1475,7 +1518,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":"stream_ffffffffffffffffffffffffffffffff",
                             "reason":"canceled",
@@ -1489,7 +1532,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"completed",
@@ -1502,7 +1545,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":true,
@@ -1517,7 +1560,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":true,
@@ -1537,7 +1580,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":false,
@@ -1557,7 +1600,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":false,
@@ -1577,7 +1620,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1599,7 +1642,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1610,7 +1653,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1632,7 +1675,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1643,7 +1686,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1663,7 +1706,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1678,7 +1721,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"error",
@@ -1723,7 +1766,11 @@ fn live_stream_overflow_sends_one_cancel_and_prevents_reuse() {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let open = request(&mut reader);
         let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
-        success(&mut stream, &open, json!({"stream_id":stream_id}));
+        success(
+            &mut stream,
+            &open,
+            json!({"stream_id":stream_id, "attachment_lease":"overflow-lease"}),
+        );
 
         let resize = request(&mut reader);
         assert_eq!(resize["operation"], "terminal.viewer.resize");
@@ -1732,7 +1779,7 @@ fn live_stream_overflow_sends_one_cancel_and_prevents_reuse() {
                 stream,
                 "{}",
                 json!({
-                    "protocol":"cmux.protocol/1",
+                    "protocol":"cmux.protocol/2",
                     "type":"stream_item",
                     "stream_id":stream_id,
                     "sequence":sequence.to_string(),
@@ -1781,7 +1828,7 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "0",
@@ -1796,7 +1843,7 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1847,7 +1894,7 @@ fn dropping_completed_and_gap_streams_does_not_send_cancel() {
             success(&mut stream, &open, json!({"stream_id": stream_id}));
 
             let mut end = json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": reason
@@ -2057,16 +2104,21 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
                     "executable": "/bin/zsh",
                     "argv": ["/bin/zsh", "-l"],
                     "cwd": "/tmp",
+                    "foreground_cwd": "/tmp/subshell",
                     "children": [43]
                 }),
                 false,
             ),
             (
                 "terminal.viewer.resize",
-                json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+                json!({
+                    "accepted": true,
+                    "size": {"cols": 100, "rows": 30},
+                    "outcome": "applied"
+                }),
                 false,
             ),
-            ("terminal.viewer.release", json!({}), false),
+            ("terminal.viewer.release", json!({"outcome": "applied"}), false),
             (
                 "client.cell_pixels.set",
                 json!({
@@ -2142,9 +2194,14 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
             .matched
     );
     assert_eq!(terminal.copy(CopyOptions::default()).unwrap().text, "copied");
-    assert_eq!(terminal.process().unwrap().children, vec![43]);
-    assert_eq!(terminal.viewer_resize(Size::new(100, 30).unwrap()).unwrap().size.cols, 100);
-    terminal.viewer_release().unwrap();
+    let process = terminal.process().unwrap();
+    assert_eq!(process.children, vec![43]);
+    assert_eq!(process.foreground_cwd.as_deref(), Some("/tmp/subshell"));
+    assert_eq!(
+        terminal.viewer_resize("terminal-lease", Size::new(100, 30).unwrap()).unwrap().size.cols,
+        100
+    );
+    terminal.viewer_release("terminal-lease").unwrap();
 
     let connected = session.connected_client(cmux::ConnectedClientId::parse(CLIENT).unwrap());
     assert_eq!(
@@ -2335,7 +2392,7 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 
     let exited: TerminalSnapshot = serde_json::from_value(json!({
         "id": TERMINAL,
-        "tab_id": TAB,
+        "tab_ids": [],
         "title": "finished",
         "cols": 80,
         "rows": 24,
@@ -2350,6 +2407,34 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
     .unwrap();
     assert_eq!(exited.lifecycle, TerminalLifecycle::Exited);
     assert!(exited.exit.is_some());
+}
+
+#[test]
+fn terminal_snapshot_accepts_protocol_one_tab_id_alias() {
+    let mut attached = terminal_snapshot();
+    attached.as_object_mut().unwrap().remove("tab_ids");
+    attached["tab_id"] = json!(TAB);
+    let attached: TerminalSnapshot = serde_json::from_value(attached).unwrap();
+    assert_eq!(attached.tab_ids.len(), 1);
+    assert_eq!(attached.tab_ids[0].as_str(), TAB);
+
+    let mut detached = terminal_snapshot();
+    detached.as_object_mut().unwrap().remove("tab_ids");
+    detached["tab_id"] = Value::Null;
+    let detached: TerminalSnapshot = serde_json::from_value(detached).unwrap();
+    assert!(detached.tab_ids.is_empty());
+
+    let mut legacy_alias = terminal_snapshot();
+    legacy_alias["tab_id"] = json!(TAB);
+    assert!(serde_json::from_value::<TerminalSnapshot>(legacy_alias).is_ok());
+
+    let mut missing = terminal_snapshot();
+    missing.as_object_mut().unwrap().remove("tab_ids");
+    assert!(serde_json::from_value::<TerminalSnapshot>(missing).is_err());
+
+    let mut inconsistent = terminal_snapshot();
+    inconsistent["tab_id"] = json!("tab_11111111111111111111111111111111");
+    assert!(serde_json::from_value::<TerminalSnapshot>(inconsistent).is_err());
 }
 
 #[test]
@@ -2468,6 +2553,92 @@ fn terminal_wait_cancel_false_drains_the_completion_race_before_reuse() {
     let error = client
         .with_request_options(options, || {
             terminal.wait(WaitOptions { pattern: "raced".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn terminal_wait_cancel_false_drains_response_first_before_reuse() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let wait = request(&mut reader);
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        success(&mut stream, &wait, json!({"matched": true, "text": "raced"}));
+        thread::sleep(Duration::from_millis(10));
+        success(&mut stream, &cancel, json!({"canceled": false}));
+
+        let ping = request(&mut reader);
+        success(
+            &mut stream,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "2"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "raced".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn malformed_raced_wait_result_preserves_timeout_and_reconnects() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let mut first_reader = BufReader::new(first.try_clone().unwrap());
+        let wait = request(&mut first_reader);
+        let cancel = request(&mut first_reader);
+        success(&mut first, &cancel, json!({"canceled": false}));
+        success(&mut first, &wait, json!({"matched": true}));
+        assert_connection_closed_without_request(
+            &mut first_reader,
+            "malformed raced terminal.wait result",
+        );
+
+        let (mut second, _) = listener.accept().unwrap();
+        let ping = request(&mut BufReader::new(second.try_clone().unwrap()));
+        success(
+            &mut second,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "3"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "never".to_string(), timeout_ms: None })
         })
         .unwrap_err();
     assert!(matches!(error, Error::Timeout(_)));

@@ -59,7 +59,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -142,6 +141,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let colorResolver = SidebarAppearanceColorResolver()
 
         pinImageView.isHidden = !model.isPinned
         if model.isPinned {
@@ -150,6 +151,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -158,7 +160,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = .secondaryLabelColor
+        chevronButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -171,14 +173,17 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? .secondaryLabelColor
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) }
+            ?? colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        nameField.textColor = model.isAnchorActive
+            ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
+            : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -204,7 +209,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = .secondaryLabelColor
+        plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
@@ -215,8 +220,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
@@ -236,8 +242,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Live drop-line painting during native reorder drags; see
     /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
+            ?? SidebarAppearanceColorResolver().currentColorScheme()
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -267,12 +276,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// authoritative configure reconciles.
     func showOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let labelColor = SidebarAppearanceColorResolver().resolvedColor(.labelColor, for: colorScheme)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        nameField.textColor = labelColor
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -295,22 +306,33 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
+            .labelColor,
+            for: colorScheme,
+            opacity: 0.9
+        )
     }
 
-    /// Inverse of the press treatment: previewing a different row must peel a
-    /// pending header's optimistic anchor-active visuals. The authoritative
-    /// apply reconfigures only rows whose model changed, and a replaced
-    /// preview never changes this header's model — without an explicit clear
-    /// the painted treatment would linger indefinitely.
-    func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+    /// Rollback for optimistic press paint: reapplies the stored model
+    /// unconditionally, mirroring the workspace cell. This must not skip
+    /// active models — `showOptimisticDeselection` can clear a header whose
+    /// model is still anchor-active, and a press that never produces an
+    /// authoritative apply (swallowed, superseded, became a drag) would
+    /// otherwise leave that header visually deselected until the next render.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
         applyModel(model)
     }
 
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
-            return NSColor.labelColor.withAlphaComponent(0.08)
+            let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+            return SidebarAppearanceColorResolver().resolvedColor(
+                .labelColor,
+                for: colorScheme,
+                opacity: 0.08
+            )
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)

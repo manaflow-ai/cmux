@@ -1,15 +1,12 @@
-import { cloudDb } from "../../../../../../db/client";
 import { readSubrouterAccountInput } from "../../../../../../services/subrouter/accountInput";
 import { resolveSubrouterRequestContext } from "../../../../../../services/subrouter/requestContext";
 import {
   normalizeAccountId,
   subrouterErrorResponse,
 } from "../../../../../../services/subrouter/routeHelpers";
-import { getTenantForTeam } from "../../../../../../services/subrouter/tenants";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
+import { captureCoderouterEvent } from "../../../../../../services/coderouter/analytics";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   readonly params: Promise<{ readonly accountId: string }>;
@@ -36,17 +33,22 @@ export async function POST(
     return jsonResponse({ error: "invalid_request" }, input.status);
   }
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      context.team.teamId,
-      { tenantKeySecret: context.config.tenantKeySecret },
-    );
-    if (!tenant) return jsonResponse({ error: "account_not_found" }, 404);
+    const tenant = await context.client.exchangeTeam(context.accessToken, context.team);
     const account = await context.client.repairAccount(
       tenant.tenantKey,
       accountId,
       input.value,
     );
+    captureCoderouterEvent({
+      event: "coderouter_account_added",
+      userId: context.user.id,
+      teamId: context.team.teamId,
+      properties: {
+        provider: input.value.provider,
+        source: "legacy_dashboard",
+        already_exists: true,
+      },
+    });
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);

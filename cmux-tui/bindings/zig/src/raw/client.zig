@@ -1,6 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const wire = @import("wire.zig");
 const transport = @import("transport.zig");
+const transport_hook_test = if (builtin.is_test)
+    @import("transport_hook_test.zig")
+else
+    struct {};
 
 pub const Connection = transport.Connection;
 pub const Limits = wire.Limits;
@@ -60,6 +65,8 @@ pub const OwnedRemoteError = struct {
 pub const Options = struct {
     socket_path: ?[]const u8 = null,
     session: []const u8 = "main",
+    /// Bounds socket establishment and each later transport read or write.
+    /// `null` disables transport deadlines.
     timeout_ms: ?u32 = 10_000,
     limits: Limits = .{},
     authority_policy: AuthorityPolicy = .local,
@@ -114,11 +121,19 @@ pub const Client = struct {
             options.socket_path,
             options.session,
         );
-        errdefer allocator.free(path);
-        var connection = try transport.connectUnix(allocator, path);
+        defer allocator.free(path);
+        const resolved: transport.ResolvedConnection = if (options.socket_path == null and !(try transport.hasSocketOverride()))
+            try transport.connectResolvedWithLegacyFallback(allocator, path, options.session, options.timeout_ms)
+        else blk: {
+            var connection = try transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            errdefer connection.deinit();
+            break :blk .{ .connection = connection, .path = try allocator.dupe(u8, path) };
+        };
+        var connection = resolved.connection;
+        const effective_path = resolved.path;
         errdefer connection.deinit();
         var result = init(allocator, connection, options);
-        result.reconnect_socket_path = path;
+        result.reconnect_socket_path = effective_path;
         return result;
     }
 
@@ -927,6 +942,103 @@ test "transport timeout is surfaced" {
             .{},
         ),
     );
+}
+
+test "raw Client connect bounds a stalled Unix socket" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/raw-client-connect-timeout.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{ .kernel_backlog = 0 });
+    defer server.deinit();
+    var blocker = try transport.connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer blocker.deinit();
+
+    const pipe_fds = try std.posix.pipe2(.{
+        .CLOEXEC = true,
+        .NONBLOCK = true,
+    });
+    defer std.posix.close(pipe_fds[0]);
+    defer std.posix.close(pipe_fds[1]);
+    var fill: [64 * 1024]u8 = undefined;
+    @memset(&fill, 0x5a);
+    while (true) {
+        _ = std.posix.write(pipe_fds[1], &fill) catch |failure| switch (failure) {
+            error.WouldBlock => break,
+            else => return failure,
+        };
+    }
+
+    var hook = transport_hook_test.ConnectHook{
+        .poll_fd_override = pipe_fds[1],
+        .fail_ready_poll = true,
+    };
+    hook.continue_wait.set();
+    transport_hook_test.connect_hook = &hook;
+    defer transport_hook_test.connect_hook = null;
+
+    const PendingConnect = struct {
+        path: []const u8,
+        client: ?Client = null,
+        failure: ?anyerror = null,
+        elapsed_ns: u64 = 0,
+
+        fn run(self: *@This()) void {
+            var timer = std.time.Timer.start() catch |failure| {
+                self.failure = failure;
+                return;
+            };
+            self.client = Client.connect(std.testing.allocator, .{
+                .socket_path = self.path,
+                .timeout_ms = 20,
+            }) catch |failure| {
+                self.failure = failure;
+                self.elapsed_ns = timer.read();
+                return;
+            };
+            self.elapsed_ns = timer.read();
+        }
+    };
+    const Helpers = struct {
+        fn drain(fd: std.posix.fd_t) void {
+            var bytes: [64 * 1024]u8 = undefined;
+            while (true) {
+                const count = std.posix.read(fd, &bytes) catch return;
+                if (count == 0) return;
+            }
+        }
+    };
+    var pending = PendingConnect{ .path = path };
+    const thread = try std.Thread.spawn(.{}, PendingConnect.run, .{&pending});
+    var joined = false;
+    defer if (!joined) thread.join();
+    var poll_released = false;
+    defer if (!poll_released) Helpers.drain(pipe_fds[0]);
+
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    std.Thread.sleep(100 * std.time.ns_per_ms);
+    Helpers.drain(pipe_fds[0]);
+    poll_released = true;
+    thread.join();
+    joined = true;
+    defer if (pending.client) |*client| client.deinit();
+
+    try std.testing.expectEqual(
+        error.Timeout,
+        pending.failure orelse return error.ExpectedTimeout,
+    );
+    try std.testing.expect(pending.elapsed_ns < 70 * std.time.ns_per_ms);
 }
 
 test "remote command errors preserve server text" {

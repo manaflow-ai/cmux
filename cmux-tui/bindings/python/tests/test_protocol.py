@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import inspect
 import os
+import sys
 import unittest
 from unittest.mock import patch
 
+from cmux.client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    legacy_raw_socket_path,
+    validate_session_name,
+)
 from cmux.raw import (
+    CmuxClient,
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
@@ -20,9 +27,9 @@ from cmux.raw._generated.metadata import COMMANDS, EVENTS, IR_SHA256
 
 
 class GeneratedProtocolTests(unittest.TestCase):
-    def test_protocol_ten_inventory_is_exhaustive(self) -> None:
-        self.assertEqual(MUX_PROTOCOL, 10)
-        self.assertEqual(len(COMMANDS), 91)
+    def test_protocol_inventory_is_exhaustive(self) -> None:
+        self.assertEqual(MUX_PROTOCOL, 12)
+        self.assertEqual(len(COMMANDS), 103)
         self.assertEqual(set(COMMANDS), set(SCHEMA["commands"]))
         self.assertEqual(set(EVENTS), set(SCHEMA["events"]))
         self.assertEqual(len(IR_SHA256), 64)
@@ -79,7 +86,9 @@ class GeneratedProtocolTests(unittest.TestCase):
             authorities,
             {"control", "frontend", "local-admin", "provider-authority"},
         )
-        self.assertTrue(all(5 <= metadata.since <= 10 for metadata in COMMANDS.values()))
+        self.assertTrue(
+            all(5 <= metadata.since <= MUX_PROTOCOL for metadata in COMMANDS.values())
+        )
         self.assertEqual(
             COMMANDS["rename-provider-managed-workspace"].authority,
             "provider-authority",
@@ -137,6 +146,106 @@ class GeneratedProtocolTests(unittest.TestCase):
                 default_socket_path("sdk"),
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
+
+    def test_long_session_hash_prefers_runtime_base_and_falls_back_to_tmp(self) -> None:
+        session = "legacy-" + "x" * 200
+        digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2"
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/run/user/501", "TMPDIR": ""},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/" + "x" * 200},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/tmp/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_non_ascii_long_session_hash_uses_utf8_bytes(self) -> None:
+        session = "名前" * 100
+        digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3"
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/run/user/501"}, clear=True):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_invalid_session_default_path_is_isolated_but_validation_is_strict(self) -> None:
+        session = "../other"
+        digest = "3f1d50ca1c828a718349a63c91f2b2792bfb62e1be836ec67f8b454b8501f2a7"
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/r"}, clear=True):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/r/cmux-tui-invalid-{os.getuid()}/{digest}.sock",
+            )
+
+        with self.assertRaises(ValueError):
+            validate_session_name(session)
+
+    def test_invalid_session_default_path_uses_short_tmp_fallback(self) -> None:
+        session = ""
+        digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/" + "x" * 200},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/tmp/cmux-tui-invalid-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_overlong_legacy_path_is_not_configured_as_fallback(self) -> None:
+        session = "legacy-" + "x" * 200
+
+        self.assertGreaterEqual(
+            len(os.fsencode(legacy_raw_socket_path(session))),
+            104 if sys.platform == "darwin" else 108,
+        )
+        self.assertIsNone(_legacy_raw_socket_fallback_path(session))
+        self.assertEqual(
+            _legacy_raw_socket_fallback_path("sdk"),
+            legacy_raw_socket_path("sdk"),
+        )
+        with patch("cmux.raw.client.JsonLineConnection") as connection:
+            CmuxClient(session=session)
+
+        self.assertIsNone(connection.call_args.kwargs["fallback_path"])
+
+    def test_empty_socket_environment_values_are_ignored(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "CMUX_TUI_SOCKET": "",
+                "CMUX_MUX_SOCKET": "",
+                "XDG_RUNTIME_DIR": "/runtime",
+            },
+            clear=True,
+        ):
+            self.assertIsNone(env_socket_path())
+            self.assertEqual(
+                default_socket_path("sdk"),
+                f"/runtime/cmux-tui-{os.getuid()}/sdk.sock",
+            )
+
+    def test_hashed_marker_in_runtime_directory_does_not_enable_legacy_fallback(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/cmux-tui-hashed-marker"},
+            clear=True,
+        ), patch("cmux.raw.client.JsonLineConnection") as connection:
+            CmuxClient(session="sdk")
+
+        self.assertIsNone(connection.call_args.kwargs["fallback_path"])
 
 
 if __name__ == "__main__":

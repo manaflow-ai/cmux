@@ -3,33 +3,16 @@ name: cmux-tui publish npm
 on:
   workflow_dispatch:
     inputs:
-      publish_target:
-        description: "Package contents to publish under the shared npm cmux name"
-        required: true
-        default: tui
-        type: choice
-        options:
-          - tui
-          - sdk
       version:
         description: "Package version to publish, for example 0.1.0"
         required: true
         type: string
       artifact_run_id:
         description: "Successful cmux-tui release run containing verified packages"
-        required: false
-        type: string
-      sdk_verification_run_id:
-        description: "SDK npm workflow run whose TypeScript end-to-end job passed"
-        required: false
+        required: true
         type: string
       confirm_tui_cmux:
         description: "Set true only for the coordinated npm cmux TUI publish"
-        required: true
-        default: false
-        type: boolean
-      confirm_sdk_cmux:
-        description: "Set true only for the coordinated npm cmux SDK publish"
         required: true
         default: false
         type: boolean
@@ -42,7 +25,6 @@ concurrency:
 
 jobs:
   validate-version:
-    if: inputs.publish_target == 'tui'
     # This workflow's launcher publish deliberately omits --tag so the version
     # becomes npm `latest`. Only strict stable X.Y.Z may go through here; a
     # nightly-form version on latest would put a nightly in front of every
@@ -153,115 +135,14 @@ jobs:
             exit 1
           fi
 
-  validate-sdk-version:
-    if: inputs.publish_target == 'sdk'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      release_sha: ${{ steps.release.outputs.release_sha }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Require protected main and verified SDK run
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DISPATCH_VERSION: ${{ inputs.version }}
-          SDK_VERIFICATION_RUN_ID: ${{ inputs.sdk_verification_run_id }}
-        run: |
-          set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
-            echo "Refusing to publish the SDK from $GITHUB_REF; dispatch this workflow on main." >&2
-            exit 1
-          }
-          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo "workflow_dispatch version must match X.Y.Z" >&2
-            exit 1
-          }
-          [[ "$SDK_VERIFICATION_RUN_ID" =~ ^[0-9]+$ ]] || {
-            echo "sdk_verification_run_id must be a GitHub Actions run ID" >&2
-            exit 1
-          }
-
-          git fetch --force origin main
-          current_main="$(git rev-parse origin/main)"
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$current_main"; then
-            echo "workflow commit $GITHUB_SHA is not contained in protected main $current_main" >&2
-            exit 1
-          fi
-
-          python3 - "$DISPATCH_VERSION" <<'PY'
-          import json
-          import pathlib
-          import sys
-          import tomllib
-
-          expected = sys.argv[1]
-          root = pathlib.Path.cwd()
-          versions = {
-              "typescript package.json": json.loads((root / "cmux-tui/bindings/typescript/package.json").read_text())["version"],
-              "python pyproject.toml": tomllib.loads((root / "cmux-tui/bindings/python/pyproject.toml").read_text())["project"]["version"],
-              "rust Cargo.toml": tomllib.loads((root / "cmux-tui/bindings/rust/Cargo.toml").read_text())["package"]["version"],
-          }
-          mismatches = {name: got for name, got in versions.items() if got != expected}
-          if mismatches:
-              for name, got in mismatches.items():
-                  print(f"{name}: expected {expected}, got {got}", file=sys.stderr)
-              raise SystemExit(1)
-          print(f"All package versions match {expected}")
-          PY
-
-          IFS=$'\t' read -r actual_path verified_sha event status <<<"$(
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SDK_VERIFICATION_RUN_ID" \
-              --jq '[.path, .head_sha, .event, .status] | @tsv'
-          )"
-          if [[ "$actual_path" != ".github/workflows/sdk-publish-npm.yml" ]]; then
-            echo "verification run $SDK_VERIFICATION_RUN_ID came from $actual_path" >&2
-            exit 1
-          fi
-          if [[ "$event" != "workflow_dispatch" || "$status" != "completed" ]]; then
-            echo "verification run must be a completed workflow_dispatch run; got $event/$status" >&2
-            exit 1
-          fi
-
-          IFS=$'\t' read -r job_count job_status job_conclusion <<<"$(
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SDK_VERIFICATION_RUN_ID/jobs" \
-              --jq '[.jobs[] | select(.name == "bindings-e2e-typescript")] as $jobs |
-                    [($jobs | length), ($jobs[0].status // ""), ($jobs[0].conclusion // "")] | @tsv'
-          )"
-          if [[ "$job_count" != "1" || "$job_status" != "completed" || "$job_conclusion" != "success" ]]; then
-            echo "verification run TypeScript end-to-end job is not a single completed success" >&2
-            exit 1
-          fi
-
-          git merge-base --is-ancestor "$verified_sha" "$GITHUB_SHA" || {
-            echo "verification commit $verified_sha is not an ancestor of $GITHUB_SHA" >&2
-            exit 1
-          }
-          if ! git diff --quiet "$verified_sha" "$GITHUB_SHA" -- \
-            cmux-tui \
-            .github/workflows/sdk-publish-npm.yml \
-            ':(exclude)cmux-tui/bindings/RELEASING.md'; then
-            echo "SDK sources or verification workflow changed after run $SDK_VERIFICATION_RUN_ID" >&2
-            exit 1
-          fi
-          echo "release_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-
   publish:
-    if: inputs.publish_target == 'tui'
     needs: validate-version
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       actions: read
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -300,7 +181,46 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ inputs.version }}" \
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/tags/$RELEASE_TAG"
+          done
+
+      # cmux-relay and its platform packages are validated and attested above
+      # as part of the artifact contract, but they are NOT published here: the
+      # relay's npm dist-tags move only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml), so a routine TUI release can never take over
+      # cmux-relay@latest from the shipping relay.
       - name: Publish platform packages
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           packages=(
@@ -308,10 +228,19 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
+            # A retried run must not fail on the packages an earlier attempt
+            # already published at this exact version.
+            if [[ "$(npm view "$package@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+              echo "Skipping $package@$PUBLISH_VERSION: already published"
+              continue
+            fi
             echo "Publishing $package"
-            if ! npm publish --provenance "dist/npm-packages/$package"; then
+            # --access public is required to publish a NEW unscoped package
+            # with --provenance and is a no-op for the existing public ones.
+            if ! npm publish --provenance --access public "dist/npm-packages/$package"; then
               cat >&2 <<'EOF'
           npm publish failed.
 
@@ -320,6 +249,7 @@ jobs:
           - cmux-tui-darwin-x64
           - cmux-tui-linux-x64
           - cmux-tui-linux-arm64
+          - cmux-tui-win32-x64
 
           Trusted publisher settings for each package:
           - Repository: manaflow-ai/cmux
@@ -331,51 +261,14 @@ jobs:
           done
 
       - name: Publish launcher package
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if [[ "$(npm view "cmux@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+            echo "Skipping cmux@$PUBLISH_VERSION: already published"
+            exit 0
+          fi
           # Deliberately do not pass --tag: this coordinated TUI publish takes
           # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
-          npm publish --provenance dist/npm-packages/cmux
-
-  publish-sdk:
-    if: inputs.publish_target == 'sdk'
-    needs: validate-sdk-version
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: npm-tui
-      url: https://www.npmjs.com/package/cmux
-    steps:
-      - name: Require npm cmux SDK confirmation
-        if: inputs.confirm_sdk_cmux != true
-        run: |
-          echo "Refusing to publish npm package cmux for the SDK without confirm_sdk_cmux=true." >&2
-          exit 1
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.validate-sdk-version.outputs.release_sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22.14.0"
-          registry-url: https://registry.npmjs.org
-
-      - name: Install npm with OIDC support
-        run: npm install -g npm@11.5.1
-
-      - name: Build and test SDK package
-        working-directory: cmux-tui/bindings/typescript
-        run: |
-          npm ci --no-audit --no-fund
-          npm test
-
-      - name: Publish SDK package
-        working-directory: cmux-tui/bindings/typescript
-        # Keep the TUI launcher on `latest`; SDK consumers opt in with
-        # `npm install cmux@sdk`.
-        run: npm publish --provenance --tag sdk
+          npm publish --provenance --access public dist/npm-packages/cmux

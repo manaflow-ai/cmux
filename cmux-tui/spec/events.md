@@ -1,8 +1,8 @@
 # Event Contract
 
-This file specifies private protocol-v10 events for cmux frontends and raw SDK
+This file specifies private protocol-v12 events for cmux frontends and raw SDK
 adapters. Application code should use the typed streams in
-[`cmux.protocol/1`](resource-api-v1.md).
+[`cmux.protocol/2`](resource-api-v2.md).
 
 Event lines are JSON objects with an `event` string and no response envelope.
 
@@ -92,10 +92,13 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a local PTY or browser exits, the mux removes it from the tree before
-`surface-exited`. A durable terminal-host PTY instead remains as an addressable
-dead tab until an explicit close tombstones it. Consumers must inspect the tree
-or durable terminal registry rather than treating every exit as removal.
+When a terminal resource exits, the mux atomically records its durable exit
+receipt and detaches every live tab placement. A terminal with several
+placements emits `surface-exited` once for each former legacy surface ID so
+existing per-placement subscribers invalidate every view. The receipt remains
+addressable through the terminal registry until `terminal.close` tombstones
+it, but no placement or live runtime remains. Browser surfaces and
+unregistered compatibility PTYs are also reaped on exit.
 
 ## Subscribe Events
 
@@ -604,9 +607,11 @@ Payload:
 object{event:"surface-exited",surface:Id}
 ```
 
-Meaning: A PTY child exited or a browser surface was closed. Local PTYs and
-browsers are already reaped from the tree. A terminal-host-backed PTY remains
-as a dead, addressable tab until explicit close.
+Meaning: A PTY child exited or a browser surface was closed. A session-owned
+terminal retains a durable exit receipt until explicit `terminal.close`, while
+every placement and its live runtime are already removed. A projected terminal
+emits this event for each former placement. Browsers and unregistered
+compatibility PTYs are also already reaped from the tree.
 
 Example:
 
@@ -782,6 +787,7 @@ object{
   default_fg:ColorHex,
   default_bg:ColorHex,
   scrollback_rows:uint32,
+  history_epoch:uint64,
   rows:array<Row>
 }
 ```
@@ -808,6 +814,7 @@ object{
   default_fg?:ColorHex,
   default_bg?:ColorHex,
   scrollback_rows?:uint32,
+  history_epoch?:uint64,
   rows:array<Row>
 }
 ```
@@ -822,6 +829,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | status | implemented |
 | since | protocol 5 |
 | `colors` field | protocol 6 additive extension |
+| Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 
 Payload:
 
@@ -832,6 +840,18 @@ object{
   cols:uint16,
   rows:uint16,
   data:Base64,
+  kitty_image_aliases?:array<object{image_id:uint32,image_number:uint32}>,
+  kitty_graphics_state?:object{
+    image_bytes:uint64,
+    inflight_bytes:uint64,
+    images:uint64,
+    placements:uint64,
+    replay_cursor_offset:uint32,
+    primary_replay_next_image_id:uint32,
+    primary_next_image_id:uint32,
+    alternate_replay_next_image_id:uint32,
+    alternate_next_image_id:uint32
+  },
   colors:object{
     fg:ColorHex|null,
     bg:ColorHex|null,
@@ -845,7 +865,7 @@ object{
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
@@ -886,10 +906,10 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,colors?:TerminalColors}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay, restore the supplied colors when present, then continue applying later `output` chunks.
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, then continue applying later `output` chunks.
 
 Example:
 

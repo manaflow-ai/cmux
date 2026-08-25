@@ -134,6 +134,11 @@ final class MobileStateSyncHost {
         for summary in app.listMainWindowSummaries() {
             guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
             guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            let tabs = windowTabManager.tabs
+            let currentDirectoryByWorkspaceID = Dictionary(
+                uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+            )
+            let configStore = app.mainWindowContext(for: windowTabManager)?.cmuxConfigStore
             for group in windowTabManager.workspaceGroups where seenGroupIDs.insert(group.id).inserted {
                 groupRows.append(
                     GroupSyncRecord(
@@ -141,12 +146,19 @@ final class MobileStateSyncHost {
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         isPinned: group.isPinned,
+                        iconSymbol: controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                            group,
+                            anchorCwd: currentDirectoryByWorkspaceID[
+                                group.anchorWorkspaceId
+                            ] ?? nil,
+                            configStore: configStore
+                        ),
                         anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
                         sortIndex: groupRows.count
                     )
                 )
             }
-            for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+            for workspace in tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 liveWorkspaceIDs.insert(workspace.id)
                 liveWorkspaceObjectIDs[workspace.id] = ObjectIdentifier(workspace)
                 workspaceRows.append(
@@ -192,6 +204,17 @@ final class MobileStateSyncHost {
                 isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
             )
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [MobileSimulatorPanelDescriptor]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = controller.mobileSimulatorPanels(in: workspace).map { panel in
+                MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id)
+            }
+        } else {
+            simulators = []
+        }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
@@ -214,7 +237,9 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace),
+            simulators: simulators
         )
     }
 

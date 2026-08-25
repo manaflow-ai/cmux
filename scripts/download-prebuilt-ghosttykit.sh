@@ -1,6 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERIFY_ONLY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --verify-only)
+      VERIFY_ONLY=1
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: download-prebuilt-ghosttykit.sh [--verify-only]
+
+Download, verify, and extract the pre-built GhosttyKit.xcframework. The
+--verify-only mode performs the same release URL, checksum, and archive checks
+without extracting the framework; CI uses it to validate release provenance
+independently of build caches.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -15,7 +40,7 @@ else
 fi
 
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="${GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
-GHOSTTYKIT_BUILD_FLAVOR="${GHOSTTYKIT_BUILD_FLAVOR:-crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-v1}"
+GHOSTTYKIT_BUILD_FLAVOR="${GHOSTTYKIT_BUILD_FLAVOR:-crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-sentry-off-v1}"
 TAG="${GHOSTTYKIT_RELEASE_TAG:-xcframework-$GHOSTTY_SHA-$GHOSTTYKIT_BUILD_FLAVOR}"
 ARCHIVE_NAME="${GHOSTTYKIT_ARCHIVE_NAME:-GhosttyKit.xcframework.tar.gz}"
 OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-GhosttyKit.xcframework}"
@@ -78,6 +103,12 @@ if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
 fi
 
 python3 "$ARCHIVE_VALIDATOR" "$ARCHIVE_PATH"
+
+if [ "$VERIFY_ONLY" -eq 1 ]; then
+  echo "Verified $ARCHIVE_NAME for ghostty $GHOSTTY_SHA (release/checksum only)"
+  exit 0
+fi
+
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 tar --no-same-owner -xzf "$ARCHIVE_PATH" -C "$EXTRACT_DIR"
 rm -rf "$OUTPUT_DIR"

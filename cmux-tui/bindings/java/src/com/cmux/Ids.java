@@ -2,7 +2,7 @@ package com.cmux;
 
 import java.util.Objects;
 
-/** Opaque, resource-specific protocol-v1 identifiers. */
+/** Opaque, resource-specific protocol-v2 identifiers. */
 public final class Ids {
     public sealed interface Id permits MachineId, SessionId, WorkspaceId, ScreenId,
             PaneId, TabId, TerminalId, BrowserId, ConnectedClientId, SplitId,

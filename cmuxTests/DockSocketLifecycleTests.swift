@@ -12,6 +12,23 @@ import Testing
 struct DockSocketLifecycleTests {
     private static let socketWorkerQueue = DispatchQueue(label: "DockSocketLifecycleTests.socketWorker")
 
+    @Test("Browser focus mode is explicit socket focus intent")
+    @MainActor
+    func browserFocusModeIsExplicitSocketFocusIntent() {
+        #expect(
+            TerminalController.socketCommandAllowsInAppFocusMutations(
+                commandKey: "browser.focus_mode.set",
+                isV2: true
+            )
+        )
+        #expect(
+            !TerminalController.socketCommandAllowsInAppFocusMutations(
+                commandKey: "browser.reload",
+                isV2: true
+            )
+        )
+    }
+
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
@@ -61,6 +78,75 @@ struct DockSocketLifecycleTests {
             Issue.record("Expected \(method) to succeed: \(envelope)")
         }
         return try #require(envelope["result"] as? [String: Any])
+    }
+
+    @MainActor
+    private func verifyBrowserOpenSplitStaysInDock(
+        _ dock: DockSplitStore,
+        sourceBrowserId: UUID,
+        ownerId: UUID,
+        windowId: UUID,
+        workspace: Workspace
+    ) throws {
+        let sourcePaneId = try #require(
+            dock.paneId(forPanelId: sourceBrowserId)
+        )
+        let originalDockPanelIds = Set(dock.panels.keys)
+        let originalWorkspacePanelIds = Set(workspace.panels.keys)
+
+        let result = try v2Result(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": ownerId.uuidString,
+                "surface_id": sourceBrowserId.uuidString,
+                "url": "about:blank",
+                "focus": false,
+                "show_omnibar": false,
+                "transparent_background": true,
+                "bypass_remote_proxy": true,
+            ]
+        )
+
+        let createdBrowserIdString = try #require(
+            result["surface_id"] as? String
+        )
+        let createdBrowserId = try #require(
+            UUID(uuidString: createdBrowserIdString)
+        )
+        let createdBrowser = try #require(
+            dock.browserPanel(for: createdBrowserId)
+        )
+        let targetPaneId = try #require(
+            dock.paneId(forPanelId: createdBrowserId)
+        )
+
+        #expect(result["window_id"] as? String == windowId.uuidString)
+        #expect(result["workspace_id"] as? String == ownerId.uuidString)
+        #expect(
+            result["source_surface_id"] as? String ==
+                sourceBrowserId.uuidString
+        )
+        #expect(
+            result["source_pane_id"] as? String ==
+                sourcePaneId.id.uuidString
+        )
+        #expect(result["pane_id"] as? String == targetPaneId.id.uuidString)
+        #expect(
+            result["target_pane_id"] as? String ==
+                targetPaneId.id.uuidString
+        )
+        #expect(result["created_split"] as? Bool == true)
+        #expect(result["placement_strategy"] as? String == "split_right")
+        #expect(result["show_omnibar"] as? Bool == false)
+        #expect(result["transparent_background"] as? Bool == true)
+        #expect(result["bypass_remote_proxy"] as? Bool == true)
+        #expect(targetPaneId != sourcePaneId)
+        #expect(dock.containsPanel(createdBrowserId))
+        #expect(Set(dock.panels.keys) == originalDockPanelIds.union([createdBrowserId]))
+        #expect(Set(workspace.panels.keys) == originalWorkspacePanelIds)
+        #expect(createdBrowser.chromeVisibility == .hidden)
+        #expect(createdBrowser.sessionSnapshotTransparentBackground)
+        #expect(createdBrowser.bypassesRemoteWorkspaceProxyForTabDuplication)
     }
 
     private func restoreUserDefault(_ value: Any?, forKey key: String) {
@@ -174,8 +260,8 @@ struct DockSocketLifecycleTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -209,8 +295,8 @@ struct DockSocketLifecycleTests {
             )
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering the window context also tears down that window's Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -369,6 +455,7 @@ struct DockSocketLifecycleTests {
                     let otherWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: otherManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: otherWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: otherWindowId)
                         otherManager.tabs.forEach { $0.teardownAllPanels() }
                     }
 
@@ -534,6 +621,7 @@ struct DockSocketLifecycleTests {
                     let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: secondWindowId)
                         secondManager.tabs.forEach { $0.teardownAllPanels() }
                     }
                     let secondWindowDock = appDelegate.windowDock(forWindowId: secondWindowId)
@@ -561,8 +649,101 @@ struct DockSocketLifecycleTests {
                     let tabs = try #require(tabListResult["tabs"] as? [[String: Any]])
                     #expect(tabListResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(tabs.contains { $0["id"] as? String == dockSurfaceId.uuidString })
+                    let windowDock = try #require(
+                        appDelegate.existingWindowDock(forWindowId: windowId)
+                    )
+                    try verifyBrowserOpenSplitStaysInDock(
+                        windowDock,
+                        sourceBrowserId: dockSurfaceId,
+                        ownerId: windowId,
+                        windowId: windowId,
+                        workspace: workspace
+                    )
                     #expect(Set(workspace.panels.keys) == mainPanelIds)
                 }
+            }
+        }
+    }
+
+    @Test("Workspace Dock browser surfaces resolve programmatic browser commands")
+    @MainActor
+    func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
+        try await withBrowserEnabled {
+            try await withSocketAppContext { _, workspace, windowId in
+                let dock = try #require(workspace.dockSplit)
+                let pane = try #require(
+                    dock.bonsplitController.allPaneIds.first
+                )
+                let browserId = try #require(
+                    dock.newSurface(
+                        kind: .browser,
+                        inPane: pane,
+                        url: URL(string: "about:blank"),
+                        focus: true
+                    )
+                )
+                let routing: [String: Any] = [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": browserId.uuidString,
+                ]
+
+                let urlResult = try v2Result(
+                    method: "browser.url.get",
+                    params: routing
+                )
+                #expect(
+                    urlResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    urlResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+                #expect(urlResult["url"] as? String == "about:blank")
+
+                var navigateParams = routing
+                navigateParams["url"] = "about:blank"
+                let navigateResult = try await v2ResultOnSocketWorker(
+                    method: "browser.navigate",
+                    params: navigateParams
+                )
+                #expect(
+                    navigateResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    navigateResult["window_id"] as? String ==
+                        windowId.uuidString
+                )
+                #expect(
+                    navigateResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+
+                let reloadResult = try await v2ResultOnSocketWorker(
+                    method: "browser.reload",
+                    params: routing
+                )
+                #expect(
+                    reloadResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    reloadResult["window_id"] as? String ==
+                        windowId.uuidString
+                )
+                #expect(
+                    reloadResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+
+                try verifyBrowserOpenSplitStaysInDock(
+                    dock,
+                    sourceBrowserId: browserId,
+                    ownerId: workspace.id,
+                    windowId: windowId,
+                    workspace: workspace
+                )
             }
         }
     }
@@ -573,7 +754,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -606,7 +787,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -638,7 +819,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -692,7 +873,7 @@ struct DockSocketLifecycleTests {
                 appDelegate.notificationStore = previousNotificationStore
             }
 
-            let store = workspace.dockSplit
+            let store = workspace.requiredDockSplitForTesting
             let rootPane = try #require(store.bonsplitController.allPaneIds.first)
             let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
             let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -725,7 +906,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let confirmationPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -743,7 +924,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let runtimeSurface = try #require((store.panels[panelId] as? TerminalPanel)?.surface)
@@ -812,8 +993,8 @@ struct DockSocketLifecycleTests {
         window.makeKeyAndOrderFront(nil)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()

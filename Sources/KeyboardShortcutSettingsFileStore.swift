@@ -43,6 +43,11 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let passwordStore: SocketControlPasswordStore
+    /// Whether an MDM configuration profile forces a `UserDefaults` key.
+    /// The importer must never write a forced key: the write can not change
+    /// the effective (forced) value, and re-asserting on every defaults
+    /// change would loop forever against it.
+    private let isUserDefaultsKeyForcedByProfile: (String) -> Bool
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
 
@@ -70,8 +75,18 @@ final class CmuxSettingsFileStore {
         notificationCenter: NotificationCenter = .default,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true,
+        isUserDefaultsKeyForcedByProfile: @escaping (String) -> Bool = { key in
+            let policy = ManagedDevicePolicy()
+            if key == BrowserURLAllowlistPolicy.userDefaultsKey {
+                return policy.isBrowserURLAllowlistLocked(
+                    userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
+                )
+            }
+            return policy.isKeyForcedInAppDomain(key)
+        },
         onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
+        self.isUserDefaultsKeyForcedByProfile = isUserDefaultsKeyForcedByProfile
         self.primaryPath = primaryPath
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
             .filter { $0 != primaryPath }
@@ -115,9 +130,13 @@ final class CmuxSettingsFileStore {
 
     /// Returns whether the reload posted `didChangeNotification`, so callers
     /// that must guarantee a notification can post one without double-firing.
+    /// When provided, `notificationSourceURL` identifies the reload's post.
     @discardableResult
-    func reload() -> Bool {
-        reload(applyLiveDefaultSideEffects: true)
+    func reload(notificationSourceURL: URL? = nil) -> Bool {
+        reload(
+            applyLiveDefaultSideEffects: true,
+            notificationSourceURL: notificationSourceURL
+        )
     }
 
     func applyDeferredManagedDefaultSideEffects() {
@@ -125,7 +144,10 @@ final class CmuxSettingsFileStore {
     }
 
     @discardableResult
-    private func reload(applyLiveDefaultSideEffects: Bool) -> Bool {
+    private func reload(
+        applyLiveDefaultSideEffects: Bool,
+        notificationSourceURL: URL? = nil
+    ) -> Bool {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -161,7 +183,10 @@ final class CmuxSettingsFileStore {
             || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
+            KeyboardShortcutSettings.notifySettingsFileDidChange(
+                center: notificationCenter,
+                sourceURL: notificationSourceURL
+            )
             return true
         }
         return false
@@ -500,13 +525,24 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
-            guard allowed.contains(raw) else {
+            if allowed.contains(raw) {
+                snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
+            } else {
                 logInvalid("notifications.sound", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if section.keys.contains("paneFlashColor") {
+            if let value = parseNullableHex(
+                section["paneFlashColor"],
+                path: "notifications.paneFlashColor",
+                sourcePath: sourcePath
+            ) {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection().paneFlashColorHex.userDefaultsKey
+                ] = .nullableString(value)
+            }
+        }
         if let raw = jsonString(section["agentTurnComplete"]) {
             if AgentTurnCompleteMode(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)
@@ -872,6 +908,16 @@ final class CmuxSettingsFileStore {
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
 
+        if section.keys.contains("defaultZoomLevel") {
+            if let rawZoom = jsonDouble(section["defaultZoomLevel"]), rawZoom.isFinite {
+                snapshot.managedUserDefaults[BrowserZoomSettings.userDefaultsKey] = .double(
+                    BrowserZoomSettings().normalized(rawZoom)
+                )
+            } else {
+                logInvalid("browser.defaultZoomLevel", sourcePath: sourcePath)
+            }
+        }
+
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)
@@ -1124,7 +1170,10 @@ final class CmuxSettingsFileStore {
         }
 
         if updateBackups {
-            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
+            // Skip MDM-forced keys: reads return the profile's value, so a
+            // backup would capture the forced value as if the user chose it.
+            for (defaultsKey, value) in snapshot.managedUserDefaults
+            where backups[defaultsKey] == nil && !isUserDefaultsKeyForcedByProfile(defaultsKey) {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
@@ -1135,6 +1184,15 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
+            // While an MDM profile forces the key, restoring is impossible
+            // (writes cannot change the effective value), so retain the
+            // backup instead of dropping it: when the profile is later
+            // removed, a subsequent apply pass restores the user's original
+            // value rather than leaving the last imported one behind.
+            if identifier != Self.socketPasswordBackupIdentifier,
+               isUserDefaultsKeyForcedByProfile(identifier) {
+                continue
+            }
             sideEffects.merge(
                 restoreBackup(
                     backup,
@@ -1277,6 +1335,10 @@ final class CmuxSettingsFileStore {
         _ backup: BackupValue,
         for defaultsKey: String
     ) -> ManagedDefaultBatchSideEffects {
+        // Never write under an MDM-forced key (see applyManagedUserDefaultsValue).
+        guard !isUserDefaultsKeyForcedByProfile(defaultsKey) else {
+            return ManagedDefaultBatchSideEffects()
+        }
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
@@ -1343,6 +1405,12 @@ final class CmuxSettingsFileStore {
         isDerivedFromLegacyWarnBeforeQuit: Bool = false,
         importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue? = nil
     ) -> ManagedDefaultBatchSideEffects {
+        // MDM-forced keys are tier 0: writing under a forced value can never
+        // change the effective value and would re-fire on every defaults
+        // change, so skip them entirely.
+        guard !isUserDefaultsKeyForcedByProfile(defaultsKey) else {
+            return ManagedDefaultBatchSideEffects()
+        }
         let defaults = UserDefaults.standard
         guard shouldApplyManagedUserDefaultsValue(
             value,
@@ -1532,6 +1600,7 @@ final class CmuxSettingsFileStore {
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
+            var adaptiveDefaultThemeDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1544,6 +1613,11 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey ==
+                    TerminalAdaptiveDefaultThemeSettings.userDefaultsKey {
+                    adaptiveDefaultThemeDidChange = true
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
@@ -1582,6 +1656,11 @@ final class CmuxSettingsFileStore {
             }
             if paneChromeDidChange {
                 PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if adaptiveDefaultThemeDidChange {
+                TerminalAdaptiveDefaultThemeSettings.notifyDidChange(
+                    notificationCenter: notificationCenter
+                )
             }
         }
         if Thread.isMainThread {

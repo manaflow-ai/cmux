@@ -23,6 +23,7 @@ export const operations = Object.freeze({
   sessionSnapshot: op("session.snapshot", "read"),
   sessionCreationResolve: op("session.creation.resolve", "read"),
   sessionEvents: op("session.events", "stream_open"),
+  sessionJournalSubscribe: op("session.journal.subscribe", "stream_open"),
   sessionPing: op("session.ping", "read"),
   sessionShutdown: op("session.shutdown", "mutation"),
   sessionReloadConfig: op("session.reload_config", "mutation"),
@@ -108,6 +109,7 @@ export const operations = Object.freeze({
   terminalViewerRelease: op("terminal.viewer.release", "connection_control"),
   terminalViewportScroll: op("terminal.viewport.scroll", "mutation"),
   terminalMove: op("terminal.move", "mutation"),
+  terminalProject: op("terminal.project", "mutation"),
   terminalAttach: op("terminal.attach", "stream_open"),
   terminalClose: op("terminal.close", "mutation"),
 

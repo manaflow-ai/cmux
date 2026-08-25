@@ -11,7 +11,7 @@ import java.util.Objects;
 
 
 public final class TerminalRecord implements WireValue {
-    private final Object exit;
+    private final TerminalExit exit;
     private final Object launchSpec;
     private final TerminalLifecycle lifecycle;
     private final String terminalId;
@@ -20,7 +20,7 @@ public final class TerminalRecord implements WireValue {
 
     private TerminalRecord(Builder builder) {
         if (!builder.exitSet) throw new IllegalArgumentException("exit is required");
-        this.exit = builder.exit == null ? null : Wire.immutableJson(builder.exit);
+        this.exit = builder.exit;
         if (!builder.launchSpecSet) throw new IllegalArgumentException("launch_spec is required");
         this.launchSpec = Wire.immutableJson(Wire.nonNull(builder.launchSpec, "launch_spec"));
         if (!builder.lifecycleSet) throw new IllegalArgumentException("lifecycle is required");
@@ -35,7 +35,7 @@ public final class TerminalRecord implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public Object exit() { return exit; }
+    public TerminalExit exit() { return exit; }
     public Object launchSpec() { return launchSpec; }
     public TerminalLifecycle lifecycle() { return lifecycle; }
     public String terminalId() { return terminalId; }
@@ -46,7 +46,7 @@ public final class TerminalRecord implements WireValue {
         Map<String, Object> object = Wire.object(value, "TerminalRecord");
         Builder builder = builder();
         Object rawExit = Wire.required(object, "exit");
-        builder.exit(rawExit == null ? null : Wire.immutableJson(rawExit));
+        builder.exit(rawExit == null ? null : TerminalExit.fromWire(rawExit));
         Object rawLaunchSpec = Wire.required(object, "launch_spec");
         builder.launchSpec(Wire.immutableJson(rawLaunchSpec));
         Object rawLifecycle = Wire.required(object, "lifecycle");
@@ -85,7 +85,7 @@ public final class TerminalRecord implements WireValue {
     public String toString() { return "TerminalRecord" + toWire(); }
 
     public static final class Builder {
-        private Object exit;
+        private TerminalExit exit;
         private boolean exitSet;
         private Object launchSpec;
         private boolean launchSpecSet;
@@ -98,7 +98,7 @@ public final class TerminalRecord implements WireValue {
         private String workspaceKey;
         private boolean workspaceKeySet;
 
-        public Builder exit(Object value) {
+        public Builder exit(TerminalExit value) {
             this.exit = value;
             this.exitSet = true;
             return this;

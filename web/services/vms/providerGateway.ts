@@ -12,6 +12,7 @@ import {
   type SSHEndpoint,
   type VMHandle,
   type VMStatus,
+  type VMStats,
 } from "./drivers";
 import { VmProviderOperationError } from "./errors";
 
@@ -34,6 +35,15 @@ export type VmProviderGatewayShape = {
     command: string,
     options?: { timeoutMs?: number },
   ) => Effect.Effect<ExecResult, VmProviderOperationError>;
+  readonly openPort?: (
+    provider: ProviderId,
+    vmId: string,
+    port: number,
+  ) => Effect.Effect<{ url: string; token: string; openUrl: string }, VmProviderOperationError>;
+  readonly getStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMStats, VmProviderOperationError>;
   readonly openAttach: (
     provider: ProviderId,
     vmId: string,
@@ -43,6 +53,10 @@ export type VmProviderGatewayShape = {
   readonly revokeSSHIdentity: (
     provider: ProviderId,
     identityHandle: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly revokeEndpointLeases?: (
+    provider: ProviderId,
+    vmId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
 };
 
@@ -91,6 +105,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  openPort: (provider, vmId, port) =>
+    providerEffect(provider, "openPort", () => {
+      const impl = getProvider(provider);
+      if (!impl.openPort) {
+        throw new Error(`provider ${provider} does not support opening ports`);
+      }
+      return impl.openPort(vmId, port);
+    }),
+  getStats: (provider, vmId) =>
+    providerEffect(provider, "getStats", () => {
+      const impl = getProvider(provider);
+      if (!impl.getStats) {
+        throw new Error(`provider ${provider} does not report machine stats`);
+      }
+      return impl.getStats(vmId);
+    }),
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
   openSSH: (provider, vmId) =>
@@ -99,4 +129,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "revokeSSHIdentity", () =>
       getProvider(provider).revokeSSHIdentity(identityHandle)
     ),
+  revokeEndpointLeases: (provider, vmId) => {
+    const driver = getProvider(provider);
+    if (!driver.revokeEndpointLeases) return Effect.void;
+    return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
+  },
 });

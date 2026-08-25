@@ -127,6 +127,35 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }
 
+    @Test func mobileStreamStartRestoresDiscardedWebView() throws {
+        // RED: streaming a discarded background tab (a restored session's
+        // never-revealed pane) mirrors a blank web shell, so the phone shows
+        // white until a manual reload. Starting a mobile stream must kick the
+        // discard-restore navigation exactly like revealing the tab does.
+        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-mobile-stream-discard"))
+        let discardedAt = Date(timeIntervalSince1970: 300)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+
+        let handlerID = UUID()
+        panel.addMobileBrowserStreamSignalHandler(id: handlerID) { _ in }
+        defer { panel.removeMobileBrowserStreamSignalHandler(id: handlerID) }
+
+        #expect(
+            panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == true,
+            "Mobile stream start must begin the discard-restore navigation"
+        )
+    }
+
     @Test func remoteSessionRestoreQueuedForProxyEndpointDoesNotMarkNavigationPending() throws {
         let url = try #require(URL(string: "http://localhost:3000/cmux-issue-7504"))
         let workspaceId = UUID()

@@ -8,6 +8,112 @@ enum GhosttyGotoSplitRoute {
     case next
 }
 
+extension KeyboardShortcutSettings.Action {
+    var dockShortcutRoutingDisposition:
+        DockShortcutRoutingDisposition {
+        switch self {
+        case .triggerFlash,
+             .nextSurface, .prevSurface,
+             .moveSurfaceLeft, .moveSurfaceRight,
+             .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
+             .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
+             .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
+             .selectSurfaceByNumber,
+             .focusHistoryBack, .focusHistoryForward,
+             .renameTab,
+             .closeTab, .closeOtherTabsInPane,
+             .reopenClosedBrowserPanel,
+             .newSurface,
+             .toggleTerminalCopyMode,
+             .focusTextBoxInput, .attachTextBoxFile,
+             .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback,
+             .focusLeft, .focusRight, .focusUp, .focusDown,
+             .focusPreviousPane, .focusNextPane,
+             .splitRight, .splitDown, .toggleSplitZoom,
+             .equalizeSplits,
+             .splitBrowserRight, .splitBrowserDown,
+             .openBrowser, .focusBrowserAddressBar,
+             .find, .findNext, .findPrevious, .hideFind,
+             .useSelectionForFind,
+             .toggleReactGrab:
+            .dockScoped
+
+        case .commandPaletteNext, .commandPalettePrevious,
+             .toggleChecklistItemComplete,
+             .cycleTextBoxSubmitAction,
+             .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias,
+             .saveFilePreview,
+             .browserBack, .browserForward,
+             .browserReload, .browserHardReload,
+             .browserZoomIn, .browserZoomOut, .browserZoomReset,
+             .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
+             .toggleBrowserDeveloperTools,
+             .showBrowserJavaScriptConsole,
+             .toggleBrowserFocusMode,
+             .toggleBrowserDesignMode,
+             .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .simulatorHome, .simulatorRotateLeft,
+             .simulatorRotateRight,
+             .simulatorToggleAppearance,
+             .simulatorToggleSoftwareKeyboard,
+             .diffViewerNextFile, .diffViewerPreviousFile:
+            .focusResolved
+
+        case .openSettings, .reloadConfiguration,
+             .showHideAllWindows, .globalSearch,
+             .newWindow, .closeWindow, .toggleFullScreen, .quit,
+             .toggleSidebar, .newTab, .newBrowserWorkspace,
+             .saveLayoutTemplate, .openFolder,
+             .reopenPreviousSession, .goToWorkspace,
+             .commandPalette, .sendFeedback,
+             .showNotifications, .jumpToUnread, .toggleUnread,
+             .markOldestUnreadAndJumpNext,
+             .focusRightSidebar,
+             .switchRightSidebarToFiles,
+             .switchRightSidebarToFind,
+             .switchRightSidebarToSessions,
+             .switchRightSidebarToFeed,
+             .switchRightSidebarToDock,
+             .switchRightSidebarToMachines,
+             .nextSidebarTab, .prevSidebarTab,
+             .nextSidebarTabInGroup, .prevSidebarTabInGroup,
+             .moveWorkspaceUp, .moveWorkspaceDown,
+             .selectWorkspaceByNumber,
+             .renameWorkspace, .editWorkspaceDescription,
+             .markWorkspaceDone, .cycleWorkspaceStatus,
+             .closeWorkspace,
+             .newWorkspaceGroup, .groupSelectedWorkspaces,
+             .toggleFocusedWorkspaceGroupCollapsed,
+             .reopenClosedWorkspace,
+             .increaseWorkspaceTerminalFontSize,
+             .decreaseWorkspaceTerminalFontSize,
+             .resetWorkspaceTerminalFontSize,
+             .toggleCanvasLayout,
+             .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset,
+             .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight,
+             .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally,
+             .canvasDistributeVertically,
+             .toggleRightSidebar,
+             .findInDirectory,
+             .openDiffViewer:
+            .mainContainer
+        }
+    }
+}
+
 /// Routes "create a surface" keyboard shortcuts (New Browser, New Terminal,
 /// Split Right/Down) into the Dock when the Dock currently owns keyboard focus.
 ///
@@ -35,6 +141,23 @@ extension AppDelegate {
         return windowDock(forWindowId: context.windowId)
     }
 
+    func focusedDockStoreForShortcut(
+        action: KeyboardShortcutSettings.Action,
+        preferredWindow: NSWindow?
+    ) -> DockSplitStore? {
+        guard case .dockScoped =
+            action.dockShortcutRoutingDisposition else {
+            assertionFailure(
+                "Non-Dock-scoped shortcut requested the Dock gate: " +
+                    action.rawValue
+            )
+            return nil
+        }
+        return focusedDockStoreForShortcut(
+            preferredWindow: preferredWindow
+        )
+    }
+
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
     /// Returns the created Dock panel id when handled, or `nil` to fall through to
     /// the main-area creation path.
@@ -42,12 +165,16 @@ extension AppDelegate {
     func routeCreateToFocusedDock(
         _ kind: DockSurfaceKind,
         focusAddressBar: Bool,
+        action: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?
     ) -> UUID? {
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return nil
         }
-        guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
+        guard let store = focusedDockStoreForShortcut(
+                  action: action,
+                  preferredWindow: preferredWindow
+              ),
               let pane = store.resolvePane(requestedPaneID: nil),
               let panelId = store.newSurface(kind: kind, inPane: pane, focus: true) else {
             return nil
@@ -66,29 +193,47 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
+        action: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?
     ) -> Bool {
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return false
         }
-        guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow) else {
+        guard let store = focusedDockStoreForShortcut(
+            action: action,
+            preferredWindow: preferredWindow
+        ) else {
             return false
         }
-        return store.newSplit(
+        guard let panelId = store.newSplit(
             kind: kind,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             sourcePanelId: store.focusedPanelId,
             focus: true
-        ) != nil
+        ) else {
+            return false
+        }
+        if kind == .browser,
+           let browser = store.browserPanel(for: panelId) {
+            _ = focusBrowserAddressBar(in: browser)
+        }
+        return true
     }
 
     /// Executes a semantic surface/focus command when the Dock owns keyboard
     /// focus. Callers invoke this from the command's existing dispatcher
     /// position so configured and compatibility shortcuts keep the same
     /// conflict precedence as the main area.
-    func performFocusedDockShortcut(_ command: DockShortcutCommand, event: NSEvent) -> Bool {
-        guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
+    func performFocusedDockShortcut(
+        _ command: DockShortcutCommand,
+        action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        guard let store = focusedDockStoreForShortcut(
+            action: action,
+            preferredWindow: event.window
+        ) else {
             return false
         }
         if command.isFocusHistoryNavigation, !store.focusHistoryIncludesPanesAndTabs {

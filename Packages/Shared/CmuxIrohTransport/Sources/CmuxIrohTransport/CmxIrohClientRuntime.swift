@@ -81,6 +81,7 @@ public actor CmxIrohClientRuntime {
     let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     let lanFallback: LANFallbackProvider?
     let customPrivateFallback: CustomPrivateFallbackProvider?
+    let diagnosticLog: DiagnosticLog?
     let now: @Sendable () -> Date
     let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
@@ -99,10 +100,12 @@ public actor CmxIrohClientRuntime {
     private var connectivityReconciliationOperation: ConnectivityReconciliationOperation?
     private var pendingConnectivityRevision: UInt64?
     var registrationRefreshPending = false
+    var registrationRefreshPendingRequiresDiscovery = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
+    var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
     var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
@@ -184,6 +187,7 @@ public actor CmxIrohClientRuntime {
         self.networkPathSnapshot = networkPathSnapshot
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        self.diagnosticLog = diagnosticLog
         self.now = now
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
@@ -322,6 +326,7 @@ public actor CmxIrohClientRuntime {
             let expectation = try CmxIrohLocalBindingExpectation(
                 deviceID: configuration.deviceID,
                 appInstanceID: configuration.appInstanceID,
+                clientNamespace: configuration.clientNamespace,
                 tag: configuration.tag,
                 platform: .ios,
                 endpointID: liveEndpointIdentity,
@@ -376,7 +381,10 @@ public actor CmxIrohClientRuntime {
             guard published else {
                 return .failed(.superseded)
             }
-            await connectivityEngine.didInstallRouteRevision(discoveredRevision)
+            await connectivityEngine.didInstallRouteRevision(
+                discoveredRevision,
+                routes: discovery
+            )
             liveDiscoveryGeneration &+= 1
             return .refreshed
         } catch {
@@ -398,7 +406,10 @@ public actor CmxIrohClientRuntime {
         var mayScheduleFreshRequest = registrationRefreshTask != nil
         var latestOutcome: CmxIrohLiveDiscoveryRefreshOutcome = .failed(.superseded)
         if registrationRefreshTask == nil {
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         var lastAwaitedTaskID: UUID?
         while lifecyclePhase == .active,
@@ -406,18 +417,24 @@ public actor CmxIrohClientRuntime {
               let refreshID = registrationRefreshTaskID,
               refreshID != lastAwaitedTaskID {
             lastAwaitedTaskID = refreshID
-            latestOutcome = try await refresh.value
+            let outcome = try await refresh.value
             guard lifecyclePhase == .active else {
                 return .failed(.endpointUnavailable)
             }
             if liveDiscoveryGeneration > priorGeneration { return .refreshed }
-            if registrationRefreshTaskID != nil {
-                mayScheduleFreshRequest = false
-                continue
-            }
+            // A `.refreshed` outcome without a generation advance is an
+            // unchanged-fingerprint no-op that never read the broker. It can
+            // neither satisfy this live discovery nor mask a real failure,
+            // and a coalesced successor may no-op the same way, so the right
+            // to schedule one authoritative refresh must survive successors.
+            if outcome != .refreshed { latestOutcome = outcome }
+            if registrationRefreshTaskID != nil { continue }
             guard mayScheduleFreshRequest else { return latestOutcome }
             mayScheduleFreshRequest = false
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         return lifecyclePhase == .active
             ? latestOutcome
@@ -458,6 +475,7 @@ public actor CmxIrohClientRuntime {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
@@ -520,7 +538,8 @@ public actor CmxIrohClientRuntime {
                 if published {
                     if let routeRevision = discovery.revision {
                         await connectivityEngine.didInstallRouteRevision(
-                            routeRevision
+                            routeRevision,
+                            routes: discovery
                         )
                     }
                     liveDiscoveryGeneration &+= 1
@@ -593,6 +612,7 @@ public actor CmxIrohClientRuntime {
             }
             try requireCurrent(revision)
             registrationRefreshPending = false
+            registrationRefreshPendingRequiresDiscovery = false
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
             try requireCurrent(revision)
@@ -651,6 +671,22 @@ public actor CmxIrohClientRuntime {
         await connectivityEngine.invalidatePeer(for: request)
     }
 
+    /// Invalidates reusable broker discovery state for one Mac device.
+    ///
+    /// Called when a presence route push proves the Mac's endpoint
+    /// re-registered: any snapshot captured before the push is corpse data,
+    /// so the next dial to that Mac fetches a fresh discovery snapshot
+    /// (single-flight, bounded by the broker backpressure gate) instead of
+    /// reusing it.
+    ///
+    /// - Parameter deviceID: The Mac's registry device id, or `nil` to
+    ///   invalidate discovery reuse for every peer.
+    public func invalidateDiscoverySnapshot(forMacDeviceID deviceID: String?) async {
+        await registryContextProvider?.invalidateVerifiedDiscovery(
+            forDeviceID: deviceID
+        )
+    }
+
     /// Stops network ownership while preserving account-scoped persistence.
     public func stop() async {
         guard lifecyclePhase == .starting || lifecyclePhase == .active else {
@@ -698,6 +734,14 @@ public actor CmxIrohClientRuntime {
                 bindingID: binding.bindingID
             )
         }
+        let bindingAuthorization = localBinding.flatMap { binding in
+            try? CmxIrohBindingRequestAuthorization(
+                bindingID: binding.bindingID,
+                clientNamespace: binding.clientNamespace,
+                identity: configuration.identity,
+                endpointID: binding.endpointID
+            )
+        }
         lifecyclePhase = .signingOut
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -710,6 +754,7 @@ public actor CmxIrohClientRuntime {
         let operation = Task {
             await self.performSignOut(
                 pendingRevocation: pendingRevocation,
+                bindingAuthorization: bindingAuthorization,
                 revision: revision
             )
         }

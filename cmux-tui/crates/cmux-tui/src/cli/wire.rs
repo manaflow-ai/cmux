@@ -1,4 +1,6 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -9,10 +11,17 @@ use cmux_tui_core::resource::{
 };
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, random_prefixed};
+use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+const SUPPORTED_SERVER_APP: &str = "cmux-tui";
+/// The session-journal wire shape is compatible from its introduction through
+/// the current protocol. Future protocol versions need an explicit review.
+const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
+    cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
+const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -54,7 +63,13 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_) => {
+            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -62,25 +77,149 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(response_read_timeout(&plan));
+    let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    if let Some(capability) = required_server_capability(&plan) {
+        match require_server_capability(&mut reader, &global, capability) {
+            Ok(()) => {}
+            Err(exit_code) => return exit_code,
+        }
+    }
+    #[cfg(unix)]
+    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    #[cfg(not(unix))]
+    let signal_interrupt_armed = false;
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, signal_interrupt_armed));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
     }) {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         eprintln!("transport error: {error}");
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
 }
 
-fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
+#[cfg(unix)]
+fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+    let Ok(stream) = stream.try_clone_box() else { return false };
+    std::thread::Builder::new()
+        .name("cmux-cli-signal-interrupt".into())
+        .spawn(move || {
+            crate::wait_for_shutdown_signal();
+            let _ = stream.shutdown(Shutdown::Both);
+        })
+        .is_ok()
+}
+
+fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalAppend
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointCreate
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalRestorePreview
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentSeal
+        )
+    )
+    .then_some(cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY)
+}
+
+fn require_server_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    global: &GlobalArgs,
+    capability: &'static str,
+) -> Result<(), i32> {
+    let request_id = random_request_id().map_err(|error| {
+        eprintln!("cmux: {error}");
+        2
+    })?;
+    let request = json!({"id":request_id,"cmd":"identify"});
+    let encoded = serde_json::to_vec(&request).map_err(|error| {
+        eprintln!("cmux: cannot encode capability request: {error}");
+        2
+    })?;
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|_| reader.get_mut().write_all(b"\n"))
+        .and_then(|_| reader.get_mut().flush())
+        .map_err(|error| {
+            eprintln!("transport error while checking session capabilities: {error}");
+            3
+        })?;
+    let response = read_envelope(reader, false)
+        .map_err(|error| {
+            eprintln!("{error}");
+            3
+        })?
+        .ok_or_else(|| {
+            eprintln!("transport closed before capability response");
+            3
+        })?;
+    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
+        || response.get("ok").and_then(Value::as_bool) != Some(true)
+    {
+        eprintln!("protocol error: invalid identify response during capability negotiation");
+        return Err(3);
+    }
+    let identity = response.get("data").unwrap_or(&Value::Null);
+    if let Err(reason) = validate_capability_identity(identity) {
+        eprintln!(
+            "protocol error: invalid identify response during capability negotiation: {reason}"
+        );
+        return Err(3);
+    }
+    let supported = crate::session::parse_identity_capabilities(identity)
+        .map(|capabilities| capabilities.contains(capability))
+        .unwrap_or(false);
+    if supported {
+        return Ok(());
+    }
+    let details = json!({
+        "capability":capability,
+        "action":"restart_session"
+    });
+    let error = json!({
+        "code":"operation.unsupported",
+        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "details":details,
+        "retryable":false
+    });
+    Err(print_local_error(&error, global.output, 1))
+}
+
+fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
+    if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
+        return Err("unexpected server app");
+    }
+    let Some(protocol) = identity.get("protocol").and_then(Value::as_u64) else {
+        return Err("unsupported server protocol");
+    };
+    if !(SESSION_JOURNAL_PROTOCOL_MINIMUM..=SESSION_JOURNAL_PROTOCOL_MAXIMUM).contains(&protocol) {
+        return Err("unsupported server protocol");
+    }
+    crate::session::parse_identity_capabilities(identity)?;
+    Ok(())
+}
+
+fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
     if plan.stream {
-        return Some(Duration::from_millis(250));
+        return (!signal_interrupt_armed).then_some(Duration::from_millis(250));
     }
     if matches!(
         &plan.operation,
-        super::command::WireOperation::Typed(
+        WireOperation::Typed(
             cmux_tui_core::resource::ResourceOperation::TerminalWait
                 | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
         )
@@ -134,6 +273,10 @@ fn run_response(
     request_id: &str,
 ) -> i32 {
     let mut accepted_stream = false;
+    let expose_stream_lifecycle = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe)
+    );
     let expected_stream_id = plan.params.get("stream_id").and_then(Value::as_str);
     loop {
         if plan.stream && crate::shutdown_requested() {
@@ -147,13 +290,16 @@ fn run_response(
                 return 3;
             }
             Err(error) => {
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
                 eprintln!("{error}");
                 return 3;
             }
         };
         match value.get("type").and_then(Value::as_str) {
             Some("response") => {
-                let response: ResponseEnvelope = match serde_json::from_value(value) {
+                let response: ResponseEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(response) => response,
                     Err(error) => {
                         eprintln!("protocol error: invalid response envelope: {error}");
@@ -168,8 +314,11 @@ fn run_response(
                     continue;
                 }
                 if !response.ok {
-                    let error = serde_json::to_value(response.error.expect("validated error"))
+                    let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
+                    if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                        localize_operation_error(plan, &mut error);
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
@@ -178,6 +327,13 @@ fn run_response(
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
+                    return 3;
+                }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
                     return 3;
                 }
                 accepted_stream = true;
@@ -203,7 +359,7 @@ fn run_response(
                 }
             }
             Some("stream_end") if plan.stream && accepted_stream => {
-                let end: StreamEndEnvelope = match serde_json::from_value(value) {
+                let end: StreamEndEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(end) => end,
                     Err(error) => {
                         eprintln!("protocol error: invalid stream end: {error}");
@@ -215,6 +371,13 @@ fn run_response(
                     || Some(end.stream_id.as_str()) != expected_stream_id
                 {
                     eprintln!("protocol error: stream end does not match the opened stream");
+                    return 3;
+                }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
                     return 3;
                 }
                 if matches!(
@@ -298,6 +461,30 @@ fn print_success(value: &Value, output: OutputMode) -> i32 {
 
 fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
     print_local_error(error, output, 1)
+}
+
+fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    let is_lifecycle_operation = matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::SessionShutdown
+                | cmux_tui_core::resource::ResourceOperation::SessionReloadConfig
+        )
+    );
+    if is_lifecycle_operation && error["code"] == "operation.failed" {
+        let message = match error["details"]["reason"].as_str() {
+            Some("lifecycle_not_ready") => {
+                Some(crate::localization::catalog().local_server.starting)
+            }
+            Some("owner_stopped") => {
+                Some(crate::localization::catalog().local_server.reload_owner_stopped)
+            }
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.to_string());
+        }
+    }
 }
 
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
@@ -527,18 +714,21 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
-        return path.clone();
+        return Ok(path.clone());
+    }
+    if let Some(session) = &global.session {
+        return cmux_tui_core::server::try_default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
         {
-            return PathBuf::from(path);
+            return Ok(PathBuf::from(path));
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::try_default_socket_path("main")
 }
 
 #[cfg(test)]
@@ -547,11 +737,57 @@ mod tests {
     use cmux_tui_core::resource::ResourceOperation;
 
     #[test]
+    fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
+        let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_rejects_pre_capability_protocol_even_when_capability_is_present() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION - 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_accepts_capability_introduction_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_ok());
+    }
+
+    #[test]
+    fn capability_preflight_accepts_current_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Ok(()));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_future_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_max_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":u64::MAX, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_malformed_capabilities() {
+        for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
+            assert!(
+                validate_capability_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn mutation_request_has_a_key_and_read_does_not() {
         let mutation = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceCreate,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
@@ -559,9 +795,7 @@ mod tests {
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
         let read = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceList,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceList),
             params: json!({}),
             idempotency_key: None,
             stream: false,
@@ -619,15 +853,71 @@ mod tests {
     fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
         for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
             let bounded = RequestPlan {
-                operation: super::super::command::WireOperation::Typed(operation),
+                operation: WireOperation::Typed(operation),
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
             };
-            assert_eq!(response_read_timeout(&bounded), Some(Duration::from_secs(7)));
+            assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
             let unbounded = RequestPlan { params: json!({}), ..bounded };
-            assert_eq!(response_read_timeout(&unbounded), None);
+            assert_eq!(response_read_timeout(&unbounded, false), None);
+        }
+    }
+
+    #[test]
+    fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
+        let stream = RequestPlan {
+            operation: WireOperation::Typed(ResourceOperation::SessionJournalSubscribe),
+            params: json!({}),
+            idempotency_key: None,
+            stream: true,
+        };
+        assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
+        assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn stopped_owner_reload_error_is_localized_for_human_output() {
+        const PROBE_LOCALE: &str = "CMUX_TEST_STOPPED_OWNER_RELOAD_LOCALE";
+        if let Ok(locale) = std::env::var(PROBE_LOCALE) {
+            let plan = RequestPlan {
+                operation: WireOperation::Typed(ResourceOperation::SessionReloadConfig),
+                params: json!({}),
+                idempotency_key: Some("reload-owner-stopped".into()),
+                stream: false,
+            };
+            let mut error = json!({
+                "code":"operation.failed",
+                "message":"owner_stopped",
+                "details":{"operation":"session.reload_config","reason":"owner_stopped"},
+                "retryable":false,
+            });
+
+            localize_operation_error(&plan, &mut error);
+
+            let expected = match locale.as_str() {
+                "en_US.UTF-8" => {
+                    "the local server stopped before it applied the configuration reload; start the session and retry"
+                }
+                "ja_JP.UTF-8" => {
+                    "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
+                }
+                _ => panic!("unexpected probe locale {locale}"),
+            };
+            assert_eq!(error["message"], expected);
+            return;
+        }
+
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("stopped_owner_reload_error_is_localized_for_human_output")
+                .arg("--nocapture")
+                .env(PROBE_LOCALE, locale)
+                .env("LC_ALL", locale)
+                .status()
+                .unwrap();
+            assert!(status.success(), "{locale} localization probe failed");
         }
     }
 }

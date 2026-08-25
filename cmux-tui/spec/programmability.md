@@ -2,8 +2,8 @@
 
 This inventory audits both the private frontend protocol and secondary
 implementation boundaries. Public application completeness is defined by
-[`cmux.protocol/1`](resource-api-v1.md), its
-[operation catalog](resource-operations-v1.json), the
+[`cmux.protocol/2`](resource-api-v2.md), its
+[operation catalog](resource-operations-v2.json), the
 [noun-first CLI](cli.md), and the [SDK contract](bindings.md).
 
 A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.
@@ -52,7 +52,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
 | Stream lifecycle | Repeated `subscribe` and `attach-surface` registrations share a connection and have no public identity | Client-generated `stream_id`, echoed events, and idempotent `cancel-stream` |
-| Event recovery | Snapshot plus coarse invalidation; overflow loses the cursor | `generation`, sequence, cursor resume, replay gap, event filters, and heartbeat |
+| Event recovery | Local consumers can replay or tail the session journal with durable cursors, structured filters, and compiled regex; remote consumers receive token-gated metadata with redaction | Classify remaining transient producers and expose retained-range discovery |
 | Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers; some legacy acknowledgements do not prove a commit | One operation identity and receipt format for every side effect; success must identify committed, changed, or no-op state |
 | Errors | Response `error` is one string | `{code,message,details,retryable}` with stable codes |
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
@@ -67,9 +67,9 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Browser lifecycle | Browser success is asynchronous and CDP failures arrive later | Correlated operation ids, target/crash/dialog/download events, viewport revision, and optional raw CDP profile |
 | Client identity | `list-clients` exposes transient connection ids | `hello` or `whoami` with client instance, authenticated principal, rights, credential expiry, and protocol selection |
 | Pairing | Trusted Unix clients approve requests; request ids are JSON numbers | Origin allowlist, Origin-aware challenges, JavaScript-safe string ids, and typed SDK callbacks |
-| Agents | One in-memory record per surface, polling only | Authenticated producer context, durable agent ids, multiple agents, revision/history, leases, and transition events |
+| Agents | Explicit reports have durable journal history, but the projection still stores one current agent per terminal | Authenticated adapter context, durable agent ids, multiple agents, root leases, continuations, and semantic transition events |
 | Notifications | Creation and one unread marker per inactive surface | Durable records, list/get/read/unread/dismiss/clear/open commands, counts, and lifecycle events |
-| Hooks and feeds | Hook config is proposed but rejected by the current strict config parser | Versioned manifests, bounded execution records, feed operations, loop prevention, and events |
+| Hooks and feeds | Versioned producer and hook manifests, schema-validated ingress, durable cursors, receipts, bounded retries, and causal loop prevention are implemented | Add declarative feed projections and stronger principal-scoped permissions |
 | Config | Local JSON contains many unversioned leaves | Versioned JSON Schema, ownership, hot/restart metadata, `get-config`, `validate-config`, `patch-config`, and `config-changed` |
 | Plugins | Trusted executable sidebar plugin is implemented | Manifest v1, contribution points, permissions, trust decisions, transactional install/update/remove, and typed management |
 | File sidebar | Native TUI reads the host filesystem directly | Classify as local-only, or add a separately permissioned list/stat/read/watch filesystem capability |
@@ -80,7 +80,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Host terminal integration | OSC colors, clipboard, pointer shape, graphics, and cell-pixel probing are local side channels | Negotiated host capabilities with ownership, fallback, size, and delivery-result contracts |
 | Localization | Native English/Japanese catalogs own part of the chrome | Stable message keys, locale precedence, catalog completeness checks, and frontend-local rendering rules |
 | Diagnostics and retention | Transient status plus local debug dumps and bounded subprocess stderr | Permissioned, redacted records with bounds, retention, export, and explicit sensitive-data warnings |
-| Session restore/import | SQLite registries and terminal-host adoption restore identity and processes, not exact live topology | Versioned whole-session export/import with topology, process, projection, compatibility, and secret-exclusion rules |
+| Session restore/import | Versioned checkpoints capture projections and content-addressed terminal replay; a pure reducer previews checkpoint-plus-tail restoration; immutable segments preserve sealed prefixes | Apply reduced models live, add continuous content offsets, process and agent continuation policy, export/import, and secret-exclusion rules |
 | Distribution identity | Binary, protocol, SDK, and registry packages version independently | One support matrix defining version relationships, platform floors, package namespaces, and compatibility guarantees |
 | Window integration | Window title requests and frontend projections cover only part of host-window state | Frontend-owned window schema and actions for create, close, focus, move, size, and host capability failures |
 
@@ -111,7 +111,10 @@ Each implemented command needs success, invalid request, target-not-found, and n
 
 Feature-family `wire_status` records whether a current transport exists. `programmability` records portable typed SDK and conformance completeness. This distinction prevents a live raw command, such as browser control, from being reported as complete while language clients remain uneven.
 
-The initial inventory gate prevents undocumented runtime drift. It does not claim that the current 11 shared fixtures cover all 83 commands. Fixture coverage becomes a required per-command field when deterministic schema-driven generation replaces the current prompt-based binding script.
+The initial inventory gate prevents undocumented runtime drift. It does not claim
+that the current 11 shared fixtures cover every command in the inventory.
+Fixture coverage becomes a required per-command field when deterministic
+schema-driven generation replaces the current prompt-based binding script.
 
 ## Pending protocol heads
 

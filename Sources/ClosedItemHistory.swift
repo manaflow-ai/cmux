@@ -22,6 +22,13 @@ struct ClosedPanelHistoryEntry: Codable {
     let tabIndex: Int
     let snapshot: SessionPanelSnapshot
     let fallbackSplitPlacement: ClosedPanelSplitPlacement?
+    /// Live workspace that owns a transferred Dock panel's restore machinery.
+    /// Dock history is not persisted, so this identity is valid only for the
+    /// current process.
+    let sourceWorkspaceId: UUID?
+    /// Workspace identity encoded into the panel snapshot. This can differ
+    /// from `sourceWorkspaceId` after a session restore.
+    let sourceSnapshotWorkspaceId: UUID?
 
     init(
         workspaceId: UUID,
@@ -30,7 +37,9 @@ struct ClosedPanelHistoryEntry: Codable {
         restoreInOriginalPane: Bool = true,
         tabIndex: Int,
         snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
+        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil,
+        sourceWorkspaceId: UUID? = nil,
+        sourceSnapshotWorkspaceId: UUID? = nil
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
@@ -39,6 +48,8 @@ struct ClosedPanelHistoryEntry: Codable {
         self.tabIndex = tabIndex
         self.snapshot = snapshot
         self.fallbackSplitPlacement = fallbackSplitPlacement
+        self.sourceWorkspaceId = sourceWorkspaceId
+        self.sourceSnapshotWorkspaceId = sourceSnapshotWorkspaceId
     }
 }
 
@@ -151,6 +162,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case remapPanelAnchorIds(oldPanelId: UUID, newPanelId: UUID)
         case remapWorkspaceWindowIds(oldWindowId: UUID, newWindowId: UUID)
         case removePanelRecords(workspaceIds: Set<UUID>)
+        case removeManagedCloudVMRecords
     }
 
     init(
@@ -344,6 +356,36 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
+    /// Remove closed workspace/window snapshots that carry a Cloud VM identity.
+    ///
+    /// A sign-out must not leave a one-click "reopen" record containing a
+    /// remote machine's reconnect configuration. Local closed-panel history
+    /// remains intact.
+    func removeManagedCloudVMRecords() {
+        guard didFinishPersistedRecordsLoad else {
+            pendingPersistedRecordMutations.append(.removeManagedCloudVMRecords)
+            return
+        }
+        let filtered = records.filter { !Self.recordContainsManagedCloudVM($0) }
+        guard filtered.count != records.count else { return }
+        records = filtered
+        revision &+= 1
+        persistRecords()
+    }
+
+    private static func recordContainsManagedCloudVM(_ record: ClosedItemHistoryRecord) -> Bool {
+        switch record.entry {
+        case .panel:
+            return false
+        case .workspace(let entry):
+            return entry.snapshot.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        case .window(let entry):
+            return entry.snapshot.tabManager.workspaces.contains { workspace in
+                workspace.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            }
+        }
+    }
+
     @discardableResult private func trimToCapacityIfNeeded() -> Bool {
         let previousCount = records.count
         records = capacityPolicy.trimming(records)
@@ -458,6 +500,9 @@ final class ClosedItemHistoryStore: ObservableObject {
             return recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
         case .removePanelRecords(let workspaceIds):
             return recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
+        case .removeManagedCloudVMRecords:
+            let filtered = records.filter { !recordContainsManagedCloudVM($0) }
+            return (filtered, filtered.count != records.count)
         }
     }
 
@@ -492,7 +537,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: false,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)
@@ -530,7 +578,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: panelEntry.restoreInOriginalPane,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)

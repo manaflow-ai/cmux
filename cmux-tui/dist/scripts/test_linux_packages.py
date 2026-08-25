@@ -115,7 +115,7 @@ while [ ! -S "$socket" ]; do
   fi
   sleep 0.05
 done
-{command} --socket "$socket" ping
+{command} --socket "$socket" session main ping
 kill -TERM "$server_pid"
 wait "$server_pid" || true
 server_pid=""

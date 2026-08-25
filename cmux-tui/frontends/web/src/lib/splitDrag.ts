@@ -1,4 +1,4 @@
-import type { Id } from "cmux/browser";
+import type { Id } from "cmux/raw";
 import type { PaneLayoutView } from "./layout";
 
 export const MIN_SPLIT_RATIO = 0.05;

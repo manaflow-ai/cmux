@@ -26,6 +26,36 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.21": {
+    title: "Simulator Panes, Mosh Transport, Idle CPU Reclaimed",
+    features: [
+      {
+        title: "Native Simulator Panes",
+        description:
+          "Run iPhone and iPad Simulators as first-class cmux panes, rendered crisply at real size, with their own commands and automation so an agent can drive the simulator next to the terminal that built it.",
+      },
+      {
+        title: "Mosh for Remote Workspaces",
+        description:
+          "Remote workspaces can use Mosh instead of plain SSH, so a laptop that sleeps, changes networks, or loses Wi-Fi picks the session back up instead of dropping it.",
+      },
+      {
+        title: "Idle CPU and Memory Reclaimed",
+        description:
+          "Leaked openThread loops that burned about 90% of cmux idle CPU are gone, hidden Ghostty renderers release their memory, workspace switching no longer freezes the renderer, and idle background agents hibernate under critical memory pressure.",
+      },
+      {
+        title: "Navigation and Restore",
+        description:
+          "Cmd+Shift+T reopens the last closed item, Cmd+[ and Cmd+] walk global workspace focus history, surfaces move between panes with automatic directional splits, and Dock panes, workspace IDs, and per-tab terminal zoom all survive a restart.",
+      },
+      {
+        title: "cmux on iPhone (beta)",
+        description:
+          "Stream Mac browser panes to the phone interactively, follow a chronological notification feed, launch agent workspaces from the task composer, and scroll terminals locally on screen-anchored render grids over a rebuilt peer-to-peer transport.",
+      },
+    ],
+  },
   "0.64.20": {
     title: "Native AppKit Sidebar, Browser Design Mode, TUI Mouse Forwarding",
     features: [

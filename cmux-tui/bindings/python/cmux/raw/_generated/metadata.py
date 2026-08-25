@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 10
-IR_SHA256 = 'c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd'
+MUX_PROTOCOL = 12
+IR_SHA256 = '65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589'
 
 
 @dataclass(frozen=True)
@@ -266,6 +266,17 @@ COMMANDS = {
         {
         },
     ),
+    'client-focus': CommandMetadata(
+        'client-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'close-pane': CommandMetadata(
         'close-pane',
         'control',
@@ -356,6 +367,30 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-surface-with-receipt': CommandMetadata(
+        'create-surface-with-receipt',
+        'control',
+        10,
+        'creation-receipts-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'argv': CommandFieldMetadata(None, None),
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, 'creation-attempt-keys-v1'),
+            'operation': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'selector_fallbacks': CommandFieldMetadata(None, None),
+            'selectors': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-terminal': CommandMetadata(
         'create-terminal',
         'control',
@@ -393,6 +428,18 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'detach-attached-view': CommandMetadata(
+        'detach-attached-view',
+        'frontend',
+        10,
+        'view-attachment-detach-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'detach-client': CommandMetadata(
@@ -440,6 +487,26 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
         },
     ),
+    'get-browser-provider': CommandMetadata(
+        'get-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'get-cell-pixels': CommandMetadata(
+        'get-cell-pixels',
+        'frontend',
+        6,
+        None,
+        ('frontend',),
+        None,
+        {
+        },
+    ),
     'get-frontend-projection': CommandMetadata(
         'get-frontend-projection',
         'control',
@@ -472,6 +539,17 @@ COMMANDS = {
         None,
         {
             'kind': CommandFieldMetadata(None, None),
+        },
+    ),
+    'journal-frontend-event': CommandMetadata(
+        'journal-frontend-event',
+        'control',
+        10,
+        'frontend-journal-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'event': CommandFieldMetadata(None, None),
         },
     ),
     'list-agents': CommandMetadata(
@@ -536,6 +614,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+            'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'mint-terminal-renderer-by-terminal': CommandMetadata(
+        'mint-terminal-renderer-by-terminal',
+        'frontend',
+        11,
+        None,
+        ('frontend',),
+        None,
+        {
+            'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
@@ -770,6 +860,33 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'register-browser-provider': CommandMetadata(
+        'register-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+            'authentication': CommandFieldMetadata(None, None),
+            'bearer_token': CommandFieldMetadata(None, None),
+            'endpoint': CommandFieldMetadata(None, None),
+            'provider_id': CommandFieldMetadata(None, None),
+            'targets': CommandFieldMetadata(None, None),
+        },
+    ),
+    'release-attached-view-size': CommandMetadata(
+        'release-attached-view-size',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'release-surface-size': CommandMetadata(
         'release-surface-size',
         'control',
@@ -869,6 +986,33 @@ COMMANDS = {
             'session': CommandFieldMetadata(None, None),
             'source': CommandFieldMetadata(None, None),
             'state': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'report-focus': CommandMetadata(
+        'report-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'tab': CommandFieldMetadata(None, None),
+        },
+    ),
+    'resize-attached-view': CommandMetadata(
+        'resize-attached-view',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -1106,6 +1250,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
         },
@@ -1186,6 +1331,16 @@ COMMANDS = {
             'revision': CommandFieldMetadata(None, None),
         },
     ),
+    'unregister-browser-provider': CommandMetadata(
+        'unregister-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1225,6 +1380,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
@@ -1237,6 +1393,7 @@ EVENTS = {
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
+    'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),

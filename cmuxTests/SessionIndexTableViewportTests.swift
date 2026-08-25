@@ -23,11 +23,11 @@ struct SessionIndexTableViewportTests {
             section: section,
             rowLimit: 5,
             isDragged: false,
-            previewEntryId: nil,
+            popoverIdentity: nil,
             isCollapsed: false,
-            isPopoverOpen: false,
             actions: IndexSectionActions(
                 onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
@@ -113,6 +113,7 @@ struct SessionIndexTableViewportTests {
         )
         let actions = IndexSectionActions(
             onBeginDrag: {},
+            beginSessionDrag: { _, _, _, _, _ in false },
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
@@ -123,9 +124,8 @@ struct SessionIndexTableViewportTests {
             section: section,
             rowLimit: 5,
             isDragged: false,
-            previewEntryId: nil,
+            popoverIdentity: nil,
             isCollapsed: false,
-            isPopoverOpen: false,
             actions: actions,
             setCollapsed: { _ in },
             setPopoverOpen: { _ in }
@@ -134,15 +134,166 @@ struct SessionIndexTableViewportTests {
             section: section,
             rowLimit: 5,
             isDragged: false,
-            previewEntryId: "claude:/tmp/another-section/session.jsonl",
+            popoverIdentity: .transcript(
+                section: .directory("/tmp/another-section"),
+                entry: "claude:/tmp/another-section/session.jsonl"
+            ),
             isCollapsed: false,
-            isPopoverOpen: false,
             actions: actions,
             setCollapsed: { _ in },
             setPopoverOpen: { _ in }
         )
 
         #expect(withoutPreview.hasEquivalentContent(to: unrelatedPreview))
+    }
+
+    @MainActor
+    @Test
+    func sectionPopoverPresentationDoesNotInvalidateHostedRow() {
+        let section = Self.makeSection()
+        let closed = Self.makeSectionRow(section: section)
+        let open = Self.makeSectionRow(
+            section: section,
+            popoverIdentity: .section(section.key)
+        )
+
+        #expect(closed.hasEquivalentContent(to: open))
+    }
+
+    @MainActor
+    @Test
+    func transcriptPresentationDoesNotInvalidateHostedRow() throws {
+        let section = Self.makeSection()
+        let entry = try #require(section.entries.first)
+        let closed = Self.makeSectionRow(section: section)
+        let open = Self.makeSectionRow(
+            section: section,
+            popoverIdentity: .transcript(section: section.key, entry: entry.id)
+        )
+
+        #expect(closed.hasEquivalentContent(to: open))
+    }
+
+    @MainActor
+    @Test
+    func presentationForAnotherSectionIsIgnored() {
+        let section = Self.makeSection()
+        let row = Self.makeSectionRow(
+            section: section,
+            popoverIdentity: .section(.directory("/tmp/another-section"))
+        )
+
+        #expect(row.popoverPresentation == nil)
+        #expect(row.containedPreviewEntryID == nil)
+    }
+
+    @MainActor
+    @Test
+    func tablePopoverUsesControlAnchorAndClosesWhenAnchorRowRecycles() async throws {
+        var dismissalCount = 0
+        let presenter = SessionIndexTablePopoverPresenter()
+        let controller = SessionIndexTableController(popoverPresenter: presenter)
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+
+        let targetSection = Self.makeSection()
+        let targetIdentity = SessionIndexTablePopoverIdentity.section(targetSection.key)
+        let openTargetRow = Self.makeSectionRow(
+            section: targetSection,
+            popoverIdentity: targetIdentity,
+            onSetPopoverOpen: { isOpen in
+                if !isOpen {
+                    dismissalCount += 1
+                }
+            }
+        )
+        let closedTargetRow = Self.makeSectionRow(
+            section: targetSection,
+            onSetPopoverOpen: { _ in }
+        )
+        let gapActions = SectionGapActions(
+            currentDraggedKey: { nil },
+            moveSection: { _, _ in },
+            clearDraggedKey: {}
+        )
+        var openRows: [SessionIndexTableRow] = [
+            .gap(beforeKey: targetSection.key, isValidDrop: true, actions: gapActions),
+            openTargetRow,
+        ]
+        for index in 1..<12 {
+            let section = IndexSection(
+                key: .directory("/tmp/vault-presentation-\(index)"),
+                title: "vault-presentation-\(index)",
+                icon: .folder,
+                entries: [Self.makeEntry(index: index)]
+            )
+            openRows.append(.gap(
+                beforeKey: section.key,
+                isValidDrop: true,
+                actions: gapActions
+            ))
+            openRows.append(Self.makeSectionRow(section: section))
+        }
+        openRows.append(.gap(beforeKey: nil, isValidDrop: true, actions: gapActions))
+
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+        controller.apply(rows: openRows, environment: environment)
+        await flushStagedTableMutations()
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+
+        let table = container.tableView
+        let targetRowIndex = 1
+        let targetCell = try #require(table.view(
+            atColumn: 0,
+            row: targetRowIndex,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView)
+        let anchorRect = try #require(targetCell.popoverAnchorRect(for: targetIdentity))
+        #expect(anchorRect.height > 0)
+        #expect(anchorRect.height < targetCell.bounds.height)
+        #expect(presenter.isPopoverShown)
+
+        table.scrollRowToVisible(openRows.count - 1)
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+
+        #expect(table.view(
+            atColumn: 0,
+            row: targetRowIndex,
+            makeIfNecessary: false
+        ) == nil)
+        #expect(dismissalCount == 1)
+        #expect(!presenter.isPopoverShown)
+
+        var closedRows = openRows
+        closedRows[targetRowIndex] = closedTargetRow
+        controller.apply(rows: closedRows, environment: environment)
+        await flushStagedTableMutations()
+        table.scrollRowToVisible(targetRowIndex)
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+
+        #expect(!presenter.isPopoverShown)
     }
 
     @MainActor
@@ -159,7 +310,11 @@ struct SessionIndexTableViewportTests {
         )
 
         let host = NSHostingView(
-            rootView: SessionIndexView(store: store, onResume: nil)
+            rootView: SessionIndexView(
+                store: store,
+                chromeBackgroundColor: .black,
+                onResume: nil
+            )
                 .frame(width: 320, height: 300)
         )
         let window = NSWindow(
@@ -213,6 +368,41 @@ struct SessionIndexTableViewportTests {
                 permissionMode: nil,
                 configDirectoryForResume: nil
             )
+        )
+    }
+
+    private static func makeSection() -> IndexSection {
+        IndexSection(
+            key: .directory("/tmp/vault-presentation"),
+            title: "vault-presentation",
+            icon: .folder,
+            entries: [makeEntry(index: 0)]
+        )
+    }
+
+    @MainActor
+    private static func makeSectionRow(
+        section: IndexSection,
+        popoverIdentity: SessionIndexTablePopoverIdentity? = nil,
+        onSetPopoverOpen: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) -> SessionIndexTableRow {
+        SessionIndexTableRow.section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            popoverIdentity: popoverIdentity,
+            isCollapsed: false,
+            actions: IndexSectionActions(
+                onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
+                onPreviewEntry: { _ in },
+                onDismissPreview: { _ in },
+                onResume: nil,
+                search: { _, _, _, _ in .init(entries: [], errors: []) },
+                loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
+            ),
+            setCollapsed: { _ in },
+            setPopoverOpen: onSetPopoverOpen
         )
     }
 }

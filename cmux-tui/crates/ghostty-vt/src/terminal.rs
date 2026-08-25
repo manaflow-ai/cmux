@@ -1,18 +1,169 @@
 use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
-use crate::mouse::{MouseModeProbe, MouseModeSignature};
-use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
-use crate::{Result, check};
+use crate::kitty::{
+    self, KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
+    KittyInFlightTracker, KittyPlacement, KittyPlacementAnchor, KittyReplaySnapshot,
+    MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
+};
+use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
+use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
+use crate::{Error, Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_HISTORY_EPOCH: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
+const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
+const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = MAX_KITTY_IMAGES;
+const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = MAX_KITTY_PLACEMENTS;
+const KITTY_REPLAY_CHUNK: usize = 4096;
+const KITTY_REPLAY_RAW_CHUNK: usize = KITTY_REPLAY_CHUNK / 4 * 3;
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+
+#[cfg(test)]
+thread_local! {
+    static KITTY_REPLAY_IMAGE_ENCODINGS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_kitty_replay_image_encodings() {
+    KITTY_REPLAY_IMAGE_ENCODINGS.set(0);
+}
+
+#[cfg(test)]
+fn kitty_replay_image_encodings() -> usize {
+    KITTY_REPLAY_IMAGE_ENCODINGS.get()
+}
+
+/// Per-terminal Kitty resource limits that every byte-stream emulator must
+/// share to make admission and eviction deterministic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyGraphicsLimits {
+    pub image_bytes: u64,
+    pub inflight_bytes: u64,
+    pub images: u64,
+    pub placements: u64,
+}
+
+impl KittyGraphicsLimits {
+    pub const fn disabled() -> Self {
+        Self { image_bytes: 0, inflight_bytes: 0, images: 0, placements: 0 }
+    }
+
+    pub fn validate(self) -> Result<Self> {
+        if self.image_bytes > MAX_KITTY_IMAGE_BYTES as u64
+            || self.inflight_bytes > KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
+            || self.images > MAX_KITTY_IMAGES
+            || self.placements > MAX_KITTY_PLACEMENTS
+        {
+            return Err(Error::InvalidValue);
+        }
+        Ok(self)
+    }
+}
+
+impl Default for KittyGraphicsLimits {
+    fn default() -> Self {
+        Self {
+            image_bytes: DEFAULT_KITTY_IMAGE_STORAGE_LIMIT,
+            inflight_bytes: KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64,
+            images: DEFAULT_KITTY_IMAGE_COUNT_LIMIT,
+            placements: DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT,
+        }
+    }
+}
+
+/// Per-screen automatic Kitty image-ID cursors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyImageIdCursors {
+    pub primary: u32,
+    pub alternate: u32,
+}
+
+impl KittyImageIdCursors {
+    pub const DEFAULT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
+
+    pub const fn defaults() -> Self {
+        Self { primary: Self::DEFAULT_NEXT_IMAGE_ID, alternate: Self::DEFAULT_NEXT_IMAGE_ID }
+    }
+
+    fn validate(self) -> Result<Self> {
+        if self.primary == 0 || self.alternate == 0 {
+            return Err(Error::InvalidValue);
+        }
+        Ok(self)
+    }
+}
+
+impl Default for KittyImageIdCursors {
+    fn default() -> Self {
+        Self::defaults()
+    }
+}
+
+/// Kitty state that cannot be represented by protocol escape sequences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyReplayState {
+    pub limits: KittyGraphicsLimits,
+    /// Byte offset where replay must restore `replay_next_image_ids`.
+    /// Prefix bytes may contain a synthetic terminal reset; suffix bytes can
+    /// contain an in-flight upload that allocates an automatic ID.
+    pub replay_cursor_offset: u32,
+    /// Per-screen cursors installed at `replay_cursor_offset`. A cursor may
+    /// point at an automatic ID already reserved by an in-flight multipart upload.
+    pub replay_next_image_ids: KittyImageIdCursors,
+    /// Per-screen steady-state cursors restored after replay bytes and aliases.
+    pub next_image_ids: KittyImageIdCursors,
+}
+
+impl KittyReplayState {
+    pub const fn disabled() -> Self {
+        Self {
+            limits: KittyGraphicsLimits::disabled(),
+            replay_cursor_offset: 0,
+            replay_next_image_ids: KittyImageIdCursors::defaults(),
+            next_image_ids: KittyImageIdCursors::defaults(),
+        }
+    }
+
+    pub fn validate(self) -> Result<Self> {
+        self.limits.validate()?;
+        self.replay_next_image_ids.validate()?;
+        self.next_image_ids.validate()?;
+        Ok(self)
+    }
+
+    pub fn validate_for_replay(self, replay_len: usize) -> Result<Self> {
+        let state = self.validate()?;
+        if state.replay_cursor_offset as usize > replay_len {
+            return Err(Error::InvalidValue);
+        }
+        Ok(state)
+    }
+}
+
+impl Default for KittyReplayState {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+/// Terminal state replay plus Kitty metadata that cannot share one APC command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VtReplay {
+    pub bytes: Vec<u8>,
+    pub kitty_image_aliases: Vec<KittyImageAlias>,
+    pub kitty_state: KittyReplayState,
+}
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -96,6 +247,9 @@ pub struct TerminalPointerSemanticSnapshot {
     pub terminal_instance_id: u64,
     pub mouse_mode_revision: u64,
     pub mouse_tracking: bool,
+    /// Last-set-wins active coordinate wire format (xterm semantics), from
+    /// Ghostty's own encoder behavior rather than the boolean mode flags.
+    pub active_mouse_format: MouseWireFormat,
     pub active_screen: Screen,
     pub cols: u16,
     pub rows: u16,
@@ -118,6 +272,25 @@ pub struct Scrollbar {
     pub offset: u64,
     /// Viewport height in rows.
     pub len: u64,
+}
+
+/// An owned terminal cell anchor that follows its row through scrollback
+/// growth, pruning, and reflow. Callers must serialize access with the
+/// originating [`Terminal`].
+pub struct TrackedScreenPoint {
+    raw: sys::GhosttyTrackedGridRef,
+    terminal_instance_id: u64,
+}
+
+// The C handle is owned by this value and Ghostty permits freeing it after
+// its terminal is gone. All other access requires the originating Terminal,
+// whose callers already serialize mutation.
+unsafe impl Send for TrackedScreenPoint {}
+
+impl Drop for TrackedScreenPoint {
+    fn drop(&mut self) {
+        unsafe { sys::ghostty_tracked_grid_ref_free(self.raw) };
+    }
 }
 
 impl Scrollbar {
@@ -617,10 +790,18 @@ impl PromptSemanticTracker {
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
+    history_epoch: u64,
+    // Detect fixed-size scrollback eviction without scanning retained rows.
+    history_anchor: sys::GhosttyTrackedGridRef,
     mouse_mode_revision: u64,
+    kitty_inflight: Box<KittyInFlightTracker>,
+    // Keep the potentially long-lived replay cache behind one pointer so
+    // adding it does not inflate every Surface enum value.
+    kitty_replay_pixel_cache: Box<KittyReplayPixelCache>,
     mouse_mode_bits: u8,
     mouse_mode_signature: MouseModeSignature,
     mouse_mode_probe: MouseModeProbe,
+    active_mouse_format: MouseWireFormat,
     mouse_mode_change_detector: MouseModeChangeDetector,
     vt_boundary: VtBoundaryTracker,
     prompt_semantic: PromptSemanticTracker,
@@ -632,6 +813,9 @@ pub struct Terminal {
     color_overrides: ColorOverrideTracker,
     c1_normalizer: C1Normalizer,
 }
+
+#[derive(Default)]
+struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 
 /// Tracks whether Ghostty's persistent VT stream is between complete
 /// sequences and UTF-8 code points.
@@ -796,8 +980,8 @@ impl VtBoundaryState {
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
-/// state, while PTYs can still emit the 8-bit OSC/ST forms. Normalize only
-/// standalone C1 OSC/ST bytes; continuation bytes inside UTF-8 text remain
+/// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
+/// standalone C1 control bytes; continuation bytes inside UTF-8 text remain
 /// byte-for-byte unchanged.
 #[derive(Default)]
 struct C1Normalizer {
@@ -817,6 +1001,7 @@ impl C1Normalizer {
             };
             let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
                 0x9d => Some(b']'),
+                0x9f => Some(b'_'),
                 0x9c => Some(b'\\'),
                 _ => None,
             });
@@ -1688,19 +1873,29 @@ unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: 
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize, callbacks: Callbacks) -> Result<Self> {
+        kitty::install_png_decoder()?;
         let mouse_mode_probe = MouseModeProbe::new()?;
         let mut raw: sys::GhosttyTerminal = ptr::null_mut();
         let opts =
             sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
         check(unsafe { sys::ghostty_terminal_new(ptr::null(), &mut raw, opts) })?;
+        if let Err(error) = configure_kitty_graphics(raw) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
+            history_epoch: NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed),
+            history_anchor: ptr::null_mut(),
             mouse_mode_revision: 0,
+            kitty_inflight: Box::new(KittyInFlightTracker::default()),
+            kitty_replay_pixel_cache: Box::default(),
             mouse_mode_bits: 0,
             mouse_mode_signature: MouseModeSignature::default(),
             mouse_mode_probe,
+            active_mouse_format: MouseWireFormat::default(),
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
@@ -1746,6 +1941,41 @@ impl Terminal {
         self.instance_id
     }
 
+    /// Monotonic token for retained-history row contents and coordinates.
+    /// Frontends must match this with a paged history read before projecting
+    /// absolute graphics anchors onto those rows.
+    pub fn history_epoch(&self) -> u64 {
+        self.history_epoch
+    }
+
+    fn bump_history_epoch(&mut self) {
+        self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn ensure_history_anchor(&mut self) {
+        if !self.history_anchor.is_null() || self.scrollback_rows() == 0 {
+            return;
+        }
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+            value: sys::GhosttyPointValue {
+                coordinate: sys::GhosttyPointCoordinate { x: 0, y: 0 },
+            },
+        };
+        let mut anchor: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        if check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut anchor) })
+            .is_ok()
+        {
+            self.history_anchor = anchor;
+        }
+    }
+
+    fn reset_history_anchor(&mut self) {
+        unsafe { sys::ghostty_tracked_grid_ref_free(self.history_anchor) };
+        self.history_anchor = ptr::null_mut();
+        self.ensure_history_anchor();
+    }
+
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
         let _ = self.vt_write_with_normalized(data);
@@ -1761,7 +1991,11 @@ impl Terminal {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
+        self.ensure_history_anchor();
+        let previous_history_rows = self.scrollback_rows();
+        let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
+        self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
         self.cursor_override.write(&normalized);
@@ -1769,10 +2003,30 @@ impl Terminal {
         self.color_overrides.write(&normalized);
         let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        let history_rows = self.scrollback_rows();
+        let history_anchor_evicted = !self.history_anchor.is_null()
+            && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
+        if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
+        {
+            self.bump_history_epoch();
+        }
+        if history_rows == 0 || history_anchor_evicted {
+            self.reset_history_anchor();
+        } else if self.history_anchor.is_null() {
+            self.ensure_history_anchor();
+        }
         if mouse_modes_may_have_changed {
             self.refresh_mouse_mode_revision();
         }
         normalized
+    }
+
+    /// Whether the persistent VT stream has no incomplete control sequence or
+    /// UTF-8 codepoint. A formatter replay is safe to hand to a fresh parser
+    /// only while this is true, serialized with [`Self::vt_write`].
+    pub fn vt_stream_is_ground(&self) -> bool {
+        self.c1_normalizer.utf8_remaining == 0
+            && unsafe { sys::ghostty_terminal_vt_stream_is_ground(self.raw) }
     }
 
     fn refresh_mouse_mode_revision(&mut self) {
@@ -1783,8 +2037,11 @@ impl Terminal {
         // A bit tuple is sufficient when at most one tracking and wire-format
         // mode is active. When modes overlap, query Ghostty's encoder because
         // its parsed last-set precedence is not represented by the bits.
+        // Overlapping wire formats stay ambiguous even with tracking off:
+        // the active format must be current before tracking is re-enabled
+        // or a replay is serialized.
         let behavior_can_be_ambiguous =
-            tracking_bits.count_ones() > 1 || tracking_bits != 0 && format_bits.count_ones() > 1;
+            tracking_bits.count_ones() > 1 || format_bits.count_ones() > 1;
         if !bits_changed && !behavior_can_be_ambiguous {
             return;
         }
@@ -1794,6 +2051,17 @@ impl Terminal {
         }
         self.mouse_mode_bits = next_bits;
         self.mouse_mode_signature = next_signature;
+        if let Some(format) = self.mouse_mode_probe.classify_wire_format(self.raw) {
+            self.active_mouse_format = format;
+        }
+    }
+
+    /// Last-set-wins active coordinate wire format (xterm semantics).
+    ///
+    /// This mirrors Ghostty's parsed precedence, which the boolean DEC mode
+    /// flags cannot represent when several format modes are flagged at once.
+    pub fn active_mouse_format(&self) -> MouseWireFormat {
+        self.active_mouse_format
     }
 
     fn current_mouse_mode_bits(&self) -> u8 {
@@ -2214,7 +2482,225 @@ impl Terminal {
                 cell_width_px,
                 cell_height_px,
             )
+        })?;
+        self.bump_history_epoch();
+        self.reset_history_anchor();
+        Ok(())
+    }
+
+    /// Copy the active screen's Kitty image storage into owned Rust values.
+    pub fn kitty_graphics_snapshot(&self) -> Result<KittyGraphicsSnapshot> {
+        kitty::snapshot(self, &mut Default::default(), true)
+    }
+
+    /// Restore number aliases after replaying Kitty images by stable ID.
+    pub fn restore_kitty_image_aliases(&mut self, aliases: &[KittyImageAlias]) -> Result<()> {
+        if aliases.is_empty() {
+            return Ok(());
+        }
+
+        let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
+        check(unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+                (&mut graphics as *mut sys::GhosttyKittyGraphics).cast(),
+            )
+        })?;
+        if graphics.is_null() {
+            return Err(Error::NoValue);
+        }
+
+        for alias in aliases {
+            if unsafe { sys::ghostty_kitty_graphics_image(graphics, alias.image_id) }.is_null() {
+                return Err(Error::NoValue);
+            }
+        }
+        for alias in aliases {
+            check(unsafe {
+                sys::ghostty_kitty_graphics_image_set_number(
+                    graphics,
+                    alias.image_id,
+                    alias.image_number,
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Apply one complete replay sidecar and byte stream to this terminal.
+    pub fn apply_vt_replay(&mut self, replay: &VtReplay) -> Result<()> {
+        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)
+    }
+
+    /// Apply replay bytes and their non-VT sidecar through the same ordering
+    /// used by owned [`VtReplay`] values.
+    pub fn apply_vt_replay_parts(
+        &mut self,
+        bytes: &[u8],
+        kitty_image_aliases: &[KittyImageAlias],
+        kitty_state: KittyReplayState,
+    ) -> Result<()> {
+        let kitty_state = kitty_state.validate_for_replay(bytes.len())?;
+        self.set_kitty_graphics_limits(kitty_state.limits)?;
+        let cursor_offset = kitty_state.replay_cursor_offset as usize;
+        self.vt_write(&bytes[..cursor_offset]);
+        self.set_kitty_image_id_cursors(kitty_state.replay_next_image_ids)?;
+        self.vt_write(&bytes[cursor_offset..]);
+        // Protocol-v1/v2 peers cannot carry the replay sidecar. Their safe
+        // compatibility state disables graphics, so aliases for discarded
+        // replay images must also be discarded.
+        if kitty_state.limits != KittyGraphicsLimits::disabled() {
+            self.restore_kitty_image_aliases(kitty_image_aliases)?;
+        }
+        self.set_kitty_image_id_cursors(kitty_state.next_image_ids)
+    }
+
+    fn kitty_replay_state(&self, replay_cursor_offset: u32) -> Result<KittyReplayState> {
+        let raw: sys::GhosttyTerminalKittyImageIdCursorState =
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_ID_CURSORS)?;
+        Ok(KittyReplayState {
+            limits: self.kitty_graphics_limits()?,
+            replay_cursor_offset,
+            replay_next_image_ids: KittyImageIdCursors {
+                primary: raw.replay.primary,
+                alternate: raw.replay.alternate,
+            }
+            .validate()?,
+            next_image_ids: KittyImageIdCursors {
+                primary: raw.next.primary,
+                alternate: raw.next.alternate,
+            }
+            .validate()?,
         })
+    }
+
+    fn set_kitty_image_id_cursors(&mut self, cursors: KittyImageIdCursors) -> Result<()> {
+        let cursors = cursors.validate()?;
+        let raw = sys::GhosttyTerminalKittyImageIdCursors {
+            primary: cursors.primary,
+            alternate: cursors.alternate,
+        };
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_ID_CURSORS,
+                (&raw as *const sys::GhosttyTerminalKittyImageIdCursors).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_graphics_limits(&self) -> Result<KittyGraphicsLimits> {
+        Ok(KittyGraphicsLimits {
+            image_bytes: self.kitty_image_storage_limit()?,
+            inflight_bytes: self.kitty_inflight_storage_limit(),
+            images: self.kitty_image_count_limit()?,
+            placements: self.kitty_placement_count_limit()?,
+        })
+    }
+
+    /// Apply all Kitty limits through one shared path. Returns whether native
+    /// image or placement content changed.
+    pub fn set_kitty_graphics_limits(&mut self, limits: KittyGraphicsLimits) -> Result<bool> {
+        let limits = limits.validate()?;
+        let generation = self.kitty_graphics_generation()?;
+        self.set_kitty_inflight_storage_limit(limits.inflight_bytes);
+        self.set_kitty_image_count_limit(limits.images)?;
+        if self.set_kitty_placement_count_limit(limits.placements).is_err() {
+            // Placement reductions preserve visible state by default. Under
+            // pressure, release the old scene before installing the bound.
+            self.set_kitty_image_storage_limit(0)?;
+            self.set_kitty_placement_count_limit(limits.placements)?;
+        }
+        // Run after count eviction even when the byte value is unchanged so
+        // the replay pixel cache is pruned against native ownership.
+        self.set_kitty_image_storage_limit(limits.image_bytes)?;
+        Ok(self.kitty_graphics_generation()? != generation)
+    }
+
+    /// Set the active terminal's bounded Kitty image storage in bytes.
+    pub fn set_kitty_image_storage_limit(&mut self, bytes: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+                (&bytes as *const u64).cast(),
+            )
+        })?;
+
+        // Lowering libghostty's limit evicts native images immediately. Keep
+        // the replay-side pixel copy at the same boundary instead of waiting
+        // for some later replay to notice those evictions.
+        let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
+        let snapshot = kitty::snapshot(self, &mut pixel_cache, true);
+        if snapshot.is_err() {
+            pixel_cache.clear();
+        }
+        self.kitty_replay_pixel_cache.0 = pixel_cache;
+        snapshot.map(|_| ())
+    }
+
+    pub fn kitty_image_storage_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_STORAGE_LIMIT)
+    }
+
+    /// Set the total bytes retained while tracking a chunked Kitty upload.
+    ///
+    /// The completed prefix and current command share this one limit.
+    pub fn set_kitty_inflight_storage_limit(&mut self, bytes: u64) {
+        let bounded = bytes.min(KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64) as usize;
+        self.kitty_inflight.set_max_bytes(bounded);
+    }
+
+    pub fn kitty_inflight_storage_limit(&self) -> u64 {
+        self.kitty_inflight.max_bytes() as u64
+    }
+
+    /// Content generation for the active screen's Kitty image store.
+    pub fn kitty_graphics_generation(&self) -> Result<u64> {
+        kitty::generation(self)
+    }
+
+    /// Set the active terminal's maximum number of stored Kitty images.
+    pub fn set_kitty_image_count_limit(&mut self, count: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_COUNT_LIMIT,
+                (&count as *const u64).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_image_count_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_COUNT_LIMIT)
+    }
+
+    /// Set the active terminal's maximum number of Kitty placements.
+    pub fn set_kitty_placement_count_limit(&mut self, count: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_PLACEMENT_COUNT_LIMIT,
+                (&count as *const u64).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_placement_count_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_PLACEMENT_COUNT_LIMIT)
+    }
+
+    /// Whether file, temporary-file, or shared-memory image media are enabled.
+    ///
+    /// cmux enables only direct (`t=d`) payloads, so this is `(false, false,
+    /// false)` for terminals created by [`Terminal::new`].
+    pub fn kitty_external_image_media_enabled(&self) -> Result<(bool, bool, bool)> {
+        Ok((
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE)?,
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_TEMP_FILE)?,
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM)?,
+        ))
     }
 
     fn get<T: Default>(&self, data: sys::GhosttyTerminalData) -> Result<T> {
@@ -2315,6 +2801,7 @@ impl Terminal {
             terminal_instance_id: self.instance_id,
             mouse_mode_revision: self.mouse_mode_revision,
             mouse_tracking: self.mouse_tracking(),
+            active_mouse_format: self.active_mouse_format,
             active_screen: self.active_screen(),
             cols: self.cols(),
             rows: self.rows(),
@@ -2428,6 +2915,55 @@ impl Terminal {
         Some(Scrollbar { total: raw.total, offset: raw.offset, len: raw.len })
     }
 
+    /// Track one cell in full-screen coordinates. The anchor continues to
+    /// identify that cell as history grows or older rows are pruned.
+    pub fn track_screen_point(&mut self, x: u16, y: u32) -> Result<TrackedScreenPoint> {
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_SCREEN,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut raw: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut raw) })?;
+        if raw.is_null() {
+            return Err(Error::NoValue);
+        }
+        Ok(TrackedScreenPoint { raw, terminal_instance_id: self.instance_id })
+    }
+
+    /// Resolve an anchor into the current full-screen coordinate space.
+    /// `None` means its row was pruned or belongs to a replaced terminal.
+    pub fn tracked_screen_point(&self, point: &TrackedScreenPoint) -> Option<(u16, u32)> {
+        if point.terminal_instance_id != self.instance_id || point.raw.is_null() {
+            return None;
+        }
+        let mut coordinate = sys::GhosttyPointCoordinate::default();
+        (unsafe {
+            sys::ghostty_tracked_grid_ref_point(
+                point.raw,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut coordinate,
+            )
+        } == sys::GHOSTTY_SUCCESS)
+            .then_some((coordinate.x, coordinate.y))
+    }
+
+    /// Move an existing anchor to a new full-screen coordinate.
+    pub fn set_tracked_screen_point(
+        &mut self,
+        tracked: &mut TrackedScreenPoint,
+        x: u16,
+        y: u32,
+    ) -> Result<()> {
+        if tracked.terminal_instance_id != self.instance_id || tracked.raw.is_null() {
+            return Err(Error::InvalidValue);
+        }
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_SCREEN,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
+    }
+
     /// Plain text of a selection range given in viewport coordinates
     /// (inclusive). Returns `None` when either endpoint is out of bounds.
     pub fn selection_text(&mut self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
@@ -2456,7 +2992,7 @@ impl Terminal {
             false,
             true,
         )
-        .ok_or(crate::Error::InvalidValue)
+        .ok_or(Error::InvalidValue)
     }
 
     /// Plain text of a selection range given in absolute screen
@@ -2535,13 +3071,33 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
-    /// VT-sequence replay of the terminal's current state: feeding the
-    /// returned bytes into a fresh terminal of the same size reproduces
+    /// Replay of the terminal's current state.
+    ///
+    /// Feeding `bytes` into a fresh terminal of the same size and restoring
+    /// `kitty_image_aliases` reproduces
     /// the screen contents, styles, cursor, modes, palette, keyboard
     /// state, charsets, and tabstops. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
-    pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
-        self.vt_replay_with_selection(None, true)
+    pub fn vt_replay(&mut self) -> Result<VtReplay> {
+        self.vt_replay_bounded(usize::MAX)
+    }
+
+    /// Byte-only compatibility replay. This discards Kitty number aliases.
+    pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
+        Ok(self.vt_replay()?.bytes)
+    }
+
+    /// Reject replay state that cannot fit under `max_bytes` regardless of
+    /// text or completed graphics truncation. Callers can use this before a
+    /// destructive geometry change, then build the full replay afterward.
+    pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
+        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
+        let suffix_len = self.mouse_format_replay_suffix().len();
+        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
+        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+            return Err(Error::OutOfSpace);
+        }
+        Ok(())
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -2553,44 +3109,198 @@ impl Terminal {
     /// A pathological screen whose newest row alone exceeds the budget falls
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
-    pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+    pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, true)
     }
 
     /// Theme-portable replay for process-separated renderers.
     ///
-    /// This reproduces cells, styles, modes, cursor, and history but omits
-    /// terminal palette/default-color OSC state. Pair it with a sparse
-    /// [`TerminalColorOverrides`] snapshot so the receiving renderer keeps
-    /// its own Ghostty theme for every color the application did not set.
+    /// This reproduces cells, styles, modes, cursor, history, and Kitty
+    /// graphics but omits terminal palette/default-color OSC state. Pair it
+    /// with a sparse [`TerminalColorOverrides`] snapshot so the receiving
+    /// renderer keeps its own Ghostty theme for every color the application
+    /// did not set. This byte-only compatibility API discards Kitty number
+    /// aliases.
     pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        Ok(self.vt_replay_bounded_theme_portable_with_aliases(max_bytes)?.bytes)
+    }
+
+    /// Theme-portable replay retaining aliases for the Kitty images admitted
+    /// by the bounded replay plan.
+    pub fn vt_replay_bounded_theme_portable_with_aliases(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    /// Correction bytes appended to a serialized replay so the replayed
+    /// terminal ends with the same ACTIVE extended mouse coordinate format as
+    /// this one. The formatter emits mode flags in numeric order (1005, 1006,
+    /// 1015, 1016), so whenever more than one format flag is set, or the
+    /// flags alone would replay a different format than the last-set-wins
+    /// value, the suffix resets the non-active format flags and re-asserts
+    /// the active selector last. Replays therefore carry only the active
+    /// selector; the inactive flags are deliberately dropped because they
+    /// have no encoding semantics.
+    fn mouse_format_replay_suffix(&self) -> Vec<u8> {
+        const FORMAT_MODES: [(u16, MouseWireFormat); 4] = [
+            (1005, MouseWireFormat::Utf8),
+            (1006, MouseWireFormat::Sgr),
+            (1015, MouseWireFormat::Urxvt),
+            (1016, MouseWireFormat::SgrPixels),
+        ];
+        let active = self.active_mouse_format;
+        let set_modes: Vec<(u16, MouseWireFormat)> =
+            FORMAT_MODES.into_iter().filter(|(mode, _)| self.mode(*mode, false)).collect();
+        // What a numeric-order flag dump would leave active: the highest
+        // numbered set format flag.
+        let dump_would_activate =
+            set_modes.last().map(|(_, format)| *format).unwrap_or(MouseWireFormat::X10);
+        if set_modes.len() <= 1 && dump_would_activate == active {
+            return Vec::new();
+        }
+        let mut suffix = Vec::new();
+        for (mode, format) in &set_modes {
+            if *format != active {
+                suffix.extend_from_slice(format!("\x1b[?{mode}l").as_bytes());
+            }
+        }
+        if let Some(mode) = active.dec_mode() {
+            suffix.extend_from_slice(format!("\x1b[?{mode}h").as_bytes());
+        }
+        suffix
     }
 
     fn vt_replay_bounded_with_palette(
         &mut self,
         max_bytes: usize,
         include_palette: bool,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<VtReplay> {
+        let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
+        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let remaining = max_bytes
+            .checked_sub(inflight.len())
+            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .ok_or(Error::OutOfSpace)?;
+        let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
+        let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
+        self.kitty_replay_pixel_cache.0 = pixel_cache;
+        let snapshot = snapshot?;
+        let catalog =
+            KittyReplayCatalog::new(&snapshot, self.cell_pixel_size(), self.rows().max(1));
+
+        let active_start = self.scrollbar().map(|scrollbar| {
+            let viewport_start = scrollbar.total.saturating_sub(scrollbar.len);
+            let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
+            viewport_start.min(visible_start)
+        });
+        let active_text = self.vt_replay_text_layout_bounded(
+            remaining,
+            catalog.placement_rows(),
+            active_start,
+            include_palette,
+        )?;
+        let visible_cost =
+            active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
+
+        let text_budget = remaining.saturating_sub(visible_cost);
+        let text = self.vt_replay_text_layout_bounded(
+            text_budget,
+            catalog.placement_rows(),
+            active_start,
+            include_palette,
+        )?;
+        let graphics_budget = remaining.saturating_sub(text.bytes.len());
+        let graphics = catalog.plan(text.range, graphics_budget, false);
+        let reset_before_images = text.range.is_none();
+        let interleaved = text.interleave(&graphics.placements).ok_or(Error::OutOfSpace)?;
+
+        let total = graphics
+            .image_bytes
+            .len()
+            .checked_add(interleaved.len())
+            .and_then(|total| total.checked_add(inflight.len()))
+            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
+            .ok_or(Error::OutOfSpace)?;
+        if total > max_bytes || graphics.total_len > graphics_budget {
+            return Err(Error::OutOfSpace);
+        }
+        let mut bytes = Vec::with_capacity(total);
+        if reset_before_images {
+            bytes.extend_from_slice(&interleaved);
+            bytes.extend_from_slice(&graphics.image_bytes);
+        } else {
+            bytes.extend_from_slice(&graphics.image_bytes);
+            bytes.extend_from_slice(&interleaved);
+        }
+        // The formatter dumps DEC modes in numeric order, which destroys the
+        // last-set-wins semantics of the extended mouse coordinate formats.
+        // Reduce the flag dump to the single active selector so replay
+        // reproduces the semantic, not the numeric flag order.
+        bytes.extend_from_slice(&mouse_format_suffix);
+        let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
+        bytes.extend_from_slice(&inflight);
+        Ok(VtReplay {
+            bytes,
+            kitty_image_aliases: graphics.aliases,
+            kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
+        })
+    }
+
+    /// Bounded byte-only compatibility replay. This discards Kitty aliases.
+    pub fn vt_replay_bounded_bytes(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        Ok(self.vt_replay_bounded(max_bytes)?.bytes)
+    }
+
+    fn vt_replay_text_layout_bounded(
+        &mut self,
+        max_bytes: usize,
+        placement_rows: &KittyReplayRowIndex,
+        minimum_start: Option<u64>,
+        include_palette: bool,
+    ) -> Result<ReplayText> {
         let Some(scrollbar) = self.scrollbar() else {
-            return Ok(minimal_vt_replay(max_bytes));
+            return Ok(ReplayText::minimal(max_bytes));
         };
         if scrollbar.total == 0 {
-            return Ok(minimal_vt_replay(max_bytes));
+            return Ok(ReplayText::minimal(max_bytes));
         }
 
         let screen_rows = scrollbar.len.min(scrollbar.total).max(1);
+        let minimum_start = minimum_start
+            .unwrap_or_else(|| scrollbar.total.saturating_sub(screen_rows))
+            .min(scrollbar.total - 1);
+        let minimum_rows = scrollbar.total.saturating_sub(minimum_start).max(screen_rows);
         let mut tail_rows =
-            vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes);
+            vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes)
+                .max(minimum_rows)
+                .min(scrollbar.total);
         let mut best = None;
-        let mut upper_failed = false;
+        let mut failed_start = None;
 
         loop {
-            if let Some(replay) =
-                self.vt_replay_screen_tail_bounded(tail_rows, max_bytes, include_palette)?
-            {
-                if upper_failed || tail_rows == scrollbar.total {
+            let range = ReplayRowRange {
+                start: scrollbar.total.saturating_sub(tail_rows),
+                end: scrollbar.total - 1,
+            };
+            if let Some(replay) = self.vt_replay_text_range_bounded(
+                range,
+                placement_rows,
+                max_bytes,
+                include_palette,
+            )? {
+                if tail_rows == scrollbar.total {
                     return Ok(replay);
+                }
+                if let Some(failed_start) = failed_start {
+                    return self.vt_replay_text_at_oldest_fitting_anchor(
+                        replay,
+                        failed_start,
+                        placement_rows,
+                        max_bytes,
+                        include_palette,
+                    );
                 }
                 best = Some(replay);
                 let next = tail_rows.saturating_mul(2).min(scrollbar.total);
@@ -2600,88 +3310,275 @@ impl Terminal {
                 tail_rows = next;
                 continue;
             }
-            upper_failed = true;
+            failed_start = Some(range.start);
             if let Some(replay) = best {
-                return Ok(replay);
+                return self.vt_replay_text_at_oldest_fitting_anchor(
+                    replay,
+                    range.start,
+                    placement_rows,
+                    max_bytes,
+                    include_palette,
+                );
             }
-            if tail_rows <= 1 {
+            if tail_rows <= minimum_rows {
                 break;
             }
-            tail_rows = if tail_rows > screen_rows {
-                screen_rows.max(tail_rows / 2)
-            } else {
-                tail_rows / 2
-            };
+            let next = minimum_rows.max(tail_rows / 2);
+            if next == tail_rows {
+                break;
+            }
+            tail_rows = next;
         }
 
-        Ok(minimal_vt_replay(max_bytes))
+        Ok(ReplayText::minimal(max_bytes))
     }
 
-    fn vt_replay_screen_tail_bounded(
+    fn vt_replay_text_at_oldest_fitting_anchor(
         &mut self,
-        rows: u64,
+        mut best: ReplayText,
+        failed_start: u64,
+        placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        let scrollbar = self.scrollbar().ok_or(crate::Error::InvalidValue)?;
-        let cols = self.cols();
-        if cols == 0 || scrollbar.total == 0 || rows == 0 {
-            return Err(crate::Error::InvalidValue);
+    ) -> Result<ReplayText> {
+        let Some(best_range) = best.range else {
+            return Ok(best);
+        };
+        let candidates = placement_rows
+            .anchors
+            .range(failed_start..best_range.start)
+            .copied()
+            .collect::<Vec<_>>();
+        let mut low = 0;
+        let mut high = candidates.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let range = ReplayRowRange { start: candidates[middle], end: best_range.end };
+            if let Some(replay) = self.vt_replay_text_range_bounded(
+                range,
+                placement_rows,
+                max_bytes,
+                include_palette,
+            )? {
+                best = replay;
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
         }
+        Ok(best)
+    }
+
+    fn vt_replay_text_range_bounded(
+        &mut self,
+        range: ReplayRowRange,
+        placement_rows: &KittyReplayRowIndex,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<Option<ReplayText>> {
+        let cols = self.cols();
+        if cols == 0 || range.start > range.end {
+            return Err(Error::InvalidValue);
+        }
+        let suffix = self.cursor_position_escape()?;
+        let suffix_len = suffix.as_ref().map_or(0, Vec::len);
+        let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
+            return Ok(None);
+        };
+        let insert_at_start = placement_rows.overlaps(range.start);
+        let mut segment_ends =
+            placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
+        if insert_at_start {
+            segment_ends.insert(range.start);
+        }
+        segment_ends.insert(range.end);
+
+        let mut bytes = Vec::new();
+        let mut insertion_offsets = BTreeMap::new();
+        let mut segment_start = range.start;
+        let replay_rows = range.end - range.start + 1;
+        let screen_rows = u64::from(self.rows().max(1));
+        let history_bearing = replay_rows > screen_rows;
+        let mut emitted_breaks = 0usize;
+        for segment_end in segment_ends {
+            if segment_end < segment_start {
+                continue;
+            }
+            let selection = self.screen_selection(segment_start, segment_end)?;
+            let first = segment_start == range.start;
+            let last = segment_end == range.end;
+            let remaining = format_max_bytes.saturating_sub(bytes.len());
+            let Some(chunk) = self.format_bounded(
+                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                remaining,
+            )?
+            else {
+                return Ok(None);
+            };
+            emitted_breaks = emitted_breaks
+                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            bytes.extend_from_slice(&chunk);
+            if history_bearing {
+                let expected_breaks =
+                    usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
+                while emitted_breaks < expected_breaks {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
+                }
+            }
+            if placement_rows.anchors.contains(&segment_end)
+                || (insert_at_start && segment_end == range.start)
+            {
+                insertion_offsets.insert(segment_end, bytes.len());
+            }
+            if !last {
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
+                }
+                bytes.extend_from_slice(b"\r\n");
+                emitted_breaks = emitted_breaks.saturating_add(1);
+                segment_start = segment_end.saturating_add(1);
+            }
+        }
+        if history_bearing {
+            // A history-bearing selection must advance once per row so the
+            // reconstructed scrollback keeps Kitty anchors aligned. A
+            // viewport-only selection may use direct cursor positioning for
+            // sparse rows; padding that case would scroll visible text away.
+            let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
+            for _ in emitted_breaks..expected_breaks {
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
+                }
+                bytes.extend_from_slice(b"\r\n");
+            }
+        }
+        if let Some(suffix) = suffix {
+            bytes.extend_from_slice(&suffix);
+        }
+        Ok(Some(ReplayText { bytes, range: Some(range), insertion_offsets }))
+    }
+
+    fn screen_selection(&self, start_row: u64, end_row: u64) -> Result<sys::GhosttySelection> {
+        let cols = self.cols();
+        if cols == 0 || start_row > end_row {
+            return Err(Error::InvalidValue);
+        }
+        Ok(sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, start_row)
+                .ok_or(Error::InvalidValue)?,
+            end: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, cols.saturating_sub(1), end_row)
+                .ok_or(Error::InvalidValue)?,
+            rectangle: false,
+        })
+    }
+
+    fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
+        let Some((x, y)) = self.cursor_position() else { return Ok(None) };
+        let origin_mode = self.mode(6, false);
+        if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
+            // The formatter already emits the cursor. An appended CUP would
+            // reinterpret active-area coordinates relative to the scrolling
+            // region while DECOM is enabled.
+            if origin_mode {
+                return Ok(None);
+            }
+            return Ok(Some(
+                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
+            ));
+        }
+
+        // No standard cursor-positioning sequence can restore pending wrap:
+        // CUP clears it. Reprint the authoritative cursor cell last instead.
+        // The one-cell formatter includes a wide cell's lead grapheme, then
+        // restores active cursor state without moving the cursor again.
+        let cursor_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y))
+            .ok_or(Error::InvalidValue)?;
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let mut grapheme = Vec::new();
+        let cursor_cell = read_grid_ref_cell(&cursor_ref, &palette, &mut grapheme)?;
+        let start_x = if cursor_cell.width == CellWidth::SpacerTail {
+            x.checked_sub(1).ok_or(Error::InvalidValue)?
+        } else {
+            x
+        };
         let selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             start: self
-                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, scrollbar.total.saturating_sub(rows))
-                .ok_or(crate::Error::InvalidValue)?,
-            end: self
-                .grid_ref(
-                    sys::GHOSTTY_POINT_TAG_SCREEN,
-                    cols.saturating_sub(1),
-                    scrollbar.total - 1,
-                )
-                .ok_or(crate::Error::InvalidValue)?,
+                .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, start_x, u64::from(y))
+                .ok_or(Error::InvalidValue)?,
+            end: cursor_ref,
             rectangle: false,
         };
-        self.vt_replay_with_selection_bounded(Some(&selection), max_bytes, include_palette)
-    }
-
-    fn vt_replay_with_selection(
-        &mut self,
-        selection: Option<&sys::GhosttySelection>,
-        include_palette: bool,
-    ) -> Result<Vec<u8>> {
-        let suffix = self.cursor_position_escape();
-        let mut replay = self.format(Self::vt_replay_options(selection, include_palette))?;
-        if let Some(suffix) = suffix {
-            replay.extend_from_slice(&suffix);
-        }
-        Ok(replay)
-    }
-
-    fn vt_replay_with_selection_bounded(
-        &mut self,
-        selection: Option<&sys::GhosttySelection>,
-        max_bytes: usize,
-        include_palette: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        let suffix = self.cursor_position_escape().unwrap_or_default();
-        let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
-            return Ok(None);
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
+            unwrap: false,
+            trim: false,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                palette: false,
+                modes: false,
+                scrolling_region: false,
+                tabstops: false,
+                pwd: false,
+                keyboard: false,
+                screen: sys::GhosttyFormatterScreenExtra {
+                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+                    cursor: false,
+                    style: true,
+                    hyperlink: true,
+                    protection: true,
+                    kitty_keyboard: true,
+                    charsets: true,
+                },
+            },
+            selection: &selection,
         };
-        let Some(mut replay) = self.format_bounded(
-            Self::vt_replay_options(selection, include_palette),
-            format_max_bytes,
-        )?
-        else {
-            return Ok(None);
+        let mut suffix = if origin_mode {
+            // The main formatter leaves the cursor at the authoritative cell.
+            // Move only to a wide glyph's lead cell, using a relative motion
+            // whose meaning is independent of the scrolling-region origin.
+            let columns_left = x.saturating_sub(start_x);
+            if columns_left == 0 {
+                Vec::new()
+            } else {
+                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
+            }
+        } else {
+            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
         };
-        replay.extend_from_slice(&suffix);
-        Ok(Some(replay))
+        suffix.extend_from_slice(&self.format(opts)?);
+        Ok(Some(suffix))
     }
 
-    fn cursor_position_escape(&self) -> Option<Vec<u8>> {
-        let (x, y) = self.cursor_position()?;
-        Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes())
+    fn vt_replay_segment_options(
+        selection: &sys::GhosttySelection,
+        first: bool,
+        last: bool,
+        include_palette: bool,
+    ) -> sys::GhosttyFormatterTerminalOptions {
+        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        options.extra.palette = include_palette && first;
+        options.extra.modes = first;
+        options.extra.scrolling_region = last;
+        options.extra.tabstops = last;
+        options.extra.pwd = last;
+        options.extra.keyboard = last;
+        options.extra.screen.cursor = last;
+        options.extra.screen.style = last;
+        options.extra.screen.hyperlink = last;
+        options.extra.screen.protection = last;
+        options.extra.screen.kitty_keyboard = last;
+        options.extra.screen.charsets = last;
+        options
     }
 
     fn vt_replay_options(
@@ -2713,6 +3610,14 @@ impl Terminal {
             },
             selection: selection.map_or(ptr::null(), |value| value),
         }
+    }
+
+    fn cell_pixel_size(&self) -> (u32, u32) {
+        let cols = u32::from(self.cols().max(1));
+        let rows = u32::from(self.rows().max(1));
+        let width = self.get::<u32>(sys::GHOSTTY_TERMINAL_DATA_WIDTH_PX).unwrap_or(cols);
+        let height = self.get::<u32>(sys::GHOSTTY_TERMINAL_DATA_HEIGHT_PX).unwrap_or(rows);
+        ((width / cols).max(1), (height / rows).max(1))
     }
 
     fn grid_ref(&self, tag: sys::GhosttyPointTag, x: u16, y: u64) -> Option<sys::GhosttyGridRef> {
@@ -2795,9 +3700,617 @@ impl Terminal {
     }
 }
 
+fn configure_kitty_graphics(raw: sys::GhosttyTerminal) -> Result<()> {
+    for (option, limit) in [
+        (sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &DEFAULT_KITTY_IMAGE_STORAGE_LIMIT),
+        (sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_COUNT_LIMIT, &DEFAULT_KITTY_IMAGE_COUNT_LIMIT),
+        (
+            sys::GHOSTTY_TERMINAL_OPT_KITTY_PLACEMENT_COUNT_LIMIT,
+            &DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT,
+        ),
+    ] {
+        check(unsafe { sys::ghostty_terminal_set(raw, option, (limit as *const u64).cast()) })?;
+    }
+    let disabled = false;
+    for option in [
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
+    ] {
+        check(unsafe {
+            sys::ghostty_terminal_set(raw, option, (&disabled as *const bool).cast())
+        })?;
+    }
+    Ok(())
+}
+
 fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     const RESET: &[u8] = b"\x1bc";
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayRowRange {
+    start: u64,
+    end: u64,
+}
+
+#[derive(Default)]
+struct KittyReplayRowIndex {
+    anchors: BTreeSet<u64>,
+    // Merged inclusive spans avoid expanding attacker-controlled `grid_rows`
+    // into one entry per occupied cell.
+    occupied_spans: Vec<ReplayRowRange>,
+}
+
+impl KittyReplayRowIndex {
+    fn insert(&mut self, row: u64, grid_rows: u32) {
+        self.anchors.insert(row);
+        self.occupied_spans.push(ReplayRowRange {
+            start: row,
+            end: row.saturating_add(u64::from(grid_rows.max(1)) - 1),
+        });
+    }
+
+    fn finish(mut self) -> Self {
+        self.occupied_spans.sort_by_key(|span| (span.start, span.end));
+        let mut merged = Vec::<ReplayRowRange>::with_capacity(self.occupied_spans.len());
+        for span in self.occupied_spans.drain(..) {
+            if let Some(previous) = merged.last_mut()
+                && span.start <= previous.end.saturating_add(1)
+            {
+                previous.end = previous.end.max(span.end);
+            } else {
+                merged.push(span);
+            }
+        }
+        self.occupied_spans = merged;
+        self
+    }
+
+    fn overlaps(&self, row: u64) -> bool {
+        let insertion = self.occupied_spans.partition_point(|span| span.start <= row);
+        insertion > 0 && self.occupied_spans[insertion - 1].end >= row
+    }
+}
+
+#[cfg(test)]
+impl FromIterator<u64> for KittyReplayRowIndex {
+    fn from_iter<T: IntoIterator<Item = u64>>(rows: T) -> Self {
+        let mut index = Self::default();
+        for row in rows {
+            index.insert(row, 1);
+        }
+        index.finish()
+    }
+}
+
+struct ReplayText {
+    bytes: Vec<u8>,
+    range: Option<ReplayRowRange>,
+    insertion_offsets: BTreeMap<u64, usize>,
+}
+
+impl ReplayText {
+    fn minimal(max_bytes: usize) -> Self {
+        Self {
+            bytes: minimal_vt_replay(max_bytes),
+            range: None,
+            insertion_offsets: BTreeMap::new(),
+        }
+    }
+
+    fn interleave(self, placements: &BTreeMap<u64, Vec<Vec<u8>>>) -> Option<Vec<u8>> {
+        let placement_bytes = placements
+            .values()
+            .flatten()
+            .try_fold(0usize, |total, command| total.checked_add(command.len()))?;
+        let mut bytes = Vec::with_capacity(self.bytes.len().checked_add(placement_bytes)?);
+        let mut copied = 0;
+        for (row, offset) in self.insertion_offsets {
+            if offset < copied || offset > self.bytes.len() {
+                return None;
+            }
+            bytes.extend_from_slice(&self.bytes[copied..offset]);
+            if let Some(commands) = placements.get(&row) {
+                for command in commands {
+                    bytes.extend_from_slice(command);
+                }
+            }
+            copied = offset;
+        }
+        bytes.extend_from_slice(&self.bytes[copied..]);
+        Some(bytes)
+    }
+}
+
+struct KittyReplayPlacement<'a> {
+    placement: &'a KittyPlacement,
+    anchor: KittyPlacementAnchor,
+}
+
+struct KittyReplayImage<'a> {
+    image: &'a KittyImage,
+    transmission_len: usize,
+    placements: Vec<KittyReplayPlacement<'a>>,
+}
+
+struct KittyReplayCatalog<'a> {
+    images: Vec<KittyReplayImage<'a>>,
+    placement_rows: KittyReplayRowIndex,
+    cell_pixels: (u32, u32),
+    terminal_rows: u16,
+    #[cfg(test)]
+    placement_grouping_visits: usize,
+}
+
+struct KittyReplayCandidate {
+    image_index: usize,
+    visible: bool,
+    cost: usize,
+    placements: Vec<(u64, Vec<u8>)>,
+}
+
+struct KittyReplayPlan {
+    image_bytes: Vec<u8>,
+    placements: BTreeMap<u64, Vec<Vec<u8>>>,
+    aliases: Vec<KittyImageAlias>,
+    total_len: usize,
+}
+
+impl<'a> KittyReplayCatalog<'a> {
+    fn new(snapshot: &'a KittyReplaySnapshot, cell_pixels: (u32, u32), terminal_rows: u16) -> Self {
+        let mut placements_by_image = HashMap::<u32, Vec<KittyReplayPlacement<'a>>>::new();
+        let mut placement_rows = KittyReplayRowIndex::default();
+        #[cfg(test)]
+        let mut placement_grouping_visits = 0;
+        for placement in &snapshot.graphics.placements {
+            #[cfg(test)]
+            {
+                placement_grouping_visits += 1;
+            }
+            let Some(anchor) = snapshot.anchors.get(&placement.key).copied() else {
+                continue;
+            };
+            placement_rows.insert(u64::from(anchor.row), placement.grid_rows);
+            placements_by_image
+                .entry(placement.image_id)
+                .or_default()
+                .push(KittyReplayPlacement { placement, anchor });
+        }
+
+        let mut images = snapshot.graphics.images.iter().collect::<Vec<_>>();
+        images.sort_by_key(|image| (image.generation, image.id));
+        let images = images
+            .into_iter()
+            .filter_map(|image| {
+                Some(KittyReplayImage {
+                    image,
+                    transmission_len: kitty_replay_image_len(image)?,
+                    placements: placements_by_image.remove(&image.id).unwrap_or_default(),
+                })
+            })
+            .collect();
+        Self {
+            images,
+            placement_rows: placement_rows.finish(),
+            cell_pixels,
+            terminal_rows,
+            #[cfg(test)]
+            placement_grouping_visits,
+        }
+    }
+
+    fn visible_anchor_start(&self) -> Option<u64> {
+        self.images
+            .iter()
+            .flat_map(|image| &image.placements)
+            .filter(|placement| placement.placement.viewport_visible)
+            .map(|placement| u64::from(placement.anchor.row))
+            .min()
+    }
+
+    fn placement_rows(&self) -> &KittyReplayRowIndex {
+        &self.placement_rows
+    }
+
+    fn visible_cost(&self, range: ReplayRowRange, max_bytes: usize) -> usize {
+        self.plan_internal(Some(range), max_bytes, true, false).total_len
+    }
+
+    fn plan(
+        &self,
+        range: Option<ReplayRowRange>,
+        max_bytes: usize,
+        visible_only: bool,
+    ) -> KittyReplayPlan {
+        self.plan_internal(range, max_bytes, visible_only, true)
+    }
+
+    fn plan_internal(
+        &self,
+        range: Option<ReplayRowRange>,
+        max_bytes: usize,
+        visible_only: bool,
+        encode_images: bool,
+    ) -> KittyReplayPlan {
+        let mut candidates = Vec::with_capacity(self.images.len());
+        for (image_index, image) in self.images.iter().enumerate() {
+            let mut visible = false;
+            let mut placements = Vec::new();
+            if let Some(range) = range {
+                for replay_placement in &image.placements {
+                    let row = u64::from(replay_placement.anchor.row);
+                    let end = row
+                        .saturating_add(u64::from(replay_placement.placement.grid_rows.max(1)) - 1);
+                    if end < range.start || row > range.end {
+                        continue;
+                    }
+                    let Some(command) = kitty_replay_placement_at(
+                        replay_placement.placement,
+                        replay_placement.anchor,
+                        range.start,
+                        self.terminal_rows,
+                        self.cell_pixels,
+                    ) else {
+                        continue;
+                    };
+                    visible |= replay_placement.placement.viewport_visible;
+                    placements.push((row.max(range.start), command));
+                }
+            }
+            let Some(cost) =
+                placements.iter().try_fold(image.transmission_len, |total, (_, command)| {
+                    total.checked_add(command.len())
+                })
+            else {
+                continue;
+            };
+            candidates.push(KittyReplayCandidate { image_index, visible, cost, placements });
+        }
+
+        let mut admitted = vec![false; candidates.len()];
+        let mut total_len = 0usize;
+        for require_visible in [true, false] {
+            if visible_only && !require_visible {
+                break;
+            }
+            for (index, candidate) in candidates.iter().enumerate() {
+                if candidate.visible != require_visible {
+                    continue;
+                }
+                let Some(next) = total_len.checked_add(candidate.cost) else {
+                    continue;
+                };
+                if next > max_bytes {
+                    continue;
+                }
+                admitted[index] = true;
+                total_len = next;
+            }
+        }
+
+        let mut numbered_history_counts = HashMap::<u32, (usize, usize)>::new();
+        for image in &self.images {
+            if image.image.number != 0 {
+                numbered_history_counts.entry(image.image.number).or_default().0 += 1;
+            }
+        }
+        for (candidate, is_admitted) in candidates.iter().zip(&admitted) {
+            let image = &self.images[candidate.image_index];
+            if *is_admitted && image.image.number != 0 {
+                numbered_history_counts.entry(image.image.number).or_default().1 += 1;
+            }
+        }
+
+        let mut image_bytes = Vec::new();
+        let mut placements = BTreeMap::<u64, Vec<Vec<u8>>>::new();
+        let mut aliases = Vec::new();
+        for (candidate, admitted) in candidates.into_iter().zip(admitted) {
+            if !admitted {
+                continue;
+            }
+            let image = &self.images[candidate.image_index];
+            if encode_images {
+                append_kitty_replay_image(&mut image_bytes, image.image);
+            }
+            for (row, command) in candidate.placements {
+                placements.entry(row).or_default().push(command);
+            }
+            if image.image.number != 0
+                && numbered_history_counts
+                    .get(&image.image.number)
+                    .is_some_and(|(total, admitted)| total == admitted)
+            {
+                aliases.push(KittyImageAlias {
+                    image_id: image.image.id,
+                    image_number: image.image.number,
+                });
+            }
+        }
+        KittyReplayPlan { image_bytes, placements, aliases, total_len }
+    }
+}
+
+fn kitty_replay_image_len(image: &KittyImage) -> Option<usize> {
+    if image.data.is_empty() {
+        return Some(0);
+    }
+    let encoded_len = image.data.len().checked_add(2)?.checked_div(3)?.checked_mul(4)?;
+    let chunks = image.data.len().div_ceil(KITTY_REPLAY_RAW_CHUNK);
+    let first_header = format!(
+        "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m=0;",
+        image.format.kitty_protocol_value(),
+        image.id,
+        image.width,
+        image.height
+    )
+    .len();
+    let continuation_header = b"\x1b_Gq=2,m=0;".len();
+    encoded_len
+        .checked_add(first_header)?
+        .checked_add(2)?
+        .checked_add((chunks - 1).checked_mul(continuation_header.checked_add(2)?)?)
+}
+
+fn append_kitty_replay_image(bytes: &mut Vec<u8>, image: &KittyImage) {
+    if image.data.is_empty() {
+        return;
+    }
+    #[cfg(test)]
+    KITTY_REPLAY_IMAGE_ENCODINGS.set(KITTY_REPLAY_IMAGE_ENCODINGS.get() + 1);
+    let mut payload = [0_u8; KITTY_REPLAY_CHUNK];
+    for (index, chunk) in image.data.chunks(KITTY_REPLAY_RAW_CHUNK).enumerate() {
+        let more = usize::from((index + 1) * KITTY_REPLAY_RAW_CHUNK < image.data.len());
+        if index == 0 {
+            bytes.extend_from_slice(
+                format!(
+                    "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m={more};",
+                    image.format.kitty_protocol_value(),
+                    image.id,
+                    image.width,
+                    image.height
+                )
+                .as_bytes(),
+            );
+        } else {
+            bytes.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
+        }
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode_slice(chunk, &mut payload)
+            .expect("a 3:4-sized replay buffer must fit base64 output");
+        bytes.extend_from_slice(&payload[..encoded]);
+        bytes.extend_from_slice(b"\x1b\\");
+    }
+}
+
+fn kitty_replay_placement_at(
+    placement: &KittyPlacement,
+    anchor: KittyPlacementAnchor,
+    replay_start_row: u64,
+    terminal_rows: u16,
+    cell_pixels: (u32, u32),
+) -> Option<Vec<u8>> {
+    // The interleaved row break or final replay suffix positions the cursor
+    // after this command. DECSC/DECRC would overwrite the application's one
+    // saved-cursor slot while providing no additional replay state.
+    let anchor_row = u64::from(anchor.row);
+    if anchor_row >= replay_start_row {
+        if placement.pixel_width == 0
+            || placement.pixel_height == 0
+            || placement.source_width == 0
+            || placement.source_height == 0
+        {
+            return None;
+        }
+        let row = (anchor_row - replay_start_row)
+            .min(u64::from(terminal_rows.saturating_sub(1)))
+            .saturating_add(1);
+        let col = u32::from(anchor.col).saturating_add(1);
+        let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
+        let mut command = format!(
+            "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
+            placement.image_id,
+            placement_id,
+            placement.source_x,
+            placement.source_y,
+            placement.source_width,
+            placement.source_height,
+            placement.x_offset,
+            placement.y_offset,
+        );
+        if placement.columns > 0 {
+            command.push_str(&format!(",c={}", placement.columns));
+        }
+        if placement.rows > 0 {
+            command.push_str(&format!(",r={}", placement.rows));
+        }
+        command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
+        return Some(command.into_bytes());
+    }
+    let relative_row = i64::try_from(replay_start_row - anchor_row).ok()?.checked_neg()?;
+    kitty_replay_placement_from_origin(placement, i64::from(anchor.col), relative_row, cell_pixels)
+}
+
+#[cfg(test)]
+fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -> Option<Vec<u8>> {
+    kitty_replay_placement_from_origin(
+        placement,
+        i64::from(placement.viewport_col),
+        i64::from(placement.viewport_row),
+        cell_pixels,
+    )
+}
+
+fn kitty_replay_placement_from_origin(
+    placement: &KittyPlacement,
+    viewport_col: i64,
+    viewport_row: i64,
+    cell_pixels: (u32, u32),
+) -> Option<Vec<u8>> {
+    if placement.pixel_width == 0
+        || placement.pixel_height == 0
+        || placement.source_width == 0
+        || placement.source_height == 0
+    {
+        return None;
+    }
+
+    let cell_width = cell_pixels.0.max(1);
+    let cell_height = cell_pixels.1.max(1);
+    let image_left = viewport_col
+        .saturating_mul(i64::from(cell_width))
+        .saturating_add(i64::from(placement.x_offset));
+    let image_top = viewport_row
+        .saturating_mul(i64::from(cell_height))
+        .saturating_add(i64::from(placement.y_offset));
+    let image_right = image_left.saturating_add(i64::from(placement.pixel_width));
+    let image_bottom = image_top.saturating_add(i64::from(placement.pixel_height));
+    let visible_left = image_left.max(0);
+    let visible_top = image_top.max(0);
+    let mut visible_width = image_right.saturating_sub(visible_left);
+    let mut visible_height = image_bottom.saturating_sub(visible_top);
+    if visible_width <= 0 || visible_height <= 0 {
+        return None;
+    }
+    if placement.columns > 0 {
+        visible_width -= visible_width % i64::from(cell_width);
+    }
+    if placement.rows > 0 {
+        visible_height -= visible_height % i64::from(cell_height);
+    }
+    if visible_width <= 0 || visible_height <= 0 {
+        return None;
+    }
+
+    let source_left = replay_proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_sub(image_left)).ok()?,
+        placement.pixel_width,
+    );
+    let source_right = replay_proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_add(visible_width).saturating_sub(image_left))
+            .ok()?,
+        placement.pixel_width,
+    );
+    let source_top = replay_proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let source_bottom = replay_proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_add(visible_height).saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let source_x = placement.source_x.saturating_add(source_left);
+    let source_y = placement.source_y.saturating_add(source_top);
+    let mut source_width = source_right.saturating_sub(source_left);
+    let mut source_height = source_bottom.saturating_sub(source_top);
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let columns = if placement.columns > 0 {
+        Some(u32::try_from(visible_width).ok()?.checked_div(cell_width)?)
+    } else {
+        None
+    };
+    let rows = if placement.rows > 0 {
+        Some(u32::try_from(visible_height).ok()?.checked_div(cell_height)?)
+    } else {
+        None
+    };
+    if columns.is_some_and(|columns| columns == 0) || rows.is_some_and(|rows| rows == 0) {
+        return None;
+    }
+    if columns.is_some() && rows.is_none() {
+        source_height = replay_fit_inferred_source_dimension(
+            columns?.saturating_mul(cell_width),
+            source_width,
+            source_height,
+            u32::try_from(visible_height).ok()?,
+        );
+    } else if columns.is_none() && rows.is_some() {
+        source_width = replay_fit_inferred_source_dimension(
+            rows?.saturating_mul(cell_height),
+            source_height,
+            source_width,
+            u32::try_from(visible_width).ok()?,
+        );
+    } else if columns.is_none() && rows.is_none() {
+        source_width = source_width.min(u32::try_from(visible_width).ok()?);
+        source_height = source_height.min(u32::try_from(visible_height).ok()?);
+    }
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let col = u32::try_from(visible_left).ok()?.checked_div(cell_width)?.saturating_add(1);
+    let row = u32::try_from(visible_top).ok()?.checked_div(cell_height)?.saturating_add(1);
+    let x_offset = u32::try_from(visible_left).ok()? % cell_width;
+    let y_offset = u32::try_from(visible_top).ok()? % cell_height;
+    let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
+    let mut command = format!(
+        "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
+        placement.image_id, placement_id
+    );
+    if let Some(columns) = columns {
+        command.push_str(&format!(",c={columns}"));
+    }
+    if let Some(rows) = rows {
+        command.push_str(&format!(",r={rows}"));
+    }
+    command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
+    Some(command.into_bytes())
+}
+
+fn replay_proportional_boundary(
+    source_pixels: u32,
+    output_pixels: u32,
+    rendered_pixels: u32,
+) -> u32 {
+    if rendered_pixels == 0 {
+        return 0;
+    }
+    u32::try_from(
+        u128::from(source_pixels) * u128::from(output_pixels) / u128::from(rendered_pixels),
+    )
+    .unwrap_or(source_pixels)
+    .min(source_pixels)
+}
+
+fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<u32> {
+    if denominator == 0 {
+        return None;
+    }
+    u32::try_from(
+        (u128::from(value) * u128::from(numerator) + u128::from(denominator) / 2)
+            / u128::from(denominator),
+    )
+    .ok()
+}
+
+fn replay_fit_inferred_source_dimension(
+    explicit_pixels: u32,
+    fixed_source: u32,
+    inferred_source: u32,
+    maximum_pixels: u32,
+) -> u32 {
+    let mut low = 0;
+    let mut high = inferred_source;
+    while low < high {
+        let candidate = low + (high - low).div_ceil(2);
+        if replay_rounded_ratio(explicit_pixels, candidate, fixed_source)
+            .is_some_and(|pixels| pixels <= maximum_pixels)
+        {
+            low = candidate;
+        } else {
+            high = candidate - 1;
+        }
+    }
+    low
 }
 
 fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes: usize) -> u64 {
@@ -2809,6 +4322,8 @@ fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes:
 impl Drop for Terminal {
     fn drop(&mut self) {
         unsafe {
+            sys::ghostty_tracked_grid_ref_free(self.history_anchor);
+            self.history_anchor = ptr::null_mut();
             // Clear callbacks first so a hypothetical late invocation can't
             // touch the freed Box.
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr::null());
@@ -2825,10 +4340,54 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Callbacks, ClearHistoryOutcome, MouseModeChangeDetector, PaletteOsc, PromptSemantic,
-        PromptSemanticTracker, PromptTrackState, Screen, Terminal, vt_replay_row_window,
+    use crate::kitty::{
+        KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyImageFormat, KittyPlacement,
+        KittyPlacementAnchor, KittyPlacementKey, KittyReplaySnapshot,
     };
+
+    use super::{
+        Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector, PaletteOsc,
+        PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
+        kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
+        reset_kitty_replay_image_encodings, vt_replay_row_window,
+    };
+
+    fn replay_placement_fixture(
+        source: (u32, u32),
+        grid: (u32, u32),
+        pixels: (u32, u32),
+        sizing: (u32, u32),
+        viewport: (i32, i32),
+        offset: (u32, u32),
+    ) -> KittyPlacement {
+        KittyPlacement {
+            key: KittyPlacementKey { image_id: 1, placement_id: 2, ordinal: 0 },
+            image_id: 1,
+            placement_id: 2,
+            is_internal: false,
+            x_offset: offset.0,
+            y_offset: offset.1,
+            source_x: 0,
+            source_y: 0,
+            source_width: source.0,
+            source_height: source.1,
+            columns: sizing.0,
+            rows: sizing.1,
+            grid_cols: grid.0,
+            grid_rows: grid.1,
+            pixel_width: pixels.0,
+            pixel_height: pixels.1,
+            viewport_col: viewport.0,
+            viewport_row: viewport.1,
+            viewport_visible: true,
+            anchor: None,
+            z: 3,
+        }
+    }
+
+    fn replay_placement_command(placement: &KittyPlacement) -> String {
+        String::from_utf8(kitty_replay_placement(placement, (10, 20)).unwrap()).unwrap()
+    }
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
@@ -2852,6 +4411,50 @@ mod tests {
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
 
         assert_ne!(first.instance_id(), second.instance_id());
+    }
+
+    #[test]
+    fn history_epoch_ignores_output_that_only_mutates_the_active_screen() {
+        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        let initial = terminal.history_epoch();
+
+        terminal.vt_write(b"visible");
+        terminal.vt_write(b"\x1b[H\x1b[2K\x1b]2;title\x07");
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.history_epoch(), initial);
+
+        terminal.vt_write(b"first\r\nsecond\r\nthird");
+        assert!(terminal.history_rows() > 0);
+        assert!(terminal.history_epoch() > initial);
+    }
+
+    #[test]
+    fn history_epoch_ignores_kitty_content_updates_that_do_not_move_history() {
+        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        terminal.vt_write(b"first\r\nsecond\r\nthird");
+        assert!(terminal.history_rows() > 0);
+        let history_epoch = terminal.history_epoch();
+
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;/wAA\x1b\\");
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;AP8A\x1b\\");
+
+        assert_eq!(terminal.history_epoch(), history_epoch);
+    }
+
+    #[test]
+    fn history_epochs_change_across_mutations_and_terminal_instances() {
+        let mut first = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        let initial = first.history_epoch();
+        first.vt_write(b"first\r\nsecond\r\nthird");
+        let after_output = first.history_epoch();
+        first.resize(40, 12, 8, 16).unwrap();
+        let after_resize = first.history_epoch();
+        let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+
+        assert!(after_output > initial);
+        assert!(after_resize > after_output);
+        assert_ne!(second.history_epoch(), after_resize);
     }
 
     #[test]
@@ -2886,6 +4489,117 @@ mod tests {
             probes_after_modes,
             "synchronized-output framing must not run synthetic mouse encodes"
         );
+    }
+
+    /// Encode a left press, its release, and a wheel-up through encoders
+    /// synced from `terminal`, exactly like a scoped attach client forwarding
+    /// host clicks to the inner PTY.
+    fn synced_mouse_bytes(terminal: &Terminal) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        use crate::key::Mods;
+        use crate::mouse::{MouseAction, MouseButton, MouseEncoders, MouseInput};
+
+        let input = |action, button, any_button_pressed| MouseInput {
+            action,
+            button,
+            mods: Mods::default(),
+            position: (36.5, 20.5),
+            screen_size: (80, 24),
+            cell_size: (1, 1),
+            any_button_pressed,
+        };
+        let mut encoders = MouseEncoders::new().unwrap();
+        encoders.sync_from_terminal(terminal);
+        let (mut press, mut release, mut wheel) = (Vec::new(), Vec::new(), Vec::new());
+        encoders
+            .encode_press_pair(
+                input(MouseAction::Press, Some(MouseButton::Left), true),
+                input(MouseAction::Release, Some(MouseButton::Left), false),
+                &mut press,
+                &mut release,
+            )
+            .unwrap();
+        encoders
+            .encode(input(MouseAction::Press, Some(MouseButton::WheelUp), false), &mut wheel)
+            .unwrap();
+        (press, release, wheel)
+    }
+
+    fn replayed_mirror(inner_mode_bytes: &[u8]) -> Terminal {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(inner_mode_bytes);
+        let replay = host.vt_replay().unwrap();
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&replay).unwrap();
+        mirror
+    }
+
+    /// btop enables 1002h, 1015h, 1006h in that order: SGR is set last, so
+    /// last-set-wins makes SGR the active extended-coordinate encoding.
+    /// Replay must reproduce that semantic, not a numeric flag dump that
+    /// re-enables urxvt (1015) after SGR (1006) and flips the active encoding.
+    #[test]
+    fn replay_preserves_sgr_mouse_encoding_when_sgr_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[<0;37;21M", "press must stay SGR after replay");
+        assert_eq!(release, b"\x1b[<0;37;21m", "release must stay SGR after replay");
+        assert_eq!(wheel, b"\x1b[<64;37;21M", "wheel must stay SGR after replay");
+    }
+
+    /// The mirror case: an application that deliberately sets urxvt last must
+    /// keep urxvt across replay.
+    #[test]
+    fn replay_preserves_urxvt_mouse_encoding_when_urxvt_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[32;37;21M", "press must stay urxvt after replay");
+        assert_eq!(release, b"\x1b[35;37;21M", "release must stay urxvt after replay");
+        assert_eq!(wheel, b"\x1b[96;37;21M", "wheel must stay urxvt after replay");
+    }
+
+    /// The active wire format is a single last-set-wins selector; resetting
+    /// the active selector falls back to X10 even while other format flags
+    /// stay set (xterm semantics, mirrored by Ghostty's stream handler).
+    #[test]
+    fn active_mouse_format_tracks_last_set_wins() {
+        use crate::mouse::MouseWireFormat;
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+        terminal.vt_write(b"\x1b[?1005h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Utf8);
+        terminal.vt_write(b"\x1b[?1015h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Urxvt);
+        terminal.vt_write(b"\x1b[?1006h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Sgr);
+        assert_eq!(terminal.pointer_semantic_snapshot().active_mouse_format, MouseWireFormat::Sgr);
+        terminal.vt_write(b"\x1b[?1016h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::SgrPixels);
+        terminal.vt_write(b"\x1b[?1016l");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+    }
+
+    /// A single-format application must not grow a correction suffix: its
+    /// numeric flag dump already replays the right active encoding.
+    #[test]
+    fn single_format_replay_carries_no_mouse_format_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h");
+        assert!(host.mouse_format_replay_suffix().is_empty());
+        let replay = host.vt_replay_bytes().unwrap();
+        let text = String::from_utf8_lossy(&replay);
+        assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
+        assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
+    }
+
+    #[test]
+    fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
+        let suffix_len = terminal.mouse_format_replay_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
     }
 
     #[test]
@@ -3280,10 +4994,10 @@ mod tests {
         }
         source.vt_write(b"LATEST-VISIBLE-CONTENT");
 
-        let full = source.vt_replay().unwrap();
+        let full = source.vt_replay_bytes().unwrap();
         assert!(full.len() > 32 * 1024);
 
-        let bounded = source.vt_replay_bounded(32 * 1024).unwrap();
+        let bounded = source.vt_replay_bounded_bytes(32 * 1024).unwrap();
         assert!(bounded.len() <= 32 * 1024);
 
         let mut restored = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -3299,9 +5013,108 @@ mod tests {
         }
         source.vt_write(b"LATEST-VISIBLE-CONTENT");
 
-        let full = source.vt_replay().unwrap();
+        let full = source.vt_replay_bytes().unwrap();
         assert!(full.len() < 8 * 1024 * 1024);
-        assert_eq!(source.vt_replay_bounded(8 * 1024 * 1024).unwrap(), full);
+        assert_eq!(source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap(), full);
+    }
+
+    #[test]
+    fn vt_replay_preserves_sparse_viewport_rows_without_scrolling_them_into_history() {
+        let mut source = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        source.vt_write(b"READY\r\n");
+        let expected = source.viewport_text().unwrap();
+        assert!(expected.contains("READY"));
+
+        let replay = source.vt_replay_bytes().unwrap();
+        let mut target = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        target.vt_write(&replay);
+
+        assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
+    fn theme_portable_replay_retains_aliases_for_admitted_kitty_images() {
+        let mut source = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        source.vt_write(b"\x1b_Ga=T,t=d,f=24,I=77,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
+        let image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap();
+        assert_eq!(
+            replay.kitty_image_aliases,
+            vec![KittyImageAlias { image_id, image_number: 77 }]
+        );
+
+        let mut target = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        target.vt_write(&replay.bytes);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b_Ga=p,I=77,p=5,c=1,r=1,q=2;\x1b\\");
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements[0].image_id, image_id);
+    }
+
+    #[test]
+    fn kitty_replay_placement_does_not_replace_the_saved_cursor_slot() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        source.resize(20, 8, 10, 20).unwrap();
+        source.vt_write(b"before");
+        source.vt_write(b"\x1b_Ga=T,t=d,f=32,i=77,p=1,s=1,v=1,c=2,r=2,q=2;/wAAfw==\x1b\\");
+        source.vt_write(b"\x1b[8;10Htail");
+        let source_graphics = source.kitty_graphics_snapshot().unwrap();
+        assert_eq!(source_graphics.placements.len(), 1);
+        assert!(
+            source_graphics.placements[0].pixel_width > 0,
+            "fixture placement: {:?}",
+            source_graphics.placements[0]
+        );
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap();
+        let mut target = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        target.resize(20, 8, 10, 20).unwrap();
+        target.vt_write(&replay.bytes);
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b[8;20H\x1b8");
+
+        assert_eq!(
+            target.cursor_position(),
+            Some((0, 0)),
+            "a placement replay must leave the no-save DECRC fallback unchanged"
+        );
+    }
+
+    #[test]
+    fn minimal_bounded_replay_resets_before_numbered_kitty_images() {
+        let mut source = Terminal::new(256, 1, 0, Callbacks::default()).unwrap();
+        source.vt_write("x".repeat(255).as_bytes());
+        source.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
+        let snapshot = source.kitty_graphics_snapshot().unwrap();
+        let image = snapshot.images.first().unwrap();
+        let max_bytes = kitty_replay_image_len(image).unwrap() + b"\x1bc".len();
+        let text = source
+            .vt_replay_text_layout_bounded(
+                max_bytes,
+                &super::KittyReplayRowIndex::default(),
+                None,
+                false,
+            )
+            .unwrap();
+        assert_eq!(text.range, None, "fixture did not reach the minimal reset fallback");
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(max_bytes).unwrap();
+        assert_eq!(
+            replay.kitty_image_aliases,
+            vec![KittyImageAlias { image_id: image.id, image_number: 77 }]
+        );
+        assert!(
+            replay.bytes.starts_with(b"\x1bc\x1b_G"),
+            "the terminal reset cleared a preceding image transmission: {:?}",
+            replay.bytes
+        );
+
+        let mut target = Terminal::new(256, 1, 0, Callbacks::default()).unwrap();
+        target.vt_write(&replay.bytes);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b_Ga=p,I=77,p=5,c=1,r=1,q=2;\x1b\\");
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements[0].image_id, image.id);
     }
 
     #[test]
@@ -3309,5 +5122,224 @@ mod tests {
         let rows = vt_replay_row_window(1_000_000, 24, 80, 8 * 1024 * 1024);
 
         assert_eq!(rows, 3_276);
+    }
+
+    #[test]
+    fn bounded_text_replay_snaps_to_the_oldest_fitting_placement_anchor() {
+        let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for row in 0..40 {
+            source.vt_write(format!("row-{row:02}\r\n").as_bytes());
+        }
+        source.vt_write(b"tail");
+        let scrollbar = source.scrollbar().unwrap();
+        let anchor_row = scrollbar.total - 12;
+        let placement_rows = [anchor_row].into_iter().collect();
+        let anchor_range = super::ReplayRowRange { start: anchor_row, end: scrollbar.total - 1 };
+        let anchor_bytes = source
+            .vt_replay_text_range_bounded(anchor_range, &placement_rows, usize::MAX, true)
+            .unwrap()
+            .unwrap()
+            .bytes
+            .len();
+        let older_range =
+            super::ReplayRowRange { start: scrollbar.total - 16, end: scrollbar.total - 1 };
+        assert!(
+            source
+                .vt_replay_text_range_bounded(older_range, &placement_rows, anchor_bytes, true)
+                .unwrap()
+                .is_none(),
+            "fixture must put the anchor between a fitting and oversized geometric window"
+        );
+
+        let replay = source
+            .vt_replay_text_layout_bounded(
+                anchor_bytes,
+                &placement_rows,
+                Some(scrollbar.total - scrollbar.len),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(replay.range.unwrap().start, anchor_row);
+    }
+
+    #[test]
+    fn kitty_replay_groups_each_placement_once() {
+        let image_count = 64_u32;
+        let images = (1..=image_count)
+            .map(|id| KittyImage {
+                id,
+                number: 0,
+                generation: u64::from(id),
+                width: 1,
+                height: 1,
+                format: KittyImageFormat::Rgb,
+                data: std::sync::Arc::from([0_u8, 0, 0]),
+            })
+            .collect::<Vec<_>>();
+        let placements = (1..=image_count)
+            .map(|id| {
+                let mut placement =
+                    replay_placement_fixture((1, 1), (1, 1), (1, 1), (1, 1), (0, 0), (0, 0));
+                placement.key.image_id = id;
+                placement.image_id = id;
+                placement
+            })
+            .collect::<Vec<_>>();
+        let anchors = placements
+            .iter()
+            .enumerate()
+            .map(|(row, placement)| {
+                (placement.key, KittyPlacementAnchor { col: 0, row: u32::try_from(row).unwrap() })
+            })
+            .collect();
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot { generation: 1, images, placements },
+            anchors,
+        };
+
+        let catalog = KittyReplayCatalog::new(&snapshot, (1, 1), 24);
+
+        assert_eq!(catalog.placement_grouping_visits, snapshot.graphics.placements.len());
+    }
+
+    #[test]
+    fn kitty_replay_does_not_encode_images_rejected_by_the_budget() {
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot {
+                generation: 1,
+                images: vec![KittyImage {
+                    id: 1,
+                    number: 0,
+                    generation: 1,
+                    width: 1,
+                    height: 1,
+                    format: KittyImageFormat::Rgb,
+                    data: std::sync::Arc::from([0_u8, 0, 0]),
+                }],
+                placements: Vec::new(),
+            },
+            anchors: Default::default(),
+        };
+
+        reset_kitty_replay_image_encodings();
+        let catalog = KittyReplayCatalog::new(&snapshot, (1, 1), 24);
+        let replay = catalog.plan(None, 0, false);
+
+        assert!(replay.image_bytes.is_empty());
+        assert_eq!(
+            kitty_replay_image_encodings(),
+            0,
+            "catalog construction encoded an image that the replay budget rejected"
+        );
+    }
+
+    #[test]
+    fn bounded_replay_clips_a_placement_overlapping_the_retained_window() {
+        let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        source.resize(12, 4, 10, 20).unwrap();
+        for row in 0..12 {
+            source.vt_write(format!("row-{row:02}\r\n").as_bytes());
+        }
+        source.vt_write(b"tail");
+        let end = source.scrollbar().unwrap().total - 1;
+        let range = super::ReplayRowRange { start: end - 5, end };
+        let anchor = KittyPlacementAnchor { col: 0, row: u32::try_from(range.start - 1).unwrap() };
+        let placement =
+            replay_placement_fixture((10, 60), (1, 3), (10, 60), (1, 3), (0, 0), (0, 0));
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot {
+                generation: 1,
+                images: vec![KittyImage {
+                    id: 1,
+                    number: 0,
+                    generation: 1,
+                    width: 10,
+                    height: 60,
+                    format: KittyImageFormat::Rgb,
+                    data: std::sync::Arc::from(vec![127_u8; 10 * 60 * 3]),
+                }],
+                placements: vec![placement.clone()],
+            },
+            anchors: [(placement.key, anchor)].into_iter().collect(),
+        };
+        let catalog = KittyReplayCatalog::new(&snapshot, (10, 20), 4);
+        let text = source
+            .vt_replay_text_range_bounded(range, catalog.placement_rows(), usize::MAX, true)
+            .unwrap()
+            .unwrap();
+        let graphics = catalog.plan(Some(range), usize::MAX, false);
+        let mut replay = graphics.image_bytes;
+        replay.extend(text.interleave(&graphics.placements).unwrap());
+
+        let mut restored = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        restored.resize(12, 4, 10, 20).unwrap();
+        restored.vt_write(&replay);
+        let restored_graphics = restored.kitty_graphics_snapshot().unwrap();
+        let restored_placement =
+            restored_graphics.placements.first().expect("overlapping placement");
+
+        assert_eq!(restored_placement.source_y, 20);
+        assert_eq!(restored_placement.source_height, 40);
+        assert_eq!(restored_placement.rows, 2);
+        assert_eq!(restored_placement.grid_rows, 2);
+    }
+
+    #[test]
+    fn kitty_inflight_tracking_uses_the_normalized_c1_stream() {
+        let mut terminal = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&[0xe0]);
+        terminal.vt_write(b"\x9fGa=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x9c");
+
+        assert!(
+            terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
+            "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
+        );
+    }
+
+    #[test]
+    fn replay_native_left_clip_preserves_native_pixel_size() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (15, 10),
+            (2, 1),
+            (15, 10),
+            (0, 0),
+            (-1, 0),
+            (4, 0),
+        ));
+
+        assert!(command.contains("x=6,y=0,w=9,h=10,X=0,Y=0"), "{command:?}");
+        assert!(!command.contains(",c="), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn replay_column_only_top_clip_keeps_rows_inferred() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (20, 10),
+            (2, 2),
+            (20, 10),
+            (2, 0),
+            (0, -1),
+            (0, 15),
+        ));
+
+        assert!(command.contains("x=0,y=5,w=20,h=5,X=0,Y=0,c=2"), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn replay_row_only_left_clip_keeps_columns_inferred() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (10, 40),
+            (2, 2),
+            (10, 40),
+            (0, 2),
+            (-1, 0),
+            (5, 0),
+        ));
+
+        assert!(command.contains("x=5,y=0,w=5,h=40,X=0,Y=0,r=2"), "{command:?}");
+        assert!(!command.contains(",c="), "{command:?}");
     }
 }
