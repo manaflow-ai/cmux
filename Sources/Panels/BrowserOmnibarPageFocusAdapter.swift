@@ -23,11 +23,13 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
             return
         }
         panel.webView.evaluateJavaScript(script) { result, error in
-            // WebKit's completion is UI-actor isolated. Deliver its raw result
-            // and error directly so nested menu tracking cannot trip a runtime
-            // `MainActor.assumeIsolated` assertion before the repository can
-            // classify the outcome.
-            completion(result, error)
+            // WebKit may invoke an Objective-C completion without an active
+            // main-actor executor during nested menu tracking. Hop explicitly
+            // so the repository can classify the raw result/error without
+            // racing its main-actor state or touching AppKit off-actor.
+            Task { @MainActor in
+                completion(result, error)
+            }
         }
     }
 }
