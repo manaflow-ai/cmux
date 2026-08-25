@@ -433,6 +433,7 @@ struct ShellInner {
 
 #[derive(Clone)]
 struct Attachment {
+    generation: u64,
     closing: Arc<AtomicBool>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
@@ -453,6 +454,7 @@ struct Inner {
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
     auth: Mutex<Option<AuthSnapshot>>,
+    next_generation: AtomicU64,
 }
 
 struct ShellStartReservation {
@@ -504,6 +506,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 auth: Mutex::new(None),
+                next_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -530,6 +533,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 auth: Mutex::new(None),
+                next_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -799,6 +803,7 @@ impl Inner {
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
+                generation: opened.generation,
                 closing: opened.closing,
                 control: opened.control,
                 actor_id: actor.to_owned(),
@@ -835,13 +840,14 @@ impl Inner {
         pty_id: &str,
         context: &FrameContext,
         control: Weak<dyn PtyControl>,
-    ) -> (DataSink, ExitSink) {
+    ) -> (u64, DataSink, ExitSink) {
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
             let control = control.clone();
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context, &control))
+            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, generation, &chunk, &context, &control))
                 as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
@@ -849,15 +855,16 @@ impl Inner {
             let context = context.clone();
             let pty_id = pty_id.to_owned();
             let control = control.clone();
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &control))
+            Arc::new(move |code: i64| inner.emit_exit(&pty_id, generation, code, &context, &control))
                 as Arc<dyn Fn(i64) + Send + Sync>
         };
-        (on_data, on_exit)
+        (generation, on_data, on_exit)
     }
 
     fn emit_output(
         &self,
         pty_id: &str,
+        generation: u64,
         chunk: &Bytes,
         context: &FrameContext,
         control: &Weak<dyn PtyControl>,
@@ -870,7 +877,7 @@ impl Inner {
                 .lock()
                 .expect("attach lock")
                 .get(pty_id)
-                .is_none_or(|a| !Arc::ptr_eq(&a.control, control))
+                .is_none_or(|a| a.generation != generation || !Arc::ptr_eq(&a.control, control))
         {
             return;
         }
@@ -907,6 +914,7 @@ impl Inner {
     fn emit_exit(
         &self,
         pty_id: &str,
+        generation: u64,
         code: i64,
         context: &FrameContext,
         control: &Weak<dyn PtyControl>,
@@ -919,7 +927,7 @@ impl Inner {
                 .lock()
                 .expect("attach lock")
                 .get(pty_id)
-                .is_none_or(|a| !Arc::ptr_eq(&a.control, control))
+                .is_none_or(|a| a.generation != generation || !Arc::ptr_eq(&a.control, control))
         {
             return;
         }
@@ -997,6 +1005,7 @@ impl Inner {
 
 /// A resolved open: what to echo, plus a deferred `start` that begins output.
 struct Opened {
+    generation: u64,
     created: bool,
     surface: Option<String>,
     control: Arc<dyn PtyControl>,
@@ -1140,8 +1149,9 @@ impl Inner {
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
         let control_identity = Arc::downgrade(&control);
-        let (on_data, on_exit) = self.sinks(pty_id, context, control_identity);
+        let (generation, on_data, on_exit) = self.sinks(pty_id, context, control_identity);
         Ok(Opened {
+            generation,
             created: ensured.created,
             surface: None,
             control,
@@ -1319,7 +1329,7 @@ impl Inner {
         });
         let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
         let control_identity = Arc::downgrade(&proxy_control);
-        let (on_data, on_exit) = self.sinks(pty_id, context, control_identity);
+        let (generation, on_data, on_exit) = self.sinks(pty_id, context, control_identity);
         let delivery = ViewerDelivery::new(on_data, on_exit);
         assert!(
             proxy.delivery.set(Arc::clone(&delivery)).is_ok(),
@@ -1364,7 +1374,7 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, start })
+        Ok(Opened { generation, created, surface: None, control: proxy, closing, start })
     }
 }
 
@@ -1885,7 +1895,7 @@ impl Inner {
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
         let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
         let control_identity = Arc::downgrade(&proxy_control);
-        let (on_data, _) = self.sinks(pty_id, context, control_identity.clone());
+        let (generation, on_data, _) = self.sinks(pty_id, context, control_identity.clone());
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
@@ -1900,11 +1910,12 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit, &control_identity);
+                relay.emit_exit(&pty_id_for_exit, generation, code, &context_for_exit, &control_identity);
             }
         });
         let start_stream = Arc::clone(&stream);
         Ok(Some(Opened {
+            generation,
             created: ensured.created,
             surface: Some(surface_ref.to_owned()),
             control: proxy,
