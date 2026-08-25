@@ -869,11 +869,14 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         // never provider-attributed LAN/Tailscale hints.  In particular, do
         // not let the late LAN discovery phase reintroduce a private path after
         // the initial policy filtering.
-        // A pinned mode is a hard route-class boundary.  In particular, do
-        // not let the late LAN discovery stage add a private hint to a
-        // Tailscale- or LAN-pinned request that happened to reach this Iroh
-        // provider through a reconnect race.
-        guard request.transportMode == .automatic else { return context }
+        // A pinned mode is a hard route-class boundary. LAN Only deliberately
+        // reaches this provider so the encrypted Iroh session can use only
+        // broker-authorized LAN hints; every other pinned mode returns the
+        // already-filtered context unchanged.
+        guard request.transportMode == .automatic
+                || request.transportMode == .lan else {
+            return context
+        }
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,

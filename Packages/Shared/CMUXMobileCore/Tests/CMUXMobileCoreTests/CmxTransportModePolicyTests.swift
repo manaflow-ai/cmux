@@ -12,7 +12,7 @@ struct CmxTransportModePolicyTests {
             try irohRoute(),
         ]
 
-        #expect(try CmxTransportModePolicy(.lanOnly).routes(from: routes).map(\.id) == ["lan"])
+        #expect(try CmxTransportModePolicy(.lanOnly).routes(from: routes).map(\.id) == ["iroh"])
         #expect(try CmxTransportModePolicy(.tailscaleOnly).routes(from: routes).map(\.id) == ["tailscale"])
         #expect(try CmxTransportModePolicy(.irohOnly).routes(from: routes).map(\.id) == ["iroh"])
     }
@@ -34,6 +34,15 @@ struct CmxTransportModePolicyTests {
             #expect(mode == .tailscaleOnly)
             #expect(displayName == "Studio Mac")
             #expect(error.localizedDescription.contains("Tailscale"))
+        }
+    }
+
+    @Test("LAN Only fails closed when no encrypted Iroh route accompanies LAN")
+    func lanOnlyRequiresEncryptedPeerRoute() throws {
+        #expect(throws: CmxTransportModeError.self) {
+            try CmxTransportModePolicy(.lanOnly).routes(
+                from: [try route(id: "lan", kind: .lan, host: "192.168.1.10")]
+            )
         }
     }
 
@@ -119,21 +128,53 @@ struct CmxTransportModePolicyTests {
         ) == false)
     }
 
-    @Test("a pinned LAN or Tailscale session cannot construct an Iroh plan")
-    func pinnedModesRejectIrohSessionConstruction() {
+    @Test("LAN Iroh plans retain only LAN private paths")
+    func lanIrohPlanKeepsOnlyLANPaths() throws {
         let plan = CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
-        for mode in [CmxTransportMode.lanOnly, .tailscaleOnly] {
-            do {
-                try CmxTransportModePolicy(mode).validate(irohDialPlan: plan)
-                Issue.record("expected (mode) to reject an Iroh session")
-            } catch let error as CmxTransportModeError {
-                #expect(error == .routeClassMismatch(
-                    expected: mode.pinnedClass ?? .iroh,
-                    actual: .iroh
-                ))
-            } catch {
-                Issue.record("unexpected error: \(error)")
-            }
+        try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: plan)
+        let hints = try [
+            CmxIrohPathHint(
+                kind: .directAddress,
+                value: "192.168.1.10:58465",
+                source: .lan,
+                privacyScope: .localNetwork,
+                observedAt: Date(),
+                expiresAt: Date().addingTimeInterval(300),
+                networkProfile: try CmxIrohNetworkProfileKey(
+                    source: .lan,
+                    profileID: String(repeating: "3", count: 64)
+                )
+            ),
+            CmxIrohPathHint(
+                kind: .directAddress,
+                value: "100.64.1.10:58465",
+                source: .tailscale,
+                privacyScope: .privateNetwork,
+                observedAt: Date(),
+                expiresAt: Date().addingTimeInterval(300),
+                networkProfile: try CmxIrohNetworkProfileKey(
+                    source: .tailscale,
+                    profileID: String(repeating: "4", count: 64)
+                )
+            ),
+        ]
+        let filtered = CmxTransportModePolicy(.lanOnly).irohDialPlan(
+            CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: hints)
+        )
+        #expect(filtered.privateFallbackPaths.map(\.source) == [.lan])
+    }
+
+    @Test("Tailscale Only still rejects Iroh session construction")
+    func tailscaleModeRejectsIrohSessionConstruction() {
+        do {
+            try CmxTransportModePolicy(.tailscaleOnly).validate(
+                irohDialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
+            )
+            Issue.record("expected Tailscale Only to reject an Iroh session")
+        } catch let error as CmxTransportModeError {
+            #expect(error == .routeClassMismatch(expected: .tailscale, actual: .iroh))
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 

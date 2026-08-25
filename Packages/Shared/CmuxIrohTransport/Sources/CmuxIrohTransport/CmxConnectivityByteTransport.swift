@@ -131,8 +131,11 @@ actor CmxConnectivityByteTransport:
         case .direct:
             return .irohDirect
         case let .privateNetwork(address):
-            if mode == .iroh {
+            if mode == .iroh || mode == .direct {
                 return .irohDirect
+            }
+            if mode == .lan {
+                return .lan(address: address)
             }
             if CmxTailscalePeerAddress(address) != nil {
                 return .tailscale(address: address)

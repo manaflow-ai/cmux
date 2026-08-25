@@ -682,19 +682,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     /// One authorization decision shared by every token-send site. Generic
-    /// plaintext routes remain restricted to loopback; the legacy mode is valid
-    /// only while its immutable device/IP/port evidence still matches.
+    /// plaintext routes remain restricted to loopback; LAN uses authenticated
+    /// Iroh transport admission and never reaches this Stack-bearer path.
     private var canSendStackBearer: Bool {
         switch transportRequest.authorizationMode {
         case .stackBearer:
-            // A plaintext LAN bearer is permitted only after the user has
-            // explicitly pinned this Computer to LAN Only. Auto never sends
-            // the account token to a LAN fallback, so an advertised LAN route
-            // cannot silently widen Auto's encrypted transport policy.
-            let explicitLANSelection = route.kind != .lan
-                || transportRequest.transportMode == .lan
             return allowsStackAuthFallback
-                && explicitLANSelection
                 && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         case let .legacyTailscaleBearer(evidence):
             guard route.kind == .tailscale,

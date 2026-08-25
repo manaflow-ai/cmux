@@ -76,7 +76,7 @@ final class MobilePairingModel {
         let disclosureMode: CmxPairingRouteDisclosureMode
 
         static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
-            guard routes.contains(where: MobilePairingModel.isPhoneReachableRoute) else {
+            guard routes.contains(where: MobilePairingModel.isPhoneReachableTailscaleRoute) else {
                 return nil
             }
             return PairingRoutePlan(
@@ -400,13 +400,14 @@ final class MobilePairingModel {
         routes.contains { $0.kind == .iroh }
     }
 
-    /// Whether `route` can serve a physical iPhone: a Tailscale route that does
-    /// not point back at this Mac.
+    /// Whether `route` can serve the legacy compatibility QR: a Tailscale route
+    /// that does not point back at this Mac. LAN routes remain visible in the
+    /// modern status/UI payloads, but the legacy grammar cannot be decoded by
+    /// older iOS clients that predate the `.lan` route kind.
     private nonisolated static func isPhoneReachableTailscaleRoute(
         _ route: CmxAttachRoute
     ) -> Bool {
-        (route.kind == .tailscale || route.kind == .lan)
-            && !CmxLoopbackHost().matches(route)
+        route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 
     private nonisolated static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {

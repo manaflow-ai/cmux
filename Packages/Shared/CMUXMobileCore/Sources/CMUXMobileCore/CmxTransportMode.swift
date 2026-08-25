@@ -222,14 +222,23 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     }
 
     /// Filters routes without changing their priority or endpoint identity.
-    /// Auto returns the input unchanged; pinned modes throw when no route of
-    /// the requested class exists, making fallback impossible by construction.
+    /// Auto returns the input unchanged; pinned modes throw when no permitted
+    /// route exists. LAN uses an authenticated Iroh route constrained to a
+    /// Mac-advertised LAN path, never the plaintext `.lan` TCP route itself.
     public func routes(
         from routes: [CmxAttachRoute],
         macDisplayName: String? = nil
     ) throws -> [CmxAttachRoute] {
         guard let required = mode.pinnedClass else { return routes }
-        let filtered = routes.filter { $0.transportClass == required }
+        let filtered: [CmxAttachRoute]
+        if mode == .lan {
+            let hasAdvertisedLANRoute = routes.contains { $0.kind == .lan }
+            filtered = hasAdvertisedLANRoute
+                ? routes.filter { $0.kind == .iroh }
+                : []
+        } else {
+            filtered = routes.filter { $0.transportClass == required }
+        }
         guard !filtered.isEmpty else {
             throw CmxTransportModeError.noRoute(
                 mode: mode,
@@ -242,6 +251,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// Validates one route at the transport-factory boundary.
     public func validate(route: CmxAttachRoute) throws {
         guard let required = mode.pinnedClass else { return }
+        if mode == .lan, route.kind == .iroh {
+            return
+        }
         guard route.transportClass == required else {
             throw CmxTransportModeError.routeClassMismatch(
                 expected: required,
@@ -251,8 +263,8 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     }
 
     /// Filters the two Iroh dial phases without allowing a private hint to
-    /// escape a pinned policy. In particular, Tailscale/LAN modes yield an
-    /// empty Iroh plan rather than silently riding Iroh.
+    /// escape a pinned policy. LAN keeps only broker-authorized LAN fallback
+    /// hints inside the encrypted Iroh session; Tailscale never rides Iroh.
     public func irohDialPlan(_ plan: CmxIrohDialPlan) -> CmxIrohDialPlan {
         switch mode {
         case .automatic, .direct:
@@ -266,29 +278,37 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
                 publicPaths: plan.publicPaths.filter { $0.source == .native },
                 privateFallbackPaths: plan.privateFallbackPaths.filter { $0.source == .native }
             )
-        case .lan, .tailscale:
+        case .lan:
+            return CmxIrohDialPlan(
+                publicPaths: [],
+                privateFallbackPaths: plan.privateFallbackPaths.filter {
+                    $0.source == .lan
+                }
+            )
+        case .tailscale:
             return CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
         }
     }
 
     /// Filters path hints before an Iroh plan is built. Iroh-only keeps native
-    /// Iroh hints but removes provider-attributed LAN/Tailscale hints, because
-    /// those are distinct transport classes from the user's perspective.
+    /// Iroh hints, while LAN Only keeps only provider-authorized LAN hints;
+    /// those classes remain distinct from one another at the UI boundary.
     public func irohPathHints(_ hints: [CmxIrohPathHint]) -> [CmxIrohPathHint] {
-        guard mode == .iroh else { return hints }
-        return hints.filter { hint in
-            // Provider-attributed private addresses are separate transport
-            // classes.  Iroh-only retains only Iroh-native direct/relay
-            // provenance so a pinned session cannot ride another network.
-            hint.source == .native
+        switch mode {
+        case .iroh:
+            return hints.filter { $0.source == .native }
+        case .lan:
+            return hints.filter { $0.source == .lan }
+        case .automatic, .tailscale, .direct:
+            return hints
         }
     }
 
     /// Validates an Iroh plan at the session-construction boundary.
     ///
-    /// Route filtering normally prevents a pinned LAN/Tailscale mode from
-    /// reaching an Iroh factory. This second check protects direct callers,
-    /// reconnect races, and future factories that bypass the route catalog.
+    /// Route filtering normally prevents a pinned Tailscale mode from reaching
+    /// an Iroh factory. LAN Only is the intentional encrypted-Iroh exception;
+    /// this second check protects direct callers and reconnect races.
     public func validate(irohDialPlan plan: CmxIrohDialPlan) throws {
         switch mode {
         case .automatic, .direct:
@@ -307,8 +327,15 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
                 expected: .iroh,
                 actual: actual
             )
-        case .lan, .tailscale:
-            _ = plan
+        case .lan:
+            guard plan.publicPaths.isEmpty,
+                  plan.privateFallbackPaths.allSatisfy({ $0.source == .lan }) else {
+                throw CmxTransportModeError.routeClassMismatch(
+                    expected: .lan,
+                    actual: .iroh
+                )
+            }
+        case .tailscale:
             throw CmxTransportModeError.routeClassMismatch(
                 expected: mode.pinnedClass ?? .iroh,
                 actual: .iroh

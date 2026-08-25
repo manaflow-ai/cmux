@@ -305,9 +305,13 @@ extension MobileShellComposite {
             // route rather than becoming permanently unreachable.
             let irohRoutes = modeRoutes.filter { $0.kind == .iroh }
             return irohRoutes.isEmpty ? modeRoutes : irohRoutes
-        case .lan, .tailscale:
+        case .lan:
+            // LAN Only is represented by the encrypted Iroh peer route; its
+            // context provider narrows the private plan to LAN hints.
+            return modeRoutes.filter { $0.kind == .iroh }
+        case .tailscale:
             // The policy already filtered this to one concrete class; the
-            // caller's Tailscale grant check further narrows the latter.
+            // caller's Tailscale grant check further narrows it.
             return modeRoutes
         case .iroh, .direct:
             return modeRoutes.filter { $0.kind == .iroh }

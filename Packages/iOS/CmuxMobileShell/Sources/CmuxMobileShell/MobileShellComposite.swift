@@ -975,12 +975,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             instanceTag: activeMacInstanceTag
         ).transportMode
     }
-    /// Iroh discovery is a transport class, not a generic reconnect fallback.
-    /// A LAN- or Tailscale-pinned session must never enter a broker/Iroh path.
-    var selectedModeDisallowsIroh: Bool {
-        selectedTransportMode.pinnedClass == .lan
-            || selectedTransportMode.pinnedClass == .tailscale
-    }
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     /// Single physical-Mac identity authority shared by every connection role.
@@ -2897,9 +2891,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
-        let irohReconnectIsDisallowed = selectedModeDisallowsIroh
-        let irohReconnectIsBlocked = irohReconnectIsDisallowed
-            || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+        let automaticIrohReconnectIsBlockedForAccount =
+            automaticIrohReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -2933,15 +2926,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // without an Iroh identity; an identified pairing rides Iroh
             // pinned to its Tailscale addresses (same lane the terminal
             // lanes ride, same admission authority).
-            let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
+            let candidateMethod = connectionMethod(for: mac)
+            let candidateModeDisallowsIroh = candidateMethod.transportMode.pinnedClass == .lan
+                || candidateMethod.transportMode.pinnedClass == .tailscale
+            let irohReconnectIsBlocked = (candidateMethod == .tailscale
                 && !mac.routes.contains { $0.kind == .iroh })
-                || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+                || automaticIrohReconnectIsBlockedForAccount
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
                 || localRoutes.contains { $0.kind == .debugLoopback }
+                || localRoutes.contains { $0.kind == .lan }
                 || localRoutes.contains { route in
                     Self.legacyTailscaleAuthorizationEvidence(
                         for: route,
@@ -2970,8 +2967,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected, !irohReconnectIsDisallowed,
-               !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+            if connectionState != .connected, !candidateModeDisallowsIroh,
+               !automaticIrohReconnectIsBlockedForAccount {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
                     scope: scope,
@@ -3010,8 +3007,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected, !irohReconnectIsDisallowed,
-           !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+        if connectionState != .connected, !zeroTouchIrohDiscoveryDisabled,
+           !automaticIrohReconnectIsBlockedForAccount {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
                 generation: generation,
@@ -3056,7 +3053,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         if candidates.isEmpty, zeroTouchCandidates.isEmpty {
-            if !hasKnownStoredMac, !irohReconnectIsBlocked {
+            if !hasKnownStoredMac,
+               !zeroTouchIrohDiscoveryDisabled,
+               !automaticIrohReconnectIsBlockedForAccount {
                 setHasKnownPairedMac(false, generation: generation)
             }
             finishStoredMacReconnectAttempt(generation: generation)
@@ -3936,6 +3935,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let localHasIroh = candidateRoutes.contains { $0.kind == .iroh }
         let localCanConnectSecurely = localHasIroh
             || candidateRoutes.contains { $0.kind == .debugLoopback }
+            || candidateRoutes.contains { $0.kind == .lan }
             || candidateRoutes.contains { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -10043,7 +10043,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return authorizedTailscale
         }
         if ticketMethod == .lan {
-            return modeRoutes.filter { $0.kind == .lan }
+            // LAN Only is an encrypted Iroh session whose private dial plan is
+            // filtered to broker-authorized LAN hints; raw LAN TCP never gets
+            // a Stack bearer.
+            return modeRoutes.filter { $0.kind == .iroh }
         }
         if ticketMethod == .iroh {
             return modeRoutes.filter { $0.kind == .iroh }

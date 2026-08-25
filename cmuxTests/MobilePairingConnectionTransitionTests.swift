@@ -194,6 +194,17 @@ struct MobilePairingConnectionTransitionTests {
         #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
+    @Test("LAN-only routes stay out of legacy pairing QR payloads")
+    func lanOnlyPlanFailsClosedForLegacyClients() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try CmxAttachRoute(
+                id: "lan",
+                kind: .lan,
+                endpoint: .hostPort(host: "192.168.1.20", port: 58_465)
+            )
+        ]) == nil)
+    }
+
     @Test("Iroh alone does not produce a Mac pairing QR")
     func irohOnlyPlanIsUnavailable() throws {
         #expect(MobilePairingModel.PairingRoutePlan.make(routes: [

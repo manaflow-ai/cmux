@@ -9,10 +9,11 @@ import Foundation
 /// connection.
 ///
 /// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) admits loopback
-/// and explicitly advertised `.lan` routes. iOS cannot prove that an arbitrary
-/// private address belongs to the paired Mac, so generic manual hosts and
-/// Tailscale addresses remain fail-closed. Iroh sessions authenticate RPC out
-/// of band and never carry a Stack bearer token.
+/// only. iOS cannot prove that a plaintext LAN endpoint belongs to the paired
+/// Mac from its route label alone, so LAN and generic manual hosts remain
+/// fail-closed. LAN-only connections use the authenticated Iroh session path;
+/// Tailscale addresses remain fail-closed unless they carry their narrower
+/// compatibility evidence, and Iroh sessions authenticate RPC out of band.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -61,22 +62,20 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
-    /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only traverse explicitly classified loopback or LAN routes. A LAN route
-    /// is advertised by the authenticated Mac and is never inferred from an
-    /// arbitrary private address, which keeps generic manual hosts fail-closed.
-    ///
-    /// A `.lan` route is admitted only when it came from the Mac's authenticated
-    /// route advertisement; arbitrary private addresses retain the old
-    /// plaintext safety behavior and return `false`.
+    /// The Stack `stack_access_token` is the owner's account credential, so this
+    /// route-only predicate admits only loopback. A `.lan` route has no
+    /// provenance in its Codable shape; callers must supply exact authenticated
+    /// route evidence to the RPC client instead of treating the enum label as
+    /// authority. Arbitrary private addresses retain the plaintext fail-closed
+    /// behavior.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` for a loopback route or an explicitly classified LAN route.
+    /// - Returns: `true` only for a loopback route.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.lan, .hostPort):
-            return true
+            return false
         case (.tailscale, .hostPort), (.iroh, .peer):
             return false
         default:

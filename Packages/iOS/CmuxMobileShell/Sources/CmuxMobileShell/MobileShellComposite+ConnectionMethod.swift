@@ -152,16 +152,17 @@ extension MobileShellComposite {
         }
     }
 
-    /// Zero-touch discovery yields Iroh candidates only. It is pointless only
-    /// when the app default is Tailscale AND no stored pairing opted back into
-    /// the automatic method — a per-Computer Iroh choice keeps discovery alive.
+    /// Zero-touch discovery yields Iroh candidates only. It is pointless when
+    /// the app default is pinned to LAN/Tailscale and every stored pairing is
+    /// pinned too; an Auto, iroh-only, or Direct pairing keeps discovery alive.
     var zeroTouchIrohDiscoveryDisabled: Bool {
-        guard connectionMethodStore?.method == .tailscale else {
+        guard let defaultMethod = connectionMethodStore?.method,
+              defaultMethod == .tailscale || defaultMethod == .lan else {
             return false
         }
         return pairedMacs.allSatisfy {
             let method = connectionMethod(for: $0)
-            return method != .automatic && method != .iroh
+            return method != .automatic && method != .iroh && method != .direct
         }
     }
 

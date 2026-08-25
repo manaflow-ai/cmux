@@ -538,6 +538,11 @@ struct MobileSettingsView: View {
 
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
+        case .lan:
+            L10n.string(
+                "mobile.connections.method.lan",
+                defaultValue: "LAN"
+            )
         case .tailscale:
             L10n.string(
                 "mobile.settings.activeTransport.tailscale",

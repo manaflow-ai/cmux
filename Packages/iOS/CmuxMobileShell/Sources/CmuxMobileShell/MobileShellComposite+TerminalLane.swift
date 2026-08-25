@@ -25,7 +25,11 @@ extension MobileShellComposite {
             irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
                 forMacDeviceID: activeTicket.macDeviceID,
                 instanceTag: activeMacInstanceTag
-            )
+            ),
+            // Feature lanes can reopen the physical session independently of
+            // control RPCs; preserve the mode captured by that live client so
+            // a pinned Iroh/Tailscale/LAN policy cannot widen back to Auto.
+            transportMode: remoteClient?.transportMode ?? selectedTransportMode
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID

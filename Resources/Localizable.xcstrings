@@ -178934,6 +178934,23 @@
         }
       }
     },
+    "settings.mobile.route.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN"
+          }
+        }
+      }
+    },
     "settings.mobile.route.loopback": {
       "extractionState": "manual",
       "localizations": {
