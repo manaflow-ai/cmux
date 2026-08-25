@@ -103,12 +103,29 @@ extension Workspace {
                 }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
                 let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
-                // A stale cached entry must not override a live lifecycle
-                // signal with `.exited`; only the exact revalidated generation
-                // can claim running here. Everything else stays indeterminate.
-                let processLiveness: RestorableAgentProcessLiveness = exactProcessIsLive
-                    ? .running
-                    : .unknown
+                let hasDifferentRuntimeGeneration = matchingPIDKeys.contains { key in
+                    guard let runtimeIndexEntry,
+                          let runtimeIdentity = agentPIDProcessIdentitiesByKey[key] else {
+                        return false
+                    }
+                    return !Self.indexEntry(
+                        runtimeIndexEntry,
+                        containsProcessIdentity: runtimeIdentity
+                    )
+                }
+                let suppressStaleLifecycle = runtimeIndexEntry?.processLiveness == .exited
+                    && !hasDifferentRuntimeGeneration
+                // A definitively exited indexed generation suppresses a stale
+                // lifecycle map until a newly verified runtime generation takes
+                // its place. Unknown index state remains eligible for a live
+                // token-routed lifecycle signal.
+                let processLiveness: RestorableAgentProcessLiveness = if exactProcessIsLive {
+                    .running
+                } else if suppressStaleLifecycle {
+                    .exited
+                } else {
+                    .unknown
+                }
                 let runtimeSessionID = selectedPIDKey.flatMap {
                     Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
@@ -120,6 +137,7 @@ extension Workspace {
                           SidebarWorkspaceAgentActivity.canonicalStatusKey(
                               indexEntry.snapshot.kind.rawValue
                           ) == canonicalStatusKey,
+                          indexEntry.processLiveness != .exited,
                           !indexEntry.snapshot.sessionId.isEmpty {
                     // A token-routed lifecycle event is bound to this panel but
                     // may not carry a session suffix (for example during the
@@ -152,7 +170,7 @@ extension Workspace {
                     processLiveness: processLiveness,
                     hasExactProcessIdentity: exactProcessIsLive,
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
-                    hasLiveLifecycleSignal: lifecycle != nil,
+                    hasLiveLifecycleSignal: lifecycle != nil && !suppressStaleLifecycle,
                     isHookBacked: false,
                     isExactProcessBinding: !matchingPIDKeys.isEmpty,
                     isHeuristicProcessDetection: false
