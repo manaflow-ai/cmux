@@ -222,8 +222,12 @@ final class MobileAttachTicketStore {
             }) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
+            let compactTicket = try legacyCompatibleCompactTicket(
+                ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            )
             return try compactAttachURL(
-                for: ticket,
+                for: compactTicket,
                 routeDisclosureMode: .legacyPrivateNetworkCompatibility,
                 pairingURLScheme: pairingURLScheme
             )

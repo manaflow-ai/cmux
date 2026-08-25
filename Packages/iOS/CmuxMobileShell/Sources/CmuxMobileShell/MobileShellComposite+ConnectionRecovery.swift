@@ -532,7 +532,9 @@ extension MobileShellComposite {
             recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
-        if connectionState == .connected, let client = remoteClient {
+        if connectionState == .connected,
+           let client = remoteClient,
+           transportPathObservationClientID != ObjectIdentifier(client) {
             startTransportPathObservation(for: client)
         }
     }

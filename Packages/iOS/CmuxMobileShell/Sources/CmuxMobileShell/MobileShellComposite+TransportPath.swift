@@ -13,7 +13,14 @@ extension MobileShellComposite {
         stopTransportPathObservation()
         activeTransportPath = .unavailable
         let clientID = ObjectIdentifier(client)
+        transportPathObservationClientID = clientID
         transportPathObservationTask = Task { @MainActor [weak self, client] in
+            defer {
+                guard let self,
+                      self.transportPathObservationClientID == clientID else { return }
+                self.transportPathObservationTask = nil
+                self.transportPathObservationClientID = nil
+            }
             let initial = await client.currentTransportPath()
             guard !Task.isCancelled,
                   let self,
@@ -35,6 +42,7 @@ extension MobileShellComposite {
     func stopTransportPathObservation() {
         transportPathObservationTask?.cancel()
         transportPathObservationTask = nil
+        transportPathObservationClientID = nil
         activeTransportPath = .unavailable
     }
 
