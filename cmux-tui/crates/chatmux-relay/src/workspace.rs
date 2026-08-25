@@ -891,6 +891,13 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
     use tokio::io::AsyncReadExt as _;
+    let stderr_task = child.stderr.take().map(|stderr| {
+        tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            let _ = stderr.take(64 * 1024).read_to_end(&mut bytes).await;
+            bytes
+        })
+    });
     const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
     let mut stdout_bytes = Vec::new();
     let read_limit = STATUS_MAX_BYTES.saturating_add(1);
@@ -904,12 +911,16 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         stdout_bytes.truncate(STATUS_MAX_BYTES);
         let _ = child.kill().await;
     }
-    let output = child
-        .wait_with_output()
+    let status = child
+        .wait()
         .await
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
-    if !output.status.success() {
-        return Err(git_refusal("git status failed", &output.stderr));
+    let stderr = match stderr_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => Vec::new(),
+    };
+    if !status.success() {
+        return Err(git_refusal("git status failed", &stderr));
     }
     let mut branch: Option<String> = None;
     let mut upstream: Option<String> = None;
@@ -1025,9 +1036,17 @@ async fn run_git_diff(
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
     use tokio::io::AsyncBufReadExt as _;
+    use tokio::io::AsyncReadExt as _;
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
+    let stderr_task = child.stderr.take().map(|stderr| {
+        tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            let _ = tokio::io::AsyncReadExt::take(stderr, 64 * 1024).read_to_end(&mut bytes).await;
+            bytes
+        })
+    });
     let mut lines = tokio::io::BufReader::new(stdout).lines();
     let mut patch = String::new();
     let mut current_file_start = 0_usize;
@@ -1060,12 +1079,16 @@ async fn run_git_diff(
             }
         }
     }
-    let output = child
-        .wait_with_output()
+    let status = child
+        .wait()
         .await
         .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
-    if !output.status.success() {
-        return Err(git_refusal("git diff failed", &output.stderr));
+    let stderr = match stderr_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => Vec::new(),
+    };
+    if !status.success() {
+        return Err(git_refusal("git diff failed", &stderr));
     }
     Ok(wire::WorkspaceResultBody::GitDiff(wire::GitDiffResult {
         op: wire::TagGitDiff::GitDiff,
