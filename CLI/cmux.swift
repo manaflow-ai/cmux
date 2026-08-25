@@ -25071,7 +25071,7 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
-            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
+            let canReplaceStoppedSession = !isCompactSessionStart && shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
@@ -25083,7 +25083,12 @@ struct CMUXCLI {
             // only a delivery guess: retain the persisted identity above, but
             // never promote or register visible state on the borrowed pane.
             let canMutateVisibleTarget = !isCompactSessionStart || resolvedSurface.isAuthoritative
-            let shouldPromoteActiveSession = canMutateVisibleTarget
+            // Compact is a continuation of the same session, never a new
+            // active boundary. In particular, do not let a delayed compact
+            // event use a stopped-session replacement slot to resurrect an
+            // older session that the pane has already replaced.
+            let shouldPromoteActiveSession = !isCompactSessionStart
+                && canMutateVisibleTarget
                 && !isForkSessionLaunch
                 && (isClearSessionStart || canReplaceStoppedSession)
             var sessionRecordWorkspaceId = workspaceId
