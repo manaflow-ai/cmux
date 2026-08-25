@@ -88,7 +88,8 @@ struct WorkspaceSwitchCoordinatorTests {
 
         coordinator.noteFirstFrame(
             surfaceID: targetSurfaceID,
-            requestID: requestID
+            requestID: requestID,
+            renderedFrameSequence: 1
         )
         #expect(!coordinator.isPresentationReady)
 
@@ -292,10 +293,25 @@ struct WorkspaceSwitchCoordinatorTests {
             retiringWorkspaceID: UUID()
         )
 
-        coordinator.noteFirstFrame(surfaceID: targetSurfaceID, requestID: staleRequestID)
+        coordinator.noteFirstFrame(
+            surfaceID: targetSurfaceID,
+            requestID: staleRequestID,
+            renderedFrameSequence: 1
+        )
         #expect(!coordinator.isPresentationReady)
 
-        coordinator.noteFirstFrame(surfaceID: targetSurfaceID, requestID: currentRequestID)
+        coordinator.noteFirstFrame(
+            surfaceID: targetSurfaceID,
+            requestID: currentRequestID,
+            renderedFrameSequence: 0
+        )
+        #expect(!coordinator.isPresentationReady)
+
+        coordinator.noteFirstFrame(
+            surfaceID: targetSurfaceID,
+            requestID: currentRequestID,
+            renderedFrameSequence: 1
+        )
         #expect(coordinator.isPresentationReady)
     }
 

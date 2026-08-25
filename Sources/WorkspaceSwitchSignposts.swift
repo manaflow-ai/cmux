@@ -1,11 +1,17 @@
 @MainActor
-enum WorkspaceSwitchSignposts {
-    private static let signposts = DynamicTracingSignposts(
-        subsystem: "com.cmux.workspace-switch"
-    )
+struct WorkspaceSwitchSignposts {
+    private let signposts: DynamicTracingSignposts
+
+    init(
+        signposts: DynamicTracingSignposts = DynamicTracingSignposts(
+            subsystem: "com.cmux.workspace-switch"
+        )
+    ) {
+        self.signposts = signposts
+    }
 
     @inline(__always)
-    static func begin(
+    func begin(
         _ name: StaticString,
         _ message: @autoclosure () -> String
     ) -> DynamicTracingSignpostInterval? {
@@ -13,7 +19,7 @@ enum WorkspaceSwitchSignposts {
     }
 
     @inline(__always)
-    static func end(_ interval: DynamicTracingSignpostInterval?) {
+    func end(_ interval: DynamicTracingSignpostInterval?) {
         signposts.end(interval)
     }
 }

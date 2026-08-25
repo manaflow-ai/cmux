@@ -2786,6 +2786,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0C42BCB86C8645B3AF6389C4 /* WorkspaceSwitchCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836C60F98574AF29387590E /* WorkspaceSwitchCoordinatorTests.swift */; };
 		727539C888E74E879558F38C /* WorkspaceSwitchFrameObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044CDD67AEF44642882E1C9C /* WorkspaceSwitchFrameObservation.swift */; };
 		10E2CA6DC2994B2FAB8857EB /* WorkspaceSwitchFrameObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC55ACEA21C45FDB942115F /* WorkspaceSwitchFrameObservationTests.swift */; };
+		D92310060000000000000001 /* WorkspaceSwitchPortalSignalRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310060000000000000002 /* WorkspaceSwitchPortalSignalRouter.swift */; };
+		D92310070000000000000001 /* WorkspaceSwitchPortalSignalRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310070000000000000002 /* WorkspaceSwitchPortalSignalRouterTests.swift */; };
 		62C2F3714DF3497FB4248263 /* WorkspaceSwitchPresentationTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */; };
 		99EC4708100644B7A8A5FD64 /* WorkspaceSwitchReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */; };
 		D92310050000000000000001 /* WorkspaceSwitchRendererProtectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310050000000000000002 /* WorkspaceSwitchRendererProtectionTests.swift */; };
@@ -5604,6 +5606,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B836C60F98574AF29387590E /* WorkspaceSwitchCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchCoordinatorTests.swift; sourceTree = "<group>"; };
 		044CDD67AEF44642882E1C9C /* WorkspaceSwitchFrameObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchFrameObservation.swift; sourceTree = "<group>"; };
 		FEC55ACEA21C45FDB942115F /* WorkspaceSwitchFrameObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchFrameObservationTests.swift; sourceTree = "<group>"; };
+		D92310060000000000000002 /* WorkspaceSwitchPortalSignalRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchPortalSignalRouter.swift; sourceTree = "<group>"; };
+		D92310070000000000000002 /* WorkspaceSwitchPortalSignalRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchPortalSignalRouterTests.swift; sourceTree = "<group>"; };
 		FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchPresentationTarget.swift; sourceTree = "<group>"; };
 		2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchReadiness.swift; sourceTree = "<group>"; };
 		D92310050000000000000002 /* WorkspaceSwitchRendererProtectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchRendererProtectionTests.swift; sourceTree = "<group>"; };
@@ -6180,6 +6184,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					9F9218CC05134C6A9253EFED /* WorkspaceSwitchCoordinator.swift */,
 					044CDD67AEF44642882E1C9C /* WorkspaceSwitchFrameObservation.swift */,
 					D92310030000000000000002 /* WorkspaceHandoffRetirementGate.swift */,
+					D92310060000000000000002 /* WorkspaceSwitchPortalSignalRouter.swift */,
 					FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */,
 					2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */,
 					D92310010000000000000002 /* WorkspaceSwitchSignposts.swift */,
@@ -8113,6 +8118,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FEC55ACEA21C45FDB942115F /* WorkspaceSwitchFrameObservationTests.swift */,
 				D92310040000000000000002 /* WorkspaceHandoffRetirementGateTests.swift */,
 				D92310050000000000000002 /* WorkspaceSwitchRendererProtectionTests.swift */,
+				D92310070000000000000002 /* WorkspaceSwitchPortalSignalRouterTests.swift */,
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
 				9869000B0000000000000002 /* BrowserOpenTabSuggestionHostTests.swift */,
@@ -10908,6 +10914,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E8343F3749F643A6A152C7D7 /* WorkspaceSwitchContentKind.swift in Sources */,
 				794842D712E04EF6A98A3244 /* WorkspaceSwitchCoordinator.swift in Sources */,
 				727539C888E74E879558F38C /* WorkspaceSwitchFrameObservation.swift in Sources */,
+				D92310060000000000000001 /* WorkspaceSwitchPortalSignalRouter.swift in Sources */,
 				62C2F3714DF3497FB4248263 /* WorkspaceSwitchPresentationTarget.swift in Sources */,
 				99EC4708100644B7A8A5FD64 /* WorkspaceSwitchReadiness.swift in Sources */,
 				D92310010000000000000001 /* WorkspaceSwitchSignposts.swift in Sources */,
@@ -11887,6 +11894,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 				0C42BCB86C8645B3AF6389C4 /* WorkspaceSwitchCoordinatorTests.swift in Sources */,
 				10E2CA6DC2994B2FAB8857EB /* WorkspaceSwitchFrameObservationTests.swift in Sources */,
+				D92310070000000000000001 /* WorkspaceSwitchPortalSignalRouterTests.swift in Sources */,
 				D92310050000000000000001 /* WorkspaceSwitchRendererProtectionTests.swift in Sources */,
 				6342F0C10000000000000001 /* WorkspaceTerminalFocusRecoveryTests.swift in Sources */,
 				6047C0DE6047C0DE60470001 /* WorkspaceTerminalTabWorkingDirectoryTests.swift in Sources */,
