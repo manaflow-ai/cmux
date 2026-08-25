@@ -649,6 +649,36 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func policyConflictDoesNotEvictAnOwnedSession() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let session = TestConnectivitySession(continuityID: 46)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        _ = try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        await #expect(throws: CmxConnectivityEngineError.superseded) {
+            _ = try await peer.connectedSession(for: pinned)
+        }
+        #expect(await session.closeCount() == 0)
+        #expect(await peer.connectionContinuityID() == 46)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
