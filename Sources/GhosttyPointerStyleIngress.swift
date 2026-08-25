@@ -4,17 +4,13 @@ import GhosttyKit
 
 /// Coalesces runtime pointer callbacks before they cross onto the main actor.
 ///
-/// Ghostty can report hyperlink state on every cursor-position refresh. A
-/// latest-value stream keeps one bounded event per terminal view while still
-/// revalidating the surface and runtime lifetime at delivery time.
-final class GhosttyPointerStyleIngress: Sendable {
-    struct Request: Sendable {
-        /// Immutable callback data copied before the native callback returns.
-        ///
-        /// SAFETY: The only non-Swift value is Ghostty's C enum, which is an
-        /// immutable integer-shaped ABI value and is never mutated or retained
-        /// across the actor hop.
-        enum Event: @unchecked Sendable {
+/// Ghostty can report hyperlink state on every cursor-position refresh. The
+/// ingress keeps independent latest values for shape and link state, while
+/// lifecycle resets remain ordered ahead of those values. At most one main
+/// queue drain is pending for a view.
+final class GhosttyPointerStyleIngress: @unchecked Sendable {
+    struct Request {
+        enum Event {
             case runtimeReset
             case runtimeEnded
             case shape(ghostty_action_mouse_shape_e)
@@ -46,49 +42,89 @@ final class GhosttyPointerStyleIngress: Sendable {
         let runtimeLifetimeId: UUID
     }
 
-    private let continuation: AsyncStream<Request>.Continuation
-    private let consumerTask: Task<Void, Never>
+    private struct PendingState {
+        var latestShape: Request?
+        var latestLinkHover: Request?
+        var latestRuntimeReset: Request?
+        var latestRuntimeEnded: Request?
+        var drainScheduled = false
+    }
+
+    private weak var surfaceView: GhosttyNSView?
+
+    /// SAFETY: This lock protects only a bounded callback-to-main latest-value
+    /// handoff. No AppKit/domain state is accessed and no await occurs under it.
+    private let pendingState = OSAllocatedUnfairLock(
+        initialState: PendingState()
+    )
 
     init(surfaceView: GhosttyNSView) {
-        let (stream, continuation) = AsyncStream<Request>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        self.continuation = continuation
-        consumerTask = Task { @MainActor [weak surfaceView] in
-            for await request in stream {
-                guard !Task.isCancelled,
-                      let surfaceView,
-                      let terminalSurface = surfaceView.terminalSurface,
-                      terminalSurface.id == request.surfaceId,
-                      terminalSurface.isActiveRuntimeLifetime(
-                          request.runtimeLifetimeId
-                      ) else {
-                    continue
-                }
-                surfaceView.applyTerminalPointerStyle(
-                    request.event.terminalEvent(
-                        runtimeLifetimeId: request.runtimeLifetimeId
-                    )
-                )
-            }
-        }
+        self.surfaceView = surfaceView
     }
 
-    deinit {
-        continuation.finish()
-        consumerTask.cancel()
-    }
-
-    /// Submits one callback; the stream retains only the newest pending event.
+    /// Submits one callback and schedules at most one pending main-actor drain.
     @discardableResult
     func submit(_ request: Request) -> Bool {
-        switch continuation.yield(request) {
-        case .enqueued, .dropped:
+        let shouldSchedule = pendingState.withLock { state in
+            switch request.event {
+            case .runtimeReset:
+                state.latestRuntimeReset = request
+            case .runtimeEnded:
+                state.latestRuntimeEnded = request
+            case .shape:
+                state.latestShape = request
+            case .linkHover:
+                state.latestLinkHover = request
+            }
+
+            guard !state.drainScheduled else { return false }
+            state.drainScheduled = true
             return true
-        case .terminated:
-            return false
-        @unknown default:
-            return false
+        }
+
+        guard shouldSchedule else { return true }
+        DispatchQueue.main.async { [weak self] in
+            self?.drain()
+        }
+        return true
+    }
+
+    @MainActor
+    private func drain() {
+        let snapshot = pendingState.withLock { state in
+            let snapshot = (
+                runtimeReset: state.latestRuntimeReset,
+                runtimeEnded: state.latestRuntimeEnded,
+                shape: state.latestShape,
+                linkHover: state.latestLinkHover
+            )
+            state.latestRuntimeReset = nil
+            state.latestRuntimeEnded = nil
+            state.latestShape = nil
+            state.latestLinkHover = nil
+            state.drainScheduled = false
+            return snapshot
+        }
+
+        guard let surfaceView else { return }
+        for request in [
+            snapshot.runtimeReset,
+            snapshot.runtimeEnded,
+            snapshot.shape,
+            snapshot.linkHover
+        ].compactMap({ $0 }) {
+            guard let terminalSurface = surfaceView.terminalSurface,
+                  terminalSurface.id == request.surfaceId,
+                  terminalSurface.isActiveRuntimeLifetime(
+                      request.runtimeLifetimeId
+                  ) else {
+                continue
+            }
+            surfaceView.applyTerminalPointerStyle(
+                request.event.terminalEvent(
+                    runtimeLifetimeId: request.runtimeLifetimeId
+                )
+            )
         }
     }
 }
