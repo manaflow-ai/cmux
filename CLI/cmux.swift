@@ -3530,9 +3530,14 @@ struct CMUXCLI {
         var remaining: [String] = []
         var index = 0
         var pastTerminator = false
+        // A command's first positional argument starts its payload scope. Any
+        // option-looking values after that point belong to the command, not to
+        // cmux's presentation layer. This matters for forwarded commands such
+        // as `cmux run tool --session literal`.
+        var pastCommandScope = false
         while index < commandArgs.count {
             let arg = commandArgs[index]
-            if pastTerminator {
+            if pastTerminator || pastCommandScope {
                 remaining.append(arg)
                 index += 1
                 continue
@@ -3554,6 +3559,12 @@ struct CMUXCLI {
                 }
                 idFormat = commandArgs[index + 1]
                 index += 2
+                continue
+            }
+            if !arg.hasPrefix("-") {
+                pastCommandScope = true
+                remaining.append(arg)
+                index += 1
                 continue
             }
             remaining.append(arg)
