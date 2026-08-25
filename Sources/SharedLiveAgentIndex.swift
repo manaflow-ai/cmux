@@ -55,6 +55,11 @@ final class SharedLiveAgentIndex {
         continuation: CheckedContinuation<Void, Never>
     )
 
+    private struct SidebarProcessExitWatcher {
+        let identity: AgentPIDProcessIdentity
+        let source: DispatchSourceProcess
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
     private var indexGeneration: UInt64 = 0
     private var loadedAt: Date?
@@ -85,7 +90,7 @@ final class SharedLiveAgentIndex {
     private var changePending = false
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
-    private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
+    private var sidebarProcessExitWatchers: [Int: SidebarProcessExitWatcher] = [:]
     private var pendingSidebarLivenessPanelIDs = Set<UUID>()
     private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
@@ -269,8 +274,8 @@ final class SharedLiveAgentIndex {
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
-        for source in sidebarProcessExitWatchers.values {
-            source.cancel()
+        for watcher in sidebarProcessExitWatchers.values {
+            watcher.source.cancel()
         }
         sidebarExplicitRefreshRetryTimer?.cancel()
         for record in forkExecutableWatchRecords.values {
@@ -625,7 +630,15 @@ final class SharedLiveAgentIndex {
         if let panelID {
             sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
         }
-        guard sidebarProcessExitWatchers[pid] == nil else { return }
+        guard let identity = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
+            sidebarAgentProcessDidExit(pid, expectedIdentity: nil)
+            return
+        }
+        if let existing = sidebarProcessExitWatchers[pid] {
+            guard existing.identity != identity else { return }
+            existing.source.cancel()
+            sidebarProcessExitWatchers.removeValue(forKey: pid)
+        }
         let source = DispatchSource.makeProcessSource(
             identifier: pid_t(pid),
             eventMask: .exit,
@@ -633,15 +646,28 @@ final class SharedLiveAgentIndex {
         )
         source.setEventHandler { [weak self] in
             Task { @MainActor in
-                self?.sidebarAgentProcessDidExit(pid)
+                self?.sidebarAgentProcessDidExit(pid, expectedIdentity: identity)
             }
         }
-        sidebarProcessExitWatchers[pid] = source
+        sidebarProcessExitWatchers[pid] = SidebarProcessExitWatcher(
+            identity: identity,
+            source: source
+        )
         source.resume()
     }
 
-    private func sidebarAgentProcessDidExit(_ processID: Int) {
-        sidebarProcessExitWatchers.removeValue(forKey: processID)?.cancel()
+    private func sidebarAgentProcessDidExit(
+        _ processID: Int,
+        expectedIdentity: AgentPIDProcessIdentity?
+    ) {
+        if let expectedIdentity,
+           let currentIdentity = AgentPIDProcessIdentity(pid: pid_t(processID)),
+           currentIdentity != expectedIdentity {
+            sidebarProcessExitWatchers.removeValue(forKey: processID)?.source.cancel()
+            armSidebarProcessExitWatcher(pid: processID)
+            return
+        }
+        sidebarProcessExitWatchers.removeValue(forKey: processID)?.source.cancel()
         let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
         refreshCachedProcessLivenessForSidebar(
             panelIDs: panelIDs,
