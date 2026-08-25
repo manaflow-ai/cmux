@@ -476,8 +476,11 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         }
         connections.abort_all();
         while connections.join_next().await.is_some() {}
-        let upgrades =
-            shared.upgrades.lock().map(|mut tasks| tasks.drain(..).collect()).unwrap_or_default();
+        let upgrades = shared
+            .upgrades
+            .lock()
+            .map(|mut tasks| tasks.drain(..).collect::<Vec<_>>())
+            .unwrap_or_default();
         for task in upgrades {
             task.abort();
             let _ = task.await;
@@ -606,9 +609,10 @@ fn accept_websocket(
                 ),
             )
             .await;
+            let peer_shutdown = shutdown.clone();
             tokio::select! {
                 _ = shutdown.changed() => {}
-                _ = run_peer(shared, socket, role, shutdown) => {}
+                _ = run_peer(shared, socket, role, peer_shutdown) => {}
             }
         }
     });
