@@ -218,6 +218,34 @@ import Testing
         #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
     }
 
+    @Test func repositoryLinkCacheSkipsOversizedDependencySets() async throws {
+        let cache = GitRepositoryLinkCache(maximumDependencyPathCount: 1)
+        let repository = ResolvedGitRepository(
+            workTreeRoot: "/repo",
+            gitDirectory: "/repo/.git",
+            commonDirectory: "/repo/.git"
+        )
+        let reader = CountingGitFileStatusReader()
+        let configURLs = [
+            URL(fileURLWithPath: "/repo/.git/config"),
+            URL(fileURLWithPath: "/repo/.git/extra.inc")
+        ]
+
+        await cache.store(
+            link: nil,
+            repository: repository,
+            configURLs: configURLs,
+            headSignature: "head",
+            fileStatusReader: reader
+        )
+
+        #expect(await cache.cachedLink(
+            repository: repository,
+            headSignature: "head",
+            fileStatusReader: reader
+        ) == nil)
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))

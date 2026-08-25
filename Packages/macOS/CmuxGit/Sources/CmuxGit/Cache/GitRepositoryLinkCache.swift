@@ -21,11 +21,19 @@ actor GitRepositoryLinkCache {
     }
 
     private let maximumEntryCount: Int
+    private let maximumDependencyPathCount: Int
+    private let maximumDependencyPathBytes: Int
     private var entries: [Key: Entry] = [:]
     private var keysInUseOrder: [Key] = []
 
-    init(maximumEntryCount: Int = 128) {
+    init(
+        maximumEntryCount: Int = 128,
+        maximumDependencyPathCount: Int = 512,
+        maximumDependencyPathBytes: Int = 64 * 1024
+    ) {
         self.maximumEntryCount = max(1, maximumEntryCount)
+        self.maximumDependencyPathCount = max(1, maximumDependencyPathCount)
+        self.maximumDependencyPathBytes = max(1, maximumDependencyPathBytes)
     }
 
     func cachedLink(
@@ -36,14 +44,12 @@ actor GitRepositoryLinkCache {
         let key = Key(repository: repository)
         guard let entry = entries[key] else { return nil }
         guard entry.headSignature == headSignature else {
-            entries.removeValue(forKey: key)
-            keysInUseOrder.removeAll { $0 == key }
+            removeEntry(for: key)
             return nil
         }
         for (path, previousStatus) in entry.configStatuses {
             guard fileStatusReader.status(atPath: path) == previousStatus else {
-                entries.removeValue(forKey: key)
-                keysInUseOrder.removeAll { $0 == key }
+                removeEntry(for: key)
                 return nil
             }
         }
@@ -59,16 +65,26 @@ actor GitRepositoryLinkCache {
         fileStatusReader: any GitFileStatusReading
     ) {
         let key = Key(repository: repository)
-        var statuses: [String: GitFileStatus?] = [:]
+        var paths: Set<String> = []
+        var pathBytes = 0
         for configURL in configURLs {
             let normalizedURL = configURL.standardizedFileURL
-            let paths = Set([
+            let dependencyPaths = Set([
                 normalizedURL.path,
                 normalizedURL.resolvingSymlinksInPath().path
             ])
-            for path in paths {
-                statuses.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            for path in dependencyPaths where paths.insert(path).inserted {
+                pathBytes += path.utf8.count
+                guard paths.count <= maximumDependencyPathCount,
+                      pathBytes <= maximumDependencyPathBytes else {
+                    removeEntry(for: key)
+                    return
+                }
             }
+        }
+        var statuses: [String: GitFileStatus?] = [:]
+        for path in paths {
+            statuses.updateValue(fileStatusReader.status(atPath: path), forKey: path)
         }
         entries[key] = Entry(configStatuses: statuses, headSignature: headSignature, link: link)
         markRecentlyUsed(key)
@@ -78,6 +94,11 @@ actor GitRepositoryLinkCache {
     private func markRecentlyUsed(_ key: Key) {
         keysInUseOrder.removeAll { $0 == key }
         keysInUseOrder.append(key)
+    }
+
+    private func removeEntry(for key: Key) {
+        entries.removeValue(forKey: key)
+        keysInUseOrder.removeAll { $0 == key }
     }
 
     private func trimIfNeeded() {
