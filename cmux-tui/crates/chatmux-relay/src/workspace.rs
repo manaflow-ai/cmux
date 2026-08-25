@@ -1720,6 +1720,8 @@ async fn run_git_diff(
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
     let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
     // Drain stderr while stdout is consumed. A diagnostic stream can fill its
