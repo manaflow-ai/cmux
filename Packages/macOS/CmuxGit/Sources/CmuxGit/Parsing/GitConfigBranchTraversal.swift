@@ -102,9 +102,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 inExtensionsSection = line.lowercased() == "[extensions]"
-                currentSectionAllowsIncludePath = includeConditionalPathsForWatch
-                    && line.lowercased().hasPrefix("[includeif ")
-                    || includeCondition(fromSectionHeader: line, configURL: configURL)
+                currentSectionAllowsIncludePath = includeCondition(
+                    fromSectionHeader: line,
+                    configURL: configURL
+                )
                 continue
             }
             let parts = line.split(separator: "=", maxSplits: 1).map {

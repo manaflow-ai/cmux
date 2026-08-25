@@ -47,8 +47,14 @@ extension GitMetadataService {
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
         let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
-            indexSnapshotsByRepository?[repository.workTreeRoot]
-                ?? gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
+            if let cached = indexSnapshotsByRepository?[repository.workTreeRoot],
+               gitIndexFileSignature(
+                   indexURL: URL(fileURLWithPath: indexPath)
+               ) == cached.signature {
+                cached
+            } else {
+                gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
+            }
         } else {
             nil
         }

@@ -58,6 +58,10 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         if hasReftableDirectory(repository: repository) {
             return plumbingSnapshot(repository: repository)
         }
+        if let configuredStorage = quickReferenceStorageName(repository: repository),
+           configuredStorage != "files" {
+            return plumbingSnapshot(repository: repository)
+        }
         let directSnapshot = fileSnapshot(repository: repository)
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
@@ -96,6 +100,33 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 .appendingPathComponent("reftable", isDirectory: true).path
             return storageProbe.isDirectory(atPath: path)
         }
+    }
+
+    /// Reads only the root config prefix to catch an explicit non-files backend
+    /// without traversing ordinary include graphs on every hot-path refresh.
+    private func quickReferenceStorageName(repository: ResolvedGitRepository) -> String? {
+        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
+            guard case .contents(let contents, consumedByteCount: _) = configReader.read(
+                at: configURL,
+                maximumByteCount: 64 * 1_024
+            ) else { continue }
+            var inExtensionsSection = false
+            for rawLine in contents.split(whereSeparator: \.isNewline) {
+                let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
+                    .trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("[") && line.hasSuffix("]") {
+                    inExtensionsSection = line.lowercased() == "[extensions]"
+                    continue
+                }
+                guard inExtensionsSection else { continue }
+                let parts = line.split(separator: "=", maxSplits: 1).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
+                return GitMetadataService.gitConfigUnquotedValue(parts[1]).lowercased()
+            }
+        }
+        return nil
     }
 
     /// Builds a snapshot from loose/packed reference files.
