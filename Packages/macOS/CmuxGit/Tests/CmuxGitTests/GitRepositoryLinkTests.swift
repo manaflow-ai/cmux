@@ -611,4 +611,79 @@ import Testing
 
         #expect(snapshot.remoteVOutput?.contains("https://github.com/tilde-home/repo.git") == true)
     }
+
+    @Test func hasConfigDiscoveryScansMatchingGitdirIncludes() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let conditionalURL = fixture.root.appendingPathComponent("conditional.inc")
+        let hasConfigURL = fixture.root.appendingPathComponent("hasconfig.inc")
+        try """
+        [remote "conditional"]
+            url = https://conditional.example/trigger.git
+        """.write(to: conditionalURL, atomically: true, encoding: .utf8)
+        try """
+        [remote "mirror"]
+            url = https://github.com/conditional-hasconfig/repo.git
+        """.write(to: hasConfigURL, atomically: true, encoding: .utf8)
+        try """
+        [includeIf "gitdir:\(fixture.gitDirectory.path)/"]
+            path = conditional.inc
+        [includeIf "hasconfig:remote.*.url:https://conditional.example/**"]
+            path = hasconfig.inc
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/conditional-hasconfig/repo.git") == true)
+    }
+
+    @Test func worktreeIncludeIfMatchesWorkingTreeRoot() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let includedURL = fixture.root.appendingPathComponent("worktree.inc")
+        try """
+        [remote "origin"]
+            url = https://github.com/worktree-conditional/repo.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+        try """
+        [includeIf "worktree:\(fixture.root.path)/"]
+            path = worktree.inc
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/worktree-conditional/repo.git") == true)
+    }
+
+    @Test func repositoryLinkUsesLastValueForDuplicateRemoteURLs() {
+        let output = """
+        origin\thttps://github.com/old/repo.git (fetch)
+        origin\thttps://github.com/new/repo.git (fetch)
+        """
+
+        #expect(
+            GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)?.url.absoluteString
+                == "https://github.com/new/repo"
+        )
+    }
 }
