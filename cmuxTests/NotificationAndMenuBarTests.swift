@@ -2074,3 +2074,32 @@ final class MenuBarIconRendererTests: XCTestCase {
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }
+
+final class AppFocusStateTests: XCTestCase {
+    func testStageManagerUsesTheFrontmostProcessForNotificationFocus() {
+        let cmuxProcessID: pid_t = 42
+        let otherAppProcessID: pid_t = 84
+
+        XCTAssertFalse(
+            AppFocusState.isCurrentApplicationFrontmost(
+                appIsActive: true,
+                frontmostProcessIdentifier: otherAppProcessID,
+                currentProcessIdentifier: cmuxProcessID
+            )
+        )
+        XCTAssertTrue(
+            AppFocusState.isCurrentApplicationFrontmost(
+                appIsActive: true,
+                frontmostProcessIdentifier: cmuxProcessID,
+                currentProcessIdentifier: cmuxProcessID
+            )
+        )
+        XCTAssertFalse(
+            AppFocusState.isCurrentApplicationFrontmost(
+                appIsActive: true,
+                frontmostProcessIdentifier: nil,
+                currentProcessIdentifier: cmuxProcessID
+            )
+        )
+    }
+}
