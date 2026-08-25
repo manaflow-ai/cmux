@@ -98,6 +98,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_FOCUS, request.toWire());
+        return ClientFocusResult.fromWire(result);
+    }
+
     public final EmptyResult closePane(ClosePaneRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_PANE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -173,6 +178,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderSnapshot.fromWire(result);
+    }
+
     public final GetCellPixelsResult getCellPixels() throws CmuxException {
         Object result = execute(Commands.GET_CELL_PIXELS, Map.of());
         return GetCellPixelsResult.fromWire(result);
@@ -191,6 +201,11 @@ public abstract class GeneratedCmuxClient {
     public final IdsResult ids(IdsRequest request) throws CmuxException {
         Object result = execute(Commands.IDS, request.toWire());
         return IdsResult.fromWire(result);
+    }
+
+    public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
+        Object result = execute(Commands.JOURNAL_FRONTEND_EVENT, request.toWire());
+        return JournalFrontendEventResult.fromWire(result);
     }
 
     public final ListAgentsResult listAgents(ListAgentsRequest request) throws CmuxException {
@@ -313,6 +328,11 @@ public abstract class GeneratedCmuxClient {
         return ReadScrollbackResult.fromWire(result);
     }
 
+    public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
+        Object result = execute(Commands.REGISTER_BROWSER_PROVIDER, request.toWire());
+        return BrowserProviderSnapshot.fromWire(result);
+    }
+
     public final AttachedViewOutcomeResult releaseAttachedViewSize(ReleaseAttachedViewSizeRequest request) throws CmuxException {
         Object result = execute(Commands.RELEASE_ATTACHED_VIEW_SIZE, request.toWire());
         return AttachedViewOutcomeResult.fromWire(result);
@@ -356,6 +376,11 @@ public abstract class GeneratedCmuxClient {
     public final ReportAgentResult reportAgent(ReportAgentRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_AGENT, request.toWire());
         return ReportAgentResult.fromWire(result);
+    }
+
+    public final EmptyResult reportFocus(ReportFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.REPORT_FOCUS, request.toWire());
+        return EmptyResult.fromWire(result);
     }
 
     public final AttachedViewResizeResult resizeAttachedView(ResizeAttachedViewRequest request) throws CmuxException {
@@ -480,6 +505,11 @@ public abstract class GeneratedCmuxClient {
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
         return LayoutUndoResult.fromWire(result);
+    }
+
+    public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderUnregisterResult.fromWire(result);
     }
 
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {

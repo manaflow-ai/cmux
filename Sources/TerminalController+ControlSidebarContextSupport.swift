@@ -1,4 +1,6 @@
 import CmuxControlSocket
+import CmuxTerminal
+import CmuxWorkspaces
 import Foundation
 
 /// Shared resolution/scheduling twins for the `ControlSidebarContext`
@@ -139,6 +141,67 @@ extension TerminalController {
         return .workspace(tab)
     }
 
+    /// Applies one scoped shell-state report to its current Dock or workspace
+    /// owner after validating the terminal process generation at delivery.
+    ///
+    /// Generation validation deliberately lives here, on the main actor, so a
+    /// report that was already queued before a closed panel ID was reused
+    /// cannot mutate the replacement terminal. Callers without a lifecycle ID
+    /// retain the legacy behavior for compatibility.
+    @discardableResult
+    func controlApplyScopedShellActivityState(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID?,
+        state: PanelShellActivityState
+    ) -> Bool {
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        let registeredSurface: TerminalSurface?
+        if let terminalLifecycleID {
+            guard let currentSurface = registry.surface(
+                      id: surfaceID,
+                      terminalLifecycleID: terminalLifecycleID
+                  ) as? TerminalSurface else {
+                return false
+            }
+            registeredSurface = currentSurface
+        } else {
+            registeredSurface = registry.surface(id: surfaceID)
+                as? TerminalSurface
+        }
+        // A live surface keeps its registry workspace binding current when it
+        // moves, while the already-running child process cannot rewrite the
+        // CMUX_WORKSPACE_ID it inherited at launch. Route by the authoritative
+        // live binding so telemetry follows Dock/workspace transfers.
+        let ownerID = registeredSurface?.tabId ?? workspaceID
+        let routingManager = AppDelegate.shared?.tabManagerFor(tabId: ownerID)
+            ?? AppDelegate.shared?.tabManagerFor(windowId: ownerID)
+            ?? tabManager
+
+        if registeredSurface?.focusPlacement == .rightSidebarDock,
+           let dock = routingManager?.dockSplitStore(
+               ownerID: ownerID,
+               containingPanel: surfaceID
+           ) {
+            dock.updatePanelShellActivityState(panelId: surfaceID, state: state)
+            return true
+        }
+
+        guard let routingManager,
+              let workspace = routingManager.tabs.first(where: {
+                  $0.id == ownerID
+              }),
+              workspace.panels[surfaceID] != nil else {
+            return false
+        }
+        routingManager.updateSurfaceShellActivity(
+            tabId: ownerID,
+            surfaceId: surfaceID,
+            state: state
+        )
+        return true
+    }
+
     /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
     /// agent runtime updates follow a pane that moved after the socket request.
     nonisolated func controlSidebarSchedulePanelOwnedMutation(
@@ -200,7 +263,7 @@ extension TerminalController {
 
     nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
+            replaceKey: TerminalMutationReplaceKey.scoped(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
                 kind: .directory

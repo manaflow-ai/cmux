@@ -319,6 +319,8 @@ mod tests {
     fn tab(surface: SurfaceId, title: &str) -> TabView {
         TabView {
             surface,
+            public_id: None,
+            content_id: None,
             terminal_id: None,
             short_id: format!("t{surface}"),
             name: None,
@@ -336,6 +338,7 @@ mod tests {
             id: "test".into(),
             levels,
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 22,
             max_width: 0,
             collapse_priority: 20,

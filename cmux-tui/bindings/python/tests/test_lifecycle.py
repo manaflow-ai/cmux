@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 import unittest
 from typing import Callable, Iterable
 
@@ -241,16 +240,17 @@ class LifecycleTests(unittest.TestCase):
             stream = client.subscribe()
             stream_ready.wait(1)
             outcome = []
+            read_started = threading.Event()
 
             def read() -> None:
                 try:
-                    next(stream)
+                    stream._next(before_wait=read_started.set)
                 except BaseException as error:
                     outcome.append(error)
 
             reader = threading.Thread(target=read)
             reader.start()
-            time.sleep(0.02)
+            self.assertTrue(read_started.wait(1), "stream reader did not start")
             client.close()
             reader.join(timeout=1)
 

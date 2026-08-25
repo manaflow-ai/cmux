@@ -64,7 +64,12 @@ public struct UpdatePopoverView: View {
                 NotFoundView(notFound: notFound, dismiss: dismiss)
 
             case .error(let error):
-                UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
+                UpdateErrorView(
+                    error: error,
+                    logPath: actions.updateLogPath,
+                    actions: actions,
+                    dismiss: dismiss
+                )
             }
         }
         .frame(width: 300)
