@@ -580,6 +580,104 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func contentEquivalentApplyKeepsPumpPaintedModelAndHeightInLockstep() async throws {
+        let workspace = Workspace()
+        let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
+        let pumpDescription = String(repeating: "live metadata ", count: 30)
+        let pumpModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: pumpDescription,
+            workspaceId: workspace.id
+        )
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: baseModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: baseModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: environment,
+            workspace: workspace,
+            rebuild: { pumpModel },
+            unreadRebuild: { _ in baseModel }
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        #expect(
+            cell.currentModelForMeasurement?.snapshot.customDescription
+                == pumpDescription
+        )
+
+        let pumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let authoritativeHeight = ceil(
+            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
+        )
+        #expect(pumpHeight > authoritativeHeight)
+
+        // The row configuration is intentionally identical. The apply must
+        // still reconcile the pump-painted cell and its matching height
+        // override atomically.
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let installedModel = try #require(cell.currentModelForMeasurement)
+        let expectedHeight = ceil(
+            cell.layoutContent(model: installedModel, width: cell.bounds.width, apply: false)
+        )
+        let servedHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let tableHeight = container.tableView.rect(ofRow: 0).height
+            - container.tableView.intercellSpacing.height
+        #expect(
+            abs(servedHeight - expectedHeight) < 0.5,
+            "The delegate height must match the model left installed after an authoritative apply."
+        )
+        #expect(
+            abs(tableHeight - expectedHeight) < 0.5,
+            "The AppKit row frame must match the model left installed after an authoritative apply."
+        )
+    }
+
+    @Test
+    @MainActor
     func widthMismatchedPumpOverrideIsRenotedWhenApplyReleasesIt() async throws {
         let workspace = Workspace()
         let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
