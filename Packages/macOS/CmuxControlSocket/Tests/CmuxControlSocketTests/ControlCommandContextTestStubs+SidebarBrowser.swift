@@ -9,7 +9,10 @@ import CmuxBrowser
 
 extension ControlBrowserPanelContext {
     func controlBrowserEngineStrings() -> ControlBrowserEngineStrings {
-        ControlBrowserEngineStrings(invalidOption: "invalid engine", browserOnly: "browser only")
+        ControlBrowserEngineStrings(
+            invalidOption: BrowserEngineKind.invalidOptionMessage,
+            browserOnly: BrowserEngineKind.browserOnlyOptionMessage
+        )
     }
 
     func controlBrowserPanelTabManagerAvailable() -> Bool { false }
