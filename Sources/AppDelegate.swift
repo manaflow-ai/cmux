@@ -5193,7 +5193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let recoveredDock = recoverableRoute?.takeWindowDock() {
                 registeredContext.adoptRecoveredWindowDock(recoveredDock)
             }
-            forgetRecoverableMainWindowRoute(windowId: windowId)
+            adoptRecoverableMainWindowRoute(windowId: windowId)
         }
         commandPaletteWindowStore.registerWindow(windowId)
 

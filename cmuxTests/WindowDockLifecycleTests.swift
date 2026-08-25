@@ -187,6 +187,19 @@ struct WindowDockLifecycleTests {
         )
     }
 
+    @Test("Finalized managers reject late session restoration")
+    @MainActor
+    func finalizedManagerRejectsLateSessionRestoration() {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let remaps = manager.restoreSessionSnapshot(snapshot)
+
+        #expect(remaps.isEmpty)
+        #expect(manager.tabs.isEmpty)
+    }
+
     @Test("Window Dock tears down on authoritative route removal")
     @MainActor
     func windowDockTearsDownOnAuthoritativeRouteRemoval() async throws {

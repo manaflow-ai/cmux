@@ -6395,6 +6395,7 @@ extension TabManager {
         excludingWorkspaceIds: Set<UUID> = [],
         workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
+        guard !isFinalizedForWindowClose else { return [] }
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
         defer { promptBatch.endRestorePass() }

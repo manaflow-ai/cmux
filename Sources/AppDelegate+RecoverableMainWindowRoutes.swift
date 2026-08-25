@@ -213,6 +213,26 @@ extension AppDelegate {
         }
     }
 
+    /// Adopts a recoverable route into a newly registered context without
+    /// tearing down the manager's live remote sessions or transferred Dock.
+    /// The caller must take the Dock before adoption; this method only removes
+    /// the temporary route owner registration.
+    func adoptRecoverableMainWindowRoute(windowId: UUID) {
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+              mainWindowRouteLedger.routesByWindowId[windowId] === route else {
+            return
+        }
+        mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId)
+        route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
+            for: route
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "recoverableRoute.adopt windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
+    }
+
     func retireRecoverableMainWindowRouteIfCurrent(
         _ route: RecoverableMainWindowRoute,
         reason: String
