@@ -1298,7 +1298,6 @@ func (c *Client) writeUntrackedStreamCancel(
 				Err:       io.ErrNoProgress,
 			}
 		}
-		encoded = encoded[count:]
 	}
 	return nil
 }
