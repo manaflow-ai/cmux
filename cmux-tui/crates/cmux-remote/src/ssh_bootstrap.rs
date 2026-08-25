@@ -231,7 +231,7 @@ impl SshBootstrapper {
         // this upload owns the staging directory. A failed or timed-out mkdir
         // is intentionally left untouched because ownership is unknown.
         self.create_remote_staging(parent, &temporary_dir).await?;
-        let command = upload_command(&parent, &temporary_dir, &temporary);
+        let command = upload_command(parent, &temporary_dir, &temporary);
         let output = match self.run_remote_with_input(&command, source).await {
             Ok(output) => output,
             Err(error) => {
