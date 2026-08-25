@@ -66,7 +66,7 @@ struct AgentLifecycleEventTests {
         fixture.workspace.remoteTerminalAttemptIDsBySurfaceId[fixture.surfaceID]
             = currentAttemptID
         let currentSessionID = "session#relay#\(terminalLifecycleID.uuidString)"
-            + "#\(currentAttemptID.uuidString)#43210"
+            + "#\(currentAttemptID.uuidString)#43210#123#456"
         let owner = ControlSidebarPanelOwner.workspace(fixture.workspace)
 
         #expect(owner.setAgentLifecycle(
@@ -78,7 +78,7 @@ struct AgentLifecycleEventTests {
         ))
 
         let staleSessionID = "session#relay#\(terminalLifecycleID.uuidString)"
-            + "#\(UUID().uuidString)#43100"
+            + "#\(UUID().uuidString)#43100#122#789"
         #expect(!owner.setAgentLifecycle(
             key: "codex",
             panelId: fixture.surfaceID,
