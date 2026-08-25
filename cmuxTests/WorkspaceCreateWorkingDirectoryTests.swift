@@ -173,7 +173,7 @@ import Testing
         let didBecomeReady = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await notification in readyNotifications {
-                    guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
+                    guard notification.userInfo?["workspaceId"] as? UUID == createdID else {
                         continue
                     }
                     return true
