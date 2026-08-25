@@ -47,6 +47,39 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().builtInKind(kind: "hermes-agent", sessionId: "SID", executablePath: nil, arguments: ["hermes"])
                 == ["hermes", "--resume", "SID"]
         )
+        let sessionFile = "/Users/example/.prime/agent/sessions/abcd.jsonl"
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: "prime-session-id",
+                executablePath: nil,
+                arguments: ["prime-agent", "--resume", sessionFile]
+            ) == ["prime-agent", "--resume", sessionFile]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: "prime-session-id",
+                executablePath: nil,
+                arguments: ["prime-agent", "--resume=\(sessionFile)", "--model", "prime-model"]
+            ) == ["prime-agent", "--resume", sessionFile, "--model", "prime-model"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: sessionFile,
+                executablePath: nil,
+                arguments: ["prime-agent"]
+            ) == ["prime-agent", "--resume", sessionFile]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: "prime-session-id",
+                executablePath: nil,
+                arguments: ["prime-agent"]
+            ) == nil
+        )
         #expect(
             AgentResumeArgv().builtInKind(kind: "opencode", sessionId: "SID", executablePath: nil, arguments: ["opencode"])
                 == ["opencode", "--session", "SID"]

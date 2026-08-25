@@ -1781,6 +1781,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["GROK_HOME": "/tmp/grok"]
             case .pi:
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
+            case .primeAgent:
+                resolvedEnvironment = ["PRIME_AGENT_CODING_AGENT_DIR": "/tmp/prime-agent"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
             case .cursor, .rovodev, .factory, .ollama, .custom:

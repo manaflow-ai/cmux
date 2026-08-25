@@ -375,4 +375,27 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             "A reused PID running the same agent binary for another session must refresh instead of forking stale state."
         )
     }
+
+    @Test
+    func primeAgentNodeProcessMatchesItsCodingAgentBundle() {
+        #expect(
+            CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/test/.prime/agent/prime-agent/packages/coding-agent/dist/bundle/cli.js",
+                    "--resume",
+                    "/Users/test/.prime/agent/sessions/session.jsonl",
+                ]
+            )
+        )
+        #expect(
+            !CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"]
+            )
+        )
+    }
 }

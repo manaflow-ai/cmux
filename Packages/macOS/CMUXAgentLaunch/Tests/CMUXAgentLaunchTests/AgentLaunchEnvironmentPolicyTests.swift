@@ -90,4 +90,21 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
+    @Test("Keeps the Prime Agent config roots for resumes")
+    func keepsPrimeAgentConfigDirectory() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "PRIME_AGENT_CODING_AGENT_DIR": "/tmp/prime-agent",
+                "PRIME_AGENT_CODING_AGENT_SESSION_DIR": "/tmp/prime-sessions",
+                "OPENAI_API_KEY": "secret-should-not-cross-restore",
+            ],
+            kind: "prime-agent"
+        )
+
+        #expect(selected == [
+            "PRIME_AGENT_CODING_AGENT_DIR": "/tmp/prime-agent",
+            "PRIME_AGENT_CODING_AGENT_SESSION_DIR": "/tmp/prime-sessions",
+        ])
+    }
 }

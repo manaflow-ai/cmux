@@ -7,6 +7,7 @@ struct AgentLaunchCaptureTrustTests {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "codex"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("Claude", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("pi", kind: "pi"))
+        #expect(AgentLaunchCaptureTrust.launcherDescribesKind("prime-agent", kind: "prime-agent"))
     }
 
     @Test func absentLauncherIsTrusted() {
@@ -28,6 +29,11 @@ struct AgentLaunchCaptureTrustTests {
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "claude"))
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "codex"))
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "codex"))
+        #expect(!AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            processName: "prime",
+            arguments: ["/usr/local/bin/prime", "--resume", "/tmp/session.jsonl"],
+            kind: "prime-agent"
+        ))
     }
 
     @Test func shellWrapperArgvDetection() {
