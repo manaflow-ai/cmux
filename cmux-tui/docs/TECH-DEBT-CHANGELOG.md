@@ -6,6 +6,22 @@ Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`38
 
 Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
 
+## Final aggregate tail
+
+| Commit | Change | Revert |
+| --- | --- | --- |
+| [`14abca2963`](https://github.com/manaflow-ai/cmux/commit/14abca2963) | Normal merge of the current `main` tip `835d046fed`. | `git revert -m 1 14abca2963` |
+| [`52c7ca4735`](https://github.com/manaflow-ai/cmux/commit/52c7ca4735) | Normalize standalone C1 DCS, SOS, and PM introducers while preserving UTF-8 continuation bytes. | `git revert 52c7ca4735` |
+| [`2c73791935`](https://github.com/manaflow-ai/cmux/commit/2c73791935) | Drain relay `git diff` stderr to completion while retaining a bounded diagnostic prefix. | `git revert 2c73791935` |
+| [`8196bb8300`](https://github.com/manaflow-ai/cmux/commit/8196bb8300) | Make stream cancellation CAS-based and retryable after failed serialization or writes. | `git revert 8196bb8300` |
+| [`551134c765`](https://github.com/manaflow-ai/cmux/commit/551134c765), [`909f4907e8`](https://github.com/manaflow-ai/cmux/commit/909f4907e8), [`d39cba3843`](https://github.com/manaflow-ai/cmux/commit/d39cba3843) | Use a private exclusive SSH staging directory, then clean it after probe and atomic move. | `git revert 551134c765 909f4907e8 d39cba3843` |
+| [`9ae4173935`](https://github.com/manaflow-ai/cmux/commit/9ae4173935) | Add behavior tests for selector depth, required targets, and name/public-ID resolution. | `git revert 9ae4173935` |
+| [`526b5b611d`](https://github.com/manaflow-ai/cmux/commit/526b5b611d) | Revalidate hosted workflow identity and require release dispatch acknowledgement. | `git revert 526b5b611d` |
+| [`387b4185f2`](https://github.com/manaflow-ai/cmux/commit/387b4185f2) | Keep presentation flags out of forwarded CLI payloads after the first positional command argument. | `git revert 387b4185f2` |
+| [`67cce86d41`](https://github.com/manaflow-ai/cmux/commit/67cce86d41) | Mark historical board sections and the current exact snapshot. | `git revert 67cce86d41` |
+
+Focused checks for this tail: `cargo fmt --check`, actionlint, Bash syntax, 67 package/security/installer Python tests, 109 Python binding tests plus 421 subtests, Go tests, Java checks, generated-binding checks, C++ unit/package tests, and Swift parser syntax. Rust behavior and hosted lifecycle proof remain required on the pushed exact head.
+
 ## New tail since `c599fa778e506574bddf12393d4a9bb91c4772e5`
 
 Exact-head additions: `e83f02532a0d7f41ba5c4befc294b948c35ab190` refuses Windows workspace reads; `164ebca49c32bd61e876ade399a0cc36c28ce281` and `0ab5cc7212bd3b92fa03b7c8f260496c0e642192` add the Rust 1.91 MSRV gate; `096ef9a1b8b30fe6f38de9bf656c1f33c577c9c5` tests the refusal; and `48ddd759dcfc2601ce761b076b42c9baf1f48725` preserves the custom stream factory with legacy fallback. Hosted verification and exact-head review remain pending. Revert each with `git revert <full-sha>`, keeping the Windows fix and test coupled.
