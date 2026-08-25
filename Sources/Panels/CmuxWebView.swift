@@ -683,25 +683,6 @@ final class CmuxWebView: WKWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: self) == true {
-            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
-                return finish(true)
-            }
-            let result = super.performKeyEquivalent(with: event)
-            guard !result,
-                  normalizedFlags.contains(.command),
-                  let window else {
-                return finish(result)
-            }
-            // WebKit declined the equivalent. Deliver one native keyDown before
-            // returning so AppKit's main menu cannot consume the captured chord.
-            _ = window.cmuxForceDispatchKeyDownOnce(
-                event,
-                to: self,
-                reason: "browser capture setting keyDown fallback"
-            )
-            return finish(true)
-        }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
@@ -731,6 +712,26 @@ final class CmuxWebView: WKWebView {
             case .consume:
                 return finish(true)
             }
+        }
+
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+                return finish(true)
+            }
+            let result = super.performKeyEquivalent(with: event)
+            guard !result,
+                  normalizedFlags.contains(.command),
+                  let window else {
+                return finish(result)
+            }
+            // WebKit declined the equivalent. Deliver one native keyDown before
+            // returning so AppKit's main menu cannot consume the captured chord.
+            _ = window.cmuxForceDispatchKeyDownOnce(
+                event,
+                to: self,
+                reason: "browser capture setting keyDown fallback"
+            )
+            return finish(true)
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
@@ -830,13 +831,6 @@ final class CmuxWebView: WKWebView {
 #endif
             return
         }
-        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: self) == true {
-#if DEBUG
-            route = "captureShortcutsWebView"
-#endif
-            forwardKeyDownToWebKit(event)
-            return
-        }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
@@ -857,6 +851,14 @@ final class CmuxWebView: WKWebView {
 #endif
                 return
             }
+        }
+
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
+#if DEBUG
+            route = "captureShortcutsWebView"
+#endif
+            forwardKeyDownToWebKit(event)
+            return
         }
 
         // An undo/redo chord reaching keyDown has already been offered to the

@@ -387,7 +387,7 @@ extension AppDelegate {
               let webView = shortcutOwningWebView(for: responder) as? CmuxWebView else {
             return nil
         }
-        guard shortcutBrowserPanel(webView: webView) != nil else { return nil }
+        guard isBrowserPanelWebView(webView) else { return nil }
         return webView
     }
 

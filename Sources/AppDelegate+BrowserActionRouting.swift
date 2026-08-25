@@ -3,6 +3,29 @@ import Bonsplit
 import WebKit
 
 extension AppDelegate {
+    /// Returns the owner installed by a browser panel on its navigation delegate.
+    /// This direct link is the fast path for responder routing; the collection
+    /// lookup below remains only as a recovery path while a web view is being
+    /// rebound or its delegate is temporarily unavailable.
+    func directBrowserPanelOwner(of webView: WKWebView) -> BrowserPanel? {
+        guard let navigationDelegate = webView.navigationDelegate as? BrowserNavigationDelegate,
+              let panel = navigationDelegate.owner,
+              panel.webView === webView else {
+            return nil
+        }
+        return panel
+    }
+
+    /// Whether a ``CmuxWebView`` belongs to an in-app browser panel.
+    ///
+    /// The navigation-delegate owner and portal context are both direct,
+    /// bounded ownership signals. They keep keyboard routing off the global
+    /// Dock/workspace scan used only for recovery and test setup.
+    func isBrowserPanelWebView(_ webView: CmuxWebView) -> Bool {
+        directBrowserPanelOwner(of: webView) != nil
+            || BrowserWindowPortalRegistry.paneDropContext(for: webView) != nil
+    }
+
     /// Resolves a browser panel by its globally unique panel identifier.
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         if let dock = DockSplitStore.liveStores.first(where: {
@@ -17,6 +40,10 @@ extension AppDelegate {
 
     /// Resolves the browser model that owns an AppKit web view.
     func browserPanel(owning webView: WKWebView) -> BrowserPanel? {
+        if let panel = directBrowserPanelOwner(of: webView) {
+            return panel
+        }
+
         if let context = BrowserWindowPortalRegistry.paneDropContext(
             for: webView
         ),

@@ -13547,16 +13547,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+        if browserFocusModePanelForShortcutEvent(event) != nil {
 #if DEBUG
-            cmuxDebugLog("browser.captureShortcuts.bypass \(debugShortcutRouteSnapshot(event: event))")
+            cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
 #endif
             return false
         }
 
-        if browserFocusModePanelForShortcutEvent(event) != nil {
+        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
 #if DEBUG
-            cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
+            cmuxDebugLog("browser.captureShortcuts.bypass \(debugShortcutRouteSnapshot(event: event))")
 #endif
             return false
         }
@@ -17220,39 +17220,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Whether the focused browser page has opted into receiving cmux's
-    /// keyboard shortcuts as ordinary web-page input.
-    func shouldCaptureBrowserKeyboardShortcuts(for webView: CmuxWebView) -> Bool {
-        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(),
-              browserPanelOwning(webView) != nil,
-              let window = webView.window,
-              !isCommandPaletteEffectivelyVisible(for: window),
-              NSApp.modalWindow == nil,
-              window.attachedSheet == nil,
-              let responder = window.firstResponder else {
-            return false
-        }
-        var current: NSResponder? = responder
-        while let candidate = current {
-            if candidate === webView {
-                return true
-            }
-            if let view = candidate as? NSView,
-               view.isDescendant(of: webView) {
-                return true
-            }
-            current = candidate.nextResponder
-        }
-        return false
-    }
-
-    /// Event-oriented companion used by the app and window routing layers.
-    /// Resolving from the responder chain keeps browser chrome (address/find
-    /// bars) under cmux control while a page owns the keyboard.
-    func shouldCaptureBrowserKeyboardShortcuts(for event: NSEvent) -> Bool {
+    /// keyboard shortcuts as ordinary web-page input. The app, window, and
+    /// web-view routing layers all use the same responder-chain resolver and
+    /// its bounded direct owner signal rather than scanning every Dock and
+    /// workspace.
+    func shouldCaptureBrowserKeyboardShortcuts(
+        for event: NSEvent,
+        webView expectedWebView: CmuxWebView? = nil
+    ) -> Bool {
         guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
             return false
         }
         guard let webView = shortcutEventBrowserWebView(event),
+              expectedWebView == nil || expectedWebView === webView,
               let window = webView.window,
               !isCommandPaletteEffectivelyVisible(for: window),
               NSApp.modalWindow == nil,
@@ -18217,7 +18197,10 @@ private extension NSWindow {
             return true
         }
         if let firstResponderWebView,
-           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: firstResponderWebView) == true {
+           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(
+               for: event,
+               webView: firstResponderWebView
+           ) == true {
             if cmuxBrowserWebKitKeyDownDispatchIsActive() {
                 return true
             }
