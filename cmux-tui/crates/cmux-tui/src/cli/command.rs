@@ -713,11 +713,7 @@ fn parse_screen_strings(
                 params.insert("confirm_close".into(), Value::Bool(true));
             }
             if let Some(token) = flags.take("confirmation-token") {
-                if token.is_empty() || token.len() > 128 {
-                    return Err(UsageError::new(
-                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
-                    ));
-                }
+                validate_bounded_text("--confirmation-token", &token)?;
                 params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
@@ -1606,9 +1602,7 @@ fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageE
         [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
     {
         let value = flags.required(flag)?;
-        if value.is_empty() || value.len() > 128 {
-            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
-        }
+        validate_bounded_text(&format!("--{flag}"), &value)?;
         params.insert(field.into(), Value::String(value));
     }
     if let Some(revision) = flags.take("expected-projection-revision") {
@@ -1737,6 +1731,16 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
         Err(UsageError::new("correlation key cannot be empty"))
     } else if value.len() > 128 {
         Err(UsageError::new("correlation key cannot exceed 128 UTF-8 bytes"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.is_empty() || value.len() > 128 {
+        Err(UsageError::new(format!(
+            "{flag} must contain 1 to 128 UTF-8 bytes"
+        )))
     } else {
         Ok(())
     }
@@ -2910,6 +2914,14 @@ mod tests {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
         assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
     }
 
     fn protocol(values: &[&str]) -> RequestPlan {
