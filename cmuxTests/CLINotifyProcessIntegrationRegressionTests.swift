@@ -144,7 +144,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             lastTitle: "Fix auth bug",
             lastNamedAt: lastNamedAt,
             lastAttemptAt: lastAttemptAt,
-            inFlightAt: nil
+            inFlightAt: nil,
+            agentLifecycle: "needsInput"
         )
 
         let compact = runClaudeHook(
@@ -159,6 +160,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+        XCTAssertEqual(
+            record["agentLifecycle"] as? String,
+            "needsInput",
+            "Compact SessionStart continues the existing lifecycle instead of resetting it to unknown"
+        )
 
         let retryServerHandled = startMockServer(
             listenerFD: context.listenerFD,
@@ -1973,6 +1979,137 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             autoNamingProbeRequestCount(in: secondStopCommands),
             1,
             "A settled manual workspace must not fork another detached auto-name worker"
+        )
+    }
+
+    func testCodexShortTranscriptUsesOneProgressMetricAcrossParentAndDetachedPass() throws {
+        let context = try makeClaudeHookContext(name: "codex-short-progress")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-short-progress-session"
+        let transcriptURL = context.root.appendingPathComponent("short-rollout.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"x"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":"y"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        startAgentHookMockServerAccepting(context: context)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 0
+            session["autoNameLastObservedLineCount"] = 0
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let firstDetachedProbe = expectation(description: "short-transcript detached auto-name probe")
+        let firstStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: firstDetachedProbe
+        )
+        let firstStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(firstStop.timedOut, firstStop.stderr)
+        XCTAssertEqual(firstStop.status, 0, firstStop.stderr)
+        wait(for: [firstDetachedProbe], timeout: 5)
+
+        let firstCommands = Array(context.state.snapshot().dropFirst(firstStart))
+        XCTAssertGreaterThanOrEqual(autoNamingProbeRequestCount(in: firstCommands), 2)
+
+        let unexpectedSecondDetachedProbe = expectation(description: "repeated short-transcript detached probe")
+        unexpectedSecondDetachedProbe.isInverted = true
+        let secondStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: unexpectedSecondDetachedProbe
+        )
+        let secondStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(secondStop.timedOut, secondStop.stderr)
+        XCTAssertEqual(secondStop.status, 0, secondStop.stderr)
+        wait(for: [unexpectedSecondDetachedProbe], timeout: 1)
+        let secondCommands = Array(context.state.snapshot().dropFirst(secondStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: secondCommands),
+            1,
+            "Parent and detached passes must agree on the short transcript progress metric"
+        )
+    }
+
+    func testCodexStopDoesNotSpawnAfterReconciliationExhaustion() throws {
+        let context = try makeClaudeHookContext(name: "codex-reconcile-exhausted")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-reconcile-exhausted-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-reconcile-exhausted.jsonl",
+            turnId: "turn-1"
+        )
+        startAgentHookMockServerAccepting(context: context)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 500
+            session["autoNameLastObservedLineCount"] = 500
+            session["autoNameTitleReconciliationAttemptCount"] = 4
+            session["autoNameTitleReconciliationGeneration"] = nil
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let unexpectedDetachedProbe = expectation(description: "exhausted reconciliation detached probe")
+        unexpectedDetachedProbe.isInverted = true
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: unexpectedDetachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [unexpectedDetachedProbe], timeout: 1)
+        let commands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: commands),
+            1,
+            "An exhausted reconciliation must not keep forking detached workers"
         )
     }
 
@@ -11072,7 +11209,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         inFlightAt: TimeInterval?,
         activeSessionId: String? = nil,
         activeAllowsNewSessionReplacement: Bool = false,
-        surfaceId: String? = nil
+        surfaceId: String? = nil,
+        agentLifecycle: String? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
         let resolvedSurfaceId = surfaceId ?? context.surfaceId
@@ -11097,6 +11235,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         if let inFlightAt {
             session["autoNameInFlightAt"] = inFlightAt
+        }
+        if let agentLifecycle {
+            session["agentLifecycle"] = agentLifecycle
         }
         var active: [String: Any] = [
             "sessionId": activeSessionId ?? sessionId,
@@ -11130,12 +11271,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func autoNamingGrowthMetric(_ transcriptURL: URL) throws -> Int {
-        let contents = try String(contentsOf: transcriptURL, encoding: .utf8)
-        let lineCount = contents.split(separator: "\n", omittingEmptySubsequences: false).count
         let size = try XCTUnwrap(
             try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.size] as? NSNumber
         ).intValue
-        return max(lineCount, size / 128)
+        return size / 128
     }
 
     private func autoNamingApplyRequests(in context: ClaudeHookContext) -> [[String: Any]] {
