@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -530,7 +531,11 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
+		logPersistentDaemonEvent(
+			stderr,
+			"ws_pty_attach_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
@@ -1236,10 +1241,26 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 
 	if superseded != nil {
 		superseded.closeNow()
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_detach",
+			"session_id", sessionID,
+			"attachment_id", superseded.id,
+			"reason", "superseded",
+		)
 	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_attach",
+		"session_id", sessionID,
+		"attachment_id", attachment.id,
+		"persistent", strconv.FormatBool(persistent),
+		"require_existing", strconv.FormatBool(requireExisting),
+		"replay_bytes", strconv.Itoa(attachment.replayBytes),
+	)
 	return attachment, attachmentCtx, sessionDone, nil
 }
 
@@ -1313,9 +1334,12 @@ func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, co
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
 		}
-		if h.stderr != nil {
-			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
-		}
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_start_fault",
+			"session_id", sessionID,
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		return nil, err
 	}
 	session := &wsPTYSession{
@@ -1532,6 +1556,13 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_detach",
+		"session_id", session.id,
+		"attachment_id", attachment.id,
+		"reason", "attachment_removed",
+	)
 	return true
 }
 
@@ -1634,6 +1665,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	if start := h.startingSessions[sessionKey]; start != nil {
 		start.closeRequested = true
 		h.mu.Unlock()
+		logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "starting")
 		return true
 	}
 	session := h.sessions[sessionKey]
@@ -1645,6 +1677,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	h.cancelIdleReapLocked(session)
 	session.closed = true
 	h.mu.Unlock()
+	logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "running")
 
 	session.terminateProcesses()
 	session.closePTYFiles()
@@ -1937,6 +1970,9 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) finishSession(session *wsPTYSession) {
+	// Record the exit before closing session.done so an attachment cannot
+	// observe pty.exit ahead of the corresponding persistent diagnostic.
+	logPersistentDaemonEvent(h.stderr, "pty_exit", "session_id", session.id)
 	session.closePTYFiles()
 
 	h.mu.Lock()
@@ -2141,7 +2177,12 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 		lastErr = fmt.Errorf("pty size remained %dx%d after resize to %dx%d", actual.Cols, actual.Rows, cols, rows)
 	}
 	if h.stderr != nil && lastErr != nil {
-		_, _ = fmt.Fprintf(h.stderr, "ws pty resize failed session=%s: %v\n", session.id, lastErr)
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_resize_fault",
+			"session_id", session.id,
+			"error_category", persistentDaemonErrorCategory(lastErr),
+		)
 	}
 	return false
 }

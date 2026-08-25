@@ -1653,14 +1653,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.plan_review.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "ExitPlanMode PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "ExitPlanMode PreToolUse must journal a plan-review request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "ExitPlanMode PreToolUse must not drive Running while blocked on plan approval, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1712,14 +1714,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1768,13 +1772,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input in every mode, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request in every mode, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -2178,12 +2184,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
-    // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
-    // session id; the forked session id is only minted at the first UserPromptSubmit.
-    // Without special handling the fork pane's SessionStart steals the parent record's
-    // surface binding, and the forked session's own hooks are dropped as stale by the
-    // per-workspace active-session gate, so a restart restores the parent conversation
-    // in the fork pane and the forked conversation is lost.
+    // `claude --resume <parent> --fork-session` reports the newly minted CHILD
+    // session id immediately in SessionStart. That payload, not the source id in
+    // launch argv, is the fork pane's authoritative identity.
 
     private func claudeForkLaunchEnvironment(
         context: ClaudeHookContext,
@@ -2426,11 +2429,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return result
     }
 
-    func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
+    func testClaudeForkSessionStartImmediatelyBindsChildWithoutMovingParent() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-start")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -2444,7 +2448,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -2454,8 +2458,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             parentRecord["surfaceId"] as? String,
             parentSurfaceId,
-            "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
+            "Fork SessionStart must not steal the parent record's owning surface"
         )
+        let childRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(childRecord["surfaceId"] as? String, context.surfaceId)
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(
+            resumeBindingRequests.count,
+            1,
+            "Fork SessionStart must publish exactly one resume binding (the child's), never one for the parent surface"
+        )
+        XCTAssertEqual(resumeBindingRequests.last?["checkpoint_id"] as? String, childSessionId)
+        XCTAssertEqual(resumeBindingRequests.last?["surface_id"] as? String, context.surfaceId)
     }
 
     func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
@@ -2463,6 +2483,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -2473,9 +2494,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         // No surface identity: resolution falls back to the focused surface,
-        // which is some other pane. The fork's PID must not be registered
-        // there — the matching SessionEnd cleanup only clears authoritative
-        // surfaces, so a fallback registration would never be cleared.
+        // which is some other pane. SessionStart must fail closed rather than
+        // assigning the child identity or PID to that borrowed pane.
         var environment = claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         environment["CMUX_SURFACE_ID"] = ""
         environment["CMUX_CLAUDE_PID"] = "12345"
@@ -2483,7 +2503,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: environment
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -2493,13 +2513,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
         )
+        XCTAssertThrowsError(try readClaudeHookSession(childSessionId, context: context))
     }
 
-    func testClaudeForkSessionStartRecognizesEqualsFlagForm() throws {
+    func testClaudeForkSessionStartUsesPayloadIdentityWithEqualsFlagForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-equals-form")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -2513,7 +2535,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: agentLaunchEnvironment(
                 context: context,
                 kind: "claude",
@@ -2524,11 +2546,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        let childRecord = try readClaudeHookSession(childSessionId, context: context)
         XCTAssertEqual(
-            parentRecord["surfaceId"] as? String,
-            parentSurfaceId,
-            "Fork detection must recognize the --fork-session=true flag form the launch sanitizer already accepts"
+            childRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "The SessionStart payload must own identity even when the source launch uses --fork-session=true"
+        )
+        XCTAssertEqual(
+            try readClaudeHookSession(parentSessionId, context: context)["surfaceId"] as? String,
+            parentSurfaceId
         )
     }
 
@@ -2665,11 +2691,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
     }
 
-    func testClaudeForkSessionEndBeforeFirstPromptDoesNotConsumeParentSession() throws {
+    func testClaudeForkSessionEndBeforeFirstPromptConsumesChildNotParent() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-end")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -2679,13 +2706,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             activeTurnId: nil
         )
 
-        // Exiting a fork pane before its first prompt fires SessionEnd with the
-        // PARENT session id (the forked id is only minted at the first prompt).
+        let start = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        // Exiting before the first prompt still reports the already-minted
+        // child id. Cleanup must consume only that fork surface's session.
         let result = runClaudeHookListingSurfaces(
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
             extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -2695,7 +2732,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             parentRecord["surfaceId"] as? String,
             parentSurfaceId,
-            "A pre-prompt fork exit must not consume the parent session record the original pane still owns"
+            "A pre-prompt fork exit must not consume the parent session record"
         )
         let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -2704,10 +2741,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
-        XCTAssertTrue(
-            resumeClearRequests.isEmpty,
-            "A pre-prompt fork exit must not clear the parent pane's resume binding, saw \(resumeClearRequests)"
+        XCTAssertEqual(
+            resumeClearRequests.count,
+            1,
+            "A pre-prompt fork exit must clear exactly one resume binding (the child's), never the parent's"
         )
+        XCTAssertEqual(resumeClearRequests.last?["checkpoint_id"] as? String, childSessionId)
+        XCTAssertEqual(resumeClearRequests.last?["surface_id"] as? String, context.surfaceId)
         XCTAssertTrue(
             context.state.commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
@@ -3407,11 +3447,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
         XCTAssertTrue(
-            notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: notificationCommands).contains { capture in
+                capture.kind == "agent.approval.requested"
+                    && capture.agentKey == "codex"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
+            "Notification requiring user input must journal a needs-input approval request, saw \(notificationCommands)"
         )
 
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
@@ -3459,9 +3501,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
         let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
-        XCTAssertFalse(
-            staleStopCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale Stop from an older session must not mark the surface idle, saw \(staleStopCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleStopCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale Stop journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleStopCommands)"
         )
         XCTAssertFalse(
             staleStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -3519,9 +3566,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleNotification.status, 0, staleNotification.stderr)
 
         let staleNotificationCommands = Array(context.state.commands.dropFirst(staleNotificationStart))
-        XCTAssertFalse(
-            staleNotificationCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale idle notification must not mark the newer session idle, saw \(staleNotificationCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleNotificationCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale idle notification journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleNotificationCommands)"
         )
         XCTAssertFalse(
             staleNotificationCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -5261,7 +5313,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             line: line
         )
         XCTAssertTrue(
-            script.contains("case \"$cmux_ssh_status\" in 254|255"),
+            script.contains("case \"$cmux_ssh_status\" in 254)")
+                && script.contains(
+                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
+                )
+                && script.contains("*) break ;; esac; fi"),
             script,
             file: file,
             line: line
@@ -5774,6 +5830,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "workspace.remote.pty_bridge",
                 "workspace.remote.pty_resize",
                 "workspace.remote.pty_sessions",
+                "workspace.remote.pty_sessions",
                 "workspace.remote.pty_attach_end",
             ]
         )
@@ -5874,7 +5931,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions"])
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_resize",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_sessions",
+        ])
     }
 
     func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
@@ -5887,6 +5949,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let surfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
         let token = "bridge-token"
+        let resizeObserved = DispatchSemaphore(value: 0)
+        let readinessObserved = DispatchSemaphore(value: 0)
 
         defer {
             Darwin.close(listenerFD)
@@ -5920,6 +5984,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                resizeObserved.signal()
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.terminal_session_connected":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -5930,6 +5995,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertNotNil(
                     (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
                 )
+                readinessObserved.signal()
                 return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
@@ -5962,7 +6028,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(listenerFD: bridge.fd)
+        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(
+            listenerFD: bridge.fd,
+            waitBeforeClientEOF: [resizeObserved, readinessObserved]
+        )
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -5992,6 +6061,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             [
                 "workspace.remote.pty_bridge",
                 "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
                 "workspace.remote.pty_sessions",
                 "workspace.remote.pty_attach_end",
             ]
@@ -6430,7 +6500,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
-        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 2)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
     }
 
@@ -6643,7 +6713,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("251|254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
+            let retryStatuses = ["251)", "252)", "254)", "255)"]
+            XCTAssertTrue(
+                retryStatuses.allSatisfy { initialCommand.contains($0) }
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS")
+                    && !initialCommand.contains("∞")
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_LIMIT"),
+                initialCommand
+            )
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
@@ -7299,7 +7376,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
-        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
     }
 
     func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {

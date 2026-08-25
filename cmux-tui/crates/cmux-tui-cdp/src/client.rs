@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
+use tungstenite::http::HeaderValue;
+use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 /// Maximum number of pending events in each bounded CDP event queue.
@@ -532,6 +534,14 @@ enum Outbound {
 
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
+        Self::connect_with_bearer(web_socket_url, None, events)
+    }
+
+    pub fn connect_with_bearer(
+        web_socket_url: &str,
+        bearer_token: Option<&str>,
+        events: SyncSender<CdpEvent>,
+    ) -> anyhow::Result<Self> {
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
@@ -541,7 +551,12 @@ impl CdpClient {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = web_socket_url.into_client_request()?;
+        let mut request = web_socket_url.into_client_request()?;
+        if let Some(token) = bearer_token {
+            let value = HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|error| anyhow::anyhow!("invalid CDP bearer token: {error}"))?;
+            request.headers_mut().insert(AUTHORIZATION, value);
+        }
         let (ws, _) = client(request, stream)?;
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
@@ -741,6 +756,19 @@ impl CdpClient {
             "id": id,
             "method": "Target.closeTarget",
             "params": { "targetId": target_id },
+        });
+        self.send_value(&msg)
+    }
+
+    /// Release one flattened target session without closing the page it
+    /// belongs to. Provider-owned browser tabs outlive cmux-tui renderers, so
+    /// their teardown must detach instead of sending `Target.closeTarget`.
+    pub fn detach_from_target_detached(&self, session_id: &str) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Target.detachFromTarget",
+            "params": { "sessionId": session_id },
         });
         self.send_value(&msg)
     }
@@ -2014,7 +2042,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use tungstenite::{Message, accept};
+    use tungstenite::{Message, accept, accept_hdr};
 
     use super::*;
 
@@ -2034,6 +2062,45 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn bearer_auth_is_sent_on_the_websocket_upgrade() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (header_tx, header_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let _ws = accept_hdr(
+                stream,
+                |request: &tungstenite::handshake::server::Request, response| {
+                    header_tx
+                        .send(
+                            request
+                                .headers()
+                                .get(AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(str::to_string),
+                        )
+                        .unwrap();
+                    Ok(response)
+                },
+            )
+            .unwrap();
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let _client = CdpClient::connect_with_bearer(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            Some("test-secret"),
+            event_tx,
+        )
+        .unwrap();
+        assert_eq!(
+            header_rx.recv_timeout(Duration::from_secs(1)).unwrap().as_deref(),
+            Some("Bearer test-secret")
+        );
+        server.join().unwrap();
     }
 
     #[test]

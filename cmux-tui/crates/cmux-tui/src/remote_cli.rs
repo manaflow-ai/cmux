@@ -53,6 +53,7 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
     "connect",
     "ssh",
     "forward",
@@ -81,7 +82,7 @@ pub fn run(args: &[String], usage: &str) -> i32 {
     match run_inner(args, usage) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
             1
         }
     }
@@ -104,6 +105,7 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
+        Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
@@ -190,6 +192,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
+        Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
 }
@@ -2109,7 +2112,10 @@ fn ensure_daemon(
         return Ok(());
     }
 
-    let executable = std::env::current_exe()?;
+    // Spawn the daemon from this client's own running build (open inode on
+    // Linux) so an in-place binary upgrade cannot leave a long-lived client
+    // exec'ing a "(deleted)" path, and daemon/client builds never skew.
+    let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)
@@ -3548,6 +3554,42 @@ mod tests {
             AdminRequest::Shutdown,
             "legacy runtime metadata must retain its compatible shutdown request"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_refuses_embedded_server_with_canonical_owner_command() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "embedded-owner";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(
+            state_dir.join("runtime.json"),
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir,
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "embedded-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("embedded-lifecycle".into()),
+                replaceable_sidecar: false,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("remote stop terminated an embedded server");
+
+        assert!(error.to_string().contains("cmux server stop"), "{error:#}");
+        assert!(error.to_string().contains("SSH"), "{error:#}");
     }
 
     #[cfg(unix)]

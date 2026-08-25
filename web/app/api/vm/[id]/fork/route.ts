@@ -22,6 +22,7 @@ import {
 } from "../../../../../services/vms/entitlements";
 import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 
 
 export async function POST(
@@ -44,7 +45,12 @@ export async function POST(
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        const refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        let refreshedUser: AuthedUser | null;
+        try {
+          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        } catch (error) {
+          return authProviderErrorResponse(error, "/api/vm.fork.team-auth");
+        }
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }

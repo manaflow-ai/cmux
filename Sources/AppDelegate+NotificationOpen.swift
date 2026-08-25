@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import Foundation
 
 @MainActor
@@ -32,6 +33,14 @@ extension AppDelegate {
             } else {
                 tabId = owner.tabID
                 surfaceId = owner.surfaceID
+                if let dock = owner.windowDock {
+                    return openNotificationInWindowDock(
+                        dock,
+                        surfaceId: owner.surfaceID,
+                        notificationId: notificationId,
+                        scrollPosition: scrollPosition
+                    )
+                }
             }
         }
 #if DEBUG
@@ -83,6 +92,41 @@ extension AppDelegate {
             notificationId: notificationId,
             scrollPosition: scrollPosition
         )
+    }
+
+    private func openNotificationInWindowDock(
+        _ dock: DockSplitStore,
+        surfaceId: UUID,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
+    ) -> Bool {
+        let target = WindowDockUnreadTarget(
+            windowId: dock.workspaceId,
+            surfaceId: surfaceId
+        )
+        guard openWindowDockUnread(target) else { return false }
+
+        // Match direct workspace/Dock interaction: revealing a surface clears
+        // every unread indicator attached to that exact destination. The id
+        // clear also covers a trusted notification whose surface moved before
+        // its namespace was rebound.
+        notificationStore?.markRead(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        notificationStore?.clearFocusedReadIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        if let notificationId {
+            notificationStore?.markRead(id: notificationId)
+        }
+        restoreWindowDockNotificationScrollPosition(
+            scrollPosition,
+            dock: dock,
+            panelId: target.surfaceId
+        )
+        return true
     }
 
     func openNotificationInContext(

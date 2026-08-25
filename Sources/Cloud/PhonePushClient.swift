@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxPhonePush
 import Foundation
 import Observation
 import OSLog
@@ -250,6 +251,7 @@ final class PhonePushClient {
         let payload = PhonePushPayload(
             notification: notification,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             badgeCount: badgeCount,
             hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
         )
@@ -278,6 +280,7 @@ final class PhonePushClient {
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             notificationId: nil,
             notificationIds: [],
             badgeCount: badgeCount,
@@ -305,6 +308,10 @@ final class PhonePushClient {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
+        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
+            .pushTargetNamespace?.bundleIdentifier else {
+            return .encodingFailed
+        }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -318,7 +325,8 @@ final class PhonePushClient {
                 expirationEpochSeconds:
                     clock.nowEpochSeconds + Self.eventTTLSeconds,
                 expectedAccountID: identity.accountID,
-                expectedSessionGeneration: identity.generation
+                expectedSessionGeneration: identity.generation,
+                targetBundleIdentifier: targetBundleIdentifier
             )
         } catch {
             logQueueStage(
@@ -337,7 +345,9 @@ final class PhonePushClient {
     func forwardDismissed(ids: [String], badgeCount: Int) {
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
-              let identity = auth?.authenticatedSessionIdentity else { return }
+              let identity = auth?.authenticatedSessionIdentity,
+              let targetBundleIdentifier = MobileIOSPairingTargetStore()
+                  .pushTargetNamespace?.bundleIdentifier else { return }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -357,7 +367,8 @@ final class PhonePushClient {
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
-                macDeviceId: nil,
+                macDeviceId: MobileHostIdentity.deviceID(),
+                macInstanceTag: MobileHostIdentity.instanceTag(),
                 notificationId: nil,
                 notificationIds: Array(ids[start..<end]),
                 badgeCount: badgeCount,
@@ -372,7 +383,8 @@ final class PhonePushClient {
                     expirationEpochSeconds:
                         clock.nowEpochSeconds + Self.eventTTLSeconds,
                     expectedAccountID: identity.accountID,
-                    expectedSessionGeneration: identity.generation
+                    expectedSessionGeneration: identity.generation,
+                    targetBundleIdentifier: targetBundleIdentifier
                 )
             } catch {
                 logQueueStage(
@@ -690,6 +702,10 @@ final class PhonePushClient {
         guard current, accountMatches, generationMatches else {
             return (.staleSession, nil)
         }
+        guard let targetBundleIdentifier = envelope.targetBundleIdentifier,
+              !targetBundleIdentifier.isEmpty else {
+            return (.invalidResponse, nil)
+        }
         guard let url = pushURL() else { return (.invalidResponse, nil) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -702,6 +718,10 @@ final class PhonePushClient {
         request.setValue(
             sessionSnapshot.refreshToken,
             forHTTPHeaderField: "X-Stack-Refresh-Token"
+        )
+        request.setValue(
+            targetBundleIdentifier,
+            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
         )
         // Intentionally omit X-Cmux-Team-Id. The push route fans out by the
         // authenticated Stack user id, so a team-picker change cannot retarget
