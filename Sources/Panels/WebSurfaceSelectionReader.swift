@@ -73,16 +73,27 @@ nonisolated struct WebSurfaceSelectionReader {
         return empty();
       };
 
+      const locationForDocument = (sourceDocument) => {
+        try {
+          const href = sourceDocument?.location?.href;
+          return typeof href === 'string' && href.length > 0 ? href : null;
+        } catch (_) {
+          return null;
+        }
+      };
       let retainedSelection = empty();
       let retainedDocument = null;
+      let retainedLocation = null;
       const clear = (sourceDocument = null) => {
         if (sourceDocument && retainedDocument !== sourceDocument) return;
         retainedSelection = empty();
         retainedDocument = null;
+        retainedLocation = null;
       };
       const retain = (live) => {
         retainedSelection = selected(live.text);
         retainedDocument = live.source_document || null;
+        retainedLocation = locationForDocument(retainedDocument);
       };
       const capture = (targetWindow, clearWhenEmpty = false) => {
         const live = readLiveSelection(targetWindow);
@@ -97,7 +108,25 @@ nonisolated struct WebSurfaceSelectionReader {
       // Socket reads are observers. Re-querying WebKit here would create a
       // second mutation path that can erase the event-owned snapshot after
       // native focus moves to a neighboring surface.
-      const read = () => retainedSelection;
+      const read = () => {
+        if (retainedDocument && retainedLocation !== null) {
+          const currentLocation = locationForDocument(retainedDocument);
+          if (currentLocation !== null && currentLocation !== retainedLocation) {
+            clear(retainedDocument);
+          }
+        }
+        return retainedSelection;
+      };
+
+      const clearIfDetachedFrame = () => {
+        if (!retainedDocument || retainedDocument === document) return;
+        try {
+          const frame = retainedDocument.defaultView?.frameElement;
+          if (!frame || !frame.isConnected) clear();
+        } catch (_) {
+          clear();
+        }
+      };
 
       const trackedDocuments = new WeakSet();
       const documentObservers = new WeakMap();
@@ -151,6 +180,10 @@ nonisolated struct WebSurfaceSelectionReader {
         }, true);
         targetDocument.addEventListener('focusin', captureDocument, true);
         targetDocument.addEventListener('input', reconcileInput, true);
+        const invalidateForNavigation = () => clear(targetDocument);
+        targetDocument.defaultView?.addEventListener('hashchange', invalidateForNavigation, true);
+        targetDocument.defaultView?.addEventListener('popstate', invalidateForNavigation, true);
+        targetDocument.defaultView?.addEventListener('pagehide', invalidateForNavigation, true);
         targetDocument.addEventListener('load', (event) => {
           const target = event?.target;
           const tag = String(target?.tagName || '').toLowerCase();
@@ -165,11 +198,22 @@ nonisolated struct WebSurfaceSelectionReader {
         }, { once: true });
         scanFrames(targetDocument);
         const observer = new MutationObserver((records) => {
+          if (records.length > 0) {
+            if (retainedDocument === targetDocument) {
+              clear(targetDocument);
+            } else {
+              clearIfDetachedFrame();
+            }
+          }
           for (const record of records) {
             for (const node of record.addedNodes || []) scanFrames(node);
           }
         });
-        observer.observe(targetDocument, { childList: true, subtree: true });
+        observer.observe(targetDocument, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
         documentObservers.set(targetDocument, observer);
 
         const targetWindow = targetDocument.defaultView;

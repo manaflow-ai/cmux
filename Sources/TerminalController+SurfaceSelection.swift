@@ -66,7 +66,6 @@ extension TerminalController {
             ))
         }
 
-        v2RefreshKnownRefs()
         let params = typedParams.mapValues(\.foundationObject)
         let selectorKeys = [
             "window_id",
@@ -77,6 +76,20 @@ extension TerminalController {
             "tab_id",
             "pane_id",
         ]
+        // UUID selectors are self-contained. Refresh the registry only when a
+        // caller supplied an opaque ref that needs resolving; a focused or
+        // UUID-routed read should not sweep the entire app topology first.
+        let hasOpaqueSelector = selectorKeys.contains { key in
+            guard v2HasNonNullParam(params, key),
+                  let raw = params[key] as? String else {
+                return false
+            }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.isEmpty && UUID(uuidString: trimmed) == nil
+        }
+        if hasOpaqueSelector {
+            v2RefreshKnownRefs()
+        }
         if let invalidSelector = selectorKeys.first(where: {
             v2HasNonNullParam(params, $0) && v2UUID(params, $0) == nil
         }) {
