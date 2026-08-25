@@ -109,6 +109,41 @@ enum MachineSnapshotBuilder {
         return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
     }
 
+    /// The next instant at which a machine's free-access presentation changes:
+    /// each day-boundary where the "N days left" label decrements, and finally
+    /// the expiry itself. Nil once expired (or when no window applies) — there
+    /// is nothing left to wait for. Expiry is a *known future timestamp*, so
+    /// the panel arms a one-shot timer at exactly this instant instead of
+    /// discovering the transition on a poll sweep.
+    static func nextFreeAccessTransition(
+        createdAt: Date?,
+        windowDays: Int,
+        now: Date = Date()
+    ) -> Date? {
+        guard windowDays > 0, let createdAt else { return nil }
+        let expiry = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400)
+        let remaining = expiry.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+        let daysLeft = Int((remaining / 86_400).rounded(.up))
+        // The label decrements when remaining crosses (daysLeft - 1) whole days;
+        // for the final day that crossing IS the expiry.
+        return expiry.addingTimeInterval(-TimeInterval(daysLeft - 1) * 86_400)
+    }
+
+    /// Recomputes only the free-access facet of existing snapshots against a
+    /// fresh clock — no network, stats and identity preserved.
+    static func applyingFreeAccess(
+        to snapshots: [MachineSnapshot],
+        windowDays: Int,
+        now: Date = Date()
+    ) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            var next = snapshot
+            next.freeAccess = freeAccessState(createdAt: snapshot.createdAt, windowDays: windowDays, now: now)
+            return next
+        }
+    }
+
     static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
         switch status.lowercased() {
         case "running", "ready", "standby", "paused":
@@ -158,6 +193,12 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    /// One-shot timer armed at the exact next free-access transition (a
+    /// countdown day-boundary or an expiry). Expiry is client-computable from
+    /// createdAt + window, so rows flip at the boundary itself — scheduling,
+    /// not polling; the slow poll only covers changes made elsewhere.
+    private var freeAccessTransitionTask: Task<Void, Never>?
+    private var freeAccessWindowDays = 0
     private var authSignOutObserver: NSObjectProtocol?
     private static let statsInterval: Duration = .seconds(20)
 
@@ -231,6 +272,30 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+    }
+
+    /// Sleeps until the earliest upcoming transition across the fleet, then
+    /// recomputes the free-access facet locally and re-arms for the next one.
+    private func scheduleFreeAccessTransition(now: Date = Date()) {
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+        guard freeAccessWindowDays > 0 else { return }
+        let windowDays = freeAccessWindowDays
+        let next = machines
+            .compactMap { MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: $0.createdAt, windowDays: windowDays, now: now) }
+            .min()
+        guard let next else { return }
+        // A hair past the boundary so the recompute lands on the new side.
+        let delay = max(next.timeIntervalSince(now), 0) + 0.5
+        freeAccessTransitionTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            let now = Date()
+            self.machines = MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now)
+            self.scheduleFreeAccessTransition(now: now)
+        }
     }
 
     /// Drop every locally cached machine and in-flight sample when auth ends.
@@ -242,6 +307,9 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTask = nil
         statsTask?.cancel()
         statsTask = nil
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+        freeAccessWindowDays = 0
         machines = []
         plan = nil
         activeOperation = nil
@@ -259,6 +327,7 @@ final class MachinesPanelViewModel: ObservableObject {
             let page = try await client.listPage()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
+            self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
                 MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: freeAccessWindowDays)
             }
@@ -266,6 +335,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
             machines = snapshots
+            scheduleFreeAccessTransition()
             refreshStats()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
             lastErrorDescription = nil

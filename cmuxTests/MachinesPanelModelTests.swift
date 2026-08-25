@@ -168,6 +168,66 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
+    func testNextFreeAccessTransitionIsTheExactBoundary() {
+        let created = Date(timeIntervalSince1970: 1_787_400_000)
+        let day: TimeInterval = 86_400
+
+        // Fresh machine: the first label decrement is one day in.
+        XCTAssertEqual(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: created, windowDays: 5, now: created.addingTimeInterval(1)),
+            created.addingTimeInterval(day)
+        )
+        // Mid-window: next transition is the next whole-day crossing.
+        XCTAssertEqual(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: created, windowDays: 5, now: created.addingTimeInterval(3.5 * day)),
+            created.addingTimeInterval(4 * day)
+        )
+        // Final day: the next transition IS the expiry.
+        XCTAssertEqual(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: created, windowDays: 5, now: created.addingTimeInterval(4.5 * day)),
+            created.addingTimeInterval(5 * day)
+        )
+        // Expired or unwindowed: nothing left to wait for.
+        XCTAssertNil(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: created, windowDays: 5, now: created.addingTimeInterval(6 * day))
+        )
+        XCTAssertNil(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: created, windowDays: 0, now: created)
+        )
+        XCTAssertNil(
+            MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: nil, windowDays: 5, now: created)
+        )
+    }
+
+    func testApplyingFreeAccessRecomputesOnlyThatFacet() {
+        let created = 1_787_400_000_000
+        let summary = VMSummary(
+            id: "noble-wren",
+            provider: "blaxel",
+            status: "running",
+            image: "blaxel/xfce-vnc:latest",
+            createdAt: created,
+            base: nil
+        )
+        let createdDate = Date(timeIntervalSince1970: TimeInterval(created) / 1000)
+        let before = MachineSnapshotBuilder.snapshot(
+            from: summary,
+            freeAccessWindowDays: 5,
+            now: createdDate.addingTimeInterval(4.9 * 86_400)
+        )
+        XCTAssertEqual(before.freeAccess, .active(daysLeft: 1))
+
+        let after = MachineSnapshotBuilder.applyingFreeAccess(
+            to: [before],
+            windowDays: 5,
+            now: createdDate.addingTimeInterval(5 * 86_400 + 1)
+        )
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after[0].freeAccess, .expired)
+        XCTAssertEqual(after[0].id, before.id)
+        XCTAssertEqual(after[0].stats, before.stats)
+    }
+
     func testSnapshotCarriesFreeAccessState() {
         let created = 1_787_400_000_000
         let summary = VMSummary(
