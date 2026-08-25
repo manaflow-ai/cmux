@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Correction: exact aggregate HEAD is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`, 747 commits ahead of `origin/main` at this audit. Current hosted status is tracked in `PR-INTENT-BOARD.md`; do not claim review or hosted green.
+Correction: exact aggregate HEAD is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`, 747 commits ahead of `origin/main` at this audit. Current hosted status is tracked in `PR-INTENT-BOARD.md`; do not claim review or hosted green. The aggregate is not yet pushed as a new exact-head PR.
 
 Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`387b4185f28e8baf040207f3e7ec9ffb50f3b53b`](https://github.com/manaflow-ai/cmux/commit/387b4185f28e8baf040207f3e7ec9ffb50f3b53b). The code branch is 747 commits ahead of `origin/main` before this documentation update. This update records workflow/CLI selector fixes and the main merge; earlier tip details remain historical.
 

@@ -10,6 +10,10 @@ Current exact aggregate tip is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`,
 Exact worktree HEAD at audit time: `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`.
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
+Current-snapshot rule: the facts above and the final-tail notes below are the
+only live state in this document. Older sections preserve prior audit snapshots
+for revert history. Treat their SHAs, ahead counts, PR heads, and review status
+as historical unless they match this snapshot.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
 safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
@@ -37,7 +41,10 @@ The 25-file relay/TUI integration merge is `05c0b30277`. The latest code tail
 also includes exact socket-parent matching, bounded workspace reads, watcher
 sink termination, cross-language fallback correction, Windows dependency
 declarations, path-error classification, shell and preview task ownership,
-and clippy cleanup through `17413db11cc0ebb7b0b5c254447cede3faaad0cf`.
+and clippy cleanup through the earlier aggregate tail, followed by the current
+main merge, C1 parser normalization, relay stderr draining, cancellation retry
+state, private SSH staging, selector tests, workflow identity checks, and CLI
+payload-scope parsing.
 
 Latest wave follow-ups are recorded in the changelog. The prior exact-head
 autoreview found three relay retention issues, now fixed in the latest tail;
@@ -55,7 +62,7 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `17413db11cc0ebb7b0b5c254447cede3faaad0cf`. It carries the watch compatibility,
+The latest code tail is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
