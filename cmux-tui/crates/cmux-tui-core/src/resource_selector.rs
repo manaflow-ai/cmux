@@ -1134,6 +1134,6 @@ mod tests {
         let mismatch =
             resolve_singleton("session", &format!("name:{public_id}"), &public_id, Some("dev"), Ok)
                 .expect_err("public id must not match as a name");
-        assert!(mismatch.to_string().contains("not found"));
+        assert_eq!(mismatch.code, "selector.not_found");
     }
 }
