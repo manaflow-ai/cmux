@@ -449,6 +449,55 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Revalidates cached process generations without re-reading hook stores.
+    ///
+    /// Sidebar liveness uses this bounded path between full index TTL reloads,
+    /// so an agent that exits without a hook event cannot remain confidently
+    /// running. All process inspection stays off the main actor.
+    func refreshCachedProcessLivenessForSidebar() {
+        ensureWatchingHookStoreDirectory()
+        guard let cachedIndex = index else {
+            scheduleRefreshIfStale()
+            return
+        }
+        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
+
+        let previousFingerprint = liveAgentProcessFingerprint
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let refreshed = await Task.detached(priority: .utility) {
+                let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+                return cachedIndex.revalidatingCachedProcesses(against: processSnapshot)
+            }.value
+            guard !Task.isCancelled else {
+                self.refreshTask = nil
+                return
+            }
+            let nextFingerprint = refreshed.liveAgentProcessFingerprint()
+            let changedPanelIdsByWorkspaceId = RestorableAgentSessionIndexChangeSet(
+                previous: previousFingerprint,
+                current: nextFingerprint
+            ).panelIdsByWorkspaceId
+            self.applyReloadedIndex(
+                refreshed,
+                loadedAt: self.dateProvider(),
+                liveAgentProcessFingerprint: nextFingerprint,
+                processScopeFingerprint: self.processScopeFingerprint,
+                forkValidatedPanels: self.validatedForkPanels
+            )
+            self.refreshTask = nil
+            if !changedPanelIdsByWorkspaceId.isEmpty {
+                self.postSharedLiveAgentIndexDidChange(
+                    panelIdsByWorkspaceId: changedPanelIdsByWorkspaceId
+                )
+            }
+            if self.changePending {
+                self.changePending = false
+                self.handleHookStoreChange()
+            }
+        }
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false

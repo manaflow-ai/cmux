@@ -11542,6 +11542,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .background(alignment: .topLeading) {
             if isPresented,
+               renderContext.showsAgentActivity,
                CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
                    effectiveProviderId: effectiveExtensionSidebarProviderId
                ) {
@@ -11639,11 +11640,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
             // The shared index is event-driven, but a crashed agent may emit
             // no hook-store event. Keep one lifecycle-owned freshness lease;
-            // the cache TTL gate makes these checks cheap and notifications
-            // still carry the affected panel scope. AppKit rows receive the
-            // keyed cache refresh without a full workspace projection.
+            // the lightweight process-generation revalidation stays off-main
+            // and notifications still carry the affected panel scope. AppKit
+            // rows receive the keyed cache refresh without a full projection.
             while !Task.isCancelled {
-                _ = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                SharedLiveAgentIndex.shared.refreshCachedProcessLivenessForSidebar()
                 do {
                     try await ContinuousClock().sleep(for: .seconds(15))
                 } catch {
