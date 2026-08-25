@@ -7,6 +7,7 @@ struct BrowserExternalURLPolicyTests {
         ("example.com", "https://example.com/", true),
         ("example.com", "https://EXAMPLE.COM/", true),
         (".*example\\.com.*", "https://example.com/", true),
+        ("*example.*", "https://example.com/", true),
         ("https://example\\.com/.*", "https://example.com/path", true),
         ("*example.com*", "https://sub.example.com/path", true),
         ("http*://example.com/*", "https://example.com/path", true),

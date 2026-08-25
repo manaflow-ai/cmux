@@ -94,7 +94,38 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
     }
 
     private static func isLegacyRegexWildcardPattern(_ pattern: String) -> Bool {
-        pattern.contains(".*") || pattern.contains(".+")
+        var hasLegacyQuantifier = false
+        var isEscaping = false
+        var previousWasUnescapedDot = false
+
+        for character in pattern {
+            if isEscaping {
+                isEscaping = false
+                previousWasUnescapedDot = false
+                continue
+            }
+            if character == "\\" {
+                isEscaping = true
+                previousWasUnescapedDot = false
+                continue
+            }
+
+            if character == "?" {
+                return false
+            }
+            if character == "*" || character == "+" {
+                if previousWasUnescapedDot {
+                    hasLegacyQuantifier = true
+                } else if character == "*" {
+                    // A standalone star is a glob wildcard, even when a
+                    // later literal period happens to form the text `.*`.
+                    return false
+                }
+            }
+            previousWasUnescapedDot = character == "."
+        }
+
+        return hasLegacyQuantifier
     }
 
     private static func wildcardRegex(for pattern: String) -> String {
