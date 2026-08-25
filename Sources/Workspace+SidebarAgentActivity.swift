@@ -178,7 +178,7 @@ extension Workspace {
                     hasExactProcessIdentity: exactProcessIsLive,
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
                     hasLiveLifecycleSignal: lifecycle != nil
-                        && indexLivenessIsFresh
+                        && (matchingPIDKeys.isEmpty || indexLivenessIsFresh)
                         && !suppressStaleLifecycle,
                     isHookBacked: false,
                     isExactProcessBinding: !matchingPIDKeys.isEmpty,
