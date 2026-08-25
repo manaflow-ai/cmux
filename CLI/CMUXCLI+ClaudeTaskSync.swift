@@ -92,30 +92,94 @@ extension CMUXCLI {
             let taskStoreIdentity = ClaudeTaskStoreIdentity(
                 tasksRootURL: tasksRootURL
             )
-            let taskSyncScope = taskStoreIdentity.rawValue
-            guard let taskSyncToken = try? sessionStore.claimClaudeTaskSync(
-                scope: taskSyncScope
-            ) else {
-                telemetry.breadcrumb("claude-hook.task-sync.coalesce-claim-failed")
-                return
-            }
-            let taskSyncIsLatest = {
-                (try? sessionStore.isLatestClaudeTaskSync(
-                    scope: taskSyncScope,
-                    token: taskSyncToken
-                )) == true
-            }
-            defer {
-                try? sessionStore.finishClaudeTaskSync(
-                    scope: taskSyncScope,
-                    token: taskSyncToken
-                )
-            }
             let agentID = nonEmptyClaudeHookIdentifier(
                 parsedInput.rawObject?["agent_id"] as? String
             )
             let taskIdentity = claudeTaskIdentity(from: parsedInput.rawObject)
-
+            var coalescingTaskListID = deletedTeamTaskDirectoryName
+                ?? configuredTaskDirectoryName
+            let taskSyncLockScope = taskStoreIdentity.rawValue
+            let taskSyncScanIdentity = Data(
+                "\(sessionID.utf8.count):\(sessionID)\((agentID ?? "").utf8.count):\(agentID ?? "")".utf8
+            ).base64EncodedString()
+            // Agent-qualified hooks are Claude's shared-team mutations; keep
+            // their expensive first identity scan single-flight. Unqualified
+            // hooks may be independent personal sessions, so retain a
+            // per-session scan scope until their owner is known.
+            let usesSharedTeamScan = agentID != nil
+            let taskSyncScanScope = usesSharedTeamScan
+                ? taskSyncLockScope + ":<task-sync-scan>"
+                : taskSyncLockScope + ":<task-sync-scan>:" + taskSyncScanIdentity
+            let initialCoalescingScope = coalescingTaskListID.map {
+                taskSyncLockScope + ":" + $0
+            } ?? taskSyncScanScope
+            var activeTaskSyncClaim: (scope: String, token: String)?
+            do {
+                let initialTaskSyncToken = try sessionStore.claimClaudeTaskSync(
+                    scope: initialCoalescingScope
+                )
+                activeTaskSyncClaim = (initialCoalescingScope, initialTaskSyncToken)
+            } catch let error as POSIXError where error.code == .E2BIG {
+                // Reserve one deterministic overflow slot so saturation keeps
+                // one bounded worker instead of queueing unbounded full scans.
+                let overflowScope = taskSyncLockScope + ":<task-sync-overflow>"
+                guard let overflowToken = try? sessionStore.claimClaudeTaskSync(
+                    scope: overflowScope
+                ) else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesce-capacity")
+                    printClaudeHookAck()
+                    return
+                }
+                activeTaskSyncClaim = (overflowScope, overflowToken)
+                telemetry.breadcrumb("claude-hook.task-sync.coalesce-overflow")
+            } catch {
+                telemetry.breadcrumb(
+                    "claude-hook.task-sync.coalesce-claim-failed",
+                    data: ["error": String(describing: error)]
+                )
+                printClaudeHookAck()
+                return
+            }
+            defer {
+                if let activeTaskSyncClaim {
+                    try? sessionStore.finishClaudeTaskSync(
+                        scope: activeTaskSyncClaim.scope,
+                        token: activeTaskSyncClaim.token
+                    )
+                }
+            }
+            let taskSyncIsLatest = {
+                guard let activeTaskSyncClaim else { return true }
+                return (try? sessionStore.isLatestClaudeTaskSync(
+                    scope: activeTaskSyncClaim.scope,
+                    token: activeTaskSyncClaim.token
+                )) == true
+            }
+            let retargetTaskSyncClaim: (String) throws -> Bool = { taskListID in
+                let normalizedTaskListID = taskListID.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                guard !normalizedTaskListID.isEmpty else { return false }
+                guard let currentClaim = activeTaskSyncClaim else { return true }
+                let ownerScope = taskSyncLockScope + ":" + normalizedTaskListID
+                if currentClaim.scope.hasSuffix(":<task-sync-overflow>") {
+                    guard try sessionStore.transferClaudeTaskSyncClaim(
+                        fromScope: currentClaim.scope,
+                        toScope: ownerScope,
+                        token: currentClaim.token
+                    ) else { return false }
+                    activeTaskSyncClaim = (ownerScope, currentClaim.token)
+                    return true
+                }
+                guard ownerScope != currentClaim.scope else { return true }
+                guard try sessionStore.transferClaudeTaskSyncClaim(
+                    fromScope: currentClaim.scope,
+                    toScope: ownerScope,
+                    token: currentClaim.token
+                ) else { return false }
+                activeTaskSyncClaim = (ownerScope, currentClaim.token)
+                return true
+            }
             // Nested teammates mutate the same authoritative task list. Their
             // task hooks must publish it even though other visible mutations
             // stay suppressed; live routing was already validated above, while
@@ -126,7 +190,7 @@ extension CMUXCLI {
             // only after the earlier snapshot and ownership transition finish.
             try sessionStore.withClaudeTaskSyncLock(
                 deadlineUptime: hookDeadlineUptime,
-                scope: taskSyncScope
+                scope: taskSyncLockScope
             ) {
                 guard taskSyncIsLatest() else {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
@@ -140,12 +204,44 @@ extension CMUXCLI {
                             taskListID: deletionTaskDirectoryName,
                             taskStoreIdentity: taskStoreIdentity
                         )
+                        let teamTaskResolver = ClaudeTeamTaskListResolver(
+                            teamsRootURL: teamsRootURL,
+                            taskStoreIdentity: taskStoreIdentity,
+                            deadlineUptime: hookDeadlineUptime
+                        )
+                        let currentTeamBinding: ClaudeTeamTaskListBinding?
+                        if matchingRecord != nil {
+                            currentTeamBinding = try teamTaskResolver.currentTaskListBinding(
+                                forTaskListID: deletionTaskDirectoryName
+                            )
+                        } else {
+                            currentTeamBinding = nil
+                        }
                         if let matchingRecord,
-                           try ClaudeTeamTaskListResolver(
-                               teamsRootURL: teamsRootURL,
-                               taskStoreIdentity: taskStoreIdentity,
-                               deadlineUptime: hookDeadlineUptime
-                           ).taskListBindingWasReused(matchingRecord.binding) {
+                           matchingRecord.binding.taskStoreIdentity != nil,
+                           let currentTeamBinding,
+                           !matchingRecord.binding.matches(
+                               sessionID: sessionID,
+                               agentID: agentID
+                           ),
+                           !currentTeamBinding.matches(
+                               sessionID: sessionID,
+                               agentID: agentID
+                           ) {
+                            // TeamDelete identifies the owner that was deleted,
+                            // while the durable task-list key may already hold
+                            // a replacement team. Legacy proofs intentionally
+                            // allow a replacement caller during migration;
+                            // namespaced proofs must retain their owner proof.
+                            telemetry.breadcrumb("claude-hook.task-sync.team-delete-reused")
+                            return
+                        }
+                        if let matchingRecord,
+                           let currentTeamBinding,
+                           try teamTaskResolver.taskListBindingWasReused(
+                               matchingRecord.binding,
+                               capturedCurrentBinding: currentTeamBinding
+                           ) {
                             telemetry.breadcrumb("claude-hook.task-sync.team-delete-reused")
                             return
                         }
@@ -251,6 +347,16 @@ extension CMUXCLI {
                         let cleanupWorkspaceIDs = previouslyBoundRecord.workspaceIDs.isEmpty
                             ? [resolvedTarget.workspaceId]
                             : previouslyBoundRecord.workspaceIDs
+                        guard try retargetTaskSyncClaim(
+                            previouslyBoundRecord.binding.taskListID
+                        ) else {
+                            telemetry.breadcrumb("claude-hook.task-sync.coalesce-transfer-failed")
+                            return
+                        }
+                        guard taskSyncIsLatest() else {
+                            telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                            return
+                        }
                         guard sendClaudeTaskFeedSnapshot(
                             [],
                             client: client,
@@ -316,6 +422,10 @@ extension CMUXCLI {
                         workspaceIDs: destinationWorkspaceIDs,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard try retargetTaskSyncClaim(snapshot.directoryName) else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesce-transfer-failed")
+                        return
+                    }
                     guard taskSyncIsLatest() else {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
@@ -367,6 +477,18 @@ extension CMUXCLI {
                     agentID: agentID,
                     previouslyBoundBinding: previouslyBoundBinding
                 )
+                if let automaticTeamResolution {
+                    guard try retargetTaskSyncClaim(
+                        automaticTeamResolution.binding.taskListID
+                    ) else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesce-transfer-failed")
+                        return
+                    }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
+                }
                 if let automaticTeamResolution,
                    !automaticTeamResolution.usesRetainedCleanupProof {
                     guard let snapshot = try loader.loadKnownTaskList(
@@ -455,7 +577,7 @@ extension CMUXCLI {
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
                     ) {
-                        try clearRetainedClaudeTeamTaskOwner(
+                        let cleanupSucceeded = (try? clearRetainedClaudeTeamTaskOwner(
                             binding: automaticTeamResolution.binding,
                             workspaceIDs: cleanupWorkspaceIDs,
                             retirementTaskStoreIdentity: taskStoreIdentity,
@@ -463,7 +585,13 @@ extension CMUXCLI {
                             client: client,
                             telemetry: telemetry,
                             deadlineUptime: hookDeadlineUptime
-                        )
+                        )) == true
+                        if !cleanupSucceeded {
+                            deferredAutomaticTeamCleanup = (
+                                automaticTeamResolution.binding,
+                                cleanupWorkspaceIDs
+                            )
+                        }
                     } else {
                         // A personal snapshot can supersede the rejected empty
                         // Feed update. Defer checklist cleanup until that
@@ -533,12 +661,16 @@ extension CMUXCLI {
                     telemetry.breadcrumb("claude-hook.task-sync.retired-task-directory")
                     return
                 }
+                guard try retargetTaskSyncClaim(sessionSnapshot.directoryName) else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesce-transfer-failed")
+                    return
+                }
                 guard taskSyncIsLatest() else {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                     return
                 }
                 let personalFeedAlreadyPublished: Bool
-                if let deferredAutomaticTeamCleanup {
+                if deferredAutomaticTeamCleanup != nil {
                     guard sendClaudeTaskFeedSnapshot(
                         sessionSnapshot.todos,
                         client: client,
@@ -659,10 +791,11 @@ extension CMUXCLI {
                     sessionStore: sessionStore
                 )
                 if let deferredAutomaticTeamCleanup {
-                    // Retire the superseded team owner only after the personal
-                    // checklist has been accepted. A rejected personal
-                    // replacement must leave the old owner available for retry.
-                    try clearRetainedClaudeTeamTaskOwner(
+                    // The personal replacement is durable before the
+                    // superseded team owner is retried. Keep the old proof
+                    // when cleanup fails so a later hook can retry without
+                    // stranding the accepted personal binding.
+                    let cleanupSucceeded = (try? clearRetainedClaudeTeamTaskOwner(
                         binding: deferredAutomaticTeamCleanup.binding,
                         workspaceIDs: deferredAutomaticTeamCleanup.workspaceIDs,
                         retirementTaskStoreIdentity: taskStoreIdentity,
@@ -670,7 +803,12 @@ extension CMUXCLI {
                         client: client,
                         telemetry: telemetry,
                         deadlineUptime: hookDeadlineUptime
-                    )
+                    )) == true
+                    if !cleanupSucceeded {
+                        telemetry.breadcrumb(
+                            "claude-hook.task-sync.deferred-team-cleanup-failed"
+                        )
+                    }
                 }
             }
         } catch {
@@ -800,7 +938,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         deadlineUptime: TimeInterval
-    ) throws {
+    ) throws -> Bool {
         let cleanup = clearClaudeTaskChecklistOwner(
             taskDirectoryName: binding.taskListID,
             taskStoreIdentity: binding.taskStoreIdentity,
@@ -830,6 +968,7 @@ extension CMUXCLI {
             )
             try sessionStore.removeClaudeTeamTaskListBinding(binding)
         }
+        return cleanup.succeeded
     }
 
     /// Clears one pre-profile owner before namespaced delivery and stamps its proof.

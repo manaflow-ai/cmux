@@ -22,6 +22,8 @@ struct ClaudeHookSessionStoreFile: Codable {
     // Latest pending task-sync token per task-store scope. Older async hook
     // processes observe replacement and exit before doing expensive work.
     var claudeTaskSyncLatestTokens: [String: String] = [:]
+    // Monotonic claim ordering assigned inside the durable state transaction.
+    var claudeTaskSyncGeneration: UInt64 = 0
     // Automatic-team task identity is list-scoped rather than session-scoped:
     // leader and teammate hooks can run in independent Claude sessions.
     var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
@@ -39,6 +41,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case endedSessionIDs
         case retiredClaudeTaskLists
         case claudeTaskSyncLatestTokens
+        case claudeTaskSyncGeneration
         case claudeTeamTaskBindings
         case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
@@ -74,6 +77,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: String].self,
             forKey: .claudeTaskSyncLatestTokens
         ) ?? [:]
+        claudeTaskSyncGeneration = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .claudeTaskSyncGeneration
+        ) ?? 0
         claudeTeamTaskBindings = try container.decodeIfPresent(
             [String: ClaudeHookTeamTaskBindingRecord].self,
             forKey: .claudeTeamTaskBindings
@@ -109,6 +116,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !claudeTaskSyncLatestTokens.isEmpty {
             try container.encode(claudeTaskSyncLatestTokens, forKey: .claudeTaskSyncLatestTokens)
+        }
+        if claudeTaskSyncGeneration > 0 {
+            try container.encode(claudeTaskSyncGeneration, forKey: .claudeTaskSyncGeneration)
         }
         if !claudeTeamTaskBindings.isEmpty {
             try container.encode(claudeTeamTaskBindings, forKey: .claudeTeamTaskBindings)

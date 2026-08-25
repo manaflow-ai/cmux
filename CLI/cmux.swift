@@ -7,6 +7,7 @@ import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
+import Dispatch
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
@@ -224,7 +225,13 @@ final class ClaudeHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxEndedSessionIDs = 256
     private static let maxRetiredClaudeTaskLists = 128
-    private static let maxClaudeTaskSyncScopes = 128
+    // Preserve the previous 128 ordinary scopes and reserve one overflow slot.
+    private static let maxClaudeTaskSyncScopes = 129
+    private static let claudeTaskSyncOverflowScopeSuffix = ":<task-sync-overflow>"
+    // Longer than the complete eight-second task hook budget, but short enough
+    // to recover a claim left by a crashed CLI process without evicting a live
+    // worker's coalescing proof.
+    private static let maxClaudeTaskSyncClaimAgeSeconds: TimeInterval = 30
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -364,6 +371,31 @@ final class ClaudeHookSessionStore {
         let leaseInput = Pipe()
         let readyOutput = Pipe()
         let lockProcess = Process()
+        let readySignal = DispatchGroup()
+        let processExitSignal = DispatchGroup()
+        // These groups are one-shot completion notifications for the child
+        // process and its pipe, not ownership of mutable task-sync state.
+        readySignal.enter()
+        processExitSignal.enter()
+        let readyCompletion = DispatchSource.makeUserDataAddSource()
+        readyCompletion.setEventHandler {
+            readySignal.leave()
+            readyCompletion.cancel()
+        }
+        readyCompletion.resume()
+        let readyHandle = readyOutput.fileHandleForReading
+        readyHandle.readabilityHandler = { handle in
+            // The source coalesces the readiness and early-exit edges into one
+            // completion, while leaving the byte for the bounded caller read.
+            handle.readabilityHandler = nil
+            if !readyCompletion.isCancelled {
+                readyCompletion.merge(data: 1)
+            }
+        }
+        defer {
+            readyHandle.readabilityHandler = nil
+            readyCompletion.cancel()
+        }
         lockProcess.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
         lockProcess.arguments = [
             "-k",
@@ -378,20 +410,62 @@ final class ClaudeHookSessionStore {
         lockProcess.standardInput = leaseInput
         lockProcess.standardOutput = readyOutput
         lockProcess.standardError = FileHandle.nullDevice
+        lockProcess.terminationHandler = { _ in
+            // Wake the bounded readiness wait if lockf times out or exits
+            // before acquiring the lease.
+            if !readyCompletion.isCancelled {
+                readyCompletion.merge(data: 1)
+            }
+            processExitSignal.leave()
+        }
         try lockProcess.run()
         try leaseInput.fileHandleForReading.close()
         try readyOutput.fileHandleForWriting.close()
-        let readyByte = readyOutput.fileHandleForReading.readData(ofLength: 1)
+        let stopLockProcess = {
+            try? leaseInput.fileHandleForWriting.close()
+            guard lockProcess.isRunning else { return }
+            lockProcess.terminate()
+            let gracefulWaitSeconds = max(
+                0,
+                min(1, deadlineUptime - ProcessInfo.processInfo.systemUptime)
+            )
+            if processExitSignal.wait(
+                timeout: .now() + gracefulWaitSeconds
+            ) == .timedOut,
+               lockProcess.isRunning {
+                kill(lockProcess.processIdentifier, SIGKILL)
+                let forcedWaitSeconds = max(
+                    0,
+                    min(1, deadlineUptime - ProcessInfo.processInfo.systemUptime)
+                )
+                if forcedWaitSeconds > 0 {
+                    _ = processExitSignal.wait(timeout: .now() + forcedWaitSeconds)
+                }
+            }
+        }
+        // The task-sync CLI is synchronous by design, but the lease wait is
+        // event-driven: no pipe read or process wait blocks the thread while
+        // lockf is waiting. The completion group only waits for those
+        // callbacks; it is not used to protect state or serialize callers.
+        let remainingSeconds = max(0, deadlineUptime - ProcessInfo.processInfo.systemUptime)
+        let readiness = readySignal.wait(
+            timeout: .now() + remainingSeconds
+        )
+        readyHandle.readabilityHandler = nil
+        guard readiness == .success, lockProcess.isRunning else {
+            stopLockProcess()
+            throw POSIXError(.ETIMEDOUT)
+        }
+        let readyByte = (try? readyHandle.read(upToCount: 1)) ?? Data()
         guard readyByte == Data(".".utf8),
               lockProcess.isRunning,
               ProcessInfo.processInfo.systemUptime < deadlineUptime else {
-            try? leaseInput.fileHandleForWriting.close()
-            lockProcess.waitUntilExit()
+            stopLockProcess()
             throw POSIXError(.ETIMEDOUT)
         }
         defer {
-            try? leaseInput.fileHandleForWriting.close()
-            lockProcess.waitUntilExit()
+            readyHandle.readabilityHandler = nil
+            stopLockProcess()
         }
         return try body()
     }
@@ -548,16 +622,35 @@ final class ClaudeHookSessionStore {
     func claimClaudeTaskSync(scope: String) throws -> String {
         let normalizedScope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedScope.isEmpty else { return UUID().uuidString }
-        let token = UUID().uuidString
+        var token = ""
         try withLockedState { state in
-            state.claudeTaskSyncLatestTokens[normalizedScope] = token
-            if state.claudeTaskSyncLatestTokens.count > Self.maxClaudeTaskSyncScopes {
-                for key in state.claudeTaskSyncLatestTokens.keys.sorted()
-                    where key != normalizedScope
-                    && state.claudeTaskSyncLatestTokens.count > Self.maxClaudeTaskSyncScopes {
-                    state.claudeTaskSyncLatestTokens.removeValue(forKey: key)
+            let isOverflowScope = normalizedScope.hasSuffix(
+                Self.claudeTaskSyncOverflowScopeSuffix
+            )
+            let ordinaryScopeCount = state.claudeTaskSyncLatestTokens.keys.reduce(into: 0) { count, key in
+                if !key.hasSuffix(Self.claudeTaskSyncOverflowScopeSuffix) {
+                    count += 1
                 }
             }
+            let canAdmit = state.claudeTaskSyncLatestTokens[normalizedScope] != nil
+                || (isOverflowScope
+                    ? state.claudeTaskSyncLatestTokens.count < Self.maxClaudeTaskSyncScopes
+                    : ordinaryScopeCount < Self.maxClaudeTaskSyncScopes - 1)
+            guard canAdmit else {
+                // Never evict an unknown in-flight token: doing so would let
+                // an older worker publish after its coalescing proof vanished.
+                throw POSIXError(.E2BIG)
+            }
+            let persistedGeneration = state.claudeTaskSyncLatestTokens.values
+                .compactMap(Self.claudeTaskSyncTokenGeneration)
+                .max() ?? 0
+            state.claudeTaskSyncGeneration = max(
+                state.claudeTaskSyncGeneration,
+                persistedGeneration
+            )
+            state.claudeTaskSyncGeneration &+= 1
+            token = "\(state.claudeTaskSyncGeneration):\(Int(Date.now.timeIntervalSince1970 * 1_000)):\(UUID().uuidString)"
+            state.claudeTaskSyncLatestTokens[normalizedScope] = token
         }
         return token
     }
@@ -569,9 +662,64 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Moves one live task-sync claim to its authoritative task-list scope.
+    ///
+    /// The caller holds the store-wide task-sync lease while transferring so
+    /// a TeamDelete or replacement hook cannot mutate the destination between
+    /// owner resolution and this compare-and-move.
+    @discardableResult
+    func transferClaudeTaskSyncClaim(
+        fromScope: String,
+        toScope: String,
+        token: String
+    ) throws -> Bool {
+        guard !toScope.isEmpty else { return false }
+        return try withLockedState { state in
+            guard state.claudeTaskSyncLatestTokens[fromScope] == token else {
+                return false
+            }
+            guard fromScope != toScope else { return true }
+            if let destinationToken = state.claudeTaskSyncLatestTokens[toScope],
+               destinationToken != token {
+                // Keep whichever claim was created later. A newer scan may
+                // already be queued behind this worker's lease; overwriting
+                // it would make that authoritative hook coalesce itself away.
+                guard Self.isNewerClaudeTaskSyncToken(
+                    token,
+                    than: destinationToken
+                ) else {
+                    return false
+                }
+            }
+            state.claudeTaskSyncLatestTokens.removeValue(forKey: fromScope)
+            state.claudeTaskSyncLatestTokens[toScope] = token
+            return true
+        }
+    }
+
+    private static func isNewerClaudeTaskSyncToken(
+        _ candidate: String,
+        than existing: String
+    ) -> Bool {
+        guard let candidateGeneration = claudeTaskSyncTokenGeneration(candidate),
+              let existingGeneration = claudeTaskSyncTokenGeneration(existing) else {
+            return false
+        }
+        if candidateGeneration != existingGeneration {
+            return candidateGeneration > existingGeneration
+        }
+        return candidate > existing
+    }
+
+    private static func claudeTaskSyncTokenGeneration(_ token: String) -> UInt64? {
+        let components = token.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count >= 3 else { return nil }
+        return UInt64(components[0])
+    }
+
     /// Releases a task-sync claim only when no newer worker replaced it.
     func finishClaudeTaskSync(scope: String, token: String) throws {
-        try withLockedState { state in
+        _ = try withLockedState { state in
             guard state.claudeTaskSyncLatestTokens[scope] == token else { return }
             state.claudeTaskSyncLatestTokens.removeValue(forKey: scope)
         }
@@ -2753,6 +2901,36 @@ final class ClaudeHookSessionStore {
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
         }
+        let taskSyncCutoff = now - Self.maxClaudeTaskSyncClaimAgeSeconds
+        var taskSyncTokens = state.claudeTaskSyncLatestTokens
+        for (scope, token) in Array(taskSyncTokens) {
+            let components = token.split(separator: ":", omittingEmptySubsequences: false)
+            let claimedAtMilliseconds: Int?
+            if components.count >= 3 {
+                claimedAtMilliseconds = Int(components[1])
+            } else if components.count == 2 {
+                // Claims from the previous format used the timestamp as the
+                // first component. Preserve their age while assigning a
+                // durable generation for future handoffs.
+                claimedAtMilliseconds = Int(components[0])
+                state.claudeTaskSyncGeneration &+= 1
+                taskSyncTokens[scope] = "\(state.claudeTaskSyncGeneration):\(components[0]):\(components[1])"
+            } else {
+                claimedAtMilliseconds = nil
+            }
+            guard let claimedAtMilliseconds else {
+                // Malformed claims are bounded like legacy claims and stamped
+                // on first observation so they cannot occupy a permanent slot.
+                state.claudeTaskSyncGeneration &+= 1
+                taskSyncTokens[scope] = "\(state.claudeTaskSyncGeneration):\(Int(now * 1_000)):\(token)"
+                continue
+            }
+            guard TimeInterval(claimedAtMilliseconds) / 1_000 >= taskSyncCutoff else {
+                taskSyncTokens.removeValue(forKey: scope)
+                continue
+            }
+        }
+        state.claudeTaskSyncLatestTokens = taskSyncTokens
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
             guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
             // Self-heal cross-workspace/pane pollution: a session may only be active

@@ -348,6 +348,20 @@ public struct ClaudeTeamTaskListResolver {
         guard let current = try currentTaskListBinding(forTaskListID: binding.taskListID) else {
             return false
         }
+        return taskListBindingWasReused(binding, capturedCurrentBinding: current)
+    }
+
+    /// Compares a proven binding with a current binding captured by the caller.
+    ///
+    /// - Parameters:
+    ///   - binding: The durable owner proof being checked.
+    ///   - capturedCurrentBinding: The current config binding already read under
+    ///     the caller's synchronization boundary.
+    /// - Returns: `true` when the current config represents a newer team.
+    public func taskListBindingWasReused(
+        _ binding: ClaudeTeamTaskListBinding,
+        capturedCurrentBinding current: ClaudeTeamTaskListBinding
+    ) -> Bool {
         guard current.leaderSessionID == binding.leaderSessionID,
               current.agentIDs == binding.agentIDs else {
             return true
