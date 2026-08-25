@@ -177,6 +177,12 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                // Tear down local Cloud VM workspaces before the coordinator
+                // clears auth. This closes live WebSockets, removes persisted
+                // reconnect configuration, and prevents a signed-out Mac (or
+                // a paired phone still connected to it) from retaining a
+                // usable remote surface.
+                AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
@@ -184,6 +190,13 @@ struct MacAuthComposition {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                // Endpoint/preview credentials are separate from Stack Auth;
+                // revoke them with the captured pre-clear token pair before
+                // the coordinator's server-session revocation tail completes.
+                await VMClient.revokeEndpointLeases(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
                     refreshToken: refreshToken

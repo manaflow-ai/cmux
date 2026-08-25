@@ -126,7 +126,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .gitGraph:
             guard let model = gitGraphModelStorage else { return }
             syncGitGraphRoot(from: workspace, model: model)
-        case .herd, .feed, .dock, .customSidebar:
+        case .herd, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -226,7 +226,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = toolFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .gitGraph, .feed, .dock, .customSidebar:
+        case .gitGraph, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -251,7 +251,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions, .herd:
             guard toolFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .gitGraph, .feed, .dock, .customSidebar:
+        case .gitGraph, .feed, .dock, .machines, .customSidebar:
             return nil
         }
     }
@@ -413,7 +413,7 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachToolFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .machines, .customSidebar:
             EmptyView()
         }
     }

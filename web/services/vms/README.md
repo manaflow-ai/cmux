@@ -72,8 +72,9 @@ Default image policy:
   `FREESTYLE_SANDBOX_SNAPSHOT`.
 - Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
   is unset.
-- The current intended default provider is Freestyle when `CMUX_VM_DEFAULT_PROVIDER=freestyle`; keep
-  E2B enabled as rollback.
+- The current intended default provider is Blaxel. Set `CMUX_VM_DEFAULT_PROVIDER=blaxel` (the local
+  loader supplies this when unset); Freestyle, E2B, and Daytona remain explicit rollback/provider
+  overrides rather than silent fallbacks.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
@@ -198,7 +199,7 @@ Set these Vercel environment variables per production/staging environment:
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona`.
+- `CMUX_VM_DEFAULT_PROVIDER`, `blaxel`, `freestyle`, `e2b`, or `daytona` (defaults to `blaxel`).
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
@@ -300,26 +301,41 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona |
-|-----------------------------|-----------|-----|---------|
-| `cmux vm new`               | yes       | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes |
+| Verb                        | Freestyle | E2B | Daytona | Blaxel |
+|-----------------------------|-----------|-----|---------|--------|
+| `cmux vm new`               | yes       | yes | yes | yes |
+| `cmux vm new --workspace`   | yes       | yes | yes | yes |
+| `cmux vm new --detach`      | yes       | yes | yes | yes |
+| `cmux vm attach <id>`       | yes       | yes | yes | yes |
+| `cmux vm ssh <id>`          | yes       | yes | yes | yes |
+| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) | no (WebSocket only) |
+| `cmux vm exec <id> -- ...`  | yes       | yes | yes | yes |
+| `cmux vm ls / rm`           | yes       | yes | yes | yes |
+| snapshot / restore          | yes       | yes | yes | not yet |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
 
+Blaxel needs no baked image: the driver bootstraps the stock `blaxel/base-image:latest` at create time by injecting the cmuxd-remote linux/amd64 binary through the sandbox filesystem API (gzip+base64, sub-second) and starting `serve --ws` as a `keepAlive` process. `keepAlive` is required — Blaxel freezes a sandbox ~15 s after the last connection otherwise, which would pause user workloads on disconnect; standby time is free, so a later "smart sleep while all PTYs are idle" optimization can reclaim the cost without changing the bootstrap. Config: `BL_API_KEY`, `BL_WORKSPACE`, and either `CMUX_VM_BLAXEL_DAEMON_PATH` (local linux/amd64 build) or `CMUX_VM_BLAXEL_DAEMON_URL` (R2 artifact). A URL source additionally requires `CMUX_VM_BLAXEL_DAEMON_SHA256` (sha256 of the raw binary) and fails closed without it — the daemon runs in every sandbox, so the download is integrity-pinned; a local path may run unpinned but honors the pin when set. Preview ingress is enforced private: attach only reuses a preview whose spec is not public, replaces a public one, and refuses a preview that comes back public, so the daemon is never reachable without a minted preview token. Attach dials the sandbox's private preview URL for port 7777 with a minted `X-Blaxel-Preview-Token` header (12 h expiry); the workspace API key never leaves the backend. Live driver E2E: `bun scripts/test-blaxel-vm-poc.ts`.
+
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 
-Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
+Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed
+`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_BLAXEL_ENABLED`, `BL_API_KEY`, and `BL_WORKSPACE` env values
+with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable
+daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`.
+Keep Freestyle/E2B enabled only when deliberately selecting them as rollback providers.
 
 ## Usage, limits, and pricing
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows five active VMs at a time by default. Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows three active VMs at a time by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`). Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+
+### The free limit is the paywall moment
+
+`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — "The free plan includes 3 Cloud VMs" with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans keep operational "stop or delete one" guidance; their cap is a safety rail, not a paywall.
+
+### Usage-based billing after Pro (design, not yet wired)
+
+Pro subscribers should pay by usage on top of the subscription. The meter is **GB-RAM-awake-seconds**, which matches the provider cost model exactly on Blaxel (standby is free; smart sleep drops idle sandboxes to standby, so users only accrue usage while something is actually running or attached). Pipeline: the `vm-reconcile` cron already polls provider statuses — record `vm.state.running` / `vm.state.standby` transitions as `cloud_vm_usage_events`; a billing cron aggregates the transition intervals × memory into per-team usage and posts Stripe usage records against a metered price on the Pro subscription (provisioned alongside `cmux-pro-monthly`, see `skills/cmux-billing`). Postgres stays the ledger of record; Stripe receives idempotent per-period rollups, never raw events.
