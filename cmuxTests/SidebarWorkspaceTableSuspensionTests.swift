@@ -613,9 +613,12 @@ struct SidebarWorkspaceTableSuspensionTests {
             selectedScrollTargetWorkspaceId: nil
         )
 
+        // A hidden prune can queue its required reload before a reveal apply.
+        // If another hide cancels that apply, the reload remains the only path
+        // that can synchronize NSTableView with the already-pruned snapshot.
+        scheduler.stageTableReload()
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
-        scheduler.stageTableReload()
         scheduler.cancelPendingApplyAndViewport()
         await flushStagedTableMutations()
         #expect(appliedInputs == 0)
