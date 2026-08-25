@@ -15,9 +15,15 @@ actor GhosttyPointerStyleIngress {
     nonisolated private let focusGeneration = AtomicUInt64Generation()
     nonisolated private let focusState = AtomicBooleanGate(false)
     nonisolated private let runtimeGeneration = AtomicUInt64Generation()
+    nonisolated private let submissionSequence = AtomicUInt64Generation()
+    nonisolated private let lifecycleSubmissionSequence = AtomicUInt64Generation()
     private var state = GhosttyPointerStyleIngressPendingState(
         activeRuntimeLifetimeId: nil
     )
+    private var lastProcessedLifecycleSequence: UInt64 = 0
+    private var lifecycleWaiters: [
+        (through: UInt64, continuation: CheckedContinuation<Void, Never>)
+    ] = []
     private let continuation: AsyncStream<GhosttyPointerStyleIngressRequest>.Continuation
     private let lifecycleContinuation: AsyncStream<GhosttyPointerStyleIngressRequest>.Continuation
     private var consumerTask: Task<Void, Never>?
@@ -93,10 +99,12 @@ actor GhosttyPointerStyleIngress {
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
+        request.sequence = submissionSequence.advanceRelaxed()
         switch request.event {
         case .runtimeReset, .runtimeEnded:
             // Lifecycle transitions use a separate bounded channel so a
             // burst of shape/link callbacks cannot evict a required reset.
+            request.lifecycleSequence = lifecycleSubmissionSequence.advanceRelaxed()
             lifecycleContinuation.yield(request)
         case .activate, .retire(_), .shape, .linkHover:
             continuation.yield(request)
@@ -147,9 +155,13 @@ actor GhosttyPointerStyleIngress {
     }
 
     private func receive(_ incoming: GhosttyPointerStyleIngressRequest) {
-        var request = incoming
-        state.nextSequence &+= 1
-        request.sequence = state.nextSequence
+        let request = incoming
+        let lifecycleSequence = request.lifecycleSequence
+        defer {
+            if lifecycleSequence > 0 {
+                markLifecycleProcessed(lifecycleSequence)
+            }
+        }
 
         switch request.event {
         case .activate:
@@ -163,10 +175,6 @@ actor GhosttyPointerStyleIngress {
             if let requestedID {
                 guard state.activeRuntimeLifetimeId == requestedID else {
                     rememberRetiredRuntime(requestedID)
-                    state.activeRuntimeGeneration = max(
-                        state.activeRuntimeGeneration,
-                        request.runtimeGeneration
-                    )
                     return
                 }
                 retiredID = requestedID
@@ -203,23 +211,45 @@ actor GhosttyPointerStyleIngress {
 
         var runtime = state.byRuntime[request.runtimeLifetimeId] ??
             GhosttyPointerStyleIngressRuntimePending()
+        if runtime.latestRuntimeEnded != nil {
+            guard case .runtimeEnded = request.event else { return }
+        }
         switch request.event {
         case .runtimeReset:
-            runtime.latestRuntimeReset = request
-            runtime.firstShape = nil
-            runtime.latestShape = nil
-            runtime.latestLinkHover = nil
+            if (runtime.latestRuntimeReset?.sequence ?? 0) <= request.sequence {
+                runtime.latestRuntimeReset = request
+            }
+            if (runtime.firstShape?.sequence ?? 0) <= request.sequence {
+                runtime.firstShape = nil
+            }
+            if (runtime.latestShape?.sequence ?? 0) <= request.sequence {
+                runtime.latestShape = nil
+            }
+            if (runtime.latestLinkHover?.sequence ?? 0) <= request.sequence {
+                runtime.latestLinkHover = nil
+            }
         case .runtimeEnded:
+            guard (runtime.latestRuntimeEnded?.sequence ?? 0) <= request.sequence else {
+                return
+            }
             runtime.latestRuntimeEnded = request
             runtime.firstShape = nil
             runtime.latestShape = nil
             runtime.latestLinkHover = nil
         case .shape:
+            if (runtime.latestRuntimeReset?.sequence ?? 0) >= request.sequence ||
+               (runtime.latestRuntimeEnded?.sequence ?? 0) >= request.sequence {
+                return
+            }
             if runtime.firstShape == nil {
                 runtime.firstShape = request
             }
             runtime.latestShape = request
         case .linkHover:
+            if (runtime.latestRuntimeReset?.sequence ?? 0) >= request.sequence ||
+               (runtime.latestRuntimeEnded?.sequence ?? 0) >= request.sequence {
+                return
+            }
             runtime.latestLinkHover = request
         case .activate, .retire(_):
             break
@@ -232,9 +262,12 @@ actor GhosttyPointerStyleIngress {
         guard !state.drainScheduled else { return }
         state.drainScheduled = true
         let surfaceView = self.surfaceView
+        let lifecycleBarrier = lifecycleSubmissionSequence.loadRelaxed()
         Task { @MainActor [weak self, weak surfaceView] in
             guard let self else { return }
-            let pending = await self.takePending()
+            let pending = await self.takePending(
+                afterLifecycleSequence: lifecycleBarrier
+            )
             guard let surfaceView else { return }
             for runtime in pending.values {
                 var requests: [GhosttyPointerStyleIngressRequest] = []
@@ -248,6 +281,7 @@ actor GhosttyPointerStyleIngress {
                     }
                 }
                 if let linkHover = runtime.latestLinkHover { requests.append(linkHover) }
+                requests.sort { $0.sequence < $1.sequence }
 
                 for request in requests {
                     if case .linkHover = request.event,
@@ -264,21 +298,51 @@ actor GhosttyPointerStyleIngress {
                           ) else {
                         continue
                     }
+                    let eventFocusGeneration: UInt64?
+                    if case .linkHover = request.event {
+                        eventFocusGeneration = request.focusGeneration
+                    } else {
+                        eventFocusGeneration = nil
+                    }
                     surfaceView.applyTerminalPointerStyle(
                         event,
-                        focusGeneration: request.focusGeneration
+                        focusGeneration: eventFocusGeneration
                     )
                 }
             }
         }
     }
 
-    private func takePending() -> [
+    private func takePending(
+        afterLifecycleSequence lifecycleSequence: UInt64
+    ) async -> [
         UUID: GhosttyPointerStyleIngressRuntimePending
     ] {
+        await waitForLifecycleThrough(lifecycleSequence)
         let pending = state.byRuntime
         state.byRuntime.removeAll(keepingCapacity: true)
         state.drainScheduled = false
         return pending
+    }
+
+    private func waitForLifecycleThrough(_ sequence: UInt64) async {
+        guard lastProcessedLifecycleSequence < sequence else { return }
+        await withCheckedContinuation { continuation in
+            lifecycleWaiters.append((sequence, continuation))
+        }
+    }
+
+    private func markLifecycleProcessed(_ sequence: UInt64) {
+        guard sequence > lastProcessedLifecycleSequence else { return }
+        lastProcessedLifecycleSequence = sequence
+        var ready: [CheckedContinuation<Void, Never>] = []
+        lifecycleWaiters.removeAll { waiter in
+            guard waiter.through <= sequence else { return false }
+            ready.append(waiter.continuation)
+            return true
+        }
+        for continuation in ready {
+            continuation.resume()
+        }
     }
 }

@@ -6,6 +6,5 @@ struct GhosttyPointerStyleIngressPendingState: Sendable {
     var activeRuntimeGeneration: UInt64 = 0
     var retiredRuntimeLifetimeIds: Set<UUID> = []
     var byRuntime: [UUID: GhosttyPointerStyleIngressRuntimePending] = [:]
-    var nextSequence: UInt64 = 0
     var drainScheduled = false
 }

@@ -164,4 +164,33 @@ struct TerminalPointerStyleViewTests {
         )
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
+
+    @Test("persistent pointer shapes survive a focus epoch change")
+    func persistentPointerShapeSurvivesFocusEpochChange() {
+        let view = GhosttyNSView(frame: .zero)
+        let runtimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: runtimeLifetimeId
+        )
+        view.applyTerminalPointerStyle(.focusChanged(true))
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+                runtimeLifetimeId: runtimeLifetimeId
+            )
+        )
+        view.applyTerminalPointerStyle(.focusChanged(false))
+        view.applyTerminalPointerStyle(.focusChanged(true))
+
+        let didApplyDelayedShape = view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_COPY,
+                runtimeLifetimeId: runtimeLifetimeId
+            ),
+            focusGeneration: 1
+        )
+
+        #expect(didApplyDelayedShape)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.dragCopy)
+    }
 }
