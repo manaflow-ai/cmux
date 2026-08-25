@@ -163,9 +163,15 @@ extension CMUXCLI {
         }
         _ = Darwin.close(duplicate)
         let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-project-open", isDirectory: true)
             .appendingPathComponent("cmux-project-file-\(UUID().uuidString)")
             .appendingPathExtension(openedPath.pathExtension)
         do {
+            try FileManager.default.createDirectory(
+                at: temporaryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            cleanupTemporaryProjectFiles(in: temporaryURL.deletingLastPathComponent())
             try data.write(to: temporaryURL, options: .atomic)
         } catch {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
@@ -183,6 +189,27 @@ extension CMUXCLI {
         guard process.terminationStatus == 0 else {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+    }
+
+    private func cleanupTemporaryProjectFiles(in directory: URL) {
+        let cutoff = Date().addingTimeInterval(-60 * 60)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for entry in entries.prefix(256) {
+            guard entry.lastPathComponent.hasPrefix("cmux-project-file-"),
+                  let values = try? entry.resourceValues(
+                      forKeys: [.isRegularFileKey, .contentModificationDateKey]
+                  ),
+                  values.isRegularFile == true,
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: entry)
         }
     }
 

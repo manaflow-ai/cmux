@@ -595,9 +595,17 @@ final class AgentChatTranscriptService {
             noteTailerUse(sessionID: record.sessionID, ownership: ownership)
             return existing
         }
-        guard !failedResolutions.contains(record.sessionID) else { return nil }
+        guard ownership == .automaticArtifactCapture
+                || !failedResolutions.contains(record.sessionID) else { return nil }
         guard let path = resolvePath() else {
-            failedResolutions.insert(record.sessionID)
+            if ownership == .mobileSubscriber {
+                failedResolutions.insert(record.sessionID)
+            } else {
+                // Eager observation may run before a provider creates its
+                // transcript. Do not turn that expected startup gap into a
+                // permanent failure; the next hook/flag reconciliation retries.
+                failedResolutions.remove(record.sessionID)
+            }
             #if DEBUG
             cmuxDebugLog(
                 "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "

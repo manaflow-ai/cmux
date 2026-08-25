@@ -78,7 +78,8 @@ extension LocalArtifactRepository {
                 resolution.directory,
                 paths: paths,
                 context: context,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                mutationLease: mutationLease
             )
             captureDirectory = resolution.directory
         }

@@ -285,19 +285,29 @@ public actor LocalArtifactRepository: ArtifactStoring {
         _ contentDirectory: URL,
         paths: ArtifactStorePaths,
         context: ArtifactCaptureContext,
-        capturedAt: Date
+        capturedAt: Date,
+        mutationLease: ArtifactStoreMutationLease
     ) throws {
         try rejectSymbolicLinks(from: paths.filesystemRoot, through: contentDirectory)
         try fileManager.createDirectory(at: contentDirectory, withIntermediateDirectories: true)
         try rejectSymbolicLinks(from: paths.filesystemRoot, through: contentDirectory)
         let sessionDirectory = contentDirectory.deletingLastPathComponent()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
+        guard let sessionRelativePath = pathResolver.relativePath(
+            sessionDirectory,
+            root: paths.filesystemRoot
+        ) else {
+            throw ArtifactStoreError.pathOutsideStore(sessionDirectory.path)
+        }
         try writeMarkerIfMissing(
             ArtifactWorkspaceMarker(
                 workspaceID: context.workspaceID,
                 workspaceTitle: context.workspaceTitle,
                 createdAt: capturedAt
             ),
-            to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
+            relativePath: sessionRelativePath + "/" + ArtifactPathResolver.workspaceMarkerName,
+            paths: paths,
+            mutationLease: mutationLease
         )
         try writeSessionMarkerIfMissing(
             ArtifactSessionMarker(
@@ -305,37 +315,56 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 agentName: context.agentName,
                 createdAt: capturedAt
             ),
-            to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.sessionMarkerName),
-            paths: paths
+            relativePath: sessionRelativePath + "/" + ArtifactPathResolver.sessionMarkerName,
+            paths: paths,
+            mutationLease: mutationLease
         )
     }
 
-    private func writeMarkerIfMissing(_ value: some Encodable, to url: URL) throws {
-        do {
-            try encoder.encode(value).write(to: url, options: .withoutOverwriting)
-        } catch {
-            guard try ArtifactBoundedFileReader(fileManager: fileManager)
-                .pathEntryExists(url: url) else { throw error }
+    private func writeMarkerIfMissing(
+        _ value: some Encodable,
+        relativePath: String,
+        paths: ArtifactStorePaths,
+        mutationLease: ArtifactStoreMutationLease
+    ) throws {
+        let encodedData = try encoder.encode(value)
+        if try mutationLease.writeData(
+            encodedData,
+            toRelativePath: relativePath,
+            replacingExisting: false
+        ) {
+            return
+        }
+        guard let existing = try ArtifactBoundedFileReader(fileManager: fileManager).data(
+            url: paths.filesystemRoot.appendingPathComponent(relativePath),
+            allowedRoot: paths.filesystemRoot,
+            maximumBytes: 256 * 1024
+        ), !existing.isEmpty else {
+            throw ArtifactStoreError.corruptProvenance(relativePath)
         }
     }
 
     private func writeSessionMarkerIfMissing(
         _ value: ArtifactSessionMarker,
-        to url: URL,
-        paths: ArtifactStorePaths
+        relativePath: String,
+        paths: ArtifactStorePaths,
+        mutationLease: ArtifactStoreMutationLease
     ) throws {
         let reader = ArtifactBoundedFileReader(fileManager: fileManager)
-        do {
-            try encoder.encode(value).write(to: url, options: .withoutOverwriting)
+        let encodedData = try encoder.encode(value)
+        if try mutationLease.writeData(
+            encodedData,
+            toRelativePath: relativePath,
+            replacingExisting: false
+        ) {
             return
-        } catch {
-            guard try reader.pathEntryExists(url: url) else { throw error }
         }
-        guard let data = try reader.data(
+        let url = paths.filesystemRoot.appendingPathComponent(relativePath)
+        guard let existingData = try reader.data(
             url: url,
             allowedRoot: paths.filesystemRoot,
             maximumBytes: 256 * 1024
-        ), let existing = try? decoder.decode(ArtifactSessionMarker.self, from: data),
+        ), let existing = try? decoder.decode(ArtifactSessionMarker.self, from: existingData),
               existing.identity == value.identity else {
             throw ArtifactStoreError.corruptProvenance(url.path)
         }

@@ -128,7 +128,12 @@ final class ArtifactStoreMutationLease {
 
     /// Atomically writes one store-relative file through descriptor-pinned
     /// parents. The caller may hold the same lease for a larger mutation.
-    func writeData(_ data: Data, toRelativePath relativePath: String) throws {
+    @discardableResult
+    func writeData(
+        _ data: Data,
+        toRelativePath relativePath: String,
+        replacingExisting: Bool = true
+    ) throws -> Bool {
         let components = relativePath.split(separator: "/").map(String.init)
         guard !relativePath.contains("\0"),
               !components.isEmpty,
@@ -198,21 +203,38 @@ final class ArtifactStoreMutationLease {
                 offset += written
             }
         }
-        guard Darwin.fsync(temporaryDescriptor) == 0,
-              temporaryName.withCString({ sourceName in
-                  destinationName.withCString { targetName in
-                      Darwin.renameat(
-                          parentDescriptor,
-                          sourceName,
-                          parentDescriptor,
-                          targetName
-                      )
-                  }
-              }) == 0 else {
+        guard Darwin.fsync(temporaryDescriptor) == 0 else {
+            throw ArtifactStoreError.pathOutsideStore(relativePath)
+        }
+        let renameResult = temporaryName.withCString { sourceName in
+            destinationName.withCString { targetName in
+                if replacingExisting {
+                    return Darwin.renameat(
+                        parentDescriptor,
+                        sourceName,
+                        parentDescriptor,
+                        targetName
+                    )
+                }
+                return renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    targetName,
+                    RENAME_EXCL
+                )
+            }
+        }
+        if renameResult != 0 {
+            if !replacingExisting, errno == EEXIST {
+                keepsTemporary = false
+                return false
+            }
             throw ArtifactStoreError.pathOutsideStore(relativePath)
         }
         _ = Darwin.fsync(parentDescriptor)
         keepsTemporary = false
+        return true
     }
 
     /// Moves a staged file into the leased store without resolving destination

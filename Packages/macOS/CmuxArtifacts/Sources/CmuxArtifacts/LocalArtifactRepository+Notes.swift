@@ -68,7 +68,8 @@ extension LocalArtifactRepository: NoteStoring {
                 plan.contentDirectory,
                 paths: paths,
                 context: context,
-                capturedAt: now()
+                capturedAt: now(),
+                mutationLease: lease
             )
         }
 
