@@ -51194,13 +51194,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, custom [sidebar-name]"
           }
         }
       }
