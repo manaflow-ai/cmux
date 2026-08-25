@@ -9,6 +9,8 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let watchedPaths: [String]
     /// Paths whose changes can alter the Git watch plan itself.
     public let gitMetadataPaths: [String]
+    /// Missing external config files that need a non-recursive creation watch.
+    public let creationWatchPaths: [String]
     /// Sorted native Swift paths for tracked entries used by exact filtering.
     public let trackedEntryPaths: [String]
     /// Whether every work-tree path is conservatively relevant. This is enabled
@@ -28,6 +30,8 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - repositoryRoot: Native Swift path to the working-tree root.
     ///   - watchedPaths: Existing roots passed to the recursive watcher.
     ///   - gitMetadataPaths: Paths whose changes can rebuild this plan.
+    ///   - creationWatchPaths: Missing external config paths watched
+    ///     non-recursively until they are created.
     ///   - trackedEntryPaths: Sorted tracked paths used by exact filtering.
     ///   - acceptsAllWorkTreeEvents: Whether every work-tree event is relevant.
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
@@ -37,6 +41,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         repositoryRoot: String,
         watchedPaths: [String],
         gitMetadataPaths: [String],
+        creationWatchPaths: [String] = [],
         trackedEntryPaths: [String],
         acceptsAllWorkTreeEvents: Bool,
         eventCoalescingInterval: Duration,
@@ -46,6 +51,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
+        self.creationWatchPaths = creationWatchPaths
         self.trackedEntryPaths = trackedEntryPaths
         self.acceptsAllWorkTreeEvents = acceptsAllWorkTreeEvents
         self.eventCoalescingInterval = eventCoalescingInterval

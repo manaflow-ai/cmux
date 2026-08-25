@@ -178,6 +178,26 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.watchedPaths.contains(xdgHome.deletingLastPathComponent().path))
     }
 
+    @Test func missingGlobalConfigGetsASeparateCreationWatchPath() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxgit-missing-global-\(UUID().uuidString)")
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                ]
+            )
+        )
+
+        #expect(descriptor.creationWatchPaths.contains(globalConfigURL.path))
+        #expect(!descriptor.watchedPaths.contains(globalConfigURL.deletingLastPathComponent().path))
+    }
+
     @Test func symlinkedConfigWatchesResolvedTarget() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

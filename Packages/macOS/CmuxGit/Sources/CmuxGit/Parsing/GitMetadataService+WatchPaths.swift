@@ -87,6 +87,10 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
+        let creationWatchPaths = missingExternalConfigWatchPaths(
+            gitMetadataPaths: gitMetadataPaths,
+            repository: repository
+        )
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + gitMetadataPaths
         var watchedPaths: [String] = []
@@ -110,6 +114,7 @@ extension GitMetadataService {
                 gitMetadataPaths,
                 repository: repository
             ),
+            creationWatchPaths: creationWatchPaths,
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
@@ -288,6 +293,32 @@ extension GitMetadataService {
             return true
         }
         return !isDirectory.boolValue
+    }
+
+    private nonisolated static func missingExternalConfigWatchPaths(
+        gitMetadataPaths: [String],
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        let repositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory,
+        ]
+        var paths: [String] = []
+        var seen: Set<String> = []
+        var pathBytes = 0
+        for path in sortedUniqueNormalizedPaths(gitMetadataPaths) {
+            guard path != "/",
+                  !FileManager.default.fileExists(atPath: path),
+                  !repositoryRoots.contains(where: { isSameOrInside(path, root: $0) }),
+                  seen.insert(path).inserted else {
+                continue
+            }
+            pathBytes += path.utf8.count
+            guard paths.count < 64, pathBytes <= 16 * 1024 else { break }
+            paths.append(path)
+        }
+        return paths
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path
