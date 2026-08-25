@@ -367,6 +367,41 @@ struct WorkspaceSidebarObservationTests {
             ) == 2
         )
     }
+
+    @Test func sidebarObservationPublisherEmitsForSameTextCustomTitleProvenanceChange() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.panelTitles[panelId] = "workers"
+        #expect(
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated topic",
+                source: .auto
+            )
+        )
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        #expect(
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated topic",
+                source: .user
+            )
+        )
+        #expect(
+            publishCount == 1,
+            "A same-text auto-to-user title claim must invalidate the sidebar snapshot."
+        )
+        #expect(
+            workspace.sidebarAgentStatusRows().first?.paneLabel == "workers · Generated topic"
+        )
+    }
 }
 
 // Mutable flag captured by Observation's Sendable onChange closure in this test.
