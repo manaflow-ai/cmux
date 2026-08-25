@@ -133,12 +133,8 @@ Each client reports the cell grid available for every surface it displays with
 and terminal view receive explicit geometry authority through
 `set-client-sizing`. One terminal has at most one geometry owner. Other views
 crop, pan, or scale the canonical grid and never resize the PTY. Input does not
-claim geometry. If the owner releases, disconnects, or receives an unsuccessful
-resize response, the server fences the old owner and deterministically elects
-the lowest-id active eligible viewer. It queues that viewer's report followed
-by its authority claim before later input. The canonical grid freezes only
-when no eligible viewer remains; a passive `accepted:false` report is retained
-and is not itself a claim failure.
+claim geometry. Releasing or disconnecting the owner freezes the current grid;
+the server does not silently elect another owner.
 
 Browser surfaces retain the legacy smallest-reported-grid reducer because a
 browser surface still has one live tab. When a browser tab becomes hidden, the
@@ -162,11 +158,22 @@ is retained and takes effect if that view later claims authority.
 For terminals, `set-client-sizing` claims or releases geometry authority.
 `exclusive:true`, `enabled:true`, and no `client` claims authority for the
 requesting connection. An explicit `client` may be used by an authorized
-controller. Omitting `client` and `exclusive` releases any owner and causes the
-server to fence and, when possible, replace that owner before later input; the
-grid freezes only when no eligible viewer remains. For browsers, the same
-command retains the legacy include,
+controller. Omitting `client` and `exclusive` releases any owner and freezes
+the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
+
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. Inside one relay session, the wrapper fences its local owner when the
+owner leaves, disconnects, or receives an unsuccessful report response. It
+deterministically chooses the lowest-id eligible relay viewer and sends that
+viewer's `resize-surface` report followed by its `set-client-sizing` claim
+through the shared control queue before later relay input. A passive
+`accepted:false` report is retained while the wrapper still sends the explicit
+claim request. This is a relay-side ordering rule. It does not change the
+cmux-tui server rule above: the core server still freezes geometry until it
+receives an explicit new claim.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 

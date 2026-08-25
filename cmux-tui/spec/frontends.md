@@ -94,10 +94,12 @@ Every protocol-v8 and newer split layout node has a stable `split` id. Preserve 
 Initial surface dimensions and geometry ownership follow the consolidated
 [`Sizing`](commands.md#sizing) contract. Passive clients report their viewport
 without resizing the PTY. A client explicitly claims geometry for one terminal
-view. If that owner disconnects, releases, or receives an unsuccessful resize
-response, the server fences it and elects the lowest-id active eligible viewer.
-The replacement report and authority claim are sent before later input. The
-canonical grid stays frozen only when no eligible viewer remains.
+view, and the canonical grid stays frozen when that owner disconnects until a
+client makes another explicit claim. The Rust `chatmux-relay` wrapper has a
+separate local attachment rule: it may fence its relay owner, choose the
+lowest-id eligible relay viewer, and send that viewer's report followed by an
+explicit claim before later relay input. This wrapper rule does not change the
+core cmux-tui server contract.
 
 ## 4. Render A PTY Surface
 
