@@ -3,16 +3,21 @@ import Foundation
 import Network
 import Security
 
-struct MarkdownRemoteImageFetchResult {
-    let data: Data
-    let mimeType: String
+public struct MarkdownRemoteImageFetchResult: Sendable {
+    public let data: Data
+    public let mimeType: String
+
+    public init(data: Data, mimeType: String) {
+        self.data = data
+        self.mimeType = mimeType
+    }
 }
 
-enum MarkdownRemoteImageSecurity {
-    static let maximumRemoteImageBytes = 8 * 1024 * 1024
+public enum MarkdownRemoteImageSecurity {
+    public static let maximumRemoteImageBytes = 8 * 1024 * 1024
 
-    static func remoteImageURL(from requestURL: URL) -> URL? {
-        guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.remoteImageURLScheme,
+    public static func remoteImageURL(from requestURL: URL) -> URL? {
+        guard requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage,
               let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
               let rawRemoteURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
               let remoteURL = URL(string: rawRemoteURL),
@@ -22,11 +27,11 @@ enum MarkdownRemoteImageSecurity {
         return remoteURL
     }
 
-    static func isPotentiallySafeRemoteImageURL(_ url: URL) -> Bool {
+    public static func isPotentiallySafeRemoteImageURL(_ url: URL) -> Bool {
         isSafeRemoteImageURL(url, resolveHost: false)
     }
 
-    static func isSafeRemoteImageURL(_ url: URL, resolveHost: Bool = true) -> Bool {
+    public static func isSafeRemoteImageURL(_ url: URL, resolveHost: Bool = true) -> Bool {
         guard url.scheme?.lowercased() == "https",
               url.user == nil,
               url.password == nil,
@@ -38,7 +43,7 @@ enum MarkdownRemoteImageSecurity {
         return !resolveHost || hostResolvesOnlyToAllowedAddresses(host)
     }
 
-    static func pinnedFetchTargets(for url: URL) -> [MarkdownRemoteImageFetchTarget] {
+    public static func pinnedFetchTargets(for url: URL) -> [MarkdownRemoteImageFetchTarget] {
         guard isPotentiallySafeRemoteImageURL(url),
               let host = url.host(percentEncoded: false),
               let endpoints = resolvedAllowedEndpoints(for: host),
@@ -50,7 +55,7 @@ enum MarkdownRemoteImageSecurity {
         }
     }
 
-    static func pathAndQuery(for url: URL) -> String {
+    public static func pathAndQuery(for url: URL) -> String {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var value = components?.percentEncodedPath.isEmpty == false ? components?.percentEncodedPath ?? "/" : "/"
         if let query = components?.percentEncodedQuery, !query.isEmpty {
@@ -59,7 +64,7 @@ enum MarkdownRemoteImageSecurity {
         return value
     }
 
-    static func requestBytes(for url: URL, host: String) -> Data? {
+    public static func requestBytes(for url: URL, host: String) -> Data? {
         guard let hostHeader = httpHostHeaderValue(for: host) else { return nil }
         let request = [
             "GET \(pathAndQuery(for: url)) HTTP/1.1",
@@ -73,7 +78,7 @@ enum MarkdownRemoteImageSecurity {
         return request.data(using: .utf8)
     }
 
-    static func remoteImageConsentHost(for url: URL) -> String? {
+    public static func remoteImageConsentHost(for url: URL) -> String? {
         guard isPotentiallySafeRemoteImageURL(url),
               let host = url.host(percentEncoded: false) else {
             return nil
@@ -82,7 +87,7 @@ enum MarkdownRemoteImageSecurity {
         return normalized.isEmpty ? nil : normalized
     }
 
-    static func canonicalImageMIMEType(_ raw: String?) -> String? {
+    public static func canonicalImageMIMEType(_ raw: String?) -> String? {
         let mimeType = String(raw ?? "")
             .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
             .first?
@@ -269,15 +274,22 @@ enum MarkdownRemoteImageSecurity {
     }
 }
 
-struct MarkdownRemoteImageFetchTarget {
-    let url: URL
-    let serverName: String
-    let endpointHost: NWEndpoint.Host
-    let port: UInt16
+public struct MarkdownRemoteImageFetchTarget: Sendable {
+    public let url: URL
+    public let serverName: String
+    public let endpointHost: NWEndpoint.Host
+    public let port: UInt16
+
+    init(url: URL, serverName: String, endpointHost: NWEndpoint.Host, port: UInt16) {
+        self.url = url
+        self.serverName = serverName
+        self.endpointHost = endpointHost
+        self.port = port
+    }
 }
 
-enum MarkdownRemoteImageFetcher {
-    static func fetch(_ url: URL) async -> MarkdownRemoteImageFetchResult? {
+public enum MarkdownRemoteImageFetcher {
+    public static func fetch(_ url: URL) async -> MarkdownRemoteImageFetchResult? {
         guard !Task.isCancelled,
               let approvedHost = MarkdownRemoteImageSecurity.remoteImageConsentHost(for: url) else {
             return nil
@@ -328,7 +340,9 @@ private enum MarkdownRemoteImageLoadOutcome {
     case redirect(URL)
 }
 
-private final class MarkdownPinnedRemoteImageLoader {
+/// Thread-safe by construction: all mutable state is guarded by `lock` and
+/// connection callbacks run on the private serial `queue`.
+private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     private let maximumBytes: Int
     private let target: MarkdownRemoteImageFetchTarget
     private let lock = NSLock()
@@ -598,8 +612,8 @@ private final class MarkdownPinnedRemoteImageLoader {
     }
 }
 
-enum MarkdownHTTPChunkedBodyDecoder {
-    static func decode(_ data: Data, maximumBytes: Int) -> Data? {
+public enum MarkdownHTTPChunkedBodyDecoder {
+    public static func decode(_ data: Data, maximumBytes: Int) -> Data? {
         let bytes = Array(data)
         var offset = 0
         var decoded = Data()
