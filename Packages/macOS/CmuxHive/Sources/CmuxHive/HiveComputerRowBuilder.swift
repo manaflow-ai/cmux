@@ -107,6 +107,7 @@ public nonisolated struct HiveComputerRowBuilder: Sendable {
             platform: registry?.platform,
             isThisComputer: deviceID == ownDeviceID,
             isPaired: paired != nil,
+            isOwnedByCurrentUser: registry?.isOwnedByCurrentUser ?? true,
             presence: presenceState(
                 for: deviceID,
                 presence: presence,
