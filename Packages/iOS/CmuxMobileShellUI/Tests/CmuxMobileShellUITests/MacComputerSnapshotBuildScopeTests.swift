@@ -52,7 +52,7 @@ import Testing
             MacWorkspaceState(
                 macDeviceID: macDeviceID,
                 workspaces: [MobileWorkspacePreview(
-                    id: "workspace-\(macDeviceID)",
+                    id: MobileWorkspacePreview.ID(rawValue: "workspace-\(macDeviceID)"),
                     macDeviceID: macDeviceID,
                     name: macDeviceID,
                     terminals: []
