@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import unittest
 from unittest.mock import patch
@@ -3886,6 +3887,97 @@ class ResourceApiTests(unittest.TestCase):
             if thread.name.startswith(("cmux-aio", "cmux-resource-reader-"))
         ]
         self.assertEqual(leaked, [])
+
+    def test_aio_close_callers_join_one_cleanup(self) -> None:
+        async def exercise() -> None:
+            client = object.__new__(cmux.aio.Client)
+            client._closed = False
+            client._closing = False
+            client._close_task = None
+            client._streams = set()
+            client._executor = ThreadPoolExecutor(max_workers=1)
+            started = asyncio.Event()
+            release = threading.Event()
+
+            def close_sync() -> None:
+                started_loop.call_soon_threadsafe(started.set)
+                release.wait(1)
+
+            started_loop = asyncio.get_running_loop()
+            sync = type("Sync", (), {})()
+            sync.close = close_sync
+            client._sync = sync
+            first = asyncio.create_task(client.close())
+            await started.wait()
+            second = asyncio.create_task(client.close())
+            await asyncio.sleep(0)
+            self.assertFalse(first.done() or second.done())
+            release.set()
+            await asyncio.gather(first, second)
+            self.assertTrue(client.closed)
+
+        asyncio.run(exercise())
+
+    def test_aio_cancelled_close_caller_does_not_cancel_shared_cleanup(self) -> None:
+        async def exercise() -> None:
+            client = object.__new__(cmux.aio.Client)
+            client._closed = False
+            client._closing = False
+            client._close_task = None
+            client._streams = set()
+            client._executor = ThreadPoolExecutor(max_workers=1)
+            started = asyncio.Event()
+            release = threading.Event()
+
+            def close_sync() -> None:
+                loop.call_soon_threadsafe(started.set)
+                release.wait(1)
+
+            loop = asyncio.get_running_loop()
+            sync = type("Sync", (), {})()
+            sync.close = close_sync
+            client._sync = sync
+            cancelled_caller = asyncio.create_task(client.close())
+            await started.wait()
+            joining_caller = asyncio.create_task(client.close())
+            cancelled_caller.cancel()
+            await asyncio.sleep(0)
+            self.assertFalse(joining_caller.done())
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await cancelled_caller
+            await joining_caller
+            self.assertTrue(client.closed)
+
+        asyncio.run(exercise())
+
+    def test_aio_close_failure_allows_retry(self) -> None:
+        async def exercise() -> None:
+            client = object.__new__(cmux.aio.Client)
+            client._closed = False
+            client._closing = False
+            client._close_task = None
+            client._streams = set()
+            client._executor = ThreadPoolExecutor(max_workers=1)
+            calls = 0
+
+            def close_sync() -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError("close failed")
+
+            sync = type("Sync", (), {})()
+            sync.close = close_sync
+            client._sync = sync
+            with self.assertRaises(OSError):
+                await client.close()
+            self.assertFalse(client.closed)
+            await client.close()
+            self.assertTrue(client.closed)
+            self.assertEqual(calls, 2)
+
+        asyncio.run(exercise())
 
 
 if __name__ == "__main__":

@@ -77,6 +77,15 @@ def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
         assert required_paths <= set(paths)
 
 
+def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
+    tui = workflow("cmux-tui.yml")
+    test_job = workflow_job(tui, "test")
+
+    assert "name: Use short temporary directory for macOS socket tests" in test_job
+    assert "if: runner.os == 'macOS'" in test_job
+    assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -99,6 +108,16 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     assert 'DIST_NAME = "cmux"' in tui_pypi
     assert 'PACKAGE_NAME = "cmux_tui"' in tui_pypi
     assert "cmux = cmux_tui._main:main" in tui_pypi
+
+
+def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    releasing = (ROOT / "cmux-tui" / "bindings" / "RELEASING.md").read_text()
+    assert artifacts.count('"architecture":') >= 4
+    assert artifacts.count('"libc": "none"') >= 4
+    assert '"arch":' not in artifacts
+    assert "architecture: x86_64" in releasing
+    assert "libc: none" in releasing
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:

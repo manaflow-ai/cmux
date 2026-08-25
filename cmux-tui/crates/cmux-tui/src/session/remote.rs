@@ -35,6 +35,8 @@ use ghostty_vt::{
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
+use super::cursor_provenance::CursorStyleProvenance;
+use super::parse_identity_capabilities;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
@@ -147,6 +149,8 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
             "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
         );
     }
+    parse_identity_capabilities(ident)
+        .map_err(|reason| anyhow::anyhow!("invalid identity capabilities: {reason}"))?;
     Ok(())
 }
 
@@ -169,14 +173,7 @@ fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
 }
 
 fn identity_capabilities(ident: &Value) -> HashSet<String> {
-    ident
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect()
+    parse_identity_capabilities(ident).unwrap_or_default()
 }
 
 fn require_capability(
@@ -429,6 +426,7 @@ pub struct RemoteSurface {
     pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
+    cursor_provenance: Mutex<CursorStyleProvenance>,
     pub dirty: AtomicBool,
     geometry_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
@@ -456,6 +454,21 @@ impl RemoteSurface {
         if let Some(hook) = hook {
             hook(step);
         }
+    }
+
+    /// Whether the inner application authored the cursor style (DECSCUSR)
+    /// through the raw output stream since the last daemon replay.
+    pub(super) fn cursor_style_authored(&self) -> bool {
+        self.cursor_provenance.lock().unwrap().authored()
+    }
+
+    fn scan_cursor_provenance(&self, bytes: &[u8]) {
+        self.cursor_provenance.lock().unwrap().scan(bytes);
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        self.scan_cursor_provenance(bytes);
     }
 
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
@@ -657,6 +670,7 @@ impl RemoteSurface {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
         let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let daemon_replay = replay.is_some();
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         #[cfg(test)]
@@ -688,6 +702,11 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         *term = fresh;
+        if daemon_replay {
+            // Daemon-built replays carry resolved state, not application
+            // intent; cursor-style provenance restarts from "not authored".
+            self.cursor_provenance.lock().unwrap().reset_for_replay();
+        }
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
         Ok(())
@@ -1468,6 +1487,7 @@ pub struct RemoteSession {
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
+    browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscription_started: AtomicBool,
@@ -1805,6 +1825,7 @@ impl RemoteSession {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
@@ -2135,6 +2156,7 @@ impl RemoteSession {
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&bytes);
                     if let Some(colors) = colors.as_ref() {
@@ -3122,10 +3144,16 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
         }
-        let source = {
-            let tree = self.tree.lock().unwrap();
-            browser_source_from_tree(&tree.view, id)
-        };
+        let source = self.browser_sources.lock().unwrap().get(&id).copied().or_else(|| {
+            (kind == SurfaceKind::Browser)
+                .then(|| {
+                    // Before the first tree refresh, preserve the historical lookup
+                    // against the current cache rather than losing browser metadata.
+                    let tree = self.tree.lock().unwrap();
+                    browser_source_from_tree(&tree.view, id)
+                })
+                .flatten()
+        });
         let (cols, rows) = size.unwrap_or((80, 24));
         let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
             self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
@@ -3152,6 +3180,7 @@ impl RemoteSession {
                 kind,
                 term: Mutex::new(term),
                 mouse_encoders: Mutex::new(MouseEncoders::new()?),
+                cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
                 dirty: AtomicBool::new(false),
                 geometry_lifecycle: Mutex::new(()),
                 cell_pixels: Mutex::new(cell_pixels),
@@ -3368,9 +3397,11 @@ impl RemoteSession {
             cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
+        let browser_sources = browser_sources_from_tree(&tree);
+        *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
-            surface.update_browser_source(browser_source_from_tree(&tree, id));
+            surface.update_browser_source(browser_sources.get(&id).copied());
         }
         Ok(tree)
     }
@@ -3567,6 +3598,16 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
     out
 }
 
+fn browser_sources_from_tree(tree: &TreeView) -> HashMap<SurfaceId, BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.browser_source.map(|source| (tab.surface, source)))
+        .collect()
+}
+
 fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
     tree.workspaces
         .iter()
@@ -3739,6 +3780,7 @@ fn test_session_with_writer(
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
+        browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
         subscription_started: AtomicBool::new(false),
@@ -4042,6 +4084,7 @@ pub(super) fn test_unleased_view_surface(
         kind: SurfaceKind::Pty,
         term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
         mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
         dirty: AtomicBool::new(false),
         geometry_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
@@ -4083,6 +4126,7 @@ pub(super) fn test_session_with_browser_pointer_range(
         kind: SurfaceKind::Browser,
         term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
         mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
         dirty: AtomicBool::new(false),
         geometry_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
@@ -4267,6 +4311,18 @@ mod tests {
     }
 
     #[test]
+    fn malformed_identity_capabilities_are_rejected() {
+        for capabilities in [json!(null), json!("clear-history-v1"), json!(["ok", 1])] {
+            assert!(
+                validate_remote_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn disabled_frame_logging_does_not_format_hot_path_messages() {
         struct FormattingProbe(Arc<AtomicBool>);
 
@@ -4387,6 +4443,220 @@ mod tests {
         .unwrap()
         .frame;
         assert_eq!((legacy.image_width, legacy.image_height), (320, 200));
+    }
+
+    #[test]
+    fn raw_output_decscusr_authors_cursor_and_daemon_replay_resets_provenance() {
+        let (session, surface) = test_unleased_view_surface(7);
+        assert!(!surface.cursor_style_authored(), "defaults are never authored");
+
+        // Raw inner-PTY output authors the cursor style.
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"\x1b[5 q");
+        session.handle_line(json!({"event": "output", "surface": 7, "data": encoded}));
+        assert!(surface.cursor_style_authored());
+
+        // The application resetting to the default clears authorship.
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"\x1b[0 q");
+        session.handle_line(json!({"event": "output", "surface": 7, "data": encoded}));
+        assert!(!surface.cursor_style_authored());
+
+        // A daemon-built vt-state replay carries resolved state with the
+        // session defaults baked in, so it must never count as authored,
+        // even when the replay bytes contain DECSCUSR.
+        surface.scan_cursor_provenance(b"\x1b[6 q");
+        assert!(surface.cursor_style_authored());
+        surface
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None)
+            .unwrap();
+        assert!(!surface.cursor_style_authored());
+    }
+
+    #[test]
+    fn resolved_output_colors_do_not_author_cursor_style() {
+        let (session, surface) = test_unleased_view_surface(12);
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 12,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#171b2e",
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+
+        assert!(
+            !surface.cursor_style_authored(),
+            "daemon-resolved cursor colors must not be treated as inner-PTY authored"
+        );
+    }
+
+    #[test]
+    fn local_mirror_resize_preserves_cursor_authorship() {
+        let (_session, surface) = test_unleased_view_surface(9);
+        surface.scan_cursor_provenance(b"\x1b[3 q");
+        assert!(surface.cursor_style_authored());
+        surface.apply_stream_resize(100, 30, None, &[]).unwrap();
+        assert!(
+            surface.cursor_style_authored(),
+            "a client-side resize replays the same application state"
+        );
+    }
+
+    #[test]
+    fn daemon_replay_restores_inner_mouse_tracking_to_the_mirror() {
+        let (_session, surface) = test_unleased_view_surface(11);
+        assert!(!surface.term.lock().unwrap().mouse_tracking());
+        surface
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None)
+            .unwrap();
+        assert!(
+            surface.term.lock().unwrap().mouse_tracking(),
+            "reattach replay must restore the inner mouse mode that drives host capture mirroring"
+        );
+    }
+
+    /// Same contract against the daemon's REAL replay bytes, not a hand-written
+    /// DECSET: the terminal host serializes attach state with the bounded
+    /// theme-portable formatter, so this pins that its output still carries the
+    /// mouse-tracking modes and that they survive the client's replay apply all
+    /// the way to the pointer-semantics probe the App's host-capture mirroring
+    /// reads.
+    #[test]
+    fn daemon_theme_portable_replay_restores_mouse_tracking_to_the_attach_probe() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        // btop-shaped inner state: alt screen plus button-motion tracking with
+        // SGR and urxvt encodings, entered before any client attached.
+        host.vt_write(b"\x1b[?1049h\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        assert!(host.mouse_tracking());
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(12);
+        assert!(!surface.term.lock().unwrap().mouse_tracking());
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+        match surface.try_pointer_semantics() {
+            PointerSemanticProbe::Ready(semantics) => assert!(
+                semantics.mouse_tracking,
+                "the attach probe must observe the replay-restored mouse modes"
+            ),
+            PointerSemanticProbe::Contended => panic!("uncontended terminal probe blocked"),
+        }
+    }
+
+    fn forwarded_left_press_bytes(surface: &RemoteSurface) -> Vec<u8> {
+        let input = MouseInput {
+            action: ghostty_vt::MouseAction::Press,
+            button: Some(ghostty_vt::MouseButton::Left),
+            mods: Mods::default(),
+            position: (35.5, 20.5),
+            screen_size: (80, 24),
+            cell_size: (1, 1),
+            any_button_pressed: true,
+        };
+        let mut out = Vec::new();
+        surface.encode_mouse(input, &mut out).expect("uncontended encoders").unwrap();
+        out
+    }
+
+    /// Scoped reattach, real daemon serialization: the terminal host encodes
+    /// attach state with the bounded theme-portable formatter. When the inner
+    /// app (btop) enabled 1002h, 1015h, 1006h with SGR last, a click forwarded
+    /// after reattach must still be re-encoded for the inner PTY as SGR, not
+    /// urxvt. btop parses only SGR responses, so urxvt means dead clicks.
+    #[test]
+    fn daemon_replay_keeps_forwarded_clicks_sgr_when_inner_app_set_sgr_last() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1049h\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(13);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[<0;36;21M",
+            "reattach replay flipped the forwarded click encoding away from SGR"
+        );
+    }
+
+    /// A fixed daemon appends the active selector after its numeric flag dump,
+    /// so an application that deliberately selected urxvt last keeps it.
+    #[test]
+    fn daemon_replay_keeps_a_deliberate_urxvt_choice() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(15);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[32;36;21M",
+            "an application that chose urxvt last must keep urxvt after reattach"
+        );
+    }
+
+    /// Older daemons serialize mouse DECSETs as a numeric flag dump and lose
+    /// the original last-set order. Both SGR-last and urxvt-last applications
+    /// can produce these bytes, so the client must apply them as written. A
+    /// guessed preference would corrupt one of the two valid meanings.
+    #[test]
+    fn ambiguous_legacy_flag_dump_preserves_replayed_mouse_format() {
+        let (_session, surface) = test_unleased_view_surface(14);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h"),
+                &[],
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[32;36;21M",
+            "ambiguous legacy replay must preserve its last selector instead of guessing SGR"
+        );
     }
 
     #[test]
@@ -4750,6 +5020,7 @@ mod tests {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
@@ -4898,6 +5169,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new(cell_pixels),
@@ -7250,6 +7522,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7339,6 +7612,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7401,6 +7675,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7463,6 +7738,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7532,6 +7808,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7580,6 +7857,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7623,6 +7901,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7937,6 +8216,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8159,6 +8439,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8281,6 +8562,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8316,6 +8598,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8531,6 +8814,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8780,6 +9064,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),

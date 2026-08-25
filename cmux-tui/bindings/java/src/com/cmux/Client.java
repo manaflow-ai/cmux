@@ -268,19 +268,41 @@ public final class Client implements AutoCloseable {
             transport = builder.transport;
         } else {
             Path socket = SocketDiscovery.resolve(builder.socket, builder.session);
+            Transport openedTransport;
             try {
-                transport = new UnixTransport(
+                openedTransport = new UnixTransport(
                     socket,
                     builder.maxRequestBytes,
-                    builder.maxResponseBytes
+                    builder.maxResponseBytes,
+                    timeout
                 );
             } catch (IOException | UnsupportedOperationException error) {
-                throw new TransportError(
-                    "cannot connect to Unix session socket " + socket +
-                        "; inject a Transport on platforms without Unix-domain sockets",
-                    error
-                );
+                Path fallback = SocketDiscovery.legacyRawFallback(socket, builder.session);
+                if (fallback != null) {
+                    try {
+                        openedTransport = new UnixTransport(
+                            fallback,
+                            builder.maxRequestBytes,
+                            builder.maxResponseBytes,
+                            timeout
+                        );
+                    } catch (IOException | UnsupportedOperationException fallbackError) {
+                        fallbackError.addSuppressed(error);
+                        throw new TransportError(
+                            "cannot connect to Unix session socket " + socket +
+                                " or legacy fallback " + fallback,
+                            fallbackError
+                        );
+                    }
+                } else {
+                    throw new TransportError(
+                        "cannot connect to Unix session socket " + socket +
+                            "; inject a Transport on platforms without Unix-domain sockets",
+                        error
+                    );
+                }
             }
+            transport = openedTransport;
         }
         reader = new Thread(this::readLoop, "cmux-resource-api-reader");
         reader.setDaemon(true);
