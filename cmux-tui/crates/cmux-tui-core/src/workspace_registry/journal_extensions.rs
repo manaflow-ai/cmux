@@ -248,6 +248,12 @@ impl JournalContentBlob {
         verify_journal_content_blob(&blob)?;
         Ok(blob)
     }
+
+    /// Bounded decompression of already-verified content, re-checked against
+    /// the reference length and digest.
+    pub(crate) fn uncompressed(&self) -> anyhow::Result<Vec<u8>> {
+        decompress_verified_journal_content_blob(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2177,6 +2183,74 @@ impl WorkspaceRegistry {
             .transpose()
             .map(Option::flatten)
     }
+
+    /// Stored checkpoint content for one reference, verified against the
+    /// reference digest and size, returned uncompressed. `None` when the
+    /// blob row is absent.
+    pub(crate) fn journal_content_blob_bytes(
+        &self,
+        reference: &JournalContentRef,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let compressed = self
+            .connection
+            .query_row(
+                "SELECT content FROM journal_content_blobs WHERE content_id = ?1",
+                params![reference.content_id],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()?;
+        let Some(compressed) = compressed else { return Ok(None) };
+        let blob = JournalContentBlob::verified(reference.clone(), compressed)?;
+        blob.uncompressed().map(Some)
+    }
+
+    /// Append the post-replay outcome of materializing one restored exited
+    /// terminal placeholder (spec: post-replay actions carry their own
+    /// journal outcomes). Effect-class and never-replayed: restoration
+    /// derives no state from it, and the restore-preview reducer ignores
+    /// non-required records, so existing previews stay fully reducible.
+    pub(crate) fn append_terminal_restore_outcome(
+        &mut self,
+        terminal_public_id: &str,
+        payload: &Value,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        let tx = self.connection.transaction()?;
+        let session_id = transaction_session_id(&tx)?;
+        let mut subjects = BTreeSet::from([
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "terminal".into(), id: terminal_public_id.into() },
+        ]);
+        expand_topology_subjects(&tx, &mut subjects)?;
+        let subjects = subjects.into_iter().collect::<Vec<_>>();
+        let producer =
+            JournalProducer { kind: "session_restore".into(), id: terminal_public_id.into() };
+        let event_id = random_event_id("restore");
+        let now = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "terminal.restore.applied",
+                class: JournalClass::Effect,
+                replay: JournalReplayPolicy::Never,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
 }
 
 impl WorkspaceRegistry {
@@ -2726,7 +2800,7 @@ fn operation_receipt(
     }))
 }
 
-fn encode_hex(bytes: &[u8]) -> String {
+pub(crate) fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -2747,7 +2821,7 @@ fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
     Ok(decoded)
 }
 
-fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {
+fn decompress_verified_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(
         blob.reference.format == "cmux.vt-replay.v1" && blob.reference.codec == "gzip",
         "checkpoint content format or codec is unsupported"
@@ -2778,6 +2852,11 @@ fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> 
         Sha256::digest(&uncompressed).as_slice() == blob.digest.as_slice(),
         "checkpoint content digest does not match its reference"
     );
+    Ok(uncompressed)
+}
+
+fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {
+    let _ = decompress_verified_journal_content_blob(blob)?;
     Ok(())
 }
 

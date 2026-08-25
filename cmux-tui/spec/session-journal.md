@@ -11,9 +11,12 @@ tab selection; split ratios; viewport column widths; topology; terminal and
 browser lifecycle; continuous terminal output and geometry; frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
-reducer can preview the state reconstructed from a checkpoint and its tail.
-Verified root ownership leases and live application of a restored model remain
-pending.
+reducer can preview the state reconstructed from a checkpoint and its tail,
+and a restarted server reconstructs the durable topology, representing
+terminals whose processes died while it was down honestly as exited, with
+their renderable content applied from the newest checkpoint and the reducible
+output tail. Verified root ownership leases and post-restore respawn actions
+remain pending.
 
 ## Invariants
 
@@ -575,6 +578,34 @@ External effects are not repeated during replay. Their recorded outcomes
 materialize state. Live-process adoption separately verifies process identity
 and incarnation before reconnecting a terminal host.
 
+Server startup applies the restored topology: workspace identity, order, and
+names; screens; split trees with committed ratios and viewport column widths;
+and tab placements. Startup rebuilds it from the transactional projections
+that invariant 2 keeps equal to the journal head, so the applied state and a
+restore preview at the same head agree. A terminal whose process died while
+the daemon was down is latched as exited with the first observed outcome and
+keeps its journaled placements: restoration never respawns a process, never
+pretends to reattach a dead one, and never discards layout on behalf of a
+process it did not observe exiting. An exit the daemon observes live still
+detaches that terminal's views in the same transaction. Explicit close of a
+restored exited terminal, and future respawn actions, are ordinary post-restore
+mutations with their own journal outcomes.
+
+Cold start also materializes each restored exited terminal as an inert
+surface whose renderable content is applied from the journal: the terminal's
+VT replay blob in the newest checkpoint, then the exact parser-accepted
+`terminal.output` bytes and accepted `terminal.resized` geometry after that
+checkpoint, validated with the same digests and per-generation offset
+contiguity the preview reducer enforces. A `terminal.output.gap`, an offset
+discontinuity, or an exceeded replay budget stops the applied tail at the
+last provably complete event; the projection renders what is proven and never
+guesses at missing bytes. A terminal absent from the newest checkpoint is
+rebuilt from its full journaled output history when one exists. Each
+materialization appends a `terminal.restore.applied` effect record (replay
+`never`) naming the source checkpoint, applied tail counters, and any
+degradation, so the post-replay action carries its own journal outcome
+without changing what restoration must reduce.
+
 Hosts created before the source-ordered detach protocol remain available in a
 compatibility mode. Their live output is not added to the journal because an
 old host cannot fence output at daemon shutdown. New protocol-v4 hosts use the
@@ -668,7 +699,9 @@ redaction markers are reserved for a later storage version.
 | Hook dispatcher and delivery projections | Implemented in storage v1 |
 | Checkpoint writer and restoration preview reducer | Implemented in storage v1 |
 | Checkpoint-aligned immutable segments | Implemented in storage v1 |
-| Live restoration application | Pending |
+| Restart topology restoration with honest exited terminals | Implemented in storage v1 |
+| Cold-start checkpoint content application to exited placeholders | Implemented in storage v1 |
+| Post-restore respawn actions | Pending |
 
 The in-memory `MuxEvent` broadcaster remains a lossy presentation mechanism.
 It may wake consumers after commit, but it is never a journal or restoration

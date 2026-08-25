@@ -3013,7 +3013,7 @@ fn running_host_sigkill_detaches_exited_terminal_topology() {
 }
 
 #[test]
-fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
+fn daemon_restart_preserves_dead_host_topology_without_respawn() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -3055,7 +3055,9 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
         );
         if resolved["lifecycle"] == "exited" {
             assert_eq!(resolved["terminal_incarnation"], incarnation);
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            // Restoration materializes an honest exited placeholder surface
+            // for the preserved placement; nothing was respawned.
+            assert!(resolved["surface"].is_u64(), "{resolved}");
             break;
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
@@ -3069,16 +3071,20 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
+    // Restoration keeps the journaled tab placement; the terminal is exited,
+    // not respawned, and its view has no live surface to write to.
+    let tab = first_tab(workspace).expect("exited terminal lost its tab placement after restart");
+    let restored_surface = tab["surface"].as_u64().expect("restored tab has a stable slot");
 
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":restored_surface,"text":"must-not-respawn\\n",
         }),
     );
     assert_eq!(write["ok"], false);
     assert!(write["error"].as_str().unwrap().contains("unknown surface"));
+    let _ = surface;
     request(
         &harness.socket,
         serde_json::json!({
@@ -3086,10 +3092,21 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
             "terminal_incarnation":incarnation,
         }),
     );
+    let closed = request(&harness.socket, serde_json::json!({"id":7,"cmd":"list-workspaces"}));
+    let workspace = closed["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
+        .expect("workspace disappeared after closing its exited terminal");
+    assert!(
+        first_tab(workspace).is_none(),
+        "explicit close did not remove the exited terminal's tab"
+    );
 }
 
 #[test]
-fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+fn daemon_restart_preserves_every_dead_host_behind_one_pane() {
     let mut harness = RecoveryHarness::start("dead-hosts-restart");
     let first = request(
         &harness.socket,
@@ -3141,7 +3158,9 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
                 serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
             );
             if resolved["lifecycle"] == "exited" {
-                assert_eq!(resolved["surface"], serde_json::Value::Null);
+                // Each preserved placement materializes its own exited
+                // placeholder surface; nothing was respawned.
+                assert!(resolved["surface"].is_u64(), "{resolved}");
                 break;
             }
             assert!(
@@ -3159,7 +3178,15 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+    // Both dead terminals keep their tab placements in the one pane.
+    let tabs = workspace["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .count();
+    assert_eq!(tabs, 2, "exited terminals lost their tab placements after restart");
 }
 
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {

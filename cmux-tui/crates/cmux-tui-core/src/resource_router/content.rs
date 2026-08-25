@@ -354,6 +354,19 @@ fn execute_terminal_effect(
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
+        // A restored exited terminal keeps its journaled views without a
+        // runtime. Explicit close is the one effect that still applies to it.
+        if prepared.operation == "terminal.close"
+            && let Some(slot) = mux.first_terminal_placement(&terminal_id)
+        {
+            let commit = mux.commit_resource_terminal_close_effect(
+                slot,
+                &prepared.idempotency_key,
+                &prepared.operation,
+                &prepared.fingerprint,
+            );
+            return finish_projection_commit(mux, prepared, commit);
+        }
         return effects::commit_known_failure(
             mux,
             prepared,

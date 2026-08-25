@@ -2092,7 +2092,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_at_cell_pixels(id, opts, mux, cell_pixels)
     }
@@ -2105,7 +2105,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_auxiliary_at_cell_pixels(id, opts, mux, cell_pixels)
     }
@@ -2170,7 +2170,7 @@ impl Surface {
         mux: Weak<Mux>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,
@@ -3768,7 +3768,7 @@ impl Surface {
     }
 
     /// Construct a dead hosted surface for lifecycle tests without inventing
-    /// a live host connection. Production keeps exit receipts in the registry.
+    /// a live host connection.
     #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder(
         id: SurfaceId,
@@ -3793,6 +3793,24 @@ impl Surface {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::restored_exited_terminal(id, opts, mux, identity, resource_identity, None, None)
+    }
+
+    /// Materialize a terminal that died while the daemon was down as an
+    /// honest exited surface: no process, no host connection, renderable
+    /// content restored from its checkpoint VT replay plus the journaled
+    /// output tail. Attach and screen reads serve this content; input and
+    /// respawn stay explicit follow-up actions.
+    #[cfg(unix)]
+    pub(crate) fn restored_exited_terminal(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        resource_identity: TabResourceIdentity,
+        content: Option<&crate::journal_restore::RestoredTerminalContent>,
+        exit: Option<TerminalExit>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let terminal_public_id = terminal_public_id_from_resource_identity(
             &resource_identity,
             "exited terminal cannot use a browser resource identity",
@@ -3804,6 +3822,8 @@ impl Surface {
             identity,
             terminal_public_id,
             Some(resource_identity),
+            content,
+            exit,
         )
     }
 
@@ -3822,10 +3842,13 @@ impl Surface {
             identity,
             terminal_public_id,
             None,
+            None,
+            None,
         )
     }
 
-    #[cfg(all(unix, test))]
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
     fn exited_terminal_placeholder_with_identities(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -3833,13 +3856,21 @@ impl Surface {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
         terminal_public_id: TerminalPublicId,
         resource_identity: Option<TabResourceIdentity>,
+        content: Option<&crate::journal_restore::RestoredTerminalContent>,
+        exit: Option<TerminalExit>,
     ) -> anyhow::Result<Arc<Surface>> {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
-        let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
-        let cell_pixels =
+        let (mut cols, mut rows) = (opts.cols.max(1), opts.rows.max(1));
+        if let Some(content) = content
+            && content.cols > 0
+            && content.rows > 0
+        {
+            (cols, rows) = (content.cols, content.rows);
+        }
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -3850,6 +3881,40 @@ impl Surface {
             term.set_default_palette(&colors.palette);
             replace_ghostty_cursor_defaults(&mut term, colors);
         }
+        if let Some(content) = content {
+            // The checkpoint replay is a complete self-contained VT stream at
+            // the captured grid; the journaled tail then replays the exact
+            // parser-accepted bytes and accepted geometry changes in commit
+            // order, ending at the terminal's final observed state.
+            if !content.replay.is_empty() {
+                term.apply_vt_replay_parts(
+                    &content.replay,
+                    &content.kitty_image_aliases,
+                    content.kitty_state,
+                )?;
+            }
+            for event in &content.tail {
+                match event {
+                    crate::journal_restore::RestoredTailEvent::Output(bytes) => {
+                        term.vt_write(bytes);
+                    }
+                    crate::journal_restore::RestoredTailEvent::Resize {
+                        cols: tail_cols,
+                        rows: tail_rows,
+                        cell_width,
+                        cell_height,
+                    } => {
+                        (cols, rows) = (*tail_cols, *tail_rows);
+                        cell_pixels = (*cell_width as u16, *cell_height as u16);
+                        term.resize(*tail_cols, *tail_rows, *cell_width, *cell_height)?;
+                    }
+                }
+            }
+        }
+        let effective_kitty_limits = content
+            .filter(|content| !content.replay.is_empty())
+            .map(|content| content.kitty_state.limits)
+            .unwrap_or(initial_kitty_limits);
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
@@ -3893,7 +3958,7 @@ impl Surface {
                 pid: None,
                 command,
                 cwd: opts.cwd,
-                exit: Mutex::new(None),
+                exit: Mutex::new(exit),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(true),
                 dead: AtomicBool::new(true),
@@ -3908,7 +3973,7 @@ impl Surface {
                     cell_width: cell_pixels.0,
                     cell_height: cell_pixels.1,
                 }),
-                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_limits: Box::new(Mutex::new(effective_kitty_limits)),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -5424,7 +5489,15 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        // A dead surface still serves its replay when it represents an
+        // honestly exited terminal (a restored placeholder, or a hosted
+        // terminal whose process ended): the attach returns the final
+        // renderable content and, because tap registration below is gated on
+        // liveness, a stream that ends immediately.
+        if pty.dead.load(Ordering::Acquire)
+            && pty.host_connection_state.load(Ordering::Acquire)
+                != TerminalHostConnectionState::Exited as u8
+        {
             return Err(ghostty_vt::Error::NoValue);
         }
         let (tap, stream) =
@@ -5469,7 +5542,13 @@ impl Surface {
             .and_then(|mux| mux.claim_render_attachment())
             .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        // Same exited-surface policy as attach_stream_with_lifecycle: the
+        // final frame of an exited terminal is renderable content, and the
+        // liveness-gated tap registration below keeps the stream inert.
+        if pty.dead.load(Ordering::Acquire)
+            && pty.host_connection_state.load(Ordering::Acquire)
+                != TerminalHostConnectionState::Exited as u8
+        {
             return Err(ghostty_vt::Error::NoValue);
         }
         let generation = pty.render_generation.load(Ordering::Acquire);
@@ -6333,6 +6412,8 @@ impl PtySurface {
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     fn finish_hosted_exit(&self) {
         let mut term = self.term.lock().unwrap();
+        self.host_connection_state
+            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }

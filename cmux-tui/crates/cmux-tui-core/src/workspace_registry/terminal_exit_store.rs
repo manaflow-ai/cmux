@@ -148,10 +148,6 @@ impl WorkspaceRegistry {
             apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
         }
 
-        if let Some((patch, _)) = topology {
-            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
-        }
-
         tx.execute(
             "UPDATE terminal_hosts
              SET incarnation = ?1, lifecycle = 'exited', exit_json = ?2,
