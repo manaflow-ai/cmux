@@ -38,7 +38,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines:
-            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud Machines")
+            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking:
             return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:

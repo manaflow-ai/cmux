@@ -201167,13 +201167,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines"
+            "value": "Cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシン"
+            "value": "クラウド"
           }
         }
       }
