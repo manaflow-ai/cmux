@@ -180,7 +180,7 @@ actor LivenessHostRouter {
     ) async -> Bool {
         let effectiveTimeoutNanoseconds = MobileShellWallClockWaitPolicy
             .timeoutNanoseconds(for: timeoutNanoseconds)
-        let reached = (try? await MobileShellWallClockWaitGate.processWide.withLock {
+        let operation: @Sendable () async throws -> Bool = {
             try Task.checkCancellation()
             return await withTaskGroup(of: Bool.self) { group in
                 group.addTask {
@@ -196,7 +196,15 @@ actor LivenessHostRouter {
                 group.cancelAll()
                 return reached
             }
-        }) ?? false
+        }
+        let reached: Bool
+        if MobileShellWallClockWaitPolicy.shouldSerializeWait(
+            timeoutNanoseconds: timeoutNanoseconds
+        ) {
+            reached = (try? await MobileShellWallClockWaitGate.processWide.withLock(operation)) ?? false
+        } else {
+            reached = (try? await operation()) ?? false
+        }
         if !reached, recordIssueOnTimeout {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
@@ -987,7 +995,7 @@ func pollUntil(
     attempts: Int = MobileShellWallClockWaitPolicy.defaultPollAttempts,
     _ condition: @MainActor () async -> Bool
 ) async throws -> Bool {
-    try await MobileShellWallClockWaitGate.processWide.withLock {
+    let operation: @Sendable () async throws -> Bool = {
         try Task.checkCancellation()
         for _ in 0..<attempts {
             if await condition() {
@@ -997,6 +1005,10 @@ func pollUntil(
         }
         return await condition()
     }
+    if MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: attempts) {
+        return try await MobileShellWallClockWaitGate.processWide.withLock(operation)
+    }
+    return try await operation()
 }
 
 @MainActor

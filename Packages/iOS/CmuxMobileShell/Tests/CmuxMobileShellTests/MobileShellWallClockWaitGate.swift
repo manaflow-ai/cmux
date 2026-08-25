@@ -52,13 +52,22 @@ enum MobileShellWallClockWaitPolicy {
     static let defaultPollAttempts = 3_000
     static let defaultWaitTimeoutNanoseconds: UInt64 = 30_000_000_000
 
-    private static let headroomThresholdNanoseconds: UInt64 = 3_000_000_000
+    private static let suiteScaleThresholdNanoseconds: UInt64 = 3_000_000_000
+    private static let pollIntervalNanoseconds: UInt64 = 10_000_000
 
     /// Preserve intentionally short assertion windows while giving every
     /// suite-scale wait enough time to survive a busy shared executor.
     static func timeoutNanoseconds(for requested: UInt64) -> UInt64 {
-        guard requested >= headroomThresholdNanoseconds else { return requested }
+        guard shouldSerializeWait(timeoutNanoseconds: requested) else { return requested }
         return max(requested, defaultWaitTimeoutNanoseconds)
+    }
+
+    static func shouldSerializeWait(timeoutNanoseconds: UInt64) -> Bool {
+        timeoutNanoseconds >= suiteScaleThresholdNanoseconds
+    }
+
+    static func shouldSerializePoll(attempts: Int) -> Bool {
+        attempts >= Int(suiteScaleThresholdNanoseconds / pollIntervalNanoseconds)
     }
 }
 
@@ -167,4 +176,7 @@ func mobileShellWallClockWaitPolicyProvidesSuiteHeadroom() {
         MobileShellWallClockWaitPolicy.timeoutNanoseconds(for: 200_000_000)
             == 200_000_000
     )
+    #expect(!MobileShellWallClockWaitPolicy.shouldSerializeWait(timeoutNanoseconds: 250_000_000))
+    #expect(!MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: 100))
+    #expect(MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: 3_000))
 }
