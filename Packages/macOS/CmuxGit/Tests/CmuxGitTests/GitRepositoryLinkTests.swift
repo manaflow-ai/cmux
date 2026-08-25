@@ -362,4 +362,138 @@ import Testing
         )
         #expect(descriptor.gitMetadataPaths.contains(worktreeConfigURL.path))
     }
+
+    @Test func resolvesSystemConfigFromGitExecPath() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let prefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-prefix-\(UUID().uuidString)", isDirectory: true)
+        let execPath = prefix.appendingPathComponent("libexec/git-core", isDirectory: true)
+        let systemConfigURL = prefix.appendingPathComponent("etc/gitconfig")
+        try FileManager.default.createDirectory(at: execPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: systemConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: prefix) }
+        try """
+        [remote "origin"]
+            url = https://github.com/system/repo.git
+        """.write(to: systemConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_EXEC_PATH": execPath.path,
+                "GIT_CONFIG_NOSYSTEM": "",
+            ]
+        )
+
+        #expect(snapshot.configURLs.contains(systemConfigURL.standardizedFileURL))
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/system/repo.git") == true)
+    }
+
+    @Test func readsXDGGlobalConfigBeforeHomeWhenXDGIsEmpty() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-home-\(UUID().uuidString)", isDirectory: true)
+        let xdgConfigURL = home.appendingPathComponent(".config/git/config")
+        let legacyConfigURL = home.appendingPathComponent(".gitconfig")
+        try FileManager.default.createDirectory(
+            at: xdgConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        try """
+        [remote "origin"]
+            url = https://github.com/xdg/repo.git
+        """.write(to: xdgConfigURL, atomically: true, encoding: .utf8)
+        try """
+        [remote "origin"]
+            url = https://github.com/home/repo.git
+        """.write(to: legacyConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "HOME": home.path,
+                "XDG_CONFIG_HOME": "",
+            ]
+        )
+        let link = try #require(
+            snapshot.remoteVOutput.flatMap {
+                GitMetadataService.repositoryLink(fromGitRemoteVOutput: $0)
+            }
+        )
+
+        #expect(link.url.absoluteString == "https://github.com/xdg/repo")
+    }
+
+    @Test func emptyRemoteURLResetsInheritedValues() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let includedURL = fixture.root.appendingPathComponent("inherited.inc")
+        try """
+        [remote "origin"]
+            url = https://github.com/inherited/repo.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+        try """
+        [include]
+            path = inherited.inc
+        [remote "origin"]
+            url =
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput == nil)
+    }
+
+    @Test func worktreeConfigExtensionInIncludedCommonConfigIsHonored() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = worktree-extension.inc
+        """)
+        try """
+        [extensions]
+            worktreeConfig = true
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("worktree-extension.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/included-worktree/repo.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config.worktree"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let metadata = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.repositoryLink?.url.absoluteString == "https://github.com/included-worktree/repo")
+    }
 }
