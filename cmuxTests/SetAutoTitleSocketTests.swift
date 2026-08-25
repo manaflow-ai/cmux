@@ -207,6 +207,39 @@ import Testing
         }
     }
 
+    @Test func reconciliationDoesNotResurrectClearedWorkspaceTitle() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                #expect(workspace.setCustomTitle("Earlier automatic topic", source: .auto))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Earlier automatic topic",
+                    source: .auto
+                ))
+                #expect(workspace.setCustomTitle(nil))
+                #expect(workspace.customTitle == nil)
+
+                let result = try #require(call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "expected_workspace_title": "Earlier automatic topic",
+                    "expected_panel_title": "Earlier automatic topic",
+                    "title": "Earlier automatic topic",
+                ])["result"] as? [String: Any])
+
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_apply_skipped"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title != "Earlier automatic topic")
+            }
+        }
+    }
+
     @Test func reconciliationRepairsPanelWithoutStoredTitle() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

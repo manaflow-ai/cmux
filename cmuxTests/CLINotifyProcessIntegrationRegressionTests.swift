@@ -195,6 +195,46 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
     }
 
+    func testClaudeCompactSessionStartAllowsLegacySiblingPaneOwnership() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-legacy-sibling")
+        defer { context.cleanup() }
+
+        let sessionId = "legacy-sibling-compact-session"
+        let siblingSessionId = "legacy-sibling-active-session"
+        let siblingSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let transcriptURL = context.root.appendingPathComponent("legacy-sibling.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Earlier automatic topic",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil,
+            activeSessionId: siblingSessionId,
+            activeSurfaceId: siblingSurfaceId
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
+        XCTAssertNotNil(
+            record["autoNameTitleReconciliationGeneration"] as? String,
+            "A legacy workspace-only active slot must not reject a valid sibling-pane compact continuation"
+        )
+    }
+
     func testClaudeCompactFallbackPersistsReconciliationForAuthoritativeStop() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-fallback")
         defer { context.cleanup() }
@@ -2110,6 +2150,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             autoNamingProbeRequestCount(in: commands),
             1,
             "An exhausted reconciliation must not keep forking detached workers"
+        )
+    }
+
+    func testCodexManualWorkspaceDiscoversTranscriptForDetachedReconciliation() throws {
+        let context = try makeClaudeHookContext(name: "codex-discover-progress")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-discover-progress-session"
+        let codexHome = context.root.appendingPathComponent("codex-home", isDirectory: true)
+        let nowComponents = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let sessionsDirectory = codexHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(String(format: "%04d", nowComponents.year ?? 0), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", nowComponents.month ?? 0), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", nowComponents.day ?? 0), isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+        let transcriptURL = sessionsDirectory.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"x"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":"y"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context)
+        var launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        launchEnvironment["CODEX_HOME"] = codexHome.path
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 0
+            session["autoNameLastObservedLineCount"] = 0
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let detachedProbe = expectation(description: "discovered-transcript detached auto-name probe")
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: detachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [detachedProbe], timeout: 5)
+        let commands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertGreaterThanOrEqual(
+            autoNamingProbeRequestCount(in: commands),
+            2,
+            "The parent Stop must discover the same Codex transcript as the detached worker"
         )
     }
 
@@ -11210,7 +11314,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         activeSessionId: String? = nil,
         activeAllowsNewSessionReplacement: Bool = false,
         surfaceId: String? = nil,
-        agentLifecycle: String? = nil
+        agentLifecycle: String? = nil,
+        activeSurfaceId: String? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
         let resolvedSurfaceId = surfaceId ?? context.surfaceId
@@ -11251,7 +11356,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             sessions[activeSessionId] = [
                 "sessionId": activeSessionId,
                 "workspaceId": context.workspaceId,
-                "surfaceId": resolvedSurfaceId,
+                "surfaceId": activeSurfaceId ?? resolvedSurfaceId,
                 "cwd": context.root.path,
                 "startedAt": now,
                 "updatedAt": now,
