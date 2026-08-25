@@ -2267,7 +2267,7 @@ mod tests {
         )
         .await;
         assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
-        assert!(h.spawned()[0].written_string(0).is_empty());
+        assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
     }
 
     #[tokio::test]
