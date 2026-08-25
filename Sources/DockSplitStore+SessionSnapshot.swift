@@ -167,6 +167,8 @@ extension DockSplitStore {
                 }
             ),
             detectedResumeBinding: nil,
+            detectedResumeBindingIsAmbiguous:
+                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
             notificationStore: resolvedNotificationStore(),
