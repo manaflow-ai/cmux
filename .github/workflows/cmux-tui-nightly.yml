@@ -78,6 +78,8 @@ jobs:
     needs: version
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: ${{ needs.version.outputs.npm_version }}
@@ -85,6 +87,7 @@ jobs:
       package_npm: true
       package_pypi: true
       include_windows: true
+      attest_packages: true
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
@@ -97,6 +100,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -133,8 +137,35 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
-            --install-npm-package cmux-tui-linux-x64
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
 
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.version.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/heads/main"
+          done
+
+      # cmux-relay packages are validated in the artifact contract above but
+      # publish only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml); nightlies never move relay dist-tags.
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -143,6 +174,7 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"

@@ -1,10 +1,11 @@
 import AppKit
+import CmuxAgentChat
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
 
     let markdown: String
     let theme: MarkdownWebTheme

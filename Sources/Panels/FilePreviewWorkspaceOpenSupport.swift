@@ -11,6 +11,7 @@ extension Workspace {
         reuseExisting: Bool = false,
         duplicateWhenFocused: Bool = false
     ) -> [any Panel] {
+        guard !isRetiredFromOwningTabManager else { return [] }
         let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
         var nextIndex = targetIndex
         var openedPanels: [any Panel] = []
@@ -77,6 +78,7 @@ extension Workspace {
         reuseExisting: Bool = false,
         duplicateWhenFocused: Bool = false
     ) -> [FilePreviewPanel] {
+        guard !isRetiredFromOwningTabManager else { return [] }
         let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []

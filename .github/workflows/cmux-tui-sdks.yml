@@ -15,6 +15,7 @@ on:
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/relay-publish-npm.yml"
       - ".github/workflows/sdk-bootstrap-crates.yml"
       - ".github/workflows/sdk-bootstrap-npm.yml"
       - ".github/workflows/sdk-bootstrap-pypi.yml"
@@ -41,6 +42,7 @@ on:
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/relay-publish-npm.yml"
       - ".github/workflows/sdk-bootstrap-crates.yml"
       - ".github/workflows/sdk-bootstrap-npm.yml"
       - ".github/workflows/sdk-bootstrap-pypi.yml"
@@ -172,12 +174,9 @@ jobs:
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
-      - name: Set up Rust 1.88
+      - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
-          cargo +1.88.0 --version
-          rustc +1.88.0 --version
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -249,33 +248,33 @@ jobs:
         if: matrix.language == 'rust'
         working-directory: cmux-tui
         run: |
-          cargo +1.88.0 fmt -p cmux-sdk -p cmux-sidebar -- --check
-          cargo +1.88.0 test \
+          cargo fmt -p cmux-sdk -p cmux-sidebar -- --check
+          cargo test \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked
-          cargo +1.88.0 test \
+          cargo test \
             -p cmux-sdk \
             -p cmux-sidebar \
             --doc \
             --locked
-          cargo +1.88.0 clippy \
+          cargo clippy \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked \
             -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
-            cargo +1.88.0 doc \
+            cargo doc \
               -p cmux-sdk \
               -p cmux-sidebar \
               --locked \
               --no-deps
-          cargo +1.88.0 package -p cmux-sdk --locked
+          cargo package -p cmux-sdk --locked
           # Full sidebar packaging resolves its versioned crates.io dependency.
           # Publish cmux-sdk first; CI still verifies the exact sidebar file set.
-          cargo +1.88.0 package -p cmux-sidebar --locked --list
+          cargo package -p cmux-sidebar --locked --list
 
       - name: Test Go SDK
         if: matrix.language == 'go'
@@ -350,12 +349,9 @@ jobs:
             cmux-tui/bindings/typescript/package-lock.json
             cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json
 
-      - name: Set up Rust 1.88
+      - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
-          cargo +1.88.0 --version
-          rustc +1.88.0 --version
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -409,19 +405,19 @@ jobs:
       - name: Test Rust resource consumers
         if: matrix.language == 'rust'
         run: |
-          cargo +1.88.0 test \
+          cargo test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
-          cargo +1.88.0 clippy \
+          cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
             -- -D warnings
-          cargo +1.88.0 test \
+          cargo test \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
-          cargo +1.88.0 clippy \
+          cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
@@ -473,6 +469,35 @@ jobs:
           zig build test -Doptimize=ReleaseSafe
           zig build -Doptimize=Debug
           zig build -Doptimize=ReleaseSafe
+
+  rust-msrv:
+    name: Rust SDK MSRV (1.88)
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.88 MSRV toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+
+      - name: Test public Rust SDK crates and examples on MSRV
+        run: |
+          cargo +1.88.0 fmt --manifest-path cmux-tui/bindings/rust/Cargo.toml -- --check
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust/Cargo.toml --locked
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust-sidebar/Cargo.toml --locked
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
 
   conformance:
     name: seven-language live conformance

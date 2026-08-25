@@ -1,3 +1,5 @@
+import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -97,9 +99,180 @@ import Testing
         #expect(manager.tabs.count == baselineCount + 1)
     }
 
+    @Test func windowFinalizationDuringMobilePreparationDoesNotConsumeOperationID() async {
+        let suiteName = "WorkspaceCreateReviewRegressionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 16,
+            defaults: defaults,
+            persistenceKey: "completed"
+        )
+        let manager = TabManager()
+        let retryManager = TabManager()
+        let operationID = UUID()
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !retryManager.isFinalizedForWindowClose {
+                retryManager.finalizeAllWorkspacesForWindowClose()
+            }
+        }
+        let validationGate = ControlledReviewDeadlines()
+        let initialTask = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["operation_id": operationID.uuidString],
+                workingDirectoryValidator: { _, _ in
+                    await validationGate.suspendUntilFired()
+                    return .notProvided
+                },
+                tabManager: manager,
+                idempotencyCache: cache
+            )
+        }
+
+        await validationGate.waitForCount(1)
+        manager.finalizeAllWorkspacesForWindowClose()
+        await validationGate.fireAll()
+        let initial = await initialTask.value
+
+        #expect(Self.errorCode(initial) == "internal_error")
+        #expect(cache.containsCompletedOperation(operationID) == false)
+
+        let baselineCount = retryManager.tabs.count
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: retryManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(retry) == nil)
+        #expect(retryManager.tabs.count == baselineCount + 1)
+    }
+
+    @Test func windowFinalizationDuringMobileReservationDoesNotConsumeOperationID() async {
+        let persistence = BlockingFirstSavePersistence()
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 16,
+            persistence: persistence
+        )
+        let manager = TabManager()
+        let retryManager = TabManager()
+        let operationID = UUID()
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !retryManager.isFinalizedForWindowClose {
+                retryManager.finalizeAllWorkspacesForWindowClose()
+            }
+        }
+
+        let initialTask = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["operation_id": operationID.uuidString],
+                tabManager: manager,
+                idempotencyCache: cache
+            )
+        }
+
+        await persistence.waitForFirstSaveToStart()
+        manager.finalizeAllWorkspacesForWindowClose()
+        persistence.releaseFirstSave()
+        let initial = await initialTask.value
+
+        #expect(Self.errorCode(initial) == "internal_error")
+        #expect(cache.containsCompletedOperation(operationID) == false)
+        #expect(persistence.savedOperationIDs.isEmpty)
+
+        let baselineCount = retryManager.tabs.count
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: retryManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(retry) == nil)
+        #expect(retryManager.tabs.count == baselineCount + 1)
+    }
+
+    @Test func mobilePerformFailureReleasesAcceptedOperationID() async {
+        let suiteName = "WorkspaceCreateReviewRegressionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 16,
+            defaults: defaults,
+            persistenceKey: "completed"
+        )
+        let rejectingManager = RejectingWorkspaceCreationTabManager()
+        let retryManager = TabManager()
+        let operationID = UUID()
+        defer {
+            if !rejectingManager.isFinalizedForWindowClose {
+                rejectingManager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !retryManager.isFinalizedForWindowClose {
+                retryManager.finalizeAllWorkspacesForWindowClose()
+            }
+        }
+
+        let initialCount = rejectingManager.tabs.count
+        let initial = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: rejectingManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(initial) == "internal_error")
+        #expect(rejectingManager.tabs.count == initialCount)
+        #expect(!cache.containsCompletedOperation(operationID))
+
+        let retryCount = retryManager.tabs.count
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: retryManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(retry) == nil)
+        #expect(retryManager.tabs.count == retryCount + 1)
+    }
+
     private static func errorCode(_ result: TerminalController.V2CallResult) -> String? {
         guard case let .err(code, _, _) = result else { return nil }
         return code
+    }
+}
+
+@MainActor
+private final class RejectingWorkspaceCreationTabManager: TabManager {
+    override func addWorkspaceIfActive(
+        id: UUID?,
+        title: String?,
+        titleSource: Workspace.CustomTitleSource,
+        workingDirectory overrideWorkingDirectory: String?,
+        initialSurface: NewWorkspaceInitialSurface,
+        initialTerminalCommand: String?,
+        initialTerminalInput: String?,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+        initialTerminalEnvironment: [String: String],
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
+        workspaceEnvironment: [String: String],
+        inheritWorkingDirectory: Bool,
+        select: Bool,
+        eagerLoadTerminal: Bool,
+        placementOverride: WorkspacePlacement?,
+        autoWelcomeIfNeeded: Bool,
+        autoRefreshMetadata: Bool,
+        normalizeWorkspaceGroupsAfterInsert: Bool,
+        applyCreationTitleAsCustomTitle: Bool,
+        allowTextBoxFocusDefault: Bool
+    ) -> Workspace? {
+        nil
     }
 }
 

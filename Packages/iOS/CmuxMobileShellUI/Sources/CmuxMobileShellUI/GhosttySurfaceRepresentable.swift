@@ -113,7 +113,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
-        return GhosttySurfaceHostView(surfaceView: view)
+        // The composition root's tracker spans host lifetimes, so a host built
+        // for a reattached surface recovers keyboard transitions it missed.
+        // Previews and isolated harnesses have no injected tracker; a
+        // coordinator-owned instance still records for this mount's lifetime.
+        return GhosttySurfaceHostView(
+            surfaceView: view,
+            keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
+                ?? context.coordinator.fallbackKeyboardFrameTracker,
+            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
+        )
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
@@ -141,6 +150,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        // Alternate-screen apps own the whole grid, so the keyboard
+        // blank-space absorption (top-pin while content is short) is
+        // disabled for them; reading the store property here keeps the flag
+        // live across mode flips.
+        surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
@@ -287,6 +301,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
+        /// Keyboard frame record for mounts with no injected app-level tracker
+        /// (previews, isolated harnesses). Lazy so production mounts, which
+        /// receive the composition root's tracker, never build one.
+        lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
 
         init(
             workspaceID: String,
