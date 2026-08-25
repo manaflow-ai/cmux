@@ -294,6 +294,10 @@ struct ClaudeHookSessionRecord: Codable {
     /// command-only callback cannot distinguish an old delayed completion from
     /// the new turn's approval.
     var recentlyClearedCursorShellCommandFingerprints: [String: TimeInterval]? = nil
+    /// Once the bounded command-only fence overflows, command-only
+    /// correlation remains disabled for this session; re-enabling it after
+    /// eviction would let an old delayed callback consume a newer approval.
+    var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -427,6 +431,9 @@ final class ClaudeHookSessionStore {
                 recentlyCleared[approval.commandFingerprint] = now
             }
             if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                record.cursorShellCommandOnlyCorrelationDisabled = true
+            }
+            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
                 recentlyCleared = Dictionary(
                     uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
                         .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
@@ -440,9 +447,10 @@ final class ClaudeHookSessionStore {
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
             let requiresToolUseId = normalizedToolUseId == nil
-                && recentlyCleared[commandIdentity.fingerprint].map {
+                && (record.cursorShellCommandOnlyCorrelationDisabled == true
+                    || recentlyCleared[commandIdentity.fingerprint].map {
                     now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
-                } == true
+                    } == true)
             // Only a repeated stable tool id is a retry. Without one, two
             // identical commands may be concurrent invocations; preserving
             // both records lets two terminal callbacks consume both waits.
@@ -539,6 +547,7 @@ final class ClaudeHookSessionStore {
                     recentlyCleared[approval.commandFingerprint] = now
                 }
                 if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                    record.cursorShellCommandOnlyCorrelationDisabled = true
                     recentlyCleared = Dictionary(
                         uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
                             .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
@@ -637,6 +646,7 @@ final class ClaudeHookSessionStore {
                 recentlyCleared[approval.commandFingerprint] = now
             }
             if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                record.cursorShellCommandOnlyCorrelationDisabled = true
                 recentlyCleared = Dictionary(
                     uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
                         .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
@@ -2082,7 +2092,7 @@ final class ClaudeHookSessionStore {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
-        var state = loadUnlocked()
+        var state = try loadUnlocked()
         pruneExpired(&state)
         let result = try body(&state)
         if let deadline, Date.now >= deadline {
@@ -2142,18 +2152,20 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func loadUnlocked() -> ClaudeHookSessionStoreFile {
+    private func loadUnlocked() throws -> ClaudeHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
             return ClaudeHookSessionStoreFile()
         }
-        guard let fileSize = try? URL(fileURLWithPath: statePath)
-            .resourceValues(forKeys: [.fileSizeKey]).fileSize,
+        let stateURL = URL(fileURLWithPath: statePath)
+        guard let values = try? stateURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              let fileSize = values.fileSize,
               fileSize <= 8 * 1024 * 1024 else {
-            return ClaudeHookSessionStoreFile()
+            throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
         }
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return ClaudeHookSessionStoreFile()
+        let data = try Data(contentsOf: stateURL)
+        guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
+            throw CLIError(message: "Claude hook state file is invalid: \(statePath)")
         }
         backfillSurfaceActiveSlots(&decoded)
         return decoded
@@ -2427,6 +2439,9 @@ final class SocketClient {
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
+    private var authenticationPassword: String?
+    private var authenticationInProgress = false
+    private var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
@@ -2591,6 +2606,35 @@ final class SocketClient {
         }
         streamReadBuffer.removeAll(keepingCapacity: true)
         lastConfiguredReceiveTimeout = nil
+        socketAuthenticated = false
+    }
+
+    func configureAuthentication(password: String?) {
+        authenticationPassword = password
+        socketAuthenticated = password == nil
+    }
+
+    func authenticateIfNeeded(
+        responseTimeout: TimeInterval?,
+        deadline: Date?
+    ) throws {
+        guard !socketAuthenticated, !authenticationInProgress else { return }
+        guard let authenticationPassword else {
+            socketAuthenticated = true
+            return
+        }
+        authenticationInProgress = true
+        defer { authenticationInProgress = false }
+        let authResponse = try send(
+            command: "auth \(authenticationPassword)",
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
+        if authResponse.hasPrefix("ERROR:"),
+           !authResponse.contains("Unknown command 'auth'") {
+            throw CLIError(message: authResponse)
+        }
+        socketAuthenticated = true
     }
 
     func send(
@@ -2603,8 +2647,11 @@ final class SocketClient {
         let operationDeadline = deadline.map { min($0, relativeDeadline) } ?? relativeDeadline
         if relayEndpoint != nil, socketFD < 0 {
             try connect(deadline: operationDeadline)
+        } else if socketFD < 0 {
+            try connect(deadline: operationDeadline)
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        try authenticateIfNeeded(responseTimeout: responseTimeout, deadline: deadline)
         var operationCompleted = false
         defer {
             if !operationCompleted {
@@ -7590,20 +7637,12 @@ struct CMUXCLI {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws {
-        if let socketPassword = SocketPasswordResolver.resolve(
+        let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
-        ) {
-            let authResponse = try client.send(
-                command: "auth \(socketPassword)",
-                responseTimeout: responseTimeout,
-                deadline: deadline
-            )
-            if authResponse.hasPrefix("ERROR:"),
-               !authResponse.contains("Unknown command 'auth'") {
-                throw CLIError(message: authResponse)
-            }
-        }
+        )
+        client.configureAuthentication(password: socketPassword)
+        try client.authenticateIfNeeded(responseTimeout: responseTimeout, deadline: deadline)
     }
 
     private func launchApp() throws {
