@@ -14,6 +14,8 @@ struct ClaudeHookSessionStoreFile: Codable {
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
+    /// Bounded lookup index for Cursor approvals, keyed by workspace/surface.
+    var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -22,6 +24,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsByWorkspace
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
+        case pendingCursorApprovalSessionsBySurface
     }
 
     init() {}
@@ -46,6 +49,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: TimeInterval].self,
             forKey: .agentHookFailureReportTimestamps
         ) ?? [:]
+        pendingCursorApprovalSessionsBySurface = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .pendingCursorApprovalSessionsBySurface
+        ) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -63,6 +70,12 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !agentHookFailureReportTimestamps.isEmpty {
             try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
+        }
+        if !pendingCursorApprovalSessionsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionsBySurface,
+                forKey: .pendingCursorApprovalSessionsBySurface
+            )
         }
     }
 }
