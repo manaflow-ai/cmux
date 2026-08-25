@@ -14,6 +14,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         "GIT_NAMESPACE",
         "GIT_OBJECT_DIRECTORY",
         "GIT_WORK_TREE",
+        "GIT_REFERENCE_BACKEND",
         "GIT_CONFIG",
         "GIT_CONFIG_GLOBAL",
         "GIT_CONFIG_SYSTEM",
