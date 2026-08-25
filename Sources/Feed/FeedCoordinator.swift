@@ -328,7 +328,9 @@ final class FeedCoordinator: @unchecked Sendable {
                     }
                     if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
                         event: acceptedEvent,
-                        resolved: attentionTarget,
+                        resolved: attentionTarget.map {
+                            (ownerId: $0.workspaceId, surfaceId: $0.surfaceId)
+                        },
                         tabManager: attentionTabManager
                     ) {
                         var shouldConcludeImmediately = false
