@@ -308,10 +308,15 @@ private func makeDirectory(
             presenceRetryDelay: { _ in }
         )
         await directory.refresh()
+        var scopedIterator = directory.updates(for: "registry-mac").makeAsyncIterator()
+        let initialScopedEvent = try #require(await scopedIterator.next())
+        _ = try #require(initialScopedEvent)
         #expect(await directory.pair(deviceID: "registry-mac") == .paired(deviceID: "registry-mac"))
 
         await scopeBox.set(HiveAccountScope(stackUserID: nil, teamID: nil))
         directory.clearForSignOut()
+        let removedScopedEvent = try #require(await scopedIterator.next())
+        #expect(removedScopedEvent == nil)
         #expect(await directory.unpair(deviceID: "registry-mac") == false)
         let persisted = try await store.loadAll(stackUserID: "user-1", teamID: "team-1")
         #expect(persisted.count == 1)

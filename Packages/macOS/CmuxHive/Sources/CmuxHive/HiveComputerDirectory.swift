@@ -259,6 +259,15 @@ public final class HiveComputerDirectory {
 
     private func activateScope(_ scope: HiveAccountScope) -> Int {
         guard loadedScope != scope else { return scopeGeneration }
+        // A scoped viewer must never survive an account/team transition. End
+        // each device stream before replacing the rows so its mirror/window
+        // owner tears down the old team's RPC session instead of retaining it.
+        let deviceContinuations = deviceListeners.values.flatMap { $0.values }
+        deviceListeners.removeAll()
+        for continuation in deviceContinuations {
+            continuation.yield(nil)
+            continuation.finish()
+        }
         loadedScope = scope
         scopeGeneration &+= 1
         registryDevices = []

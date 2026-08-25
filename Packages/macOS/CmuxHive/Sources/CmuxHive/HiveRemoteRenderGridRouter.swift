@@ -13,6 +13,7 @@ public final class HiveRemoteRenderGridRouter {
     private struct Listener {
         let surfaceID: String
         let continuation: AsyncStream<MobileTerminalRenderGridFrame>.Continuation
+        let onOverflow: () -> Void
     }
 
     private let client: MobileCoreRPCClient
@@ -31,12 +32,22 @@ public final class HiveRemoteRenderGridRouter {
     /// The first listener starts one shared underlying RPC listener. When the
     /// transport stream ends, all listeners finish and their terminal sessions
     /// can request fresh streams as part of their normal recovery loop.
-    public func stream(for surfaceID: String) -> AsyncStream<MobileTerminalRenderGridFrame> {
+    /// - Parameter onOverflow: Called when the bounded stream drops a frame;
+    ///   the owner must request a full replay because render-grid frames are
+    ///   deltas and cannot be safely resumed from a gap.
+    public func stream(
+        for surfaceID: String,
+        onOverflow: @escaping () -> Void = {}
+    ) -> AsyncStream<MobileTerminalRenderGridFrame> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<MobileTerminalRenderGridFrame>.makeStream(
             bufferingPolicy: .bufferingNewest(256)
         )
-        listeners[id] = Listener(surfaceID: surfaceID, continuation: continuation)
+        listeners[id] = Listener(
+            surfaceID: surfaceID,
+            continuation: continuation,
+            onOverflow: onOverflow
+        )
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.removeListener(id: id)
@@ -78,7 +89,9 @@ public final class HiveRemoteRenderGridRouter {
     private func yield(_ frame: MobileTerminalRenderGridFrame, generation: Int) {
         guard generation == sourceGeneration else { return }
         for listener in listeners.values where listener.surfaceID == frame.surfaceID {
-            listener.continuation.yield(frame)
+            if case .dropped = listener.continuation.yield(frame) {
+                listener.onOverflow()
+            }
         }
     }
 

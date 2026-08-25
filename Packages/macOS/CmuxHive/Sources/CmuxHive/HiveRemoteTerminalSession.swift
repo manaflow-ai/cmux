@@ -52,6 +52,7 @@ public final class HiveRemoteTerminalSession {
     @ObservationIgnored private let renderGridDecoder: HiveRemoteRenderGridDecoder
     @ObservationIgnored private var attachTask: Task<Void, Never>?
     @ObservationIgnored private var replayTask: Task<Void, Never>?
+    @ObservationIgnored private var replayInFlight = false
     @ObservationIgnored private var frameApplyTask: Task<Void, Never>?
     @ObservationIgnored private var pendingFrames: [MobileTerminalRenderGridFrame] = []
     @ObservationIgnored private var frameQueueNeedsReplay = false
@@ -116,7 +117,11 @@ public final class HiveRemoteTerminalSession {
     /// first applies its real size (a replay delivered to a zero-sized manual
     /// surface renders nothing until the next full frame).
     public func refreshReplay() {
-        replayTask?.cancel()
+        guard phase != .idle else { return }
+        guard !replayInFlight, replayTask == nil else {
+            frameQueueNeedsReplay = true
+            return
+        }
         replayTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -128,6 +133,7 @@ public final class HiveRemoteTerminalSession {
                 // effort and must not create a second recovery loop.
             }
             self.replayTask = nil
+            self.scheduleReplayIfNeeded()
         }
     }
 
@@ -273,7 +279,9 @@ public final class HiveRemoteTerminalSession {
 
     private func subscribeToFrames() async throws -> AsyncStream<MobileTerminalRenderGridFrame> {
         if let renderGridRouter {
-            return renderGridRouter.stream(for: terminalID)
+            return renderGridRouter.stream(for: terminalID) { [weak self] in
+                self?.renderGridOverflowed()
+            }
         }
 
         let envelopes = await client.subscribe(to: ["terminal.render_grid"])
@@ -288,7 +296,7 @@ public final class HiveRemoteTerminalSession {
         )
         let decoder = renderGridDecoder
         let terminalID = self.terminalID
-        let task = Task {
+        let task = Task { @MainActor [weak self] in
             for await envelope in envelopes {
                 guard !Task.isCancelled,
                       let payload = envelope.payloadJSON else { continue }
@@ -296,7 +304,9 @@ public final class HiveRemoteTerminalSession {
                     decoder.decodeFrame(payload)
                 }.value
                 guard let frame, frame.surfaceID == terminalID else { continue }
-                continuation.yield(frame)
+                if case .dropped = continuation.yield(frame) {
+                    self?.renderGridOverflowed()
+                }
             }
             continuation.finish()
         }
@@ -305,6 +315,23 @@ public final class HiveRemoteTerminalSession {
     }
 
     private func requestReplay() async throws {
+        guard !replayInFlight else { return }
+        replayInFlight = true
+        let allowingFullReset = phase != .live
+        let previousApplyTask = frameApplyTask
+        frameApplyTask = nil
+        if let previousApplyTask {
+            await previousApplyTask.value
+        }
+        let replayFloor = grid.stateSeq
+        defer {
+            replayInFlight = false
+            if frameQueueNeedsReplay {
+                scheduleReplayIfNeeded()
+            } else {
+                startFrameApplyIfNeeded()
+            }
+        }
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.terminal.replay",
             params: [
@@ -326,8 +353,15 @@ public final class HiveRemoteTerminalSession {
                 ? HiveRemoteTerminalSessionError.incompleteFrame
                 : HiveRemoteTerminalSessionError.mismatchedSurface
         }
+        let bufferedFrames = pendingFrames
         pendingFrames.removeAll(keepingCapacity: true)
-        applyFrame(frame, allowingFullReset: true)
+        if !grid.hasContent || allowingFullReset || frame.stateSeq >= replayFloor {
+            applyFrame(frame, allowingFullReset: allowingFullReset)
+        }
+        for bufferedFrame in bufferedFrames.sorted(by: { $0.stateSeq < $1.stateSeq })
+        where bufferedFrame.stateSeq > grid.stateSeq {
+            applyFrame(bufferedFrame)
+        }
     }
 
     private func enqueueFrame(_ frame: MobileTerminalRenderGridFrame) {
@@ -336,7 +370,19 @@ public final class HiveRemoteTerminalSession {
             frameQueueNeedsReplay = true
         }
         pendingFrames.append(frame)
-        guard frameApplyTask == nil else { return }
+        guard !replayInFlight else { return }
+        if frameQueueNeedsReplay {
+            scheduleReplayIfNeeded()
+            return
+        }
+        startFrameApplyIfNeeded()
+    }
+
+    private func startFrameApplyIfNeeded() {
+        guard frameApplyTask == nil,
+              !replayInFlight,
+              !frameQueueNeedsReplay,
+              !pendingFrames.isEmpty else { return }
         frameApplyTask = Task { [weak self] in
             await Task.yield()
             guard let self else { return }
@@ -351,12 +397,26 @@ public final class HiveRemoteTerminalSession {
             self.pendingFrames.removeAll(keepingCapacity: true)
             self.frameApplyTask = nil
             if needsReplay {
-                self.refreshReplay()
+                self.frameQueueNeedsReplay = true
+                self.scheduleReplayIfNeeded()
             }
             for frame in remaining {
                 self.enqueueFrame(frame)
             }
         }
+    }
+
+    private func renderGridOverflowed() {
+        guard phase != .idle else { return }
+        frameQueueNeedsReplay = true
+        scheduleReplayIfNeeded()
+    }
+
+    private func scheduleReplayIfNeeded() {
+        guard frameQueueNeedsReplay, phase != .idle,
+              !replayInFlight, replayTask == nil else { return }
+        frameQueueNeedsReplay = false
+        refreshReplay()
     }
 
     private func applyFrame(

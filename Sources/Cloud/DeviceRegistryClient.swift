@@ -29,6 +29,10 @@ final class DeviceRegistryClient {
     /// account/team switch with unchanged routes still re-registers in the newly
     /// selected team instead of being deduped away.
     private var lastRegistration: Registration?
+    /// Monotonically identifies the latest registration intent. Responses
+    /// from an older POST must never overwrite the state for a newer pairing
+    /// code or team scope.
+    private var registrationGeneration = 0
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
@@ -101,11 +105,23 @@ final class DeviceRegistryClient {
     ) async -> CmxPairingCode? {
         var generator = SystemRandomNumberGenerator()
         let minted = CmxPairingCode.minted(ttl: ttl, now: Date(), using: &generator)
+        registrationGeneration &+= 1
+        let generation = registrationGeneration
         activePairingCode = minted
         // Force the POST: the code changed even if the routes did not.
         lastRegistration = nil
-        await registerIfRoutesChanged(routes: routes)
-        return lastRegistration != nil ? minted : nil
+        guard await registerIfRoutesChanged(
+            routes: routes,
+            generation: generation,
+            force: true
+        ) else {
+            if registrationGeneration == generation {
+                activePairingCode = nil
+                lastRegistration = nil
+            }
+            return nil
+        }
+        return minted
     }
 
     private func startObserving() {
@@ -123,8 +139,14 @@ final class DeviceRegistryClient {
         }
     }
 
-    private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
-        guard let auth else { return }
+    @discardableResult
+    private func registerIfRoutesChanged(
+        routes: [CmxAttachRoute],
+        generation: Int? = nil,
+        force: Bool = false
+    ) async -> Bool {
+        let requestGeneration = generation ?? registrationGeneration
+        guard let auth else { return false }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
         // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
         // is empty until bootstrap completes, so reading the team before this
@@ -136,8 +158,9 @@ final class DeviceRegistryClient {
         do {
             tokens = try await auth.currentTokens()
         } catch {
-            return // not signed in → nothing to do
+            return false // not signed in → nothing to do
         }
+        guard requestGeneration == registrationGeneration else { return false }
         // Resolve the team AFTER bootstrap, and use that same scope for both the
         // dedup decision and the request header, so a team switch with unchanged
         // routes is detected and the POST targets the intended team.
@@ -156,13 +179,15 @@ final class DeviceRegistryClient {
             routes: routes,
             pairingCode: currentCode?.code
         )
-        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
+        guard force || Self.shouldReRegister(previous: lastRegistration, current: registration) else {
+            return false
+        }
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
-            return
+            return false
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
-        guard let url = comps.url else { return }
+        guard let url = comps.url else { return false }
 
         let disclosureDate = Date()
         var bodyDict: [String: Any] = [
@@ -198,7 +223,9 @@ final class DeviceRegistryClient {
                 if (200...299).contains(http.statusCode) {
                     // Only remember the scope once the server accepted it, so a
                     // transient failure retries on the next status tick.
+                    guard requestGeneration == registrationGeneration else { return false }
                     lastRegistration = registration
+                    return true
                 } else {
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
                 }
@@ -206,6 +233,7 @@ final class DeviceRegistryClient {
         } catch {
             // best-effort; registry must never disrupt the Mac.
         }
+        return false
     }
 
 }
