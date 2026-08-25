@@ -3374,6 +3374,13 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
+        // The server tree is authoritative. The local surface catalog is a
+        // lazy mirror and may be empty during startup or reconnect, so it
+        // cannot be used as a negative filter. Remove only explicit retire
+        // evidence captured at the detach boundary.
+        let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
+        let mut tree = tree;
+        tree.retain_not_retired(&retired_surface_ids);
         let live_surface_ids = tree
             .workspaces
             .iter()
