@@ -273,7 +273,7 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(try Data(contentsOf: artifactBackup) == result.generatedArtifactContents)
     }
 
-    @Test("rollback retains edits written through an open artifact descriptor")
+    @Test("rollback retains edits written through an open artifact descriptor", .timeLimit(.minutes(1)))
     func rollbackRetainsEditsWrittenThroughOpenArtifactDescriptor() async throws {
         let fileManager = FileManager.default
         let projectRoot = try makeTemporaryRepository(label: "open-artifact")
@@ -324,8 +324,22 @@ struct ExtensionWorktreeSpawnArgsTests {
             rollbackError = error as NSError
         }
 
-        var mutationIterator = mutation.stream.makeAsyncIterator()
-        let mutationStatus = await mutationIterator.next()
+        let mutationStatus = await withTaskGroup(of: Int32?.self, returning: Int32?.self) { group in
+            group.addTask {
+                var mutationIterator = mutation.stream.makeAsyncIterator()
+                await mutationIterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return nil
+            }
+            let firstResult = await group.next() ?? nil
+            if firstResult == nil {
+                mutation.continuation.finish()
+            }
+            group.cancelAll()
+            return firstResult
+        }
         #expect(mutationStatus == 0)
         #expect(rollbackError?.domain == "CmuxExtensionWorktreePrototype")
         #expect(rollbackError?.code == 3)
