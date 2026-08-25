@@ -1996,7 +1996,7 @@ impl TerminalSizing {
             request.generation == generation
                 && request.viewer_id == viewer_id
                 && request.endpoint_ptr == endpoint_ptr(endpoint)
-                && request.token.is_none_or(|request_token| request_token == token)
+                && request.token == Some(token)
         }) {
             state.claim_requested = None;
         }
@@ -2292,8 +2292,30 @@ impl TerminalSizing {
             } else {
                 None
             };
-            let generation = self.advance_generation(&target);
             let endpoint_viewer_id = owner.unwrap_or(viewer_id);
+            let claim_endpoint_ptr = endpoint.as_ref().map(|endpoint| endpoint_ptr(endpoint));
+            let generation = self.advance_generation(&target);
+            if claim {
+                // An explicit candidate update is a new generation of the
+                // same claim attempt. Carry the identity forward before the
+                // queue validates the new generation; otherwise the update
+                // would erase the only candidate marker and leave the sole
+                // unowned viewer permanently frozen.
+                if let Some(endpoint_ptr) = claim_endpoint_ptr {
+                    let same_claim = state.claim_requested.is_some_and(|request| {
+                        request.viewer_id == endpoint_viewer_id
+                            && request.endpoint_ptr == endpoint_ptr
+                    });
+                    if same_claim {
+                        state.claim_requested = Some(ClaimRequest {
+                            generation,
+                            viewer_id: endpoint_viewer_id,
+                            token: None,
+                            endpoint_ptr,
+                        });
+                    }
+                }
+            }
             let should_start = endpoint.map_or(false, |endpoint| {
                 let (valid, should_start) = self.enqueue_update_locked(
                     &target,
@@ -2990,7 +3012,7 @@ impl TerminalSizing {
                 request.generation == generation
                     && request.viewer_id == viewer_id
                     && request.endpoint_ptr == endpoint_ptr(endpoint)
-                    && request.token.is_none_or(|request_token| request_token == token)
+                    && request.token == Some(token)
             }) {
                 state.claim_requested = None;
             }
@@ -7304,37 +7326,43 @@ mod tests {
         let old_token =
             target.queue.state.lock().unwrap().claim_fence.expect("initial claim fence").token;
 
-        // Simulate the same endpoint receiving a newer update while the old
-        // claim request is waiting for its daemon response. The generation
-        // and queue token are the ordering fence; the endpoint itself remains
-        // attached and healthy.
-        {
-            let mut queue_state = target.queue.state.lock().unwrap();
-            let mut state = target.state.lock().unwrap();
-            assert_eq!(TerminalSizing::current_generation(&target), old_generation);
-            let new_generation = coordinator.advance_generation(&target);
-            // Reserve a newer claim for the same endpoint before the old
-            // response is released. The stale worker must not clear this
-            // marker merely because viewer id and endpoint pointer match.
-            let new_token = 99;
-            queue_state.claim_fence = Some(ClaimFence {
-                generation: new_generation,
-                viewer_id: 1,
-                grid: SizingGrid { cols: 80, rows: 24 },
-                token: new_token,
-                endpoint_ptr: endpoint_ptr(&endpoint),
-            });
-            state.claim_requested = Some(ClaimRequest {
-                generation: new_generation,
-                viewer_id: 1,
-                token: Some(new_token),
-                endpoint_ptr: endpoint_ptr(&endpoint),
-            });
-        }
+        // Update the same endpoint while the old claim request is waiting
+        // for its daemon response. The update must renew the explicit claim
+        // marker and queue fence under the new generation before the old
+        // worker can return.
+        coordinator.update_endpoint(&key, 1, &endpoint, SizingGrid { cols: 81, rows: 25 });
+        let new_generation = TerminalSizing::current_generation(&target);
+        assert!(new_generation > old_generation);
+        let new_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("updated claim fence").token;
+        assert_ne!(new_token, old_token, "the updated generation must reserve a new token");
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.generation == new_generation
+                && request.viewer_id == 1
+                && request.token == Some(new_token)
+                && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+        assert!(
+            !coordinator.finish_candidate_request(
+                &target,
+                1,
+                &endpoint,
+                SizingGrid { cols: 81, rows: 25 },
+                new_generation,
+                old_token,
+                true,
+            ),
+            "an old retry token must not finish the newer same-endpoint claim"
+        );
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.generation == new_generation
+                && request.token == Some(new_token)
+                && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
         control.release_claim_dispatch();
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
-                if target.queue.state.lock().unwrap().claim_fence.is_none() {
+                if target.state.lock().unwrap().owner == Some(1) {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -7346,31 +7374,15 @@ mod tests {
         let current = coordinator.queue_for(&key, 1).expect("current endpoint");
         assert!(Arc::ptr_eq(&current, &endpoint), "stale reply detached the live endpoint");
         assert!(current.is_active(), "stale reply deactivated the live endpoint");
-        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
-            request.generation > old_generation
-                && request.viewer_id == 1
-                && request.token == Some(99)
-                && request.endpoint_ptr == endpoint_ptr(&endpoint)
-        }));
-        assert!(
-            !coordinator.finish_candidate_request(
-                &target,
-                1,
-                &endpoint,
-                SizingGrid { cols: 80, rows: 24 },
-                TerminalSizing::current_generation(&target),
-                old_token,
-                true,
-            ),
-            "an old retry token must not finish the newer same-endpoint claim"
+        assert_eq!(
+            target.state.lock().unwrap().claim_requested,
+            None,
+            "the renewed claim should be consumed only by its own worker"
         );
-        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
-            request.token == Some(99) && request.endpoint_ptr == endpoint_ptr(&endpoint)
-        }));
         assert_eq!(
             target.state.lock().unwrap().owner,
-            None,
-            "stale candidate reply must not claim the newer generation"
+            Some(1),
+            "the renewed claim must be completed by its own generation"
         );
         coordinator.leave(&key, 1);
     }
