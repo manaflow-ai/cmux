@@ -44,11 +44,15 @@ extension GhosttyApp {
             snapshot: snapshot,
             prioritizedIDs: prioritizedLifecycleIDs,
             nextID: {
-                guard let surface = traversal.nextVisit()?.surface
-                        as? TerminalSurface else {
-                    return nil
+                // `next()` consumes released weak registrations; nil means
+                // the fixed traversal itself has reached its endpoint.
+                while let surface = traversal.next() {
+                    guard let surface = surface as? TerminalSurface else {
+                        continue
+                    }
+                    return surface.terminalLifecycleId
                 }
-                return surface.terminalLifecycleId
+                return nil
             },
             apply: { [weak self] lifecycleID, snapshot in
                 self?.applyConfigurationSnapshot(

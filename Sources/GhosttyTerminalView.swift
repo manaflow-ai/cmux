@@ -491,7 +491,7 @@ class GhosttyApp {
     @MainActor
     lazy var terminalConfigurationApplyScheduler =
         TerminalConfigurationApplyScheduler<
-            ObjectIdentifier,
+            UUID,
             TerminalConfigurationApplySnapshot
         >(
             maximumVisitsPerDrain: 1
