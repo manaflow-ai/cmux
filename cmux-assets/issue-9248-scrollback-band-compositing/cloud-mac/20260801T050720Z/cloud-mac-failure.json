@@ -1,0 +1,12 @@
+{
+  "run_id": 30685230902,
+  "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/30685230902",
+  "runner_label": "warp-macos-26-arm64-6x",
+  "runner_backend_state": "gui hold step reached",
+  "caller_discovery_state": "timed out after 900 seconds",
+  "tailnet_dns_suffix": "tail137216.ts.net",
+  "macfleet_admin_fallback": "unavailable: no token stored for manaflow",
+  "recording_state": "not started because the runner was unreachable over SSH/CUA",
+  "final_run_state": "cancelled to avoid an orphaned four-hour hold",
+  "artifact_root": "workspace fallback because /cmux-assets is read-only"
+}
