@@ -4,12 +4,13 @@ import SwiftUI
 /// Builds the named palette rows shared by the native sidebar color submenu.
 /// Arbitrary custom colors remain unmarked unless they match a palette entry.
 @MainActor
-enum SidebarWorkspaceRowColorMenu {
-    static func addPaletteItems(
+struct SidebarWorkspaceRowColorMenu {
+    let currentColorHex: String?
+    let colorScheme: ColorScheme
+
+    func addPaletteItems(
         to menu: NSMenu,
         palette: [WorkspaceTabColorEntry],
-        currentColorHex: String?,
-        colorScheme: ColorScheme,
         apply: @escaping (String) -> Void
     ) {
         for entry in palette {

@@ -18,11 +18,12 @@ struct WorkspaceColorMenuTests {
             WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
         ]
 
-        SidebarWorkspaceRowColorMenu.addPaletteItems(
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: "  #006b6b ",
+            colorScheme: .light
+        ).addPaletteItems(
             to: menu,
             palette: palette,
-            currentColorHex: "  #006b6b ",
-            colorScheme: .light,
             apply: { _ in }
         )
 
@@ -39,11 +40,12 @@ struct WorkspaceColorMenuTests {
             WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
         ]
 
-        SidebarWorkspaceRowColorMenu.addPaletteItems(
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: "#123456",
+            colorScheme: .light
+        ).addPaletteItems(
             to: menu,
             palette: palette,
-            currentColorHex: "#123456",
-            colorScheme: .light,
             apply: { _ in }
         )
 

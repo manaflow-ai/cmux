@@ -599,11 +599,12 @@ struct SidebarWorkspaceRowMenuBuilder {
         if !palette.isEmpty {
             submenu.addItem(.separator())
         }
-        SidebarWorkspaceRowColorMenu.addPaletteItems(
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: tab.customColor,
+            colorScheme: commands.colorScheme
+        ).addPaletteItems(
             to: submenu,
             palette: palette,
-            currentColorHex: tab.customColor,
-            colorScheme: commands.colorScheme,
             apply: { [commands] hex in
                 commands.applyTabColor(hex)
             }
