@@ -295,6 +295,83 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedBaseline)
     }
 
+    func testClaudeCompactReconciliationBoundsUnresolvedRetries() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-retry-bound")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-retry-bound-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-retry-bound.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let baseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: baseline,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2,
+            autoNamingPanelApplySkipped: false
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+
+        for _ in 0..<2 {
+            let retryServerHandled = startMockServer(
+                listenerFD: context.listenerFD,
+                state: context.state,
+                connectionCount: 1,
+                waitForAllConnections: true
+            ) { line in
+                self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: false
+                )
+            }
+            let retry = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "auto-name"],
+                standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+            )
+            wait(for: [retryServerHandled], timeout: 5)
+            XCTAssertFalse(retry.timedOut, retry.stderr)
+            XCTAssertEqual(retry.status, 0, retry.stderr)
+        }
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
+
+        let exhausted = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": context.root.appendingPathComponent("missing.sock").path
+            ]
+        )
+        XCTAssertFalse(exhausted.timedOut, exhausted.stderr)
+        XCTAssertEqual(exhausted.status, 0, exhausted.stderr)
+        XCTAssertEqual(
+            autoNamingApplyRequests(in: context).count,
+            3,
+            "An exhausted reconciliation must not issue another socket apply"
+        )
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertNil(record["autoNameTitleReconciliationAttemptCount"])
+    }
+
     func testClaudeCompactManualWorkspaceStillReconcilesAutoPanel() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-manual")
         defer { context.cleanup() }
