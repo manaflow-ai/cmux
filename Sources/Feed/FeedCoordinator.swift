@@ -1147,11 +1147,6 @@ private extension FeedCoordinator {
             let isAppActive = NSApp.isActive
             #endif
 
-            // Don't pester users while the app is already up front.
-            if isAppActive {
-                return
-            }
-
             #if DEBUG
             if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
                 observer(event, requestId)
@@ -1217,7 +1212,8 @@ private extension FeedCoordinator {
                     title: title,
                     subtitle: "",
                     body: body,
-                    effects: policyContext.envelope.effects
+                    effects: policyContext.envelope.effects,
+                    allowLocalEffects: !isAppActive
                 )
             }
 
@@ -1251,7 +1247,8 @@ private extension FeedCoordinator {
                     title: payload.title,
                     subtitle: payload.subtitle,
                     body: payload.body,
-                    effects: envelope.effects
+                    effects: envelope.effects,
+                    allowLocalEffects: !isAppActive
                 )
             case .failure(let failure):
                 deliverDefault()
@@ -1300,7 +1297,8 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        allowLocalEffects: Bool
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
 
@@ -1329,6 +1327,11 @@ private extension FeedCoordinator {
                 requestId: requestId
             )
         }
+
+        // The phone mirror has its own `.always`/`.onlyWhenAway` admission
+        // gate. Keep desktop, sound, and command effects suppressed while the
+        // app is frontmost, as before.
+        guard allowLocalEffects else { return }
 
         guard effects.desktop || effects.sound || effects.command else { return }
 

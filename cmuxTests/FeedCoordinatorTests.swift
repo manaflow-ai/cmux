@@ -801,6 +801,63 @@ struct FeedCoordinatorTests {
         )
     }
 
+    @Test func blockingIngestForwardsPhonePromptWhenAppIsActive() async {
+        let requestId = "phone-needs-input-active-request"
+        let (phoneForwarder, notificationCenter) = await MainActor.run {
+            (
+                RecordingFeedPhonePushForwarder(),
+                AllowingFeedNotificationCenter()
+            )
+        }
+
+        defer {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(ringCapacity: 10),
+                userNotificationCenter: notificationCenter,
+                phonePushForwarder: phoneForwarder
+            )
+            FeedCoordinatorTestHooks.isAppActiveOverride = { true }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-phone-needs-input-active-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId
+        )
+
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 2
+            )
+            done.signal()
+        }
+
+        #expect(
+            waitForFeedTestSignal(phoneForwarder.forwarded, timeout: .now() + 2) == .success,
+            "always-mode phone forwarding must not depend on the desktop banner"
+        )
+
+        await MainActor.run {
+            FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                decision: .permission(.once)
+            )
+        }
+        #expect(
+            waitForFeedTestSignal(done, timeout: .now() + 2) == .success
+        )
+    }
+
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
         // The three blocking-decision kinds must all surface attention…
         #expect(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
