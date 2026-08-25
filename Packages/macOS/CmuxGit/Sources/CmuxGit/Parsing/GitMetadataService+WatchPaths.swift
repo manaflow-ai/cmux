@@ -6,11 +6,13 @@ extension GitMetadataService {
     /// not inside a repository.
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String]? {
         workspaceGitMetadataWatchDescriptor(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            environment: environment
         )?.watchedPaths
     }
 
@@ -20,13 +22,17 @@ extension GitMetadataService {
     /// event source but impose a much longer throttle before bounded Git status.
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
 
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+            repository: repository,
+            environment: environment
+        )
             + gitlinkMetadataWatchPaths(
                 repository: repository,
                 safetyConfiguration: safetyConfiguration
@@ -115,7 +121,8 @@ extension GitMetadataService {
     /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
     /// `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
@@ -123,7 +130,7 @@ extension GitMetadataService {
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-        ] + gitConfigURLs(repository: repository).flatMap { configURL in
+        ] + gitConfigURLs(repository: repository, environment: environment).flatMap { configURL in
             [
                 configURL.path,
                 configURL.resolvingSymlinksInPath().path

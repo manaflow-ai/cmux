@@ -133,13 +133,14 @@ extension GitMetadataService {
     nonisolated static func gitRemoteConfigSnapshot(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader()
+        fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         var configURLs: [URL] = []
         var budget = GitConfigTraversalBudget(fileStatusReader: fileStatusReader)
-        for configURL in gitRootConfigURLs(repository: repository) {
+        for configURL in gitRootConfigURLs(repository: repository, environment: environment) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
@@ -162,14 +163,16 @@ extension GitMetadataService {
     }
 
     /// The Git config layers that can affect a repository's fetch remotes.
-    nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        var urls = gitGlobalConfigURLs()
+    nonisolated static func gitRootConfigURLs(
+        repository: ResolvedGitRepository,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        var urls = gitGlobalConfigURLs(environment: environment)
         urls.append(contentsOf: [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ])
-        let worktreeConfig = URL(fileURLWithPath: repository.gitDirectory)
-            .appendingPathComponent("config.worktree")
+        let worktreeConfig = gitWorktreeConfigURL(repository: repository)
         if FileManager.default.fileExists(atPath: worktreeConfig.path) {
             urls.append(worktreeConfig)
         }
@@ -177,8 +180,9 @@ extension GitMetadataService {
     }
 
     /// Resolves standard system, global, and XDG Git config locations.
-    private nonisolated static func gitGlobalConfigURLs() -> [URL] {
-        let environment = ProcessInfo.processInfo.environment
+    private nonisolated static func gitGlobalConfigURLs(
+        environment: [String: String]
+    ) -> [URL] {
         var urls: [URL] = []
         if environment["GIT_CONFIG_NOSYSTEM"] == nil {
             let systemPath = environment["GIT_CONFIG_SYSTEM"] ?? "/etc/gitconfig"
@@ -201,16 +205,22 @@ extension GitMetadataService {
         return urls
     }
 
+    nonisolated static func gitWorktreeConfigURL(repository: ResolvedGitRepository) -> URL {
+        URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config.worktree")
+    }
+
     /// Every config file reachable from the repository roots, following
     /// `include`/`includeIf` directives, de-duplicated by path.
     nonisolated static func gitConfigURLs(
         repository: ResolvedGitRepository,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [URL] {
         let snapshot = gitRemoteConfigSnapshot(
             repository: repository,
             safetyConfiguration: safetyConfiguration,
-            fileStatusReader: SystemGitFileStatusReader()
+            fileStatusReader: SystemGitFileStatusReader(),
+            environment: environment
         )
         return snapshot.configURLs + snapshot.watchFallbackURLs
     }

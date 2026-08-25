@@ -156,6 +156,28 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.watchedPaths.contains("/"))
     }
 
+    @Test func missingXDGConfigDoesNotWatchItsBroadParent() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let xdgHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxgit-xdg-\\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: xdgHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: xdgHome) }
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "XDG_CONFIG_HOME": xdgHome.path,
+                ]
+            )
+        )
+
+        #expect(!descriptor.watchedPaths.contains(xdgHome.path))
+        #expect(!descriptor.watchedPaths.contains(xdgHome.deletingLastPathComponent().path))
+    }
+
     @Test func symlinkedConfigWatchesResolvedTarget() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

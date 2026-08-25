@@ -314,4 +314,52 @@ import Testing
         let feature = await service.workspaceMetadata(for: fixture.root.path)
         #expect(feature.repositoryLink?.url.absoluteString == "https://github.com/feature/repo")
     }
+
+    @Test func worktreeConfigIsIgnoredUntilTheExtensionIsEnabled() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            worktreeConfig = false
+        """)
+        try """
+        [remote "origin"]
+            url = https://github.com/worktree/ignored.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config.worktree"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let metadata = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.repositoryLink == nil)
+    }
+
+    @Test func enabledWorktreeConfigIsWatchedAndInvalidatesWhenCreated() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            worktreeConfig = true
+        """)
+        let service = GitMetadataService()
+
+        let initial = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(initial.repositoryLink == nil)
+
+        let worktreeConfigURL = fixture.gitDirectory.appendingPathComponent("config.worktree")
+        try """
+        [remote "origin"]
+            url = https://github.com/worktree/enabled.git
+        """.write(to: worktreeConfigURL, atomically: true, encoding: .utf8)
+
+        let updated = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(updated.repositoryLink?.url.absoluteString == "https://github.com/worktree/enabled")
+
+        let descriptor = try #require(
+            await service.watchDescriptor(for: fixture.root.path)
+        )
+        #expect(descriptor.gitMetadataPaths.contains(worktreeConfigURL.path))
+    }
 }
