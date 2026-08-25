@@ -86,6 +86,15 @@ struct AgentLifecycleEventTests {
             sessionID: staleSessionID,
             startsNewOccupant: true
         ))
+        let sameAttemptOlderProcess = "session#relay#\(terminalLifecycleID.uuidString)"
+            + "#\(currentAttemptID.uuidString)#43100#122#789"
+        #expect(!owner.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            sessionID: sameAttemptOlderProcess,
+            startsNewOccupant: true
+        ))
         #expect(
             fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]?
                 .sessionID == currentSessionID
