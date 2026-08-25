@@ -3870,7 +3870,7 @@ impl Surface {
         {
             (cols, rows) = (content.cols, content.rows);
         }
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
