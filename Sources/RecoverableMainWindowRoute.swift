@@ -37,6 +37,9 @@ final class RecoverableMainWindowRoute {
 
     /// Indicates whether this live route can occupy a persisted window slot.
     var isEligibleForSessionPersistence: Bool {
+        if frozenWindowSnapshot != nil {
+            return true
+        }
         guard let manager = tabManager else { return false }
         let workspaces = manager.tabs
         let omitsRemoteMirrorOnlyWindow = windowDock == nil

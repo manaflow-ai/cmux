@@ -358,6 +358,58 @@ struct MainWindowLifecycleCoordinatorTests {
         )
     }
 
+    @Test("Frozen orphan snapshots occupy the freeze slot cap")
+    func frozenOrphanSnapshotsOccupyFreezeSlotCap() {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let frozenWindowId = UUID()
+        let liveWindowId = UUID()
+        let frozenManager = TabManager(autoWelcomeIfNeeded: false)
+        let liveManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tearDown(frozenManager)
+            tearDown(liveManager)
+        }
+
+        let frozenContext = makeContext(
+            windowId: frozenWindowId,
+            manager: frozenManager
+        )
+        let liveContext = makeContext(
+            windowId: liveWindowId,
+            manager: liveManager
+        )
+        coordinator.register(
+            frozenContext,
+            lookupKey: ObjectIdentifier(frozenManager)
+        )
+        coordinator.register(
+            liveContext,
+            lookupKey: ObjectIdentifier(liveManager)
+        )
+        let frozenRoute = RecoverableMainWindowRoute(
+            windowId: frozenWindowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: frozenWindowId)
+        )
+        let liveRoute = RecoverableMainWindowRoute(
+            windowId: liveWindowId,
+            tabManager: liveManager,
+            window: nil,
+            sidebar: liveContext.sidebarState,
+            sidebarSelection: liveContext.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(liveRoute, from: liveContext))
+        #expect(coordinator.transitionToOrphaned(frozenRoute, from: frozenContext))
+
+        #expect(
+            !coordinator.shouldFreezeWindowlessRoute(
+                windowId: liveWindowId,
+                availablePersistenceSlots: 1
+            )
+        )
+    }
+
     @Test("Windowless recovery detection is coalesced and canceled when unused")
     func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
         let coordinator = MainWindowLifecycleCoordinator()
