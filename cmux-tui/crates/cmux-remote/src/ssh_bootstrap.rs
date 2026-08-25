@@ -221,12 +221,12 @@ impl SshBootstrapper {
         let output = match self.run_remote_with_input(&command, source).await {
             Ok(output) => output,
             Err(error) => {
-                self.cleanup_remote_file(&temporary).await;
+                self.cleanup_remote_staging(&temporary_dir).await;
                 return Err(error);
             }
         };
         if output.status != 0 {
-            self.cleanup_remote_file(&temporary).await;
+            self.cleanup_remote_staging(&temporary_dir).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
@@ -235,19 +235,19 @@ impl SshBootstrapper {
         let probe = match self.probe_binary(&temporary).await {
             Ok(Some(probe)) => probe,
             Ok(None) => {
-                self.cleanup_remote_file(&temporary).await;
+                self.cleanup_remote_staging(&temporary_dir).await;
                 return Err(BootstrapError::Install {
                     status: 126,
                     stderr: "uploaded binary could not run remote-probe".into(),
                 });
             }
             Err(error) => {
-                self.cleanup_remote_file(&temporary).await;
+                self.cleanup_remote_staging(&temporary_dir).await;
                 return Err(error);
             }
         };
         if !self.compatible(&probe) {
-            self.cleanup_remote_file(&temporary).await;
+            self.cleanup_remote_staging(&temporary_dir).await;
             return Err(BootstrapError::Incompatible {
                 version: probe.version,
                 protocol: probe.remote_protocol,
@@ -259,27 +259,39 @@ impl SshBootstrapper {
         {
             Ok(output) => output,
             Err(error) => {
-                self.cleanup_remote_file(&temporary).await;
+                self.cleanup_remote_staging(&temporary_dir).await;
                 return Err(error);
             }
         };
         if output.status != 0 {
-            self.cleanup_remote_file(&temporary).await;
+            self.cleanup_remote_staging(&temporary_dir).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
-        let probe = self.probe().await?.ok_or(BootstrapError::Install {
-            status: 0,
-            stderr: "upload completed but the remote binary is absent".into(),
-        })?;
+        let probe = match self.probe().await {
+            Ok(Some(probe)) => probe,
+            Ok(None) => {
+                self.cleanup_remote_staging(&temporary_dir).await;
+                return Err(BootstrapError::Install {
+                    status: 0,
+                    stderr: "upload completed but the remote binary is absent".into(),
+                });
+            }
+            Err(error) => {
+                self.cleanup_remote_staging(&temporary_dir).await;
+                return Err(error);
+            }
+        };
         if !self.compatible(&probe) {
+            self.cleanup_remote_staging(&temporary_dir).await;
             return Err(BootstrapError::Incompatible {
                 version: probe.version,
                 protocol: probe.remote_protocol,
             });
         }
+        self.cleanup_remote_staging(&temporary_dir).await;
         Ok(BootstrapOutcome::Installed)
     }
 
@@ -289,8 +301,8 @@ impl SshBootstrapper {
         format!("{}.cmux-upload-{}-{now}", self.config.remote_binary, std::process::id())
     }
 
-    async fn cleanup_remote_file(&self, path: &str) {
-        let _ = self.run_remote(["rm", "-f", path]).await;
+    async fn cleanup_remote_staging(&self, path: &str) {
+        let _ = self.run_remote(["rm", "-rf", "--", path]).await;
     }
 
     async fn remote_platform(&self) -> Result<Platform, BootstrapError> {
