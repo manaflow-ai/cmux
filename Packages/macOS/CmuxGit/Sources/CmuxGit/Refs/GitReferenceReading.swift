@@ -12,6 +12,13 @@ nonisolated protocol GitReferenceReading: Sendable {
         deadline: DispatchTime?
     ) -> GitReferenceSnapshot
 
+    /// Returns a snapshot and, when requested, backend paths for watcher setup.
+    func snapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?,
+        includeStorageWatchPaths: Bool
+    ) -> GitReferenceSnapshot
+
     /// Reports whether resolving this repository requires storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool
 
@@ -28,6 +35,14 @@ extension GitReferenceReading {
         deadline _: DispatchTime?
     ) -> GitReferenceSnapshot {
         snapshot(repository: repository)
+    }
+
+    func snapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?,
+        includeStorageWatchPaths _: Bool
+    ) -> GitReferenceSnapshot {
+        snapshot(repository: repository, deadline: deadline)
     }
 
     /// File-backed test readers may use the direct parser by default.

@@ -33,7 +33,6 @@ actor GitReferenceSnapshotLimiter {
             activeCount += 1
             return true
         }
-        guard deadline == nil else { return false }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled {
@@ -41,7 +40,35 @@ actor GitReferenceSnapshotLimiter {
                 } else if waiters.count >= Self.maximumWaiterCount {
                     continuation.resume(returning: false)
                 } else {
-                    waiters.append(GitReferenceSnapshotLimiterWaiter(id: id, continuation: continuation))
+                    let timeoutTask: Task<Void, Never>?
+                    if let deadline {
+                        let now = DispatchTime.now()
+                        guard deadline > now else {
+                            continuation.resume(returning: false)
+                            return
+                        }
+                        let remainingNanoseconds = deadline.uptimeNanoseconds - now.uptimeNanoseconds
+                        // This sleep is the caller's real aggregate deadline,
+                        // not polling or state-settling synchronization.
+                        timeoutTask = Task { [weak self] in
+                            do {
+                                try await Task<Never, Never>.sleep(
+                                    for: .nanoseconds(Int64(remainingNanoseconds))
+                                )
+                            } catch {
+                                return
+                            }
+                            guard !Task.isCancelled else { return }
+                            await self?.expire(id: id)
+                        }
+                    } else {
+                        timeoutTask = nil
+                    }
+                    waiters.append(GitReferenceSnapshotLimiterWaiter(
+                        id: id,
+                        continuation: continuation,
+                        timeoutTask: timeoutTask
+                    ))
                 }
             }
         } onCancel: {
@@ -52,6 +79,7 @@ actor GitReferenceSnapshotLimiter {
     func release() {
         while !waiters.isEmpty {
             let waiter = waiters.removeFirst()
+            waiter.timeoutTask?.cancel()
             waiter.continuation.resume(returning: true)
             return
         }
@@ -61,7 +89,14 @@ actor GitReferenceSnapshotLimiter {
     private func cancel(id: UUID) {
         if let index = waiters.firstIndex(where: { $0.id == id }) {
             let waiter = waiters.remove(at: index)
+            waiter.timeoutTask?.cancel()
             waiter.continuation.resume(returning: false)
         }
+    }
+
+    private func expire(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
     }
 }

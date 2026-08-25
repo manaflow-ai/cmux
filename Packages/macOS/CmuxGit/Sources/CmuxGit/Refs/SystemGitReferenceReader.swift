@@ -55,7 +55,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Resolves refs using direct files or Git plumbing according to storage.
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        snapshot(repository: repository, deadline: nil)
+        snapshot(repository: repository, deadline: nil, includeStorageWatchPaths: false)
     }
 
     /// Resolves refs without extending an aggregate caller deadline.
@@ -63,21 +63,48 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         repository: ResolvedGitRepository,
         deadline: DispatchTime?
     ) -> GitReferenceSnapshot {
+        snapshot(repository: repository, deadline: deadline, includeStorageWatchPaths: false)
+    }
+
+    /// Resolves refs and optionally derives backend paths for a watcher.
+    func snapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?,
+        includeStorageWatchPaths: Bool
+    ) -> GitReferenceSnapshot {
         let deadline = deadline ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         guard deadline > DispatchTime.now() else {
             return unreadableSnapshot()
         }
         if hasReftableDirectory(repository: repository) {
-            return plumbingSnapshot(repository: repository, deadline: deadline)
+            return plumbingSnapshot(
+                repository: repository,
+                deadline: deadline,
+                includeStorageWatchPaths: includeStorageWatchPaths
+            )
+        }
+        let quickProbe = quickReferenceStorageName(repository: repository, deadline: deadline)
+        if case .complete(let storage) = quickProbe,
+           let storage,
+           storage != "files" {
+            return plumbingSnapshot(
+                repository: repository,
+                deadline: deadline,
+                includeStorageWatchPaths: includeStorageWatchPaths
+            )
         }
         let directSnapshot = fileSnapshot(repository: repository)
         let configuredStorage: String?
-        switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+        switch quickProbe {
         case .complete(let storage):
             configuredStorage = storage
         case .incomplete:
             guard directSnapshot.branchName != ".invalid" else {
-                return plumbingSnapshot(repository: repository, deadline: deadline)
+                return plumbingSnapshot(
+                    repository: repository,
+                    deadline: deadline,
+                    includeStorageWatchPaths: includeStorageWatchPaths
+                )
             }
             configuredStorage = referenceStorageName(
                 repository: repository,
@@ -86,7 +113,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             )
         }
         if let configuredStorage, configuredStorage != "files" {
-            return plumbingSnapshot(repository: repository, deadline: deadline)
+            return plumbingSnapshot(
+                repository: repository,
+                deadline: deadline,
+                includeStorageWatchPaths: includeStorageWatchPaths
+            )
         }
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
@@ -98,7 +129,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 deadline: deadline
             )
         if let configuredStorage, configuredStorage != "files" {
-            return plumbingSnapshot(repository: repository, deadline: deadline)
+            return plumbingSnapshot(
+                repository: repository,
+                deadline: deadline,
+                includeStorageWatchPaths: includeStorageWatchPaths
+            )
         }
         if directSnapshot.branchName == ".invalid" {
             return unreadableSnapshot()
@@ -158,19 +193,26 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Builds a snapshot from Git's storage-independent plumbing commands.
     private func plumbingSnapshot(
         repository: ResolvedGitRepository,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        includeStorageWatchPaths: Bool = false
     ) -> GitReferenceSnapshot {
         let deadline = deadline ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         guard let runner = runnerSelector.select(repository: repository, deadline: deadline) else {
             return unreadableSnapshot()
         }
-        return plumbingSnapshot(repository: repository, runner: runner, deadline: deadline)
+        return plumbingSnapshot(
+            repository: repository,
+            runner: runner,
+            deadline: deadline,
+            includeStorageWatchPaths: includeStorageWatchPaths
+        )
     }
 
     private func plumbingSnapshot(
         repository: ResolvedGitRepository,
         runner: any WorkspaceChangesGitRunning,
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        includeStorageWatchPaths: Bool
     ) -> GitReferenceSnapshot {
         let symbolicResult = commandOutput(
             arguments: ["symbolic-ref", "--quiet", "HEAD"],
@@ -212,11 +254,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 checkedOutBranch: .branch(branch),
                 headSignature: "ref: \(stableReference.symbolicReference)\n\(stableReference.currentCommit ?? "")",
                 currentCommit: stableReference.currentCommit,
-                storageWatchPaths: storageWatchPaths(
-                    repository: repository,
-                    runner: runner,
-                    deadline: deadline
-                )
+                storageWatchPaths: includeStorageWatchPaths
+                    ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
+                    : []
             )
         }
 
@@ -245,11 +285,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             checkedOutBranch: checkedOutBranch,
             headSignature: headSignature,
             currentCommit: currentCommit,
-            storageWatchPaths: storageWatchPaths(
-                repository: repository,
-                runner: runner,
-                deadline: deadline
-            )
+            storageWatchPaths: includeStorageWatchPaths
+                ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
+                : []
         )
     }
 

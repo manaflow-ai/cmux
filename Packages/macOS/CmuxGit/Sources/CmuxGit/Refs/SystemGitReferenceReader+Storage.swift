@@ -16,7 +16,11 @@ extension SystemGitReferenceReader {
         var hasInclude = false
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             if let deadline, deadline <= DispatchTime.now() { return .incomplete }
-            switch configReader.read(at: configURL, maximumByteCount: 64 * 1_024) {
+            switch configReader.read(
+                at: configURL,
+                maximumByteCount: 64 * 1_024,
+                deadline: deadline
+            ) {
             case .missing:
                 continue
             case .oversized, .unavailable:
@@ -25,6 +29,7 @@ extension SystemGitReferenceReader {
                 var inExtensionsSection = false
                 var inIncludeSection = false
                 for rawLine in contents.split(whereSeparator: \.isNewline) {
+                    if let deadline, deadline <= DispatchTime.now() { return .incomplete }
                     let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
                         .trimmingCharacters(in: .whitespaces)
                     if line.hasPrefix("[") && line.hasSuffix("]") {

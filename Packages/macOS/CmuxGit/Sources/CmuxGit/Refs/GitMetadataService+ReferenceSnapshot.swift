@@ -51,7 +51,11 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         deadline: DispatchTime
     ) async -> GitReferenceSnapshot {
-        await gitReferenceSnapshot(repository: repository, deadline: deadline)
+        await gitReferenceSnapshot(
+            repository: repository,
+            deadline: deadline,
+            includeStorageWatchPaths: true
+        )
     }
 
     /// Resolves the branch context for config traversal on the blocking-I/O lane.
@@ -68,7 +72,8 @@ extension GitMetadataService {
     @concurrent
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        includeStorageWatchPaths: Bool = false
     ) async -> GitReferenceSnapshot {
         guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
             return GitReferenceSnapshot(
@@ -117,7 +122,11 @@ extension GitMetadataService {
                                 currentCommit: nil
                             )
                         }
-                        referenceReader.snapshot(repository: repository, deadline: deadline)
+                        referenceReader.snapshot(
+                            repository: repository,
+                            deadline: deadline,
+                            includeStorageWatchPaths: includeStorageWatchPaths
+                        )
                     }
                     continuation.resume(returning: snapshot)
                 }

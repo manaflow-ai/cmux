@@ -6,17 +6,19 @@ extension GitMetadataService {
     nonisolated func branchAwareConfigPathsByRepository(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration
-    ) async -> GitMetadataWatchInputs {
+    ) async -> GitMetadataWatchInputs? {
         let deadline = DispatchTime.now()
             + max(5, safetyConfiguration.gitStatusWallTime * 8)
-        let result = await collectBranchAwareConfigPaths(
+        guard let result = await collectBranchAwareConfigPaths(
             repository: repository,
             depth: 0,
             safetyConfiguration: safetyConfiguration,
             visitedRoots: [],
             remainingRepositoryCount: 32,
             deadline: deadline
-        )
+        ) else {
+            return nil
+        }
         return GitMetadataWatchInputs(
             configPathsByRepository: result.paths,
             indexSnapshotsByRepository: result.indexSnapshots
@@ -35,25 +37,29 @@ extension GitMetadataService {
         indexSnapshots: [String: GitIndexSnapshot],
         visitedRoots: Set<String>,
         remainingRepositoryCount: Int
-    ) {
+    )? {
         guard !visitedRoots.contains(repository.workTreeRoot),
-              remainingRepositoryCount > 0,
-              DispatchTime.now() < deadline else {
+              remainingRepositoryCount > 0 else {
             return ([:], [:], visitedRoots, remainingRepositoryCount)
         }
+        guard DispatchTime.now() < deadline else { return nil }
         var visitedRoots = visitedRoots
         visitedRoots.insert(repository.workTreeRoot)
         var remainingRepositoryCount = remainingRepositoryCount - 1
         var pathsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
 
-        let references = await gitReferenceSnapshotForConfig(
+        guard let references = await gitReferenceSnapshotForConfig(
             repository: repository,
             deadline: deadline
-        )
+        ), references.checkedOutBranch != .unreadable else {
+            // Do not install a descriptor that silently omits branch-conditional
+            // config or backend paths; the caller can retry this plan.
+            return nil
+        }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return nil
         }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
@@ -62,7 +68,7 @@ extension GitMetadataService {
             deadline: deadline
         ).watchPaths() + references.storageWatchPaths
         guard DispatchTime.now() < deadline else {
-            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
+            return nil
         }
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -101,14 +107,16 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            let childResult = await collectBranchAwareConfigPaths(
+            guard let childResult = await collectBranchAwareConfigPaths(
                 repository: submoduleRepository,
                 depth: depth + 1,
                 safetyConfiguration: safetyConfiguration,
                 visitedRoots: visitedRoots,
                 remainingRepositoryCount: remainingRepositoryCount,
                 deadline: deadline
-            )
+            ) else {
+                return nil
+            }
             visitedRoots = childResult.visitedRoots
             remainingRepositoryCount = childResult.remainingRepositoryCount
             pathsByRepository.merge(childResult.paths, uniquingKeysWith: { _, new in new })
