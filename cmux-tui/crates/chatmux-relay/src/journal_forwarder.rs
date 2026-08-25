@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::collections::VecDeque;
+use std::future::Future;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
@@ -31,6 +32,7 @@ const MAX_JOURNAL_LINE_BYTES: usize = 1 << 20;
 const DEFAULT_FLUSH_DEBOUNCE: Duration = Duration::from_millis(500);
 const DEFAULT_MIN_BACKOFF: Duration = Duration::from_secs(1);
 const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(60);
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_RECONNECT_MIN: Duration = Duration::from_secs(1);
 const DEFAULT_RECONNECT_MAX: Duration = Duration::from_secs(30);
 const SOCKET_SCAN_INTERVAL: Duration = Duration::from_secs(15);
@@ -232,9 +234,16 @@ struct Shared {
 #[cfg(unix)]
 async fn run(events: ManagedEvents, cancellation: CancellationToken) {
     let cursors = load_cursor_file(Path::new(DEFAULT_CURSOR_PATH)).await;
+    let client = match build_http_client(DEFAULT_REQUEST_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("chatmux-relay: journal forwarder HTTP client failed: {error}");
+            return;
+        }
+    };
     let shared = Shared {
         events,
-        client: reqwest::Client::new(),
+        client,
         cursors: Arc::new(tokio::sync::Mutex::new(cursors)),
         cursor_path: PathBuf::from(DEFAULT_CURSOR_PATH),
         cancellation: cancellation.clone(),
@@ -254,6 +263,10 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
     for (_, task) in tasks {
         task.abort();
     }
+}
+
+fn build_http_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder().timeout(timeout).build()
 }
 
 #[cfg(unix)]
@@ -491,13 +504,17 @@ async fn post_with_retry(shared: &Shared, batches: Vec<SessionBatch>) -> bool {
                 attempt = 0;
                 continue;
             }
-            let response = shared
-                .client
-                .post(&shared.events.url)
-                .bearer_auth(&shared.events.token)
-                .json(&json!({"sessions": &batches}))
-                .send()
-                .await;
+            let response = await_with_cancellation(
+                &shared.cancellation,
+                shared
+                    .client
+                    .post(&shared.events.url)
+                    .bearer_auth(&shared.events.token)
+                    .json(&json!({"sessions": &batches}))
+                    .send(),
+            )
+            .await;
+            let Some(response) = response else { return false };
             let Ok(response) = response else {
                 attempt = attempt.saturating_add(1);
                 if !wait_backoff(&shared.cancellation, post_delay(attempt)).await {
@@ -508,11 +525,16 @@ async fn post_with_retry(shared: &Shared, batches: Vec<SessionBatch>) -> bool {
             let status = response.status();
             match delivery_disposition(status.as_u16(), record_count) {
                 DeliveryDisposition::Ack => {
-                    let acked = response
-                        .json::<AckBody>()
-                        .await
-                        .map(|body| body.cursors)
-                        .unwrap_or_default();
+                    let acked = match await_with_cancellation(
+                        &shared.cancellation,
+                        response.json::<AckBody>(),
+                    )
+                    .await
+                    {
+                        Some(Ok(body)) => body.cursors,
+                        Some(Err(_)) => HashMap::new(),
+                        None => return false,
+                    };
                     let mut cursors = shared.cursors.lock().await;
                     *cursors = advance_cursors(&cursors, &batches, &acked);
                     drop(cursors);
@@ -553,6 +575,20 @@ async fn post_with_retry(shared: &Shared, batches: Vec<SessionBatch>) -> bool {
         }
     }
     true
+}
+
+async fn await_with_cancellation<F>(
+    cancellation: &CancellationToken,
+    future: F,
+) -> Option<F::Output>
+where
+    F: Future,
+{
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = future => Some(result),
+    }
 }
 
 #[cfg(unix)]
@@ -766,5 +802,44 @@ mod tests {
         let cancellation = CancellationToken::new();
         cancellation.cancel();
         assert!(!wait_backoff(&cancellation, Duration::from_secs(60)).await);
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_pending_request() {
+        let cancellation = CancellationToken::new();
+        let request_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            await_with_cancellation(&request_cancellation, std::future::pending::<()>()).await
+        });
+        cancellation.cancel();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .expect("cancellation must resolve the request")
+                .expect("request task must not panic")
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stalled_http_request_respects_the_configured_timeout() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind local test endpoint");
+        let address = listener.local_addr().expect("read local test endpoint address");
+        let server = tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else { return };
+            let mut request = [0_u8; 1024];
+            let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut request).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        let client = build_http_client(Duration::from_millis(50)).expect("build test client");
+        let started = std::time::Instant::now();
+        let result = client.get(format!("http://{address}")).send().await;
+        assert!(result.is_err(), "a stalled endpoint must time out");
+        assert!(started.elapsed() < Duration::from_millis(500));
+        server.abort();
     }
 }
