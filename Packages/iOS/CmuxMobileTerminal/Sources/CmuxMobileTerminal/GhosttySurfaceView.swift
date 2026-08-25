@@ -3904,6 +3904,49 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || submission.kind == .verifiedReplay
     }
 
+    /// Pre-admits a local-scroll frame at pump time so the surface queue can
+    /// run `render_now` in the same serial block that applies the scroll
+    /// position, with no main-actor hop between apply and render dispatch.
+    /// Only the plain `.localScroll` kind may take this path: verified
+    /// replays keep their fence-ordered admission, and a busy or suppressed
+    /// gate registers the frame as pending through the same reducer
+    /// transition as the completion-time path, so replay serialization is
+    /// unchanged. Returns nil when the batch must not render inline; the
+    /// caller then submits at completion time exactly as before.
+    func preadmitLocalScrollRenderSubmission() -> RenderSubmission? {
+        guard !renderPipelineRecoveryPaused,
+              !renderingSuspended,
+              !isRenderDispatchSuppressed,
+              let surface,
+              !isDismantled else { return nil }
+        let submission = RenderSubmission(
+            token: makeSurfaceOperationID(),
+            generation: surfaceGeneration,
+            kind: .localScroll,
+            surface: surface,
+            verifiedReplayRead: nil,
+            presentationRetryCount: 0
+        )
+        switch renderPresentationGate.enqueue(submission.ticket) {
+        case .started:
+            guard renderSubmission == nil else {
+                repairRenderAdmissionAfterFailedStart()
+                return nil
+            }
+            renderSubmission = submission
+            renderInFlight = true
+            renderInFlightSince = CACurrentMediaTime()
+            return submission
+        case .queued:
+            if shouldReplacePendingRenderSubmission(with: submission) {
+                pendingRenderSubmission = submission
+            }
+            return nil
+        case .ignored, .idle:
+            return nil
+        }
+    }
+
     /// Replaces the current token when a geometry pass invalidates its
     /// IOSurface target. Ghostty serializes the replacement behind the old
     /// render on `outputQueue`; the old callback is stale by token and cannot

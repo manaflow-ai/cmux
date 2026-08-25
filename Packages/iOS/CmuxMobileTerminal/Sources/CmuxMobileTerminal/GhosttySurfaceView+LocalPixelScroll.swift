@@ -79,6 +79,14 @@ extension GhosttySurfaceView {
             token: token,
             pixelStateEpoch: localPixelScrollState.withLock { $0.epoch }
         )
+        // Hop-collapse: admit this batch's render frame now, so the queue
+        // block below can run `render_now` immediately after the position
+        // apply. That makes apply and render inseparable (every presented
+        // frame carries exactly one batch of motion) and removes the
+        // main-actor round trip that used to sit between them. nil = the
+        // gate is busy, suppressed, or rendering is paused; the batch then
+        // falls back to completion-time submission unchanged.
+        let preadmittedRender = preadmitLocalScrollRenderSubmission()
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         let pixelState = localPixelScrollState
@@ -100,6 +108,27 @@ extension GhosttySurfaceView {
                     $0.appliedInteractionGeneration,
                     interactionGeneration
                 )
+            }
+            if let preadmittedRender {
+                #if DEBUG
+                let renderStartedAt = CACurrentMediaTime()
+                #endif
+                ghostty_surface_render_now_with_token(
+                    preadmittedRender.surface,
+                    preadmittedRender.token
+                )
+                #if DEBUG
+                let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if renderMs > 8 {
+                    let perfNow = CACurrentMediaTime()
+                    if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
+                        workQueue.lastRenderPerfLogTime = perfNow
+                        MobileDebugLog.anchormux(
+                            "perf.render_now ms=\(Int(renderMs)) kind=localScroll.inline"
+                        )
+                    }
+                }
+                #endif
             }
             #if DEBUG
             // Perf probe for the scroll-hitch investigation: `wait` is
@@ -138,16 +167,21 @@ extension GhosttySurfaceView {
                     self.completePendingLocalScrollDrains(returning: false)
                     return
                 }
-                self.enqueueRenderSubmission(
-                    GhosttySurfaceView.RenderSubmission(
-                        token: operation.token,
-                        generation: operation.generation,
-                        kind: .localScroll,
-                        surface: operation.surface,
-                        verifiedReplayRead: nil,
-                        presentationRetryCount: 0
+                // The fast path already rendered on the queue right after the
+                // apply; only the fallback (gate busy at pump time) still
+                // submits here.
+                if preadmittedRender == nil {
+                    self.enqueueRenderSubmission(
+                        GhosttySurfaceView.RenderSubmission(
+                            token: operation.token,
+                            generation: operation.generation,
+                            kind: .localScroll,
+                            surface: operation.surface,
+                            verifiedReplayRead: nil,
+                            presentationRetryCount: 0
+                        )
                     )
-                )
+                }
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
                 self.completePendingLocalScrollDrains()
