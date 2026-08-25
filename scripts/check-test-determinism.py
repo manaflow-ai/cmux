@@ -3609,6 +3609,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/xhr_open_dynamic_method.ts",
+            'xhr.open(method, "https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -4384,6 +4389,24 @@ def _self_test() -> int:
                 '    "python3",\n'
                 '    "script.py",\n'
                 '    "requests.get(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "])\n"
+            ),
+        ),
+        # Interpreted source must still be parsed for command position: printing
+        # a network-looking example is not a live request.
+        (
+            "tests/n18v_bash_echo_source.py",
+            (
+                "subprocess.run([\n"
+                '    "bash", "-c", "echo curl https://api.openai.com/v1/items"\n'
+                "])\n"
+            ),
+        ),
+        (
+            "tests/n18v_python_print_source.py",
+            (
+                "subprocess.run([\n"
+                '    "python3", "-c", \'print("curl https://api.openai.com/v1/items")\'\n'
                 "])\n"
             ),
         ),
