@@ -76,8 +76,7 @@ extension GitMetadataService {
               header.entryCount <= safetyConfiguration.trackedEventPathCount,
               header.fileByteCount <= Int64(safetyConfiguration.directIndexByteCount),
               let indexSnapshot = Self.gitIndexSnapshot(
-                  indexURL: URL(fileURLWithPath: indexPath),
-                  deadline: deadline
+                  indexURL: URL(fileURLWithPath: indexPath)
               ) else {
             return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
         }
