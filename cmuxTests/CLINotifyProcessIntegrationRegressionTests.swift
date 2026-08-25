@@ -296,6 +296,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ))
     }
 
+    func testCompactSessionRejectsOlderProcessGenerationOnSamePane() throws {
+        let context = try makeClaudeHookContext(name: "compact-process-generation")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-process-generation-session"
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            pid: 111,
+            markActive: true
+        )
+        let expected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
+        var state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        var current = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        current["pid"] = 222
+        sessions[sessionId] = current
+        state["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        XCTAssertFalse(try store.upsertCompactSessionIfCurrent(
+            sessionId: sessionId,
+            expectedRecord: expected,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            pid: 222,
+            launchCommand: nil,
+            targetIsAuthoritative: true
+        ))
+    }
+
     func testCompactSessionRehomeRepairsActiveIndexes() throws {
         let context = try makeClaudeHookContext(name: "compact-rehome-indexes")
         defer { context.cleanup() }
