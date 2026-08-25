@@ -280,13 +280,6 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
-    /// Raw values used to decide whether typography normalization must run again.
-    struct PreviewTypographyInput: Equatable {
-        let fontFamily: String
-        let fontSize: CGFloat
-        let lineHeight: CGFloat
-    }
-
     private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
         .browserZoomIn,
         .browserZoomOut,
