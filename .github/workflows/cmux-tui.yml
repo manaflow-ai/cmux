@@ -337,6 +337,10 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      - name: Use short temporary directory for macOS socket tests
+        if: runner.os == 'macOS'
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
