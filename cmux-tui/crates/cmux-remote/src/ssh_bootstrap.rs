@@ -216,8 +216,7 @@ impl SshBootstrapper {
             .remote_binary
             .rsplit_once('/')
             .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
-        let command =
-            format!("umask 077; mkdir -p {parent} && cat > {temporary} && chmod 755 {temporary}");
+        let command = upload_command(&parent, &temporary);
         let output = match self.run_remote_with_input(&command, source).await {
             Ok(output) => output,
             Err(error) => {
@@ -469,6 +468,16 @@ impl SshBootstrapper {
     }
 }
 
+/// Build the remote upload command. `noclobber` makes the temporary file
+/// creation exclusive and refuses an attacker-provided symlink. The dedicated
+/// descriptor keeps the upload attached to that inode, and the final rename
+/// is atomic at the destination.
+fn upload_command(parent: &str, temporary: &str) -> String {
+    format!(
+        "umask 077; mkdir -p {parent} && (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}"
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Platform {
     os: String,
@@ -652,6 +661,14 @@ impl BootstrapError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_command_uses_exclusive_descriptor_and_no_truncating_redirection() {
+        let command = upload_command("~/.local/bin", "~/.local/bin/cmux-tui.cmux-upload-test");
+        assert!(command.contains("set -C; exec 3>"));
+        assert!(command.contains("cat >&3"));
+        assert!(!command.contains("cat >"));
+    }
 
     fn probe(distribution_version: Option<&str>) -> RemoteProbe {
         RemoteProbe {
