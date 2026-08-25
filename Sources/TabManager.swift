@@ -4617,12 +4617,14 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(
-               inPane: originalPane,
-               url: snapshot.url,
-               focus: true,
-               preferredProfileID: snapshot.profileID
-           ) {
+           let browserPanel = workspace.withNewTabZoomPolicy(inPane: originalPane, {
+               workspace.newBrowserSurface(
+                   inPane: originalPane,
+                   url: snapshot.url,
+                   focus: true,
+                   preferredProfileID: snapshot.profileID
+               )
+           }) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)

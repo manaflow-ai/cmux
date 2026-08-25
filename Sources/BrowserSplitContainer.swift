@@ -146,17 +146,19 @@ enum BrowserSplitContainer {
     ) -> BrowserPanel? {
         switch self {
         case .workspace(let workspace):
-            return workspace.newBrowserSurface(
-                inPane: paneID,
-                url: request.url,
-                focus: request.focus,
-                selectWhenNotFocused: true,
-                preferredProfileID: request.preferredProfileID,
-                creationPolicy: .automationPreload,
-                chromeVisibility: request.chromeVisibility,
-                transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
-            )
+            return workspace.withNewTabZoomPolicy(inPane: paneID, applyPolicy: request.focus) {
+                workspace.newBrowserSurface(
+                    inPane: paneID,
+                    url: request.url,
+                    focus: request.focus,
+                    selectWhenNotFocused: true,
+                    preferredProfileID: request.preferredProfileID,
+                    creationPolicy: .automationPreload,
+                    chromeVisibility: request.chromeVisibility,
+                    transparentBackground: request.transparentBackground,
+                    bypassRemoteProxy: request.bypassRemoteProxy
+                )
+            }
         case .dock(let dock):
             guard let panelID = dock.newSurface(
                 kind: .browser,

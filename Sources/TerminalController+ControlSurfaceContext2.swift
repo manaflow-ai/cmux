@@ -387,18 +387,22 @@ extension TerminalController {
                 )
             }?.id
         } else if panelType == .simulator {
-            newPanelId = ws.newSimulatorSurface(
-                inPane: paneId,
-                focus: focus
-            )?.id
+            newPanelId = ws.withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+                ws.newSimulatorSurface(
+                    inPane: paneId,
+                    focus: focus
+                )
+            })?.id
         } else if panelType == .agentSession {
-            newPanelId = ws.newAgentSessionSurface(
-                inPane: paneId,
-                providerID: providerID,
-                rendererKind: rendererKind,
-                workingDirectory: inputs.workingDirectory,
-                focus: focus
-            )?.id
+            newPanelId = ws.withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+                ws.newAgentSessionSurface(
+                    inPane: paneId,
+                    providerID: providerID,
+                    rendererKind: rendererKind,
+                    workingDirectory: inputs.workingDirectory,
+                    focus: focus
+                )
+            })?.id
         } else {
             switch ws.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
                 ws.newTerminalSurfaceOutcome(
