@@ -283,17 +283,7 @@ struct DockSessionPersistenceTests {
         defer { defaults.removePersistentDomain(forName: defaultsName) }
 
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
-            String(cString: $0)
-        }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
+        let testEnvironment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
 
         let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -330,6 +320,7 @@ struct DockSessionPersistenceTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: testEnvironment,
             processArgumentsProvider: { _ in nil }
         )
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
@@ -437,17 +428,7 @@ struct DockSessionPersistenceTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
-            String(cString: $0)
-        }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
+        let testEnvironment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         let staleOwnerID = UUID()
         let liveOwnerID = UUID()
         let panelID = UUID()
@@ -497,6 +478,7 @@ struct DockSessionPersistenceTests {
                     sessionIDSource: .explicit
                 ),
             ],
+            environment: testEnvironment,
             processArgumentsProvider: { _ in nil },
             processIdentityProvider: { pid in
                 pid == processID ? processIdentity : nil
@@ -558,17 +540,7 @@ struct DockSessionPersistenceTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
-            String(cString: $0)
-        }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
+        let testEnvironment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
 
         let firstOwnerID = UUID()
         let secondOwnerID = UUID()
@@ -602,6 +574,7 @@ struct DockSessionPersistenceTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: testEnvironment,
             processArgumentsProvider: { _ in nil }
         )
         #expect(agentIndex.entry(panelId: panelID) == nil)
@@ -663,6 +636,7 @@ struct DockSessionPersistenceTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: testEnvironment,
             processArgumentsProvider: { _ in nil }
         )
         #expect(newestAgentIndex.entry(panelId: panelID)?.snapshot.sessionId == newestSessionID)
