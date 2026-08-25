@@ -191,10 +191,14 @@ extension RemoteTmuxControlConnection {
         #if DEBUG
         cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
         #endif
-        return sendInternal(
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        paneTitleMetadataSnapshotRevisions[snapshotKey] = paneTitleMetadataRevision
+        let sent = sendInternal(
             "list-panes -t @\(windowId) -F \"\(Self.paneRectsFormat)\"",
             kind: .paneRects(windowId, generation)
         )
+        if !sent { paneTitleMetadataSnapshotRevisions[snapshotKey] = nil }
+        return sent
     }
 
     /// Rearranges the tracked window order to reflect a just-applied reorder.

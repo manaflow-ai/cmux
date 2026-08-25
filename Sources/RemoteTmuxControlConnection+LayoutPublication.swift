@@ -155,6 +155,8 @@ extension RemoteTmuxControlConnection {
                 + "lines=\(lines.count) awaiting=\(initialBatchAwaiting.map(String.init(describing:)) ?? "nil")"
         )
         #endif
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        let snapshotRevision = paneTitleMetadataSnapshotRevisions.removeValue(forKey: snapshotKey) ?? 0
         guard var pending = pendingLayouts[windowId] else {
             // Window closed while the fetch was in flight; nothing to publish.
             return
@@ -251,10 +253,12 @@ extension RemoteTmuxControlConnection {
             }
             return
         }
-        for (paneId, metadata) in titleMetadata {
+        for (paneId, metadata) in titleMetadata
+        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
             paneTitleMetadataByPane[paneId] = metadata
         }
-        for paneId in panesWithoutTitleMetadata {
+        for paneId in panesWithoutTitleMetadata
+        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
             paneTitleMetadataByPane[paneId] = nil
         }
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
@@ -355,6 +359,8 @@ extension RemoteTmuxControlConnection {
         #if DEBUG
         cmuxDebugLog("remote.rects.error @\(windowId) gen=\(generation)")
         #endif
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        paneTitleMetadataSnapshotRevisions[snapshotKey] = nil
         guard var pending = pendingLayouts[windowId] else { return }
         pending.inFlight = false
         if pending.generation != generation || pending.dirty {
@@ -383,6 +389,9 @@ extension RemoteTmuxControlConnection {
         discardPendingPaneSeeds(keeping: livePanes)
         paneHeaderLabels = paneHeaderLabels.filter { livePanes.contains($0.key) }
         paneTitleMetadataByPane = paneTitleMetadataByPane.filter { livePanes.contains($0.key) }
+        paneTitleMetadataLiveRevisionByPane = paneTitleMetadataLiveRevisionByPane.filter {
+            livePanes.contains($0.key)
+        }
         paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
         paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
     }

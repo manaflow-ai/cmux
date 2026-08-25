@@ -87,6 +87,12 @@ final class RemoteTmuxControlConnection {
     /// snapshot and by a dedicated live subscription. Mirrors use this to let
     /// deliberate pane names through without reviving hostname-only titles.
     var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+    /// Monotone ordering for live pane-title events. Rectangle snapshots record
+    /// the current revision when sent, so a late reply cannot roll back a title
+    /// that arrived over the live subscription in the meantime.
+    var paneTitleMetadataRevision: UInt64 = 0
+    var paneTitleMetadataLiveRevisionByPane: [Int: UInt64] = [:]
+    var paneTitleMetadataSnapshotRevisions: [RemoteTmuxPaneTitleSnapshotKey: UInt64] = [:]
     /// Configured tmux pane-title placement per window; absence means off.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
@@ -419,6 +425,7 @@ final class RemoteTmuxControlConnection {
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
+        paneTitleMetadataSnapshotRevisions.removeAll()
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
@@ -891,7 +898,14 @@ final class RemoteTmuxControlConnection {
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil
                     paneTitleMetadataByPane[pane] = nil
+                    paneTitleMetadataLiveRevisionByPane[pane] = nil
                 }
+            }
+            paneTitleMetadataLiveRevisionByPane = paneTitleMetadataLiveRevisionByPane.filter {
+                !closingPaneIDs.contains($0.key)
+            }
+            paneTitleMetadataSnapshotRevisions = paneTitleMetadataSnapshotRevisions.filter {
+                $0.key.windowId != id
             }
             activePaneByWindow[id] = nil
             removePublishedPaneOwnership(windowId: id)

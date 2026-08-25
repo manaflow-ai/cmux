@@ -16,6 +16,8 @@ extension RemoteTmuxControlConnection {
         let next = RemoteTmuxPaneTitleMetadata(wireValue: wireValue)
         guard paneTitleMetadataByPane[paneId] != next else { return false }
         paneTitleMetadataByPane[paneId] = next
+        paneTitleMetadataRevision &+= 1
+        paneTitleMetadataLiveRevisionByPane[paneId] = paneTitleMetadataRevision
         return true
     }
 

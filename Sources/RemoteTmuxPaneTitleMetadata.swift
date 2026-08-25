@@ -1,5 +1,12 @@
 import Foundation
 
+/// Identifies one pane-rectangle snapshot so an older reply cannot overwrite a
+/// newer live pane-title subscription event.
+struct RemoteTmuxPaneTitleSnapshotKey: Hashable, Sendable {
+    let windowId: Int
+    let generation: Int
+}
+
 /// The raw tmux pane title and the host values used to recognize its default.
 struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
     /// A control character that tmux leaves untouched in format expansions.
