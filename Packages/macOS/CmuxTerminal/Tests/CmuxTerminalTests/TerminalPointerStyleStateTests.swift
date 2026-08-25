@@ -265,8 +265,8 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.iBeam)
     }
 
-    @Test("empty hyperlink exit restores an unsupported OSC 22 base shape")
-    func emptyHyperlinkExitRestoresUnsupportedBaseShape() {
+    @Test("empty hyperlink exit without a base shape preserves pointer intent")
+    func emptyHyperlinkExitWithoutBaseShapePreservesPointerIntent() {
         var state = TerminalPointerStyleState()
         let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
@@ -284,7 +284,7 @@ struct TerminalPointerStyleStateTests {
             runtimeLifetimeId: runtimeLifetimeId
         ))
 
-        #expect(state.effectiveCursor == NSCursor.iBeam)
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
     @Test("hyperlink hover preserves an explicit OSC 22 pointer base")
