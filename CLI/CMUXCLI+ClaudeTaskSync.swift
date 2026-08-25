@@ -621,7 +621,7 @@ extension CMUXCLI {
         printClaudeHookAck()
     }
 
-    /// Clears every proven prior personal destination before publishing its replacement.
+    /// Clears every proven prior personal destination after its replacement succeeds.
     private func clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
         currentRecord: ClaudeHookSessionRecord?,
         taskDirectoryName: String,
