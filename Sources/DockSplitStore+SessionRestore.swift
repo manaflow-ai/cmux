@@ -226,20 +226,20 @@ extension DockSplitStore {
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
-        let stablePanelHasLiveProcess = restoreAgentIndex?.entryForStablePanel(
+        let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
             workspaceId: workspaceId,
             panelId: snapshot.id
-        )?.processIDs.isEmpty == false
+        ) == true
         let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
             workspaceId: workspaceId,
             panelId: snapshot.id,
             expectedKind: expectedAgentKind,
             expectedSessionId: expectedSessionId
         ) == true
-        let exactOwnerHasLiveProcess = restoreAgentIndex?.entry(
+        let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
             workspaceId: workspaceId,
             panelId: snapshot.id
-        )?.processIDs.isEmpty == false
+        ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             restoreAgentIndex == nil ||
             stablePanelHasConflictingLiveProcess ||
@@ -297,7 +297,8 @@ extension DockSplitStore {
             restorableAgent: restorableAgent,
             snapshotPanelId: snapshot.id,
             shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil,
-            liveIndex: restoreAgentIndex
+            liveIndex: restoreAgentIndex,
+            restoreOwnershipAmbiguous: restoreOwnershipAmbiguous
         )
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
@@ -510,10 +511,16 @@ extension DockSplitStore {
         restorableAgent: SessionRestorableAgentSnapshot?,
         snapshotPanelId: UUID,
         shouldAutoResume: Bool,
-        liveIndex: RestorableAgentSessionIndex?
+        liveIndex: RestorableAgentSessionIndex?,
+        restoreOwnershipAmbiguous: Bool
     ) -> Bool {
         guard shouldAutoResume, let restorableAgent else { return false }
         guard let index = liveIndex else { return true }
+        if restoreOwnershipAmbiguous {
+            // A conflicting live owner must suppress this launch even when the
+            // persisted session is not the selected stable-panel entry.
+            return true
+        }
         if index.hasAmbiguousPanel(snapshotPanelId) {
             // Unknown ownership is safer than launching a duplicate agent against a
             // session that may still be live under another restored owner.
@@ -544,9 +551,12 @@ extension DockSplitStore {
         }) else {
             return nil
         }
-        // This is a cache-only decision path. A cold cache fails closed and lets
-        // the next restore/retry use the asynchronously prepared shared index.
-        return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        if let cachedIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() {
+            return cachedIndex
+        }
+        // Restore is one of the sanctioned cold-cache callers: load once for
+        // this pass rather than permanently dropping persisted resume input.
+        return RestorableAgentSessionIndex.load()
     }
 
 }

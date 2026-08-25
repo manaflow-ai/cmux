@@ -57,7 +57,9 @@ extension DockSplitStore {
                     includeScrollback: includeScrollback,
                     observation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: observationWorkspaceId,
-                        panelId: panelId
+                        panelId: panelId,
+                        processIdentityProvider: currentAgentProcessIdentity,
+                        processPresenceProvider: agentProcessPresence
                     ),
                     detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
@@ -151,7 +153,17 @@ extension DockSplitStore {
             includeScrollback: true,
             observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
-                panelId: panelId
+                panelId: panelId,
+                processIdentityProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                    return AgentPIDProcessIdentity(pid: pid_t($0))
+                },
+                processPresenceProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else {
+                        return .absent
+                    }
+                    return PIDPresence.current(pid: pid_t($0))
+                }
             ),
             detectedResumeBinding: nil,
             terminalFontSizeSnapshotProjection:

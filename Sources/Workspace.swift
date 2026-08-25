@@ -1267,9 +1267,12 @@ extension Workspace {
         }) else {
             return nil
         }
-        // This is a cache-only decision path. A cold cache fails closed and lets
-        // the next restore/retry use the asynchronously prepared shared index.
-        return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        if let cachedIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() {
+            return cachedIndex
+        }
+        // Restore is one of the sanctioned cold-cache callers: load once for
+        // this pass rather than permanently dropping persisted resume input.
+        return RestorableAgentSessionIndex.load()
     }
 
     private func restorePane(
@@ -1508,20 +1511,20 @@ extension Workspace {
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
             let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
-            let stablePanelHasLiveProcess = restoreAgentIndex?.entryForStablePanel(
+            let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
                 workspaceId: id,
                 panelId: snapshot.id
-            )?.processIDs.isEmpty == false
+            ) == true
             let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
                 workspaceId: id,
                 panelId: snapshot.id,
                 expectedKind: expectedAgentKind,
                 expectedSessionId: expectedSessionId
             ) == true
-            let exactOwnerHasLiveProcess = restoreAgentIndex?.entry(
+            let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
                 workspaceId: id,
                 panelId: snapshot.id
-            )?.processIDs.isEmpty == false
+            ) == true
             let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
                 restoreAgentIndex == nil ||
                 stablePanelHasConflictingLiveProcess ||
@@ -1619,6 +1622,11 @@ extension Workspace {
                     return false
                 }
                 guard let restoreAgentIndex else { return true }
+                if restoreOwnershipAmbiguous {
+                    // A conflicting live owner must suppress this launch even
+                    // when the persisted session is not the selected entry.
+                    return true
+                }
                 if restoreAgentIndex.hasAmbiguousPanel(snapshot.id) {
                     // Do not launch while panel ownership is ambiguous; a live process
                     // may still be attached to another owner record.
