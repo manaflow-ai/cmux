@@ -75,6 +75,16 @@ replacement at `45f208fb98`, and
 cleanup at `ee8f3d00ea`. Neither is part of the aggregate until exact-head
 review and hosted checks pass.
 
+[#10747](https://github.com/manaflow-ai/cmux/pull/10747) attempted to preserve
+active surface identity, but exact review found that it drops valid server tabs
+when the local attachment mirror is empty. It is a rejected follow-up until the
+authoritative server tree and lazy attachment contract are preserved.
+
+[#10746](https://github.com/manaflow-ai/cmux/pull/10746) adds a detached
+`waitpid` thread to `run_spec`. Exact review rejected it for PID/PGID reuse and
+unbounded thread risks; the existing in-owner timeout supervisor remains the
+safer implementation.
+
 ## Final aggregate tail
 
 | Commit | Change | Revert |
