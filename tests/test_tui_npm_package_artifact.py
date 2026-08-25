@@ -21,10 +21,10 @@ EXECUTABLES = (
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
     "cmux/bin/cmux.js",
-    "cmux-relay-darwin-arm64/bin/cmux-relay",
-    "cmux-relay-darwin-x64/bin/cmux-relay",
-    "cmux-relay-linux-x64/bin/cmux-relay",
-    "cmux-relay-linux-arm64/bin/cmux-relay",
+    "cmux-relay-darwin-arm64/bin/chatmux-relay",
+    "cmux-relay-darwin-x64/bin/chatmux-relay",
+    "cmux-relay-linux-x64/bin/chatmux-relay",
+    "cmux-relay-linux-arm64/bin/chatmux-relay",
     "cmux-relay/bin/cmux-relay.js",
 )
 
@@ -66,6 +66,10 @@ function isEphemeralNpxPath(value) {
 }
 
 const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
+if (process.platform === "win32") {
+  console.error("cmux-relay: unsupported_platform (the Rust machine relay requires a Unix PTY backend).");
+  process.exit(1);
+}
 if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
   console.error(
     "Install cmux-relay globally (npm install --global cmux-relay) before --autostart.",
@@ -132,15 +136,18 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-relay"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
         )
-        executable = package / "bin" / "cmux-relay"
+        executable = package / "bin" / "chatmux-relay"
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("#!/bin/sh\nexit 0\n")
         executable.chmod(0o755)
+        runtime = package / "bin" / "cmux-tui"
+        runtime.write_text("#!/bin/sh\nexit 0\n")
+        runtime.chmod(0o755)
 
     relay_launcher = packages / "cmux-relay"
     relay_launcher.mkdir(parents=True, exist_ok=True)

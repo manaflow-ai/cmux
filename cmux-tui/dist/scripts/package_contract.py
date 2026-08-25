@@ -55,7 +55,7 @@ NPM_PACKAGE_NAMES_WITH_WINDOWS = (
 NPM_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-tui", "bin/cmux-tui-hook"})
 NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
 NPM_RELAY_PLATFORM_FILES = frozenset(
-    {"package.json", "bin/cmux-relay", "bin/cmux-tui"}
+    {"package.json", "bin/chatmux-relay", "bin/cmux-tui"}
 )
 NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux-relay.js"})
 
@@ -80,7 +80,7 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
         + tuple(
             path
             for target in relay_targets
-            for path in _target_binary_paths(target, ("cmux-relay", "cmux-tui"))
+            for path in _target_binary_paths(target, ("chatmux-relay", "cmux-tui"))
         )
         + ("cmux/bin/cmux.js", "cmux-relay/bin/cmux-relay.js")
     )
@@ -348,11 +348,11 @@ def validate_npm_tree(
         _validate_package_files(
             packages_dir / target.name,
             target,
-            binary_names=("cmux-relay", "cmux-tui"),
+            binary_names=("chatmux-relay", "cmux-tui"),
             expected_files=frozenset(
                 {
                     "package.json",
-                    f"bin/cmux-relay{'.exe' if target.os == 'win32' else ''}",
+                    f"bin/chatmux-relay{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                 }
             ),

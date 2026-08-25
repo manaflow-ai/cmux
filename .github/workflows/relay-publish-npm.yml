@@ -201,7 +201,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
-              \( -path '*/cmux-relay-*/bin/cmux-relay*' -o \
+              \( -path '*/cmux-relay-*/bin/chatmux-relay*' -o \
                  -path '*/cmux-relay-*/bin/cmux-tui*' \) \
               -print0 | sort -z
           )

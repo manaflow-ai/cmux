@@ -717,7 +717,7 @@ jobs:
           for name in relay_packages:
               manifest = json.loads((root / name / 'package.json').read_text())
               assert manifest['version'] == launcher['version']
-              assert (root / name / 'bin' / ('cmux-relay.exe' if 'win32' in name else 'cmux-relay')).stat().st_mode & stat.S_IXUSR
+              assert (root / name / 'bin' / ('chatmux-relay.exe' if 'win32' in name else 'chatmux-relay')).stat().st_mode & stat.S_IXUSR
               assert (root / name / 'bin' / ('cmux-tui.exe' if 'win32' in name else 'cmux-tui')).stat().st_mode & stat.S_IXUSR
           PY
 
@@ -894,7 +894,7 @@ jobs:
         with:
           subject-path: |
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
-            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
             dist/npm-packages/cmux-relay-*/bin/cmux-tui*
 
       - name: Retry native npm package binary attestation
@@ -903,7 +903,7 @@ jobs:
         with:
           subject-path: |
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
-            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
             dist/npm-packages/cmux-relay-*/bin/cmux-tui*
 
       - name: Verify native npm package attestations
@@ -914,7 +914,7 @@ jobs:
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
               \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
-                 -path '*/cmux-relay-*/bin/cmux-relay*' -o \
+                 -path '*/cmux-relay-*/bin/chatmux-relay*' -o \
                  -path '*/cmux-relay-*/bin/cmux-tui*' \) \
               -print0 | sort -z
           )

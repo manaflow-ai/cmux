@@ -37,7 +37,7 @@ if (!pkg) {
   console.error(`cmux-relay: unsupported_platform (no Unix binary for ${platformKey}).`);
   process.exit(1);
 }
-const bin = process.platform === "win32" ? "cmux-relay.exe" : "cmux-relay";
+const bin = "chatmux-relay";
 const runtimeBin = process.platform === "win32" ? "cmux-tui.exe" : "cmux-tui";
 let relayPath;
 let runtimePath;

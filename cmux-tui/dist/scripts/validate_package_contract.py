@@ -310,7 +310,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
-                f"bin/cmux-relay{extension}",
+                f"bin/chatmux-relay{extension}",
                 f"bin/cmux-tui{extension}",
             }
         )
@@ -346,8 +346,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui-hook")
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
-                or member.name.endswith("/bin/cmux-relay")
-                or member.name.endswith("/bin/cmux-relay.exe")
+                or member.name.endswith("/bin/chatmux-relay")
+                or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")
                 or member.name.endswith("/bin/cmux-tui.exe")
             )

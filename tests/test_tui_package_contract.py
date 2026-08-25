@@ -92,7 +92,7 @@ if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executab
   );
   process.exit(2);
 }
-const binary = require.resolve(`${pkg}/bin/cmux-relay`);
+const binary = require.resolve(`${pkg}/bin/chatmux-relay`);
 const runtime = require.resolve(`${pkg}/bin/cmux-tui`);
 const result = spawnSync(binary, process.argv.slice(2), {
   stdio: "inherit",
@@ -178,12 +178,12 @@ def make_npm_packages(root: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-relay", "bin/cmux-tui"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
         )
-        write_relay_binary_fixture(package / "bin/cmux-relay")
+        write_relay_binary_fixture(package / "bin/chatmux-relay")
         write_executable(package / "bin/cmux-tui")
 
     launcher = root / "cmux"
@@ -362,7 +362,7 @@ def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> N
     relay_package = launcher_root / "node_modules" / host_npm_target().replace(
         "cmux-tui", "cmux-relay"
     )
-    relay_binary = relay_package / "bin" / "cmux-relay"
+    relay_binary = relay_package / "bin" / "chatmux-relay"
     relay_binary.parent.mkdir(parents=True)
     relay_binary.write_text(
         "#!/usr/bin/env node\nprocess.kill(process.pid, 'SIGTERM');\n",
