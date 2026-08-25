@@ -264,7 +264,7 @@ enum AgentHookNotificationPolicy {
         guard approvalMode == "allowlist",
               let command = payload?["command"] as? String,
               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              command.count <= 8_192 else {
+              command.utf8.count <= 8_192 else {
             return false
         }
         guard !deniedShellCommands.contains(where: {
@@ -327,7 +327,7 @@ enum AgentHookNotificationPolicy {
     }
 
     private static func globMatches(_ pattern: String, value: String) -> Bool {
-        guard pattern.count <= 512, value.count <= 8_192 else { return false }
+        guard pattern.utf8.count <= 512, value.utf8.count <= 8_192 else { return false }
         let patternScalars = Array(pattern.unicodeScalars)
         let valueScalars = Array(value.unicodeScalars)
         var patternIndex = 0
@@ -362,8 +362,8 @@ enum AgentHookNotificationPolicy {
 
     /// Redacts credentials before a command reaches durable hook state or UI.
     static func redactSensitiveCommand(_ value: String) -> String {
-        let boundedValue = value.count > 8_192
-            ? String(value.prefix(8_191)) + "…"
+        let boundedValue = value.utf8.count > 8_192
+            ? String(decoding: value.utf8.prefix(8_191), as: UTF8.self) + "…"
             : value
         let patterns: [(pattern: String, replacement: String)] = [
             (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),

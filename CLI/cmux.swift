@@ -169,7 +169,7 @@ struct ClaudeHookSessionRecord: Codable {
         ) {
             let normalized = Self.normalizedCommand(command)
             self.commandFingerprint = Self.fingerprint(for: normalized)
-            self.commandLength = normalized.count
+            self.commandLength = normalized.utf8.count
             self.displayCommand = Self.redactedPreview(for: normalized)
             self.toolUseId = toolUseId
             self.createdAt = createdAt
@@ -179,7 +179,7 @@ struct ClaudeHookSessionRecord: Codable {
         static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
             (
                 fingerprint: fingerprint(for: normalizedCommand),
-                length: normalizedCommand.count
+                length: normalizedCommand.utf8.count
             )
         }
 
@@ -228,7 +228,7 @@ struct ClaudeHookSessionRecord: Codable {
                 let legacy = try container.decodeIfPresent(String.self, forKey: .legacyCommand) ?? ""
                 let normalized = Self.normalizedCommand(legacy)
                 commandFingerprint = Self.fingerprint(for: normalized)
-                commandLength = normalized.count
+                commandLength = normalized.utf8.count
                 displayCommand = Self.redactedPreview(for: normalized)
             }
             toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
@@ -671,7 +671,8 @@ final class ClaudeHookSessionStore {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, normalized.count <= Self.maxPendingCursorShellCommandLength else {
+        guard !normalized.isEmpty,
+              normalized.utf8.count <= Self.maxPendingCursorShellCommandLength else {
             return nil
         }
         return normalized
@@ -32551,10 +32552,16 @@ export default CMUXSessionRestore;
                     mode = configuredMode
                 }
                 if let permissions = json["permissions"] as? [String: Any] {
-                    let allowed = permissions["allow"] as? [String] ?? []
-                    let denied = permissions["deny"] as? [String] ?? []
-                    allowedShellCommands = Array(allowed.prefix(128))
-                    deniedShellCommands = Array(denied.prefix(128))
+                    if let allowed = permissions["allow"] as? [String] {
+                        allowedShellCommands = Array(allowed.prefix(128))
+                    } else if permissions["allow"] is NSNull {
+                        allowedShellCommands = []
+                    }
+                    if let denied = permissions["deny"] as? [String] {
+                        deniedShellCommands = Array(denied.prefix(128))
+                    } else if permissions["deny"] is NSNull {
+                        deniedShellCommands = []
+                    }
                 }
             }
 
@@ -35053,7 +35060,10 @@ export default CMUXSessionRestore;
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
         let cursorShellCommand = source == "cursor"
             ? firstString(in: fallbackObject, keys: ["command"]).map {
-                truncate(normalizedSingleLine($0), maxLength: 8_192)
+                truncate(
+                    normalizedSingleLine(String(decoding: $0.utf8.prefix(8_192), as: UTF8.self)),
+                    maxLength: 8_192
+                )
             }
             : nil
         let toolName = parsedInput.object?["tool_name"] as? String
@@ -35117,7 +35127,10 @@ export default CMUXSessionRestore;
         for key in ["command", "cmd"] {
             guard let command = toolInput[key] as? String else { continue }
             toolInput[key] = redactClaudeSensitiveSpans(
-                truncate(normalizedSingleLine(command), maxLength: 8_192)
+                truncate(
+                    normalizedSingleLine(String(decoding: command.utf8.prefix(8_192), as: UTF8.self)),
+                    maxLength: 8_192
+                )
             )
         }
         return toolInput
