@@ -1943,6 +1943,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "A stored auto title must keep the detached reconciliation path available under a manual workspace, saw \(stopCommands)"
         )
 
+        let secondPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Continue auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(secondPrompt.timedOut, secondPrompt.stderr)
+        XCTAssertEqual(secondPrompt.status, 0, secondPrompt.stderr)
+
         let unexpectedSecondDetachedProbe = expectation(description: "second detached auto-name child probe")
         unexpectedSecondDetachedProbe.isInverted = true
         let secondCommandStart = startManualWorkspaceAutoNamingProbeServer(
@@ -1953,7 +1962,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let secondStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(secondStop.timedOut, secondStop.stderr)
