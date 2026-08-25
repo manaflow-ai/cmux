@@ -223841,7 +223841,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escape は有効なプレフィックスを解除するために予約されています。"
+            "value": "Escape はプレフィックス入力待機中の状態を解除するために予約されています。"
           }
         }
       }
@@ -224261,7 +224261,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プレフィックス有効 · %@"
+            "value": "プレフィックス入力待機中 · %@"
           }
         }
       }

@@ -23,9 +23,11 @@ final class ShortcutListModel {
     /// lets a late failure or observation from an older request avoid rolling
     /// back a newer user choice.
     @ObservationIgnored var prefixWriteGeneration: UInt64 = 0
-    /// Prefix writes are chained so JSONConfigStore requests cannot complete
-    /// out of order when Settings edits arrive back-to-back.
-    @ObservationIgnored var prefixWriteTail: Task<Void, Never>?
+    /// Shortcut persistence operations are chained so prefix rebases, binding
+    /// edits, and resets reach ``JSONConfigStore`` in their MainActor issue
+    /// order. Keeping one tail prevents a later leaf write from racing a
+    /// prefix rebase and leaving a chord unreachable.
+    @ObservationIgnored var shortcutWriteTail: Task<Void, Never>?
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
     private(set) var primaryModifierRejections: Set<String> = []

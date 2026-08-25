@@ -452,6 +452,7 @@ public struct ShortcutPrefixChordRouter: Sendable {
     }
 
     private struct StrokeIdentity: Hashable, Comparable, Sendable {
+        private let stroke: ShortcutStroke
         let key: String
         let command: Bool
         let shift: Bool
@@ -460,11 +461,24 @@ public struct ShortcutPrefixChordRouter: Sendable {
 
         init(_ stroke: ShortcutStroke) {
             let canonical = stroke.canonicalized()
+            self.stroke = canonical
             key = canonical.key.lowercased()
             command = canonical.command
             shift = canonical.shift
             option = canonical.option
             control = canonical.control
+        }
+
+        static func == (lhs: StrokeIdentity, rhs: StrokeIdentity) -> Bool {
+            lhs.stroke.isRoutingEquivalent(to: rhs.stroke)
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(key)
+            hasher.combine(command)
+            hasher.combine(shift)
+            hasher.combine(option)
+            hasher.combine(control)
         }
 
         static func < (lhs: StrokeIdentity, rhs: StrokeIdentity) -> Bool {

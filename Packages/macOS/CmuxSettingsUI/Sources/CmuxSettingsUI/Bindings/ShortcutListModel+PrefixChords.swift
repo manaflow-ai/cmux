@@ -83,8 +83,10 @@ extension ShortcutListModel {
             return
         }
         prefixRejection = nil
-        await rebaseChordBindings(to: normalized)
-        await writePrefix(StoredShortcut(first: normalized))
+        await writePrefix(
+            StoredShortcut(first: normalized),
+            rebasingChordsTo: normalized
+        )
     }
 
     /// Disables the global prefix layer while preserving action bindings.

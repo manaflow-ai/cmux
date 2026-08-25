@@ -202,21 +202,19 @@ struct CmuxPrefixChordEventDispatchScope {
         let isActive = event.type == .keyDown
             && (coordinator?.hasMarkers == true
                 || AppDelegate.shared?.shortcutPrefixChordCoordinator.isEnabled == true)
+        let windowNumber = AppDelegate.shared?.prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: window
+        ) ?? window.windowNumber
         if isActive {
             coordinator?.beginEvent(
                 event,
-                windowNumber: AppDelegate.shared?.prefixChordWindowNumber(
-                    for: event,
-                    fallbackWindow: window
-                ) ?? window.windowNumber
+                windowNumber: windowNumber
             )
         }
         return Self(
             event: event,
-            windowNumber: AppDelegate.shared?.prefixChordWindowNumber(
-                for: event,
-                fallbackWindow: window
-            ) ?? window.windowNumber,
+            windowNumber: windowNumber,
             isActive: isActive,
             coordinator: coordinator
         )
@@ -249,24 +247,22 @@ struct CmuxPrefixChordKeyEquivalentScope {
         let isActive = event.type == .keyDown
             && (AppDelegate.shared?.shortcutPrefixChordCoordinator.isEnabled == true
                 || coordinator?.hasMarkers == true)
+        let windowNumber = AppDelegate.shared?.prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: window
+        ) ?? window.windowNumber
         let shouldBypass: Bool
         if isActive {
             shouldBypass = coordinator?.beginKeyEquivalent(
                 event,
-                windowNumber: AppDelegate.shared?.prefixChordWindowNumber(
-                    for: event,
-                    fallbackWindow: window
-                ) ?? window.windowNumber
+                windowNumber: windowNumber
             ) ?? false
         } else {
             shouldBypass = false
         }
         return Self(
             event: event,
-            windowNumber: AppDelegate.shared?.prefixChordWindowNumber(
-                for: event,
-                fallbackWindow: window
-            ) ?? window.windowNumber,
+            windowNumber: windowNumber,
             isActive: isActive,
             shouldBypass: shouldBypass,
             coordinator: coordinator

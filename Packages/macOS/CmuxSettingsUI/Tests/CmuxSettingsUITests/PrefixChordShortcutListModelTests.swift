@@ -18,21 +18,11 @@ import CmuxSettings
         )
     }
 
-    private func spin(until condition: () -> Bool) async {
-        var spins = 0
-        while !condition(), spins < 100_000 {
-            await Task.yield()
-            spins += 1
-        }
-        #expect(condition(), "spin(until:) timed out after 100 000 yields")
-    }
-
     @Test func prefixIsDisabledByDefaultAndCanBePersisted() async throws {
         let (store, catalog, errorLog) = makeStore()
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
 
-        await spin(until: { model.prefix.isUnbound })
         #expect(model.prefix == .unbound)
 
         let leader = ShortcutStroke(key: "b", control: true)
@@ -94,15 +84,28 @@ import CmuxSettings
         let (store, catalog, errorLog) = makeStore()
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
+        let initialPrefix = ShortcutStroke(key: "a", control: true)
+        await model.assignPrefix(initialPrefix)
+        await model.assignChord(
+            StoredShortcut(
+                first: initialPrefix,
+                second: ShortcutStroke(key: "n")
+            ),
+            to: .newTab
+        )
+
         async let first: Void = model.assignPrefix(ShortcutStroke(key: "b", control: true))
         async let second: Void = model.assignPrefix(ShortcutStroke(key: "c", control: true))
         _ = await (first, second)
 
-        #expect(
-            await store.value(for: catalog.shortcuts.prefix)
-                == StoredShortcut(first: ShortcutStroke(key: "c", control: true))
+        let persistedPrefix = await store.value(for: catalog.shortcuts.prefix)
+        let persistedBindings = await store.value(for: catalog.shortcuts.bindings)
+        let persistedChord = try #require(
+            persistedBindings[ShortcutAction.newTab.rawValue]
         )
-        #expect(model.prefix == StoredShortcut(first: ShortcutStroke(key: "c", control: true)))
+        #expect(persistedChord.first == persistedPrefix.first)
+        #expect(persistedChord.second == ShortcutStroke(key: "n"))
+        #expect(model.prefix.first == persistedPrefix.first)
     }
 
     @Test func malformedChordWithoutSuffixIsRejectedNotWritten() async throws {
