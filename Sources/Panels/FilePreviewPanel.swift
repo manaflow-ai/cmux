@@ -915,13 +915,16 @@ enum FilePreviewTextLoader {
         loadSynchronously(url: url)
     }
 
-    static func loadSynchronously(url: URL) -> Result {
+    static func loadSynchronously(
+        url: URL,
+        maximumBytes: UInt64 = maximumLoadedTextBytes
+    ) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .unavailable
         }
         guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               fileSize >= 0,
-              UInt64(fileSize) <= maximumLoadedTextBytes else {
+              UInt64(fileSize) <= maximumBytes else {
             return .unavailable
         }
 

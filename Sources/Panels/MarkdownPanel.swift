@@ -363,7 +363,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     private func loadFileContent(replacingDirtyContent: Bool = true) {
         let readPath = artifactFile?.readURL.path ?? filePath
-        switch Self.loadMarkdownFile(at: readPath) {
+        switch Self.loadMarkdownFile(
+            at: readPath,
+            maximumBytes: artifactFile == nil
+                ? FilePreviewTextLoader.maximumLoadedTextBytes
+                : 4 * 1024 * 1024
+        ) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
         case .unavailable:
@@ -404,19 +409,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
-    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
-        guard let data = FileManager.default.contents(atPath: path) else {
-            return .unavailable
-        }
-        if let decoded = String(data: data, encoding: .utf8) {
-            return .loaded(content: decoded, encoding: .utf8)
-        }
-        // Fallback: ISO Latin-1 accepts all 256 byte values and covers common
-        // legacy encodings like Windows-1252 well enough for a raw editor.
-        if let decoded = String(data: data, encoding: .isoLatin1) {
-            return .loaded(content: decoded, encoding: .isoLatin1)
-        }
-        return .unavailable
+    private static func loadMarkdownFile(
+        at path: String,
+        maximumBytes: UInt64
+    ) -> FilePreviewTextLoader.Result {
+        FilePreviewTextLoader.loadSynchronously(
+            url: URL(fileURLWithPath: path, isDirectory: false),
+            maximumBytes: maximumBytes
+        )
     }
 
     private func applyPendingSearchNeedleIfPossible() {

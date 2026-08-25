@@ -39,6 +39,9 @@ struct TranscriptBatchAssembler {
         self.pending = state.pendingToolUses
         self.pendingArtifactMutations = state.pendingArtifactMutations
         self.budget = budget
+        // Sanitize persisted carry-over before the next parse line can add
+        // more state; malformed state must never exist unbounded in memory.
+        self.pendingArtifactMutations = bounded(self.pendingArtifactMutations)
     }
 
     /// Appends a newly parsed message, optionally registering it as a tool
@@ -101,6 +104,9 @@ struct TranscriptBatchAssembler {
         }
         guard !references.isEmpty else { return }
         pendingArtifactMutations[pendingKey] = references
+        // Enforce the global count/byte budget at insertion time, not only at
+        // the end of a whole transcript parse call.
+        pendingArtifactMutations = bounded(pendingArtifactMutations)
     }
 
     /// Pairs a tool result with its pending invocation, if registered.

@@ -3,6 +3,7 @@ import Foundation
 /// A transcript-derived path with de-duplicated provenance and its last position.
 public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identifiable {
     private static let maximumDerivedPathCount = 1_024
+    private static let maximumCanonicalAliasCount = 2_048
     /// Canonical display path when the file exists, otherwise its lexical path.
     public let path: String
     /// Highest-precedence provenance observed for the path.
@@ -186,7 +187,9 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             guard byPath[resolvedPath] != nil || byPath.count < maximumPathCount else {
                 return
             }
-            canonicalPathByLexicalPath[path] = resolvedPath
+            if canonicalPathByLexicalPath.count < Self.maximumCanonicalAliasCount {
+                canonicalPathByLexicalPath[path] = resolvedPath
+            }
             canonicalPath = resolvedPath
         }
         let previous = byPath[canonicalPath]
