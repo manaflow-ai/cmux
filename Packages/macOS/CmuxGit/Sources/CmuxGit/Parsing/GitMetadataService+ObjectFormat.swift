@@ -9,7 +9,10 @@ extension GitMetadataService {
     ) -> Bool {
         GitWorktreeConfigEnablementReader().isSHA256ObjectFormat(
             repository: repository,
-            rootURLs: Self.gitRootConfigURLs(repository: repository, deadline: deadline),
+            rootURLs: GitWorktreeConfigEnablementReader().rootConfigURLs(
+                repository: repository,
+                deadline: deadline
+            ),
             deadline: deadline
         )
     }

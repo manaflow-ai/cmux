@@ -47,7 +47,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            paths = GitMetadataService.gitRootConfigURLs(
+            paths = GitWorktreeConfigEnablementReader().rootConfigURLs(
                 repository: repository,
                 deadline: deadline
             ).map(\.path)
@@ -86,7 +86,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             maximumFileByteCount: maximumFileByteCount,
             deadline: deadline
         ))
-        for configURL in GitMetadataService.gitRootConfigURLs(
+        for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
             repository: repository,
             deadline: deadline
         ) {
@@ -267,7 +267,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             maximumFileByteCount: maximumFileByteCount,
             deadline: deadline
         )
-        for configURL in GitMetadataService.gitRootConfigURLs(
+        for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
             repository: repository,
             deadline: deadline
         ) {

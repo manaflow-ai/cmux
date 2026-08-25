@@ -16,7 +16,7 @@ extension SystemGitReferenceReader {
     ) -> QuickReferenceStorageProbe {
         var storageName: String?
         var hasInclude = false
-        for configURL in GitMetadataService.gitRootConfigURLs(
+        for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
             repository: repository,
             deadline: deadline
         ) {

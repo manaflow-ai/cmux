@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -21,32 +20,8 @@ extension GitMetadataService {
 
     /// The repository's top-level config files, including a linked worktree's
     /// `config.worktree` when that bounded regular file is present.
-    nonisolated static func gitRootConfigURLs(
-        repository: ResolvedGitRepository,
-        deadline: DispatchTime? = nil
-    ) -> [URL] {
-        let rootURLs = [
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
-        ]
-        var urls = rootURLs
-        // The bounded reader rejects FIFOs and directories before any content
-        // is consumed.
-        let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
-            .appendingPathComponent("config.worktree")
-        if GitWorktreeConfigEnablementReader().isEnabled(
-            repository: repository,
-            rootURLs: rootURLs,
-            deadline: deadline
-        ),
-           GitConfigFileReader().read(
-               at: worktreeConfigURL,
-               maximumByteCount: 1,
-               deadline: deadline
-           ).isAvailable {
-            urls.append(worktreeConfigURL)
-        }
-        return urls
+    nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+        GitWorktreeConfigEnablementReader().rootConfigURLs(repository: repository)
     }
 
     /// Every config file reachable from the repository roots, following

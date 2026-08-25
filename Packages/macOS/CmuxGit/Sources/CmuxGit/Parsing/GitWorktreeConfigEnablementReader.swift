@@ -12,6 +12,31 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         self.reader = reader
     }
 
+    func rootConfigURLs(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil
+    ) -> [URL] {
+        let rootURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
+        guard isEnabled(repository: repository, rootURLs: rootURLs, deadline: effectiveDeadline) else {
+            return rootURLs
+        }
+        let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("config.worktree")
+        guard reader.read(
+            at: worktreeConfigURL,
+            maximumByteCount: 1,
+            deadline: effectiveDeadline
+        ).isAvailable else {
+            return rootURLs
+        }
+        return rootURLs + [worktreeConfigURL]
+    }
+
     func isEnabled(
         repository: ResolvedGitRepository,
         rootURLs: [URL],
@@ -23,6 +48,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         var enabled = false
         var objectFormatSHA256 = false
         var failed = false
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
         for rootURL in rootURLs {
             process(
                 at: rootURL,
@@ -32,7 +59,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 remainingByteCount: &remainingByteCount,
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
-                deadline: deadline,
+                deadline: effectiveDeadline,
                 failed: &failed
             )
             if failed { return false }
@@ -51,6 +78,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         var enabled = false
         var objectFormatSHA256 = false
         var failed = false
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
         for rootURL in rootURLs {
             process(
                 at: rootURL,
@@ -60,7 +89,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 remainingByteCount: &remainingByteCount,
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
-                deadline: deadline,
+                deadline: effectiveDeadline,
                 failed: &failed
             )
             if failed { return false }
