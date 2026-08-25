@@ -94,7 +94,8 @@ extension RemoteSessionCoordinator {
         watchdog_pid=
         temp_path=\(quotedRemoteTempPath)
         pid_path=\(quotedRemoteTempPIDPath)
-        trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; exit 1' HUP INT TERM
+        lock_path="$pid_path.lock"
+        trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; rmdir "$lock_path" 2>/dev/null || true; exit 1' HUP INT TERM
         # POSIX shells give an asynchronous command /dev/null for stdin unless
         # the parent explicitly preserves the descriptor first. Without this
         # dup, cat exits 0 after writing an empty payload even though ssh had
@@ -120,10 +121,15 @@ extension RemoteSessionCoordinator {
           stall_checks=0
           previous_size=0
           while kill -0 "$cat_pid" 2>/dev/null; do
-            # The marker is a liveness lease. Refresh it while the payload
-            # reader is alive so age-based recovery cannot remove an active
-            # upload that has no recent byte progress.
-            touch "$pid_path" 2>/dev/null || exit 0
+            # Serialize the heartbeat with stale-file recovery. mkdir is an
+            # atomic directory claim on the remote filesystem.
+            if mkdir "$lock_path" 2>/dev/null; then
+              if ! touch "$pid_path" 2>/dev/null; then
+                rmdir "$lock_path" 2>/dev/null || true
+                exit 0
+              fi
+              rmdir "$lock_path" 2>/dev/null || true
+            fi
             current_size="$(wc -c < "$temp_path" 2>/dev/null || printf '0')"
             set -- $current_size
             current_size="${1:-0}"
@@ -392,20 +398,37 @@ extension RemoteSessionCoordinator {
     ) -> String {
         let quotedRemotePath = remotePath.shellSingleQuoted
         let processCleanup = """
+        cmux_is_fresh() {
+          cmux_fresh_marker="$(find "$1" -mmin -30 2>/dev/null)" || return 2
+          [ -n "$cmux_fresh_marker" ]
+        }
         # Reclaim only markers whose heartbeat is older than the conservative
         # age window. A live marker belongs to a concurrent upload and must
-        # not be signaled or glob-deleted.
+        # not be signaled or glob-deleted. The lock makes the age check and
+        # removal one ownership transaction with the upload heartbeat.
         for cmux_pid_file in \(quotedRemotePath).tmp-*.pid; do
           [ -r "$cmux_pid_file" ] || continue
-          # If the remote find lacks -mmin or cannot read metadata, preserve
-          # the files. Cleanup must fail closed, because deleting an active
-          # upload is worse than retaining one stale file for a later pass.
-          if ! cmux_fresh_marker="$(find "$cmux_pid_file" -mmin -30 2>/dev/null)"; then
+          cmux_lock_path="$cmux_pid_file.lock"
+          if [ -e "$cmux_lock_path" ]; then
+            cmux_is_fresh "$cmux_lock_path"
+            cmux_lock_age_status=$?
+            if [ "$cmux_lock_age_status" -ne 1 ]; then
+              continue
+            fi
+            rmdir "$cmux_lock_path" 2>/dev/null || continue
+          fi
+          if ! mkdir "$cmux_lock_path" 2>/dev/null; then
             continue
           fi
-          [ -n "$cmux_fresh_marker" ] && continue
+          cmux_is_fresh "$cmux_pid_file"
+          cmux_marker_age_status=$?
+          if [ "$cmux_marker_age_status" -ne 1 ]; then
+            rmdir "$cmux_lock_path" 2>/dev/null || true
+            continue
+          fi
           cmux_temp_path="${cmux_pid_file%.pid}"
           rm -f -- "$cmux_temp_path" "$cmux_pid_file"
+          rmdir "$cmux_lock_path" 2>/dev/null || true
         done
         """
         let currentCleanup: String
@@ -418,6 +441,7 @@ extension RemoteSessionCoordinator {
             # Never signal from a marker; the upload owner's trap handles its
             # own children, while recovery only removes its files.
             rm -f -- \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)
+            rmdir \(quotedCurrentPIDPath).lock 2>/dev/null || true
             """
         } else {
             currentCleanup = ":"

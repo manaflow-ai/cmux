@@ -265,6 +265,8 @@ extension RemoteDaemonUploadTests {
             }
         }
         try Data("\(writer.processIdentifier)\n".utf8).write(to: URL(fileURLWithPath: pidPath))
+        let lockPath = "\(pidPath).lock"
+        try fileManager.createDirectory(atPath: lockPath, withIntermediateDirectories: false)
 
         let cleanup = Process()
         cleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -281,6 +283,8 @@ extension RemoteDaemonUploadTests {
         #expect(cleanup.terminationStatus == 0)
         #expect(fileManager.fileExists(atPath: temporaryPath))
         #expect(fileManager.fileExists(atPath: pidPath))
+        #expect(fileManager.fileExists(atPath: lockPath))
+        try fileManager.removeItem(atPath: lockPath)
         try Self.ageFile(atPath: pidPath)
         try Self.ageFile(atPath: temporaryPath)
         let agedLiveCleanup = Process()

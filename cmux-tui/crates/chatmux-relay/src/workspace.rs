@@ -1704,6 +1704,66 @@ impl GitStderrDrain {
     }
 }
 
+/// Finish stderr before reaping the leader. If a helper still owns the pipe,
+/// the child handle still owns the group identity, so termination cannot hit a
+/// reused PID.
+async fn finish_git_stderr(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    process_guard: &mut GitProcessGuard,
+    deadline: std::time::Instant,
+    operation: &str,
+) -> Result<Vec<u8>, Refusal> {
+    let Some(task) = stderr_task else { return Ok(Vec::new()) };
+    let Some(remaining) = remaining_git_time(deadline, std::time::Duration::from_secs(300)) else {
+        process_guard.kill_group();
+        stop_git(child).await;
+        disarm_if_reaped(child, process_guard);
+        return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+    };
+    let result = match tokio::time::timeout(remaining, task.finish()).await {
+        Ok(result) => result,
+        Err(_) => {
+            process_guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, process_guard);
+            return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+        }
+    };
+    match result {
+        Ok(result) if result.complete => Ok(result.bytes),
+        Ok(_) => {
+            process_guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, process_guard);
+            Err(Refusal::failed(format!("{operation} stderr drain timed out")))
+        }
+        Err(error) => {
+            process_guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, process_guard);
+            Err(error)
+        }
+    }
+}
+
+async fn abort_git_operation(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    process_guard: &mut GitProcessGuard,
+    deadline: std::time::Instant,
+    operation: &str,
+) {
+    // Start termination without reaping. The stderr owner must finish while
+    // the Child still owns the process-group identity.
+    process_guard.kill_group();
+    let _ = child.start_kill();
+    if finish_git_stderr(stderr_task, child, process_guard, deadline, operation).await.is_ok() {
+        let _ = wait_git_until(child, deadline).await;
+    }
+    disarm_if_reaped(child, process_guard);
+}
+
 /// Two-column XY code in the porcelain v1 spelling ("M " not "M.") — the
 /// wire schema pins v1's verbatim codes.
 fn porcelain_v1_xy(xy: &str) -> String {
@@ -1759,52 +1819,40 @@ async fn run_git_status_until(
         )),
     };
     if let Err(error) = read_result {
-        stop_git(&mut child).await;
-        process_guard.kill_group();
-        if let Some(task) = stderr_task.take() {
-            let result = task.finish().await?;
-            if !result.complete {
-                process_guard.kill_group();
-                return Err(Refusal::failed(format!("could not read git status: {error}")));
-            }
-        }
-        disarm_if_reaped(&child, &mut process_guard);
+        abort_git_operation(
+            stderr_task.take(),
+            &mut child,
+            &mut process_guard,
+            deadline,
+            "git status",
+        )
+        .await;
         return Err(Refusal::failed(format!("could not read git status: {error}")));
     }
     let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
     if stdout_capped {
         stdout_bytes.truncate(STATUS_MAX_BYTES);
-        stop_git(&mut child).await;
         process_guard.kill_group();
+        let _ = child.start_kill();
     }
+    let stderr = finish_git_stderr(
+        stderr_task.take(),
+        &mut child,
+        &mut process_guard,
+        deadline,
+        "git status",
+    )
+    .await?;
+    // All descendant pipes are closed before the leader is reaped. No
+    // post-reap process-group signal is needed.
     let status = match wait_git_until(&mut child, deadline).await {
         Ok(status) => status,
         Err(error) => {
-            process_guard.kill_group();
             disarm_if_reaped(&child, &mut process_guard);
             return Err(error);
         }
     };
-    // The leader is reaped at this point. Kill helpers which may still own an
-    // inherited pipe while the process-group identity is fresh. Keep the
-    // guard armed until the bounded stderr drain confirms that no helper is
-    // still holding the pipe.
-    process_guard.kill_group();
-    let stderr = match stderr_task {
-        Some(task) => {
-            let result = task.finish().await?;
-            if !result.complete {
-                process_guard.kill_group();
-                return Err(Refusal::failed("git status stderr drain timed out"));
-            }
-            process_guard.disarm();
-            result.bytes
-        }
-        None => {
-            process_guard.disarm();
-            Vec::new()
-        }
-    };
+    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git status failed", &stderr));
     }
@@ -1970,29 +2018,38 @@ async fn run_git_diff_until(
                     Ok(Some(line)) => line,
                     Ok(None) => break,
                     Err(error) => {
-                        stop_git(&mut child).await;
-                        process_guard.kill_group();
-                        if let Some(task) = stderr_task.take() {
-                            let _ = task.finish().await;
-                        }
+                        abort_git_operation(
+                            stderr_task.take(),
+                            &mut child,
+                            &mut process_guard,
+                            deadline,
+                            "git diff",
+                        )
+                        .await;
                         return Err(Refusal::failed(format!("could not read git diff: {error}")));
                     }
                 },
                 Err(_) => {
-                    stop_git(&mut child).await;
-                    process_guard.kill_group();
-                    if let Some(task) = stderr_task.take() {
-                        let _ = task.finish().await;
-                    }
+                    abort_git_operation(
+                        stderr_task.take(),
+                        &mut child,
+                        &mut process_guard,
+                        deadline,
+                        "git diff",
+                    )
+                    .await;
                     return Err(Refusal::failed("git diff stdout drain timed out"));
                 }
             },
             None => {
-                stop_git(&mut child).await;
-                process_guard.kill_group();
-                if let Some(task) = stderr_task.take() {
-                    let _ = task.finish().await;
-                }
+                abort_git_operation(
+                    stderr_task.take(),
+                    &mut child,
+                    &mut process_guard,
+                    deadline,
+                    "git diff",
+                )
+                .await;
                 return Err(Refusal::failed("git operation deadline exceeded"));
             }
         };
@@ -2019,34 +2076,19 @@ async fn run_git_diff_until(
             }
         }
     }
+    let stderr =
+        finish_git_stderr(stderr_task.take(), &mut child, &mut process_guard, deadline, "git diff")
+            .await?;
+    // All descendant pipes are closed before the leader is reaped. No
+    // post-reap process-group signal is needed.
     let status = match wait_git_until(&mut child, deadline).await {
         Ok(status) => status,
         Err(error) => {
-            process_guard.kill_group();
             disarm_if_reaped(&child, &mut process_guard);
             return Err(error);
         }
     };
-    // The leader is reaped at this point. Kill helpers which may still own an
-    // inherited pipe while the process-group identity is fresh. Keep the
-    // guard armed until the bounded stderr drain confirms that no helper is
-    // still holding the pipe.
-    process_guard.kill_group();
-    let stderr = match stderr_task {
-        Some(task) => {
-            let result = task.finish().await?;
-            if !result.complete {
-                process_guard.kill_group();
-                return Err(Refusal::failed("git diff stderr drain timed out"));
-            }
-            process_guard.disarm();
-            result.bytes
-        }
-        None => {
-            process_guard.disarm();
-            Vec::new()
-        }
-    };
+    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git diff failed", &stderr));
     }
