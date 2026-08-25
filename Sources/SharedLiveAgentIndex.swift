@@ -97,6 +97,7 @@ final class SharedLiveAgentIndex {
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
     private var sidebarProcessWorkspaceIDsByPID: [Int: [UUID: UUID]] = [:]
+    private var sidebarProcessMonitoringOwners = Set<UUID>()
     private var sidebarProcessMonitoringEnabled = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
@@ -600,10 +601,16 @@ final class SharedLiveAgentIndex {
 
     /// Enables immediate PID watcher/reload work only while the default
     /// activity sidebar owns a visible monitoring lease.
-    func setSidebarProcessMonitoringEnabled(_ enabled: Bool) {
-        guard sidebarProcessMonitoringEnabled != enabled else { return }
-        sidebarProcessMonitoringEnabled = enabled
-        if !enabled {
+    func setSidebarProcessMonitoringEnabled(_ enabled: Bool, ownerID: UUID) {
+        if enabled {
+            sidebarProcessMonitoringOwners.insert(ownerID)
+        } else {
+            sidebarProcessMonitoringOwners.remove(ownerID)
+        }
+        let shouldEnable = !sidebarProcessMonitoringOwners.isEmpty
+        guard sidebarProcessMonitoringEnabled != shouldEnable else { return }
+        sidebarProcessMonitoringEnabled = shouldEnable
+        if !shouldEnable {
             disarmSidebarProcessExitWatchers()
         }
     }

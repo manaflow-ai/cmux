@@ -11580,7 +11580,7 @@ struct VerticalTabsSidebar: View, Equatable {
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
             guard renderContext.showsAgentActivity else {
-                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false)
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
                 return
             }
             if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>],
@@ -11636,10 +11636,10 @@ struct VerticalTabsSidebar: View, Equatable {
                   CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
                       effectiveProviderId: effectiveExtensionSidebarProviderId
                   ) else {
-                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false)
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
                 return
             }
-            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true)
+            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true, ownerID: windowId)
             // The app prewarms this index at launch, but a sidebar can mount
             // before that detached load publishes. Await the same shared load
             // once from the lifecycle boundary so the first snapshot cannot
@@ -11669,7 +11669,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onChange(of: isPresented) { _, presented in
             if !presented {
-                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false)
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
                 workspaceSnapshotRefreshCoalescer.cancel()
             } else if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
@@ -11681,7 +11681,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 && CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
                     effectiveProviderId: providerId
                 )
-            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(isDefaultMonitoringOwner)
+            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(
+                isDefaultMonitoringOwner,
+                ownerID: windowId
+            )
         }
         .onChange(of: renderContext.workspaceIds) { _, _ in
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
@@ -11695,12 +11698,12 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
             if !renderContext.showsAgentActivity {
-                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false)
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
             } else if isPresented,
                       CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
                           effectiveProviderId: effectiveExtensionSidebarProviderId
                       ) {
-                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true)
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true, ownerID: windowId)
             }
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
