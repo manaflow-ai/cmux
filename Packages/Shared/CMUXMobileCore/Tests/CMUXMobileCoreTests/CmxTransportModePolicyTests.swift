@@ -254,6 +254,16 @@ struct CmxTransportModePolicyTests {
         #expect(throws: CmxTransportModeError.self) {
             try request.validateTransportMode()
         }
+        let emptyRequest = CmxByteTransportRequest(
+            route: try irohRoute(),
+            expectedPeerDeviceID: "mac",
+            authorizationMode: .transportAdmission,
+            irohDirectOnlyDialCandidates: [],
+            transportMode: .direct
+        )
+        #expect(throws: CmxTransportModeError.self) {
+            try emptyRequest.validateTransportMode()
+        }
     }
 
     @Test("policy mismatch is not classified as stale no-route evidence")
