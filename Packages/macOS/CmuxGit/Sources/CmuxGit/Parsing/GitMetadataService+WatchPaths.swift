@@ -132,14 +132,12 @@ extension GitMetadataService {
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
-            guard seen.insert(normalized).inserted else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
+            let normalized = nativeStandardizedPath(path)
+            guard let watchRoot = existingWatchRoot(for: normalized),
+                  seen.insert(watchRoot).inserted else {
                 continue
             }
-            watchedPaths.append(normalized)
+            watchedPaths.append(watchRoot)
         }
 
         return GitWorkspaceMetadataWatchDescriptor(
@@ -206,6 +204,27 @@ extension GitMetadataService {
         return result.sorted()
     }
 
+    /// Returns an existing path to watch, falling back to the nearest existing
+    /// parent when a declared config/include path has not been created yet.
+    private nonisolated static func existingWatchRoot(for path: String) -> String? {
+        var candidate = URL(fileURLWithPath: path).standardizedFileURL
+        while true {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+                return nativeStandardizedPath(candidate.path)
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
+        }
+    }
+
+    /// Standardizes once outside event loops and copies Foundation-backed path
+    /// strings into native Swift UTF-8 storage for fast comparisons.
+    private nonisolated static func nativeStandardizedPath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return String(decoding: standardized.utf8, as: UTF8.self)
+    }
     /// The metadata paths contributed by gitlink (submodule) entries in the
     /// index, recursing into nested submodules so a checkout change at any
     /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
