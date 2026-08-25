@@ -97,15 +97,12 @@ extension Workspace {
                 }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
                 let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
-                let processLiveness: RestorableAgentProcessLiveness = if identity == nil {
-                    .unknown
-                } else if exactProcessIsLive {
-                    .running
-                } else if runtimeIndexEntry != nil {
-                    .exited
-                } else {
-                    .unknown
-                }
+                // A stale cached entry must not override a live lifecycle
+                // signal with `.exited`; only the exact revalidated generation
+                // can claim running here. Everything else stays indeterminate.
+                let processLiveness: RestorableAgentProcessLiveness = exactProcessIsLive
+                    ? .running
+                    : .unknown
                 let runtimeSessionID = selectedPIDKey.flatMap {
                     Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }

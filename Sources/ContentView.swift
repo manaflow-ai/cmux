@@ -11576,6 +11576,15 @@ struct VerticalTabsSidebar: View, Equatable {
                 where renderContext.workspaceById[workspaceId] != nil {
                     scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
                 }
+                // Restored workspaces can rotate their UUID while retaining
+                // the panel id. Resolve those panel-only index entries against
+                // the current owner so their activity/elapsed snapshot updates.
+                let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
+                guard !changedPanelIds.isEmpty else { return }
+                for workspace in renderContext.tabs
+                where !changedPanelIds.isDisjoint(with: workspace.panels.keys) {
+                    scheduleWorkspaceSnapshotRefresh(workspaceId: workspace.id)
+                }
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                       renderContext.workspaceById[workspaceId] != nil {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)

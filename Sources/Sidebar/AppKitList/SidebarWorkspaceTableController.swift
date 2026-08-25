@@ -249,6 +249,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // The visible range is the authority that bounds work to realized
         // rows; no scan over the full row array occurs on a clock tick.
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
+            guard rows.indices.contains(row) else { continue }
             guard let cell = table.view(
                 atColumn: 0,
                 row: row,
@@ -257,7 +258,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             cell.hasRunningAgentElapsedLabel else {
                 continue
             }
-            _ = cell.updateAgentElapsed(now: now)
+            guard cell.updateAgentElapsed(now: now),
+                  let model = cell.currentModelForMeasurement else {
+                continue
+            }
+            // A bucket boundary can widen/narrow the compact label. Reuse the
+            // existing pump-height override path so wrapped titles are
+            // remeasured and NSTableView is re-noted in the same tick.
+            noteRowHeightOverride(
+                rowId: rows[row].id,
+                index: row,
+                cell: cell,
+                model: model
+            )
         }
     }
 
