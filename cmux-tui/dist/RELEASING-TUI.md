@@ -86,8 +86,8 @@ Nightly publishing uses the same environments. Add trusted publishers for:
 
 ## Nightly channel
 
-`.github/workflows/cmux-tui-nightly.yml` runs on a daily schedule and by manual
-dispatch. It always checks out `main`, derives the next stable version from the
+`.github/workflows/cmux-tui-nightly.yml` runs by manual dispatch. Automatic
+scheduling is currently paused. It always checks out `main`, derives the next stable version from the
 latest reachable `cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to
 `0.9.0` when no stable TUI tag exists.
 
