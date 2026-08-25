@@ -1018,6 +1018,13 @@ final class SharedLiveAgentIndex {
     }
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
+        guard !panelIdsByWorkspaceId.isEmpty else {
+            // Preserve the unscoped notification contract for consumers such
+            // as command-palette forkability, which use an empty scope to
+            // request a full availability refresh.
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            return
+        }
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: self,
