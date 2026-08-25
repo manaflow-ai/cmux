@@ -209,6 +209,8 @@ Successful responses use one shape across surface kinds:
 ```
 
 - `has_selection`, `kind`, `text`, and `base64` are always present.
+- Selection text is capped at 1 MiB; an oversized selection is shortened with a
+  visible ellipsis before it crosses the socket boundary.
 - `file_path` is present for native file/Markdown selections and Markdown
   preview selections.
 - `line_range` is present when a native text view can map the selection back to

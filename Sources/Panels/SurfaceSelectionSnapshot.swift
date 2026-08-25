@@ -2,6 +2,9 @@ import Foundation
 
 /// Immutable selection context shared by every selectable panel kind.
 public nonisolated struct SurfaceSelectionSnapshot: Equatable, Sendable {
+    /// Maximum UTF-8 bytes exposed by one selection snapshot.
+    public static let maximumTextBytes = 1_048_576
+
     private let selectedText: String?
 
     /// Whether the surface currently has a non-collapsed selection.
@@ -12,6 +15,15 @@ public nonisolated struct SurfaceSelectionSnapshot: Equatable, Sendable {
 
     /// Selected text, or an empty string when there is no selection.
     public var text: String { selectedText ?? "" }
+
+    /// Truncates text to the shared wire-safe selection budget and appends a
+    /// visible ellipsis when truncation was required.
+    public static func boundedText(_ text: String) -> String {
+        guard text.utf8.count > maximumTextBytes else { return text }
+        let marker = "…"
+        let budget = max(0, maximumTextBytes - marker.utf8.count)
+        return String(decoding: text.utf8.prefix(budget), as: UTF8.self) + marker
+    }
 
     /// Standardized source path when the selection belongs to a document.
     public let filePath: String?

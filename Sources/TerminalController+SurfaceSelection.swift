@@ -51,6 +51,7 @@ extension TerminalController {
         }
     }
 
+    @MainActor
     private func captureSurfaceSelection(
         params typedParams: [String: JSONValue]
     ) async -> SurfaceSelectionSocketCaptureOutcome {

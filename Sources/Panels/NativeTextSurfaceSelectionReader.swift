@@ -27,7 +27,6 @@ nonisolated struct NativeTextSurfaceSelectionReader {
             source: source as String,
             selectedLocation: selectedRange.location,
             selectedLength: selectedRange.length,
-            selectedText: source.substring(with: selectedRange),
             kind: kind,
             filePath: normalizedPath
         )
@@ -42,7 +41,6 @@ nonisolated struct NativeTextSurfaceSelectionReader {
         source: String,
         selectedLocation: Int,
         selectedLength: Int,
-        selectedText: String,
         kind: PanelType,
         filePath: String
     ) async -> SurfaceSelectionSnapshot {
@@ -52,9 +50,16 @@ nonisolated struct NativeTextSurfaceSelectionReader {
             atUTF16Offset: selectedLocation + selectedLength - 1,
             in: source
         )
+        let boundedLength = min(
+            selectedLength,
+            SurfaceSelectionSnapshot.maximumTextBytes
+        )
+        let boundedSelection = source.substring(
+            with: NSRange(location: selectedLocation, length: boundedLength)
+        )
         return .selected(
             kind: kind,
-            text: selectedText,
+            text: SurfaceSelectionSnapshot.boundedText(boundedSelection),
             filePath: filePath,
             lineRange: SurfaceSelectionLineRange(start: startLine, end: endLine)
         )

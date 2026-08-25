@@ -24,6 +24,12 @@ struct SurfaceSelectionTests {
         #expect(!snapshot.hasSelection)
         #expect(snapshot.text.isEmpty)
         #expect(snapshot.lineRange == nil)
+
+        let oversizedText = SurfaceSelectionSnapshot.boundedText(
+            String(repeating: "x", count: SurfaceSelectionSnapshot.maximumTextBytes + 32)
+        )
+        #expect(oversizedText.utf8.count <= SurfaceSelectionSnapshot.maximumTextBytes)
+        #expect(oversizedText.hasSuffix("…"))
     }
 
     @Test func paneRoutingSelectsItsSurfaceAndFailsClosed() throws {

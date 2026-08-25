@@ -17,6 +17,12 @@ nonisolated struct WebSurfaceSelectionReader {
     (() => {
       if (globalThis.__cmuxSurfaceSelectionRuntime) return true;
 
+      const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
+      const boundedText = (text) => {
+        const value = String(text || '');
+        if (value.length <= maxTextCharacters) return value;
+        return value.slice(0, maxTextCharacters - 1) + '…';
+      };
       const empty = () => ({ has_selection: false, text: '' });
       const unreadable = () => ({ has_selection: false, text: '', blocks_fallback: true });
       const selected = (text, sourceDocument = null, metadata = {}) => ({
@@ -283,10 +289,16 @@ nonisolated struct WebSurfaceSelectionReader {
     (() => {
       const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
       if (!runtime || typeof runtime.read !== 'function') return null;
+      const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
+      const boundedText = (text) => {
+        const value = String(text || '');
+        if (value.length <= maxTextCharacters) return value;
+        return value.slice(0, maxTextCharacters - 1) + '…';
+      };
       const result = runtime.read();
       return JSON.stringify({
         has_selection: result?.has_selection === true,
-        text: result?.has_selection === true ? String(result.text || '') : ''
+        text: result?.has_selection === true ? boundedText(result.text) : ''
       });
     })()
     """
@@ -325,7 +337,7 @@ nonisolated struct WebSurfaceSelectionReader {
             if payload.hasSelection {
                 return .snapshot(.selected(
                     kind: kind,
-                    text: payload.text,
+                    text: SurfaceSelectionSnapshot.boundedText(payload.text),
                     filePath: normalizedPath,
                     url: url
                 ))

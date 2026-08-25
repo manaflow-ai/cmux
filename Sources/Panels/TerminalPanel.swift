@@ -111,11 +111,6 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
-    /// Caps one socket-visible selection read before Ghostty formats or
-    /// allocates the returned text. Oversized selections are reported as empty
-    /// rather than allowing a polling client to force an unbounded copy.
-    private static let maximumSelectionBytes = 1_048_576
-
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         guard let liveSurface = surface.liveSurfaceForGhosttyAccess(
             reason: "readSurfaceSelection"
@@ -126,7 +121,7 @@ final class TerminalPanel: Panel, ObservableObject {
         var selection = ghostty_text_s()
         guard ghostty_surface_read_selection_clipboard_text(
             liveSurface,
-            UInt(Self.maximumSelectionBytes),
+            UInt(SurfaceSelectionSnapshot.maximumTextBytes),
             &selection
         ) else {
             return .snapshot(.none(kind: .terminal))
