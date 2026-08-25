@@ -66,6 +66,59 @@ Active VM limits are enforced inside the same Postgres transaction that inserts 
 Known-good provider images are recorded in `services/vms/images/manifest.json`. Each entry records
 the provider, provider image id, cmux image version, build metadata, and validation status.
 
+Manifest schema v2 keeps the existing Go PTY/RPC validation separate from the Rust mux contract.
+`validationStatus` still describes the legacy `cmuxd-remote` checks. A value other than `passed`
+also blocks machine connectability, but `passed` alone does not make an image machine-connectable.
+Every image that existed before schema v2 has only
+`machineRuntime: { "readiness": "legacy" }`, so those images remain valid for their existing
+Cloud VM paths and cannot be presented as machine-connectable.
+
+A non-legacy `machineRuntime` records one exact Rust artifact and its launch contract:
+
+- `cmuxCommit`, the full lowercase source commit.
+- `cmuxVersion`, the exact Rust package version.
+- `binarySha256`, the exact Linux binary checksum.
+- `protocolVersion`, which must be `12` before the machine column can connect.
+- `bootstrapGeneration`, `supervisorVersion`, and `architecture`.
+- `transport` and `authentication`, using one matching provider-stream and ticket pair.
+- `verifiedAt`, required after the first boot check.
+
+Readiness advances in order: `built`, `boot_checked`, `attach_checked`, `resume_checked`, then
+`approved`. The resolver exposes machine connectability only when `validationStatus` is `passed`
+and `machineRuntime` is complete, `approved`, and matches the current provider launch contract:
+mux protocol 12, bootstrap generation 1, `x86_64`, `cmux-cloud-supervisor-v1`, and the WebSocket
+provider stream with a server-side ticket. Future schema-valid values stay non-connectable until
+the provider contract supports them. `legacy`, incomplete, unsupported, failed, unknown, and
+unrecognized entries fail closed. There is no approved image in the current manifest.
+
+The builder preserves the legacy Go image path by default. A default build does not inspect Rust
+source metadata, load a Rust release manifest, or install `cmux-tui`. Its output has
+`machineRuntime: { "readiness": "legacy" }`.
+
+Machine artifact installation is an explicit opt-in. Supply both `--machine-commit` with a full
+lowercase 40-character commit and `--machine-release-manifest-url` with a reviewed,
+commit-addressed HTTPS manifest. The URL must contain the same commit as a path segment. The
+release manifest uses schema version 1 and supplies an explicit `artifacts` entry for the target
+architecture with `binaryName`, `binarySha256`, and `downloadUrl`. The builder does not construct a
+binary name or download URL.
+
+The opt-in path rejects a missing flag, mutable URL, commit mismatch, missing artifact field,
+wrong checksum format, invalid source version, or mux protocol other than 12 before any provider
+request. It then checks the exact binary checksum, build identity, package version, and architecture
+inside the provider image build. Opt-in output starts at `readiness: "built"`; the build script
+cannot approve an image. No reviewed machine release manifest or built machine image is recorded
+in this repository yet.
+
+Promote a candidate only with recorded evidence for each stage:
+
+1. Confirm a fresh provider VM boots under the recorded supervisor, then set `boot_checked` and
+   `verifiedAt`.
+2. Confirm an authenticated machine provider stream reaches the exact mux protocol, then set
+   `attach_checked` and update `verifiedAt`.
+3. Confirm the same image reconnects after provider stop/start, then set `resume_checked` and update
+   `verifiedAt`.
+4. Review the artifact identity and all three checks, then set `approved` and update `verifiedAt`.
+
 Default image policy:
 
 - Production and staging select images with `E2B_CMUXD_WS_TEMPLATE` and
@@ -86,17 +139,22 @@ env var is missing or is not listed in the manifest. Local development can use t
 without setting provider image env vars. Set `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1` only for local
 image experiments.
 
-Rollback is an env-only operation:
+Legacy Go PTY/RPC rollback is an env-only operation:
 
 1. Choose a previous manifest entry with `validationStatus: "passed"`.
 2. Set `E2B_CMUXD_WS_TEMPLATE` or `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
 3. Redeploy staging, smoke test, then repeat for production.
 4. Keep old provider templates/snapshots until all VMs using them are gone.
 
+The machine column has a separate rollback gate. Point it only at an older entry with
+`validationStatus: "passed"` and a complete `machineRuntime.readiness: "approved"` record on
+protocol 12. A legacy image is not a machine column rollback target even when its Go
+`validationStatus` is `passed`.
+
 ## Baked tools and VM-local cmux CLI
 
-`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for both E2B and
-Freestyle:
+`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for E2B, Freestyle,
+and Daytona:
 
 - Node.js from the configured major line, default `22`.
 - Bun.
@@ -107,11 +165,14 @@ Freestyle:
 - zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
 - `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
 - `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
+- With the explicit machine flags only, the release-manifest Rust mux as
+  `/usr/local/bin/cmux-tui`, with its SHA-256 and build identity checked during the image build.
 
 The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
 `opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
 `btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
 also keep the existing Python/OpenSSL checks for provider browser proxy support.
+Machine opt-in builds also run the `cmux-tui` checksum and identity checks.
 
 Agent package override env vars:
 

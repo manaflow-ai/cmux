@@ -4,19 +4,27 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Freestyle } from "freestyle";
 import {
+  cloudMachineBinaryInstallCommands,
+  cloudMachineBinaryInstallCommand,
   cloudAgentToolPackageSpecs,
   cloudImageRuntimeEnvironment,
   cloudImageSmokeTestCommands,
   cloudShellPackageNames,
   cloudToolInstallCommands,
   daytonaEntrypointCommands,
+  createBuiltMachineRuntime,
+  buildProviderImageWithValidation,
+  markLegacyImageValidationPassed,
+  publicCloudImageBuildFailure,
   toDockerfileRunCommand,
   daytonaSnapshotImage,
   findFreestyleSnapshotByName,
   freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
+  parseCloudMachineArtifactManifest,
   positiveIntFromEnv,
+  resolveCloudMachineBuildPlan,
   semverFromEnv,
   systemdEnvironmentLines,
   waitForFreestyleSnapshotByName,
@@ -24,6 +32,374 @@ import {
 } from "../scripts/build-cloud-vm-images";
 
 describe("Cloud VM image build helpers", () => {
+  test("records legacy image validation only after a provider build succeeds", () => {
+    const pending = {
+      name: "cmuxd-ws-test",
+      manifestEntry: {
+        provider: "e2b",
+        validationStatus: "unknown" as const,
+      },
+    };
+
+    expect(pending.manifestEntry.validationStatus).toBe("unknown");
+    expect(markLegacyImageValidationPassed(pending).manifestEntry.validationStatus).toBe("passed");
+  });
+
+  test("marks validation only after the provider build resolves", async () => {
+    const pending = {
+      manifestEntry: { provider: "e2b", validationStatus: "unknown" as const },
+    };
+    let buildCalls = 0;
+
+    const built = await buildProviderImageWithValidation(async () => {
+      buildCalls += 1;
+      return pending;
+    });
+    expect(buildCalls).toBe(1);
+    expect(built.manifestEntry.validationStatus).toBe("passed");
+
+    await expect(buildProviderImageWithValidation(async () => {
+      throw new Error("provider build failed");
+    })).rejects.toThrow("provider build failed");
+  });
+
+  test("sanitizes executable image-build failures", () => {
+    const message = publicCloudImageBuildFailure(
+      new Error("Cargo manifest at /private/runner/cmux-tui/Cargo.toml has a bad commit abc"),
+    );
+    expect(message).toBe(
+      "Cloud VM image build failed (invalid_machine_metadata). Check the workflow log and retry.",
+    );
+    expect(message).not.toContain("Cargo");
+    expect(message).not.toContain("/private/runner");
+    expect(message).not.toContain("abc");
+  });
+
+  test("keeps the default build legacy without loading or installing a Rust artifact", async () => {
+    let manifestLoads = 0;
+    let sourceLoads = 0;
+    const plan = await resolveCloudMachineBuildPlan([], {
+      loadReleaseManifest: async () => {
+        manifestLoads += 1;
+        throw new Error("default build must not load a Rust release manifest");
+      },
+      loadSourceMetadata: async () => {
+        sourceLoads += 1;
+        throw new Error("default build must not inspect Rust source metadata");
+      },
+    });
+
+    expect(plan).toEqual({
+      machineRuntime: { readiness: "legacy" },
+      machineArtifact: null,
+    });
+    expect(manifestLoads).toBe(0);
+    expect(sourceLoads).toBe(0);
+    expect(cloudMachineBinaryInstallCommands(plan)).toEqual([]);
+  });
+
+  test("does not silently select a legacy build for explicit machine options", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const dependencies = {
+      loadReleaseManifest: async () => ({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "x86_64",
+          binaryName,
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        }],
+      }),
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 12 }),
+    };
+
+    await expect(resolveCloudMachineBuildPlan([
+      `--machine-commit=${cmuxCommit}`,
+      `--machine-release-manifest-url=${manifestUrl}`,
+    ], dependencies)).resolves.toMatchObject({
+      machineRuntime: { readiness: "built" },
+    });
+
+    await expect(resolveCloudMachineBuildPlan([
+      `--machine-comit=${cmuxCommit}`,
+      `--machine-release-manifest-url=${manifestUrl}`,
+    ], dependencies)).rejects.toThrow("Unsupported machine build option");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      `--machine-commit=${cmuxCommit}`,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("--machine-commit may be supplied only once");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit=",
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("--machine-commit requires a value");
+  });
+
+  test("rejects redirects for the commit-addressed machine release manifest", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const originalFetch = globalThis.fetch;
+    let redirectMode: RequestRedirect | undefined;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      redirectMode = init?.redirect;
+      if (redirectMode === "error") throw new Error("machine release manifest redirect rejected");
+      return Response.json({});
+    }) as typeof fetch;
+
+    try {
+      await expect(resolveCloudMachineBuildPlan([
+        "--machine-commit",
+        cmuxCommit,
+        "--machine-release-manifest-url",
+        manifestUrl,
+      ])).rejects.toThrow("machine release manifest redirect rejected");
+      expect(redirectMode).toBe("error");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("uses only explicit immutable Rust artifact metadata when opted in", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const binarySha256 = "b".repeat(64);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const downloadUrl = `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`;
+    const manifest = {
+      schemaVersion: 1,
+      commit: cmuxCommit,
+      artifacts: [
+        {
+          architecture: "x86_64",
+          binaryName,
+          binarySha256,
+          downloadUrl,
+        },
+      ],
+    };
+    const artifact = parseCloudMachineArtifactManifest(
+      manifest,
+      { cmuxCommit, architecture: "x86_64" },
+    );
+
+    expect(artifact).toEqual({
+      binaryName,
+      binarySha256,
+      downloadUrl,
+    });
+
+    let loadedUrl: string | undefined;
+    const plan = await resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], {
+      loadReleaseManifest: async (url) => {
+        loadedUrl = url;
+        return manifest;
+      },
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 12 }),
+    });
+    expect(loadedUrl).toBe(manifestUrl);
+    expect(plan.machineArtifact).toEqual(artifact);
+    expect(plan.machineRuntime.readiness).toBe("built");
+
+    const runtime = createBuiltMachineRuntime({
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256,
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+    expect(runtime).toEqual({
+      readiness: "built",
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256,
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+    expect(runtime).not.toHaveProperty("verifiedAt");
+
+    const install = cloudMachineBinaryInstallCommand(artifact);
+    expect(install).toContain(artifact.downloadUrl);
+    expect(install).toContain(binarySha256);
+    expect(install).toContain("/usr/local/bin/cmux-tui");
+    expect(install).not.toContain("/latest/");
+    expect(cloudMachineBinaryInstallCommands(plan)).toEqual([install]);
+  });
+
+  test("rejects incomplete or mismatched machine build opt-in metadata", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const loadReleaseManifest = async () => ({
+      schemaVersion: 1,
+      commit: "c".repeat(40),
+      artifacts: [
+        {
+          architecture: "x86_64",
+          binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/cmux-tui-x86_64-unknown-linux-musl`,
+        },
+      ],
+    });
+    const dependencies = {
+      loadReleaseManifest,
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 12 }),
+    };
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("--machine-commit");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+    ], dependencies)).rejects.toThrow("--machine-release-manifest-url");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("does not match the requested commit");
+
+    const input = {
+      schemaVersion: 1,
+      commit: cmuxCommit,
+      artifacts: [{
+        architecture: "x86_64",
+        binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+        binarySha256: "b".repeat(64),
+      }],
+    };
+
+    expect(() =>
+      parseCloudMachineArtifactManifest(input, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("downloadUrl");
+
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 2,
+        commit: cmuxCommit,
+        artifacts: [],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("schemaVersion must be 1");
+
+    const artifact = {
+      architecture: "x86_64",
+      binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+      binarySha256: "b".repeat(64),
+      downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/cmux-tui-x86_64-unknown-linux-musl`,
+    };
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [artifact, artifact],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+  });
+
+  test("rejects a source protocol other than the machine-connectable version", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], {
+      loadReleaseManifest: async () => ({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "x86_64",
+          binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/cmux-tui-x86_64-unknown-linux-musl`,
+        }],
+      }),
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 11 }),
+    })).rejects.toThrow("require mux protocol 12");
+  });
+
+  test("rejects a release manifest without the requested architecture", () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-aarch64-unknown-linux-musl";
+
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "aarch64",
+          binaryName,
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        }],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+  });
+
+  test("rejects a binary checksum that differs from its runtime metadata", () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const machineRuntime = createBuiltMachineRuntime({
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256: "b".repeat(64),
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+
+    expect(() =>
+      cloudMachineBinaryInstallCommands({
+        machineRuntime,
+        machineArtifact: {
+          binaryName,
+          binarySha256: "c".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        },
+      })
+    ).toThrow("checksum");
+  });
+
   test("disabled tool env values skip the tool install", () => {
     const previous = process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC;
     process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC = "none";

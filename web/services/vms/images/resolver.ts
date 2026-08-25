@@ -2,35 +2,35 @@ import type { ProviderId } from "../drivers";
 import { allowUnmanifestedImages, isDeployedRuntime, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError } from "../errors";
 import manifest from "./manifest.json";
+import {
+  isMachineRuntimeConnectable,
+  parseVmImageManifest,
+  type VmImageManifestEntry,
+} from "./schema";
 
-export type VmImageManifestEntry = {
-  readonly provider: ProviderId;
-  readonly version: string;
-  readonly imageId: string;
-  readonly envVar: string;
-  readonly defaultForLocalDev?: boolean;
-  readonly features?: {
-    readonly bakedFreestyleSignedAdmin?: boolean;
-  };
-  readonly cmuxdRemoteCommit: string;
-  readonly builtAt: string;
-  readonly builderScriptVersion: string;
-  readonly agentToolResolvedVersions?: Record<string, string>;
-  readonly validationStatus: "passed" | "failed" | "unknown";
-  readonly notes?: string;
-};
+export type {
+  ApprovedMachineRuntime,
+  BuiltMachineRuntime,
+  CheckedMachineRuntime,
+  LegacyMachineRuntime,
+  MachineArchitecture,
+  MachineAuthentication,
+  MachineRuntime,
+  MachineRuntimeReadiness,
+  MachineTransport,
+  StagedMachineRuntime,
+  VmImageManifestEntry,
+} from "./schema";
 
 export type VmImageSelection = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
   readonly manifestEntry: VmImageManifestEntry | null;
+  readonly machineConnectable: boolean;
 };
 
-const typedManifest = manifest as {
-  readonly schemaVersion: number;
-  readonly images: readonly VmImageManifestEntry[];
-};
+const typedManifest = parseVmImageManifest(manifest);
 
 export function providerImageEnvKey(provider: ProviderId): string {
   switch (provider) {
@@ -54,6 +54,24 @@ export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId
     candidate.provider === provider && candidate.imageId === imageId
   );
   return entry?.features?.bakedFreestyleSignedAdmin === true;
+}
+
+export function isVmImageMachineConnectable(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const candidate = entry as {
+    readonly provider?: unknown;
+    readonly validationStatus?: unknown;
+    readonly machineRuntime?: unknown;
+  };
+  return candidate.validationStatus === "passed" &&
+    isMachineRuntimeConnectable(candidate.machineRuntime, candidate.provider);
+}
+
+export function imageIsMachineConnectable(provider: ProviderId, imageId: string): boolean {
+  const entry = typedManifest.images.find((candidate) =>
+    candidate.provider === provider && candidate.imageId === imageId
+  );
+  return entry ? isVmImageMachineConnectable(entry) : false;
 }
 
 export function resolveVmImage(
@@ -111,6 +129,7 @@ function resolveKnownOrAllowed(
       image,
       imageVersion: null,
       manifestEntry: null,
+      machineConnectable: false,
     };
   }
 
@@ -128,6 +147,7 @@ function selectionFromEntry(entry: VmImageManifestEntry): VmImageSelection {
     image: entry.imageId,
     imageVersion: entry.version,
     manifestEntry: entry,
+    machineConnectable: isVmImageMachineConnectable(entry),
   };
 }
 

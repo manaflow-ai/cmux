@@ -11,8 +11,48 @@ import {
 } from "e2b";
 import { Freestyle } from "freestyle";
 import { Daytona, Image } from "@daytonaio/sdk";
+import {
+  MACHINE_CONNECTABLE_ARCHITECTURE,
+  MACHINE_CONNECTABLE_AUTHENTICATION,
+  MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION,
+  MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION,
+  MACHINE_CONNECTABLE_SUPERVISOR_VERSION,
+  MACHINE_CONNECTABLE_TRANSPORT,
+  parseMachineRuntime,
+  type BuiltMachineRuntime,
+  type LegacyMachineRuntime,
+  type MachineArchitecture,
+} from "../services/vms/images/schema";
 
 type Target = "e2b" | "freestyle" | "daytona" | "all";
+
+export type CloudMachineArtifact = {
+  readonly binaryName: string;
+  readonly binarySha256: string;
+  readonly downloadUrl: string;
+};
+
+export type CloudMachineBuildPlan =
+  | {
+    readonly machineRuntime: LegacyMachineRuntime;
+    readonly machineArtifact: null;
+  }
+  | {
+    readonly machineRuntime: BuiltMachineRuntime;
+    readonly machineArtifact: CloudMachineArtifact;
+  };
+
+type CloudMachineSourceMetadata = {
+  readonly cmuxVersion: string;
+  readonly protocolVersion: number;
+};
+
+type CloudMachineBuildPlanDependencies = {
+  readonly loadReleaseManifest: (url: string) => Promise<unknown>;
+  readonly loadSourceMetadata: (cmuxCommit: string) => Promise<CloudMachineSourceMetadata>;
+};
+
+type CloudMachineRuntimeInput = Omit<BuiltMachineRuntime, "readiness">;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(__dirname, "..");
@@ -113,9 +153,7 @@ const CLOUD_AGENT_TOOLS = [
 ] as const;
 
 function argValue(name: string): string | undefined {
-  const index = process.argv.indexOf(name);
-  if (index === -1) return undefined;
-  return process.argv[index + 1];
+  return argumentValue(process.argv.slice(2), name);
 }
 
 function hasFlag(name: string): boolean {
@@ -130,8 +168,329 @@ function defaultTag(): string {
   return `ws-${stamp}`;
 }
 
+export function parseCloudMachineArtifactManifest(
+  value: unknown,
+  input: {
+    readonly cmuxCommit: string;
+    readonly architecture: MachineArchitecture;
+  },
+): CloudMachineArtifact {
+  if (!/^[0-9a-f]{40}$/.test(input.cmuxCommit)) {
+    throw new Error("Cloud machine artifact commit must be a full lowercase Git SHA");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Cloud machine artifact manifest must be an object");
+  }
+  const manifest = value as Record<string, unknown>;
+  if (manifest.schemaVersion !== 1) {
+    throw new Error("Cloud machine release manifest schemaVersion must be 1");
+  }
+  if (manifest.commit !== input.cmuxCommit) {
+    throw new Error("Cloud machine artifact manifest commit does not match the requested commit");
+  }
+  if (!Array.isArray(manifest.artifacts)) {
+    throw new Error("Cloud machine release manifest artifacts must be an array");
+  }
+  const matchingArtifacts = manifest.artifacts.filter((candidate) =>
+    candidate && typeof candidate === "object" && !Array.isArray(candidate) &&
+    (candidate as Record<string, unknown>).architecture === input.architecture
+  );
+  if (matchingArtifacts.length !== 1) {
+    throw new Error(
+      `Cloud machine release manifest must contain one ${input.architecture} artifact`,
+    );
+  }
+  const artifact = matchingArtifacts[0] as Record<string, unknown>;
+  const binaryName = artifact.binaryName;
+  if (typeof binaryName !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(binaryName)) {
+    throw new Error("Cloud machine artifact binaryName is invalid");
+  }
+  const binarySha256 = artifact.binarySha256;
+  if (typeof binarySha256 !== "string" || !/^[0-9a-f]{64}$/.test(binarySha256)) {
+    throw new Error(`Cloud machine artifact manifest has no exact checksum for ${binaryName}`);
+  }
+  const downloadUrl = requireCommitAddressedHttpsUrl(
+    artifact.downloadUrl,
+    "Cloud machine artifact downloadUrl",
+    input.cmuxCommit,
+  );
+  if (decodeURIComponent(path.posix.basename(new URL(downloadUrl).pathname)) !== binaryName) {
+    throw new Error("Cloud machine artifact downloadUrl does not match binaryName");
+  }
+  return { binaryName, binarySha256, downloadUrl };
+}
+
+export function createBuiltMachineRuntime(input: CloudMachineRuntimeInput): BuiltMachineRuntime {
+  const runtime = parseMachineRuntime({ readiness: "built", ...input });
+  if (runtime.readiness !== "built") {
+    throw new Error("Cloud machine image builder must emit built readiness");
+  }
+  return runtime;
+}
+
+export function cloudMachineBinaryInstallCommand(artifact: CloudMachineArtifact): string {
+  if (!/^[0-9a-f]{64}$/.test(artifact.binarySha256)) {
+    throw new Error("Cloud machine binary checksum must be a lowercase SHA-256");
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(artifact.binaryName)) {
+    throw new Error("Cloud machine binaryName is invalid");
+  }
+  const url = requireImmutableHttpsUrl(artifact.downloadUrl, "Cloud machine binary URL");
+  if (decodeURIComponent(path.posix.basename(new URL(url).pathname)) !== artifact.binaryName) {
+    throw new Error("Cloud machine binary URL does not match binaryName");
+  }
+  const destination = "/tmp/cmux-tui-machine-artifact";
+  return [
+    "set -eu",
+    `curl --fail --location --proto '=https' --tlsv1.2 ${shellQuote(url)} -o ${destination}`,
+    `printf '%s  %s\\n' ${shellQuote(artifact.binarySha256)} ${shellQuote(destination)} | sha256sum -c -`,
+    `install -m 0755 ${destination} /usr/local/bin/cmux-tui`,
+    `rm -f ${destination}`,
+  ].join(" && ");
+}
+
+export function cloudMachineBinaryInstallCommands(plan: CloudMachineBuildPlan): string[] {
+  if (plan.machineArtifact === null) return [];
+  if (plan.machineArtifact.binarySha256 !== plan.machineRuntime.binarySha256) {
+    throw new Error("Cloud machine artifact checksum does not match runtime metadata");
+  }
+  return [cloudMachineBinaryInstallCommand(plan.machineArtifact)];
+}
+
+export async function resolveCloudMachineBuildPlan(
+  args: readonly string[],
+  dependencies?: CloudMachineBuildPlanDependencies,
+): Promise<CloudMachineBuildPlan> {
+  assertKnownMachineOptions(args);
+  const cmuxCommit = machineArgumentValue(args, "--machine-commit");
+  const releaseManifestUrl = machineArgumentValue(args, "--machine-release-manifest-url");
+  if (cmuxCommit === undefined && releaseManifestUrl === undefined) {
+    return legacyMachineBuildPlan();
+  }
+  if (cmuxCommit === undefined) {
+    throw new Error("--machine-commit is required with --machine-release-manifest-url");
+  }
+  if (!/^[0-9a-f]{40}$/.test(cmuxCommit)) {
+    throw new Error("--machine-commit must be a full lowercase 40-character Git SHA");
+  }
+  if (releaseManifestUrl === undefined) {
+    throw new Error("--machine-release-manifest-url is required with --machine-commit");
+  }
+  const manifestUrl = requireCommitAddressedHttpsUrl(
+    releaseManifestUrl,
+    "--machine-release-manifest-url",
+    cmuxCommit,
+  );
+  const loaders = dependencies ?? {
+    loadReleaseManifest: fetchCloudMachineReleaseManifest,
+    loadSourceMetadata: cloudMachineSourceMetadata,
+  };
+  const releaseManifest = await loaders.loadReleaseManifest(manifestUrl);
+  const machineArtifact = parseCloudMachineArtifactManifest(releaseManifest, {
+    cmuxCommit,
+    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+  });
+  const sourceMetadata = await loaders.loadSourceMetadata(cmuxCommit);
+  if (sourceMetadata.protocolVersion !== MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION) {
+    throw new Error(
+      `Cloud machine images require mux protocol ${MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION}; ` +
+        `${cmuxCommit} reports ${sourceMetadata.protocolVersion}`,
+    );
+  }
+  return {
+    machineArtifact,
+    machineRuntime: createBuiltMachineRuntime({
+      cmuxCommit,
+      cmuxVersion: sourceMetadata.cmuxVersion,
+      binarySha256: machineArtifact.binarySha256,
+      protocolVersion: sourceMetadata.protocolVersion,
+      bootstrapGeneration: MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION,
+      architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+      supervisorVersion: MACHINE_CONNECTABLE_SUPERVISOR_VERSION,
+      transport: MACHINE_CONNECTABLE_TRANSPORT,
+      authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
+    }),
+  };
+}
+
+function machineArgumentValue(args: readonly string[], name: string): string | undefined {
+  return argumentValue(args, name);
+}
+
+function argumentValue(args: readonly string[], name: string): string | undefined {
+  const inlinePrefix = `${name}=`;
+  const matches = args.flatMap((argument, index) =>
+    argument === name || argument.startsWith(inlinePrefix) ? [{ argument, index }] : []
+  );
+  if (matches.length > 1) {
+    throw new Error(`${name} may be supplied only once`);
+  }
+  const match = matches[0];
+  if (!match) return undefined;
+  const value = match.argument === name
+    ? args[match.index + 1]
+    : match.argument.slice(inlinePrefix.length);
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`);
+  }
+  return value;
+}
+
+function assertKnownMachineOptions(args: readonly string[]): void {
+  const names = ["--machine-commit", "--machine-release-manifest-url"] as const;
+  for (const argument of args) {
+    if (!argument.startsWith("--machine-")) continue;
+    if (names.some((name) => argument === name || argument.startsWith(`${name}=`))) continue;
+    throw new Error(`Unsupported machine build option: ${argument.split("=", 1)[0]}`);
+  }
+}
+
+function legacyMachineBuildPlan(): CloudMachineBuildPlan {
+  return {
+    machineRuntime: { readiness: "legacy" },
+    machineArtifact: null,
+  };
+}
+
+function requireImmutableHttpsUrl(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be supplied by the release manifest`);
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${label} must be a valid URL`);
+  }
+  if (
+    url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
+    url.pathname.toLowerCase().split("/").includes("latest")
+  ) {
+    throw new Error(`${label} must be an immutable HTTPS URL`);
+  }
+  return url.toString();
+}
+
+function requireCommitAddressedHttpsUrl(value: unknown, label: string, cmuxCommit: string): string {
+  const url = requireImmutableHttpsUrl(value, label);
+  if (!new URL(url).pathname.split("/").includes(cmuxCommit)) {
+    throw new Error(`${label} must contain the full machine commit as a path segment`);
+  }
+  return url;
+}
+
+async function fetchCloudMachineReleaseManifest(manifestUrl: string): Promise<unknown> {
+  const response = await fetch(manifestUrl, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Cloud machine release manifest request failed: HTTP ${response.status}`);
+  }
+  return await response.json();
+}
+
+async function cloudMachineSourceMetadata(
+  cmuxCommit: string,
+): Promise<CloudMachineSourceMetadata> {
+  const [cargoManifest, workspaceManifest] = await Promise.all([
+    gitShow(repoRoot, cmuxCommit, "cmux-tui/crates/cmux-tui/Cargo.toml"),
+    gitShow(repoRoot, cmuxCommit, "cmux-tui/Cargo.toml"),
+  ]);
+  let cmuxVersion: string;
+  try {
+    cmuxVersion = resolveCargoPackageVersion(cargoManifest, workspaceManifest);
+  } catch {
+    throw new Error(`cmux-tui ${cmuxCommit} does not declare an exact package version`);
+  }
+  const inventoryText = await gitShow(repoRoot, cmuxCommit, "cmux-tui/spec/inventory.json");
+  const inventory = JSON.parse(inventoryText) as { mux_protocol?: unknown };
+  if (!Number.isSafeInteger(inventory.mux_protocol) || (inventory.mux_protocol as number) <= 0) {
+    throw new Error(`cmux-tui ${cmuxCommit} has an invalid mux protocol inventory`);
+  }
+  return {
+    cmuxVersion,
+    protocolVersion: inventory.mux_protocol as number,
+  };
+}
+
+export function resolveCargoPackageVersion(
+  packageManifest: string,
+  workspaceManifest = packageManifest,
+): string {
+  const packageDocument = parseCargoToml(packageManifest);
+  const packageTable = cargoTable(packageDocument.package);
+  const packageVersion = packageTable.version;
+  if (typeof packageVersion === "string") {
+    return exactCargoPackageVersion(packageVersion);
+  }
+  const inheritedVersion = cargoTable(packageVersion);
+  if (inheritedVersion.workspace !== true) {
+    throw new Error("Cargo package version must be explicit or inherited from the workspace");
+  }
+
+  const workspaceDocument = packageManifest === workspaceManifest
+    ? packageDocument
+    : parseCargoToml(workspaceManifest);
+  const workspaceTable = cargoTable(workspaceDocument.workspace);
+  const workspacePackageTable = cargoTable(workspaceTable.package);
+  if (typeof workspacePackageTable.version !== "string") {
+    throw new Error("Cargo workspace.package.version must be an exact version");
+  }
+  return exactCargoPackageVersion(workspacePackageTable.version);
+}
+
+function parseCargoToml(manifest: string): Record<string, unknown> {
+  const bunRuntime = (globalThis as typeof globalThis & {
+    readonly Bun?: { readonly TOML?: { readonly parse: (input: string) => unknown } };
+  }).Bun;
+  if (!bunRuntime?.TOML) {
+    throw new Error("Cloud VM image builds require Bun TOML support");
+  }
+  const document = bunRuntime.TOML.parse(manifest);
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("Cargo manifest must be a TOML table");
+  }
+  return document as Record<string, unknown>;
+}
+
+function cargoTable(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Cargo manifest table is missing");
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactCargoPackageVersion(value: string): string {
+  if (!STRICT_SEMVER_RE.test(value)) {
+    throw new Error("Cargo package version must be an exact semantic version");
+  }
+  return value;
+}
+
+export function publicCloudImageBuildFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const code = /manifest|cargo|artifact|machine|protocol|checksum|binary/i.test(message)
+    ? "invalid_machine_metadata"
+    : /api[_ -]?key|environment|--target|npm|bun/i.test(message)
+      ? "invalid_build_configuration"
+      : /snapshot|template|fetch|http|build|provider/i.test(message)
+        ? "provider_image_build_failed"
+        : "image_build_failed";
+  return `Cloud VM image build failed (${code}). Check the workflow log and retry.`;
+}
+
+async function runCli(): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
+    console.error(publicCloudImageBuildFailure(error));
+    process.exitCode = 1;
+  }
+}
+
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
-  await main();
+  await runCli();
 }
 
 async function main(): Promise<void> {
@@ -142,6 +501,7 @@ async function main(): Promise<void> {
   const tag = (argValue("--tag") ?? defaultTag()).trim();
   const skipCache = hasFlag("--skip-cache");
   const binaryPath = path.join(buildRoot, tag, "cmuxd-remote-linux-amd64");
+  const machineBuildPlan = await resolveCloudMachineBuildPlan(process.argv.slice(2));
 
   mkdirSync(path.dirname(binaryPath), { recursive: true });
 
@@ -157,31 +517,56 @@ async function main(): Promise<void> {
     agentToolResolvedVersions: Object.fromEntries(
       agentTools.map((tool) => [tool.name, tool.resolvedVersion]),
     ),
-    validationStatus: "passed" as const,
+    machineRuntime: machineBuildPlan.machineRuntime,
+    // Provider build APIs run the legacy cmuxd-remote smoke commands as part of
+    // the image build. Keep this unknown until each provider build returns.
+    validationStatus: "unknown" as const,
   };
 
+  const manifestEntries: unknown[] = [];
   const output: Record<string, unknown> = {
     tag,
     binaryPath,
+    machineArtifact: machineBuildPlan.machineArtifact,
     ...imageMetadata,
-    manifestEntries: [],
+    manifestEntries,
   };
 
   if (target === "e2b" || target === "all") {
-    const e2b = await buildE2BTemplate(tag, binaryPath, skipCache, imageMetadata);
+    const e2b = await buildProviderImageWithValidation(() => buildE2BTemplate(
+      tag,
+      binaryPath,
+      skipCache,
+      imageMetadata,
+      machineBuildPlan,
+    ));
     output.e2b = e2b;
-    (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
+    manifestEntries.push(e2b.manifestEntry);
   }
   if (target === "freestyle" || target === "all") {
-    const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    const freestyle = await buildProviderImageWithValidation(() => buildFreestyleSnapshot(
+      tag,
+      binaryPath,
+      skipCache,
+      imageMetadata,
+      machineBuildPlan,
+    ));
     output.freestyle = freestyle;
-    (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
+    manifestEntries.push(freestyle.manifestEntry);
   }
   if (target === "daytona" || target === "all") {
-    const daytona = await buildDaytonaSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    const daytona = await buildProviderImageWithValidation(() => buildDaytonaSnapshot(
+      tag,
+      binaryPath,
+      skipCache,
+      imageMetadata,
+      machineBuildPlan,
+    ));
     output.daytona = daytona;
-    (output.manifestEntries as unknown[]).push(daytona.manifestEntry);
+    manifestEntries.push(daytona.manifestEntry);
   }
+
+  output.validationStatus = manifestEntries.length > 0 ? "passed" : "unknown";
 
   console.log(JSON.stringify(output, null, 2));
 }
@@ -202,6 +587,7 @@ async function buildE2BTemplate(
   daemonPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
+  machineBuildPlan: CloudMachineBuildPlan,
 ): Promise<Record<string, unknown>> {
   if (!process.env.E2B_API_KEY) {
     throw new Error("E2B_API_KEY is required to build the E2B template");
@@ -215,10 +601,13 @@ async function buildE2BTemplate(
       forceUpload: true,
       mode: 0o755,
     })
-    .runCmd(cloudToolInstallCommands(), { user: "root" })
+    .runCmd([
+      ...cloudToolInstallCommands(),
+      ...cloudMachineBinaryInstallCommands(machineBuildPlan),
+    ], { user: "root" })
     .runCmd(cloudRootSetupCommands(), { user: "root" })
     .runCmd(cloudShellProfileCommands(), { user: "root" })
-    .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
+    .runCmd(cloudImageSmokeTestCommands(builtMachineRuntime(machineBuildPlan)), { user: "root" })
     .setStartCmd(
       "/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash",
       waitForURL("http://127.0.0.1:7777/healthz", 200),
@@ -244,6 +633,7 @@ async function buildE2BTemplate(
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
       agentToolResolvedVersions: metadata.agentToolResolvedVersions,
+      machineRuntime: metadata.machineRuntime,
       validationStatus: metadata.validationStatus,
       notes: imageNotes(metadata),
     },
@@ -255,6 +645,7 @@ async function buildFreestyleSnapshot(
   daemonPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
+  machineBuildPlan: CloudMachineBuildPlan,
 ): Promise<Record<string, unknown>> {
   if (!process.env.FREESTYLE_API_KEY) {
     throw new Error("FREESTYLE_API_KEY is required to build the Freestyle snapshot");
@@ -269,7 +660,10 @@ async function buildFreestyleSnapshot(
       name,
       template: {
         baseImage: {
-          dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
+          dockerfileContent: freestyleBaseDockerfileContent(
+            daemonURL,
+            machineBuildPlan,
+          ),
         },
         discriminator: `cmuxd-ws-${tag}`,
         skipCache,
@@ -312,6 +706,7 @@ async function buildFreestyleSnapshot(
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
       agentToolResolvedVersions: metadata.agentToolResolvedVersions,
+      machineRuntime: metadata.machineRuntime,
       validationStatus: metadata.validationStatus,
       notes: imageNotes(metadata),
     },
@@ -323,6 +718,7 @@ async function buildDaytonaSnapshot(
   daemonPath: string,
   skipCache: boolean,
   metadata: ImageBuildMetadata,
+  machineBuildPlan: CloudMachineBuildPlan,
 ): Promise<Record<string, unknown>> {
   if (!process.env.DAYTONA_API_KEY) {
     throw new Error("DAYTONA_API_KEY is required to build the Daytona snapshot");
@@ -338,7 +734,7 @@ async function buildDaytonaSnapshot(
   const snapshot = await daytona.snapshot.create(
     {
       name,
-      image: daytonaSnapshotImage(daemonPath),
+      image: daytonaSnapshotImage(daemonPath, machineBuildPlan),
       // Also registered on the snapshot record so sandboxes restart cmuxd-remote on
       // every stop/start cycle without relying on the baked ENTRYPOINT alone.
       entrypoint: [DAYTONA_ENTRYPOINT_PATH],
@@ -362,6 +758,7 @@ async function buildDaytonaSnapshot(
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
       agentToolResolvedVersions: metadata.agentToolResolvedVersions,
+      machineRuntime: metadata.machineRuntime,
       validationStatus: metadata.validationStatus,
       notes: imageNotes(metadata),
     },
@@ -376,7 +773,10 @@ async function buildDaytonaSnapshot(
  * Daytona's own token SSH gateway terminates in the runner's injected daemon, not sandbox sshd,
  * so an in-image sshd would be dead weight.
  */
-export function daytonaSnapshotImage(daemonPath: string): Image {
+export function daytonaSnapshotImage(
+  daemonPath: string,
+  machineBuildPlan: CloudMachineBuildPlan = legacyMachineBuildPlan(),
+): Image {
   return Image.base("ubuntu:24.04")
     .env({ LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE, LANGUAGE: UTF8_LOCALE })
     .runCommands(
@@ -387,10 +787,11 @@ export function daytonaSnapshotImage(daemonPath: string): Image {
       ...[
         "chmod 0755 /usr/local/bin/cmuxd-remote",
         ...cloudToolInstallCommands(),
+        ...cloudMachineBinaryInstallCommands(machineBuildPlan),
         ...cloudRootSetupCommands(),
         ...cloudShellProfileCommands(),
         ...daytonaEntrypointCommands(),
-        ...cloudImageSmokeTestCommands(),
+        ...cloudImageSmokeTestCommands(builtMachineRuntime(machineBuildPlan)),
       ].map(toDockerfileRunCommand),
     )
     .entrypoint([DAYTONA_ENTRYPOINT_PATH]);
@@ -556,7 +957,7 @@ function validateFreestyleAdminPublicKey(publicKey: string): void {
   }
 }
 
-export function cloudImageSmokeTestCommands(): string[] {
+export function cloudImageSmokeTestCommands(machineRuntime?: BuiltMachineRuntime): string[] {
   const agentToolVersionChecks = cloudAgentToolPackageSpecs().flatMap((tool) =>
     tool.binaries.map((binary) => `${binary} --version >/tmp/cmux-${tool.name}-version.txt 2>&1`)
   );
@@ -585,7 +986,30 @@ export function cloudImageSmokeTestCommands(): string[] {
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
     "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
     "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",
+    ...(machineRuntime ? cloudMachineBinarySmokeCommands(machineRuntime) : []),
     ...agentToolVersionChecks,
+  ];
+}
+
+function cloudMachineBinarySmokeCommands(runtime: BuiltMachineRuntime): string[] {
+  const probeCheck = [
+    "import json, os",
+    "probe = json.loads(os.environ['CMUX_MACHINE_PROBE'])",
+    "expected = json.loads(os.environ['CMUX_MACHINE_EXPECTED'])",
+    "assert probe.get('app') == 'cmux-tui'",
+    "assert probe.get('build_identity') == expected['commit']",
+    "assert probe.get('version') == expected['version']",
+    "assert probe.get('arch') == expected['architecture']",
+  ].join("; ");
+  const expected = JSON.stringify({
+    commit: runtime.cmuxCommit,
+    version: runtime.cmuxVersion,
+    architecture: runtime.architecture,
+  });
+  return [
+    "test -x /usr/local/bin/cmux-tui",
+    `printf '%s  %s\\n' ${shellQuote(runtime.binarySha256)} /usr/local/bin/cmux-tui | sha256sum -c -`,
+    `CMUX_MACHINE_PROBE="$(/usr/local/bin/cmux-tui remote-probe --json)" CMUX_MACHINE_EXPECTED=${shellQuote(expected)} python3 -c ${shellQuote(probeCheck)}`,
   ];
 }
 
@@ -740,7 +1164,10 @@ function freestylePythonOpenSSLCommands(): string[] {
   ];
 }
 
-export function freestyleBaseDockerfileContent(daemonURL: string): string {
+export function freestyleBaseDockerfileContent(
+  daemonURL: string,
+  machineBuildPlan: CloudMachineBuildPlan = legacyMachineBuildPlan(),
+): string {
   return [
     "FROM ubuntu:24.04",
     dockerEnvLine(cloudImageRuntimeEnvironment()),
@@ -748,14 +1175,21 @@ export function freestyleBaseDockerfileContent(daemonURL: string): string {
     ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
     ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
+    ...cloudMachineBinaryInstallCommands(machineBuildPlan).map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
     ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
     ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${command}`),
-    ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
+    ...cloudImageSmokeTestCommands(builtMachineRuntime(machineBuildPlan)).map((command) =>
+      `RUN ${command}`
+    ),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
     `RUN ${freestyleSystemdServiceCommand()}`,
     "RUN ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
   ].join("\n");
+}
+
+function builtMachineRuntime(plan: CloudMachineBuildPlan): BuiltMachineRuntime | undefined {
+  return plan.machineRuntime.readiness === "built" ? plan.machineRuntime : undefined;
 }
 
 export function cloudImageRuntimeEnvironment(): Record<string, string> {
@@ -967,6 +1401,33 @@ export function waitForRetryInterval(ms: number, signal: AbortSignal): Promise<v
   });
 }
 
+/**
+ * Provider image builders run the legacy daemon smoke checks before resolving.
+ * Mark the returned manifest only after that successful resolution.
+ */
+export function markLegacyImageValidationPassed<T extends Record<string, unknown>>(image: T): T {
+  const manifestEntry = image.manifestEntry;
+  if (!manifestEntry || typeof manifestEntry !== "object" || Array.isArray(manifestEntry)) {
+    throw new Error("provider image build result is missing a manifest entry");
+  }
+  return {
+    ...image,
+    manifestEntry: {
+      ...manifestEntry,
+      validationStatus: "passed",
+    },
+  } as T;
+}
+
+/**
+ * Mark a provider image as validated only after its build and smoke checks resolve.
+ */
+export async function buildProviderImageWithValidation<T extends Record<string, unknown>>(
+  build: () => Promise<T>,
+): Promise<T> {
+  return markLegacyImageValidationPassed(await build());
+}
+
 function abortError(): Error {
   return new Error("operation aborted");
 }
@@ -988,6 +1449,7 @@ type ImageBuildMetadata = {
   readonly nodeMajor: string;
   readonly agentToolPackageSpecs: readonly string[];
   readonly agentToolResolvedVersions: Record<string, string>;
+  readonly machineRuntime: CloudMachineBuildPlan["machineRuntime"];
   readonly validationStatus: "passed" | "failed" | "unknown";
 };
 
@@ -1004,6 +1466,13 @@ function extractProviderId(result: unknown): string | null {
 
 async function gitRevParse(cwd: string): Promise<string> {
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd })).trim();
+}
+
+async function gitShow(cwd: string, commit: string, filePath: string): Promise<string> {
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error("git show requires a full lowercase commit SHA");
+  }
+  return await runCommand("git", ["show", `${commit}:${filePath}`], { cwd });
 }
 
 function runCommand(
