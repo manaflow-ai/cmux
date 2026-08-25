@@ -56,18 +56,38 @@ extension CMUXCLI {
             throw herdrCompatLaunchError(exitCode: 127)
         }
 
+        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
+            // Herdr is an independent executable. Do not expose cmux's socket,
+            // capability, password, relay, or daemon context across the boundary.
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+
         var cArguments: [UnsafeMutablePointer<CChar>?] = []
+        var cEnvironment: [UnsafeMutablePointer<CChar>?] = []
+        defer {
+            Self.freeHerdrCompatCStringArray(cArguments)
+            Self.freeHerdrCompatCStringArray(cEnvironment)
+        }
         for argument in [executable] + translated {
             guard let duplicated = strdup(argument) else {
-                Self.freeHerdrCompatArguments(cArguments)
                 throw herdrCompatLaunchError(exitCode: 126)
             }
             cArguments.append(duplicated)
         }
         cArguments.append(nil)
-        defer { Self.freeHerdrCompatArguments(cArguments) }
+
+        for (key, value) in childEnvironment.sorted(by: { $0.key < $1.key }) {
+            guard let duplicated = strdup("\(key)=\(value)") else {
+                throw herdrCompatLaunchError(exitCode: 126)
+            }
+            cEnvironment.append(duplicated)
+        }
+        cEnvironment.append(nil)
+
         _ = cliExecFailureErrno {
-            execv(executable, &cArguments)
+            executable.withCString { executablePointer in
+                _ = execve(executablePointer, &cArguments, &cEnvironment)
+            }
         }
         throw herdrCompatLaunchError(exitCode: 126)
     }
@@ -126,8 +146,8 @@ extension CMUXCLI {
         )
     }
 
-    /// Releases an argv buffer that was allocated incrementally with `strdup`.
-    private static func freeHerdrCompatArguments(_ arguments: [UnsafeMutablePointer<CChar>?]) {
+    /// Releases a C-string pointer array allocated incrementally with `strdup`.
+    private static func freeHerdrCompatCStringArray(_ arguments: [UnsafeMutablePointer<CChar>?]) {
         for argument in arguments {
             free(argument)
         }
