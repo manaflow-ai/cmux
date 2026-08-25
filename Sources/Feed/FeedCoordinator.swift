@@ -1182,35 +1182,72 @@ extension FeedCoordinator {
         resolved: (workspaceId: UUID, surfaceId: UUID?),
         processEvidence: FeedAgentProcessEvidence? = nil
     ) -> FeedSurfacedAttention? {
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
-              let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
-        else {
-            return nil
+        // A global Dock is keyed by its window id rather than a workspace/tab
+        // id. Resolve a live Dock before asking the tab manager so native
+        // approval observers can surface attention for Dock-owned panels too.
+        let dockOwner = resolved.surfaceId.flatMap { surfaceId in
+            DockSplitStore.liveStores.first { $0.containsPanel(surfaceId) }
+        } ?? AppDelegate.shared?.existingWindowDock(
+            forWindowId: resolved.workspaceId
+        )
+        let tabManager: TabManager?
+        let tab: Workspace?
+        if dockOwner == nil {
+            guard let manager = AppDelegate.shared?.tabManagerFor(
+                tabId: resolved.workspaceId
+            ),
+            let workspace = manager.tabs.first(where: {
+                $0.id == resolved.workspaceId
+            }) else {
+                return nil
+            }
+            tabManager = manager
+            tab = workspace
+        } else {
+            tabManager = nil
+            tab = nil
         }
 
-        let directOwner = resolved.surfaceId.flatMap {
-            TerminalController.shared.controlSidebarResolvePanelOwner(
-                target: .workspace(resolved.workspaceId),
-                panelID: $0
-            )
-        }
+        let directOwner = dockOwner == nil
+            ? resolved.surfaceId.flatMap {
+                TerminalController.shared.controlSidebarResolvePanelOwner(
+                    target: .workspace(resolved.workspaceId),
+                    panelID: $0
+                )
+            }
+            : nil
         let panelId: UUID?
-        if directOwner != nil {
+        if let dockOwner {
+            let candidate = resolved.surfaceId ?? dockOwner.focusedPanelId
+            guard let candidate, dockOwner.containsPanel(candidate) else {
+                return nil
+            }
+            panelId = candidate
+        } else if directOwner != nil {
             panelId = resolved.surfaceId
-        } else if let surfaceId = resolved.surfaceId {
-            panelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab)
+        } else if let surfaceId = resolved.surfaceId, let tab {
+            panelId = Self.resolvePanelId(
+                surfaceId: surfaceId,
+                tab: tab
+            )
         } else {
-            panelId = tab.focusedPanelId
+            panelId = tab?.focusedPanelId
         }
         guard let panelId else {
             return nil
         }
-        let owner = directOwner
-            ?? TerminalController.shared.controlSidebarResolvePanelOwner(
-                target: .workspace(resolved.workspaceId),
-                panelID: panelId
-            )
-            ?? .workspace(tab)
+        let owner: ControlSidebarPanelOwner
+        if let dockOwner {
+            owner = .dock(dockOwner)
+        } else {
+            guard let tab else { return nil }
+            owner = directOwner
+                ?? TerminalController.shared.controlSidebarResolvePanelOwner(
+                    target: .workspace(resolved.workspaceId),
+                    panelID: panelId
+                )
+                ?? .workspace(tab)
+        }
         let statusKey = Self.lifecycleStatusKey(forSource: source)
         let usesRemoteProcessNamespace =
             owner.usesRemoteAgentProcessNamespace(panelId: panelId)
@@ -1267,7 +1304,10 @@ extension FeedCoordinator {
             timestamp: Date()
         )
         pendingAttentionStates[target] = FeedPendingAttentionState(
-            fallbackWorkspace: tab,
+            fallbackWorkspace: switch owner {
+            case .workspace(let workspace): workspace
+            case .dock: nil
+            },
             statusEntry: statusEntry,
             statusOwnerId: owner.id,
             statusIsPanelScoped: statusIsPanelScoped,
@@ -1283,9 +1323,10 @@ extension FeedCoordinator {
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
-        if UserDefaultsSettingsClient(defaults: .standard).value(
-            for: SettingCatalog().app.reorderOnNotification
-        ) {
+        if let tabManager,
+           UserDefaultsSettingsClient(defaults: .standard).value(
+               for: SettingCatalog().app.reorderOnNotification
+           ) {
             tabManager.moveTabToTopForNotification(resolved.workspaceId)
         }
 

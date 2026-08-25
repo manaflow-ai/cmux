@@ -437,6 +437,34 @@ final class AgentJournalLifecycleCenter: Sendable {
 #endif
             return
         }
+        // Journal assignments intentionally carry no process generation: they
+        // must remain replayable across launches. Once a live generation is
+        // already registered for this built-in key, an unbound replay/live
+        // assignment cannot prove that it belongs to that generation and may
+        // otherwise overwrite newer running evidence. Hooks with exact
+        // generation identity remain the authoritative mutation path.
+        guard !owner.hasLiveAgentProcess(
+            statusKey: assignment.agentKey,
+            panelId: panelId
+        ) else {
+            CmuxEventBus.shared.publish(
+                name: "agent.journal.apply_skipped",
+                category: "agent",
+                source: "journal",
+                surfaceId: assignment.surfaceId,
+                payload: [
+                    "agent_key": assignment.agentKey,
+                    "reason": "liveProcessGeneration",
+                ]
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
+                    "key=\(assignment.agentKey) reason=liveProcessGeneration"
+            )
+#endif
+            return
+        }
         if let phase = assignment.phase {
             owner.setAgentLifecycle(
                 key: assignment.agentKey,
