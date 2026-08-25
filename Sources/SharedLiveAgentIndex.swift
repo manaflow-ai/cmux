@@ -86,6 +86,7 @@ final class SharedLiveAgentIndex {
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
+    private var pendingSidebarLivenessPanelIDs = Set<UUID>()
     private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
@@ -481,7 +482,10 @@ final class SharedLiveAgentIndex {
         }
         guard sidebarLivenessRefreshTask == nil,
               refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else { return }
+              forkAvailabilityRefreshTask == nil else {
+            pendingSidebarLivenessPanelIDs.formUnion(panelIDs)
+            return
+        }
         guard !panelIDs.isEmpty else { return }
         synchronizeSidebarProcessExitWatchers(index: cachedIndex, panelIDs: panelIDs)
         let now = dateProvider()
@@ -533,6 +537,15 @@ final class SharedLiveAgentIndex {
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
+            }
+            let pendingPanelIDs = self.pendingSidebarLivenessPanelIDs
+            self.pendingSidebarLivenessPanelIDs.removeAll()
+            if !pendingPanelIDs.isEmpty {
+                self.refreshCachedProcessLivenessForSidebar(
+                    panelIDs: pendingPanelIDs,
+                    currentWorkspaceIDByPanelID: [:],
+                    force: true
+                )
             }
         }
     }

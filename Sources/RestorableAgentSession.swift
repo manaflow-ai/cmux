@@ -1226,7 +1226,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 against: matchesByProcessID.values
             )
             let processLiveness: RestorableAgentProcessLiveness = if entry.processLiveness == .running,
-                                                                    revalidatedLiveness == .exited {
+                                                                    revalidatedLiveness != .running {
                 // Cache reuse is an optimization, not authority. Unknown argv or identity evidence
                 // must fail closed instead of letting shell activity revive a stale session binding.
                 .exited
