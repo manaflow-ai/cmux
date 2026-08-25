@@ -1,3 +1,4 @@
+import Darwin
 import CryptoKit
 import Foundation
 
@@ -17,8 +18,12 @@ enum CmuxPluginArtifactFingerprintError: Error {
 /// path-ordered parent digest, which keeps memory bounded for large binaries.
 struct CmuxPluginArtifactFingerprinter {
     private static let chunkSize = 64 * 1024
+    private static let maximumInterpreterBytes: UInt64 = 512 * 1024 * 1024
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
-    private static let formatMarker = Data("cmux-plugin-artifact-v2".utf8)
+    private static let formatMarker = Data("cmux-plugin-artifact-v3".utf8)
+    private static let unavailableInterpreterMarker = Data(
+        "cmux-plugin-interpreter-unavailable-v1".utf8
+    )
 
     private let fileManager: FileManager
 
@@ -29,7 +34,8 @@ struct CmuxPluginArtifactFingerprinter {
     func fingerprint(
         manifestData: Data,
         pluginDirectoryURL: URL,
-        entrypointDeclaration: String
+        entrypointDeclaration: String,
+        interpreterData: Data? = nil
     ) throws -> String {
         let root = pluginDirectoryURL.standardizedFileURL
         let files = try regularFiles(in: root)
@@ -67,7 +73,70 @@ struct CmuxPluginArtifactFingerprinter {
             hasher.update(data: Data(fileDigest.digest))
         }
 
+        if let entrypointFile = files.first(where: {
+            $0.relativePath == entrypointDeclaration
+        }) {
+            let prefix: Data
+            do {
+                let handle = try FileHandle(forReadingFrom: entrypointFile.url)
+                defer { try? handle.close() }
+                prefix = try handle.read(upToCount: 4096) ?? Data()
+            } catch {
+                throw CmuxPluginArtifactFingerprintError.unreadableFile(entrypointFile.url)
+            }
+            let shebang: CmuxPluginShebang?
+            do {
+                shebang = try CmuxPluginShebang.parse(prefix: prefix)
+            } catch {
+                throw CmuxPluginArtifactFingerprintError.unreadableFile(entrypointFile.url)
+            }
+            if let shebang {
+                let interpreterDigest = digestInterpreter(
+                    at: shebang.interpreterPath,
+                    data: interpreterData
+                )
+                updateLengthPrefixed(Data("interpreter".utf8), into: &hasher)
+                updateLengthPrefixed(Data(shebang.interpreterPath.utf8), into: &hasher)
+                updateUInt64(interpreterDigest.byteCount, into: &hasher)
+                hasher.update(data: Data(interpreterDigest.digest))
+            }
+        }
+
         return hexadecimalString(for: hasher.finalize())
+    }
+
+    private func digestInterpreter(
+        at path: String,
+        data: Data?
+    ) -> (byteCount: UInt64, digest: SHA256.Digest) {
+        if let data {
+            return (UInt64(data.count), SHA256.hash(data: data))
+        }
+        guard fileManager.isExecutableFile(atPath: path) else {
+            return unavailableInterpreterDigest()
+        }
+        var metadata = Darwin.stat()
+        guard Darwin.stat(path, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              UInt64(metadata.st_size) <= Self.maximumInterpreterBytes else {
+            return unavailableInterpreterDigest()
+        }
+        do {
+            return try digestFile(
+                at: URL(fileURLWithPath: path),
+                maximumBytes: Self.maximumInterpreterBytes
+            )
+        } catch {
+            // Keep an unavailable interpreter represented in the approval
+            // fingerprint. The snapshotter still rejects it at launch, while
+            // making the grant rotate if the interpreter later appears.
+            return unavailableInterpreterDigest()
+        }
+    }
+
+    private func unavailableInterpreterDigest() -> (byteCount: UInt64, digest: SHA256.Digest) {
+        (0, SHA256.hash(data: Self.unavailableInterpreterMarker))
     }
 
     private func regularFiles(
@@ -113,7 +182,10 @@ struct CmuxPluginArtifactFingerprinter {
         return files.sorted { $0.relativePath < $1.relativePath }
     }
 
-    private func digestFile(at url: URL) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
+    private func digestFile(
+        at url: URL,
+        maximumBytes: UInt64? = nil
+    ) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
         let handle: FileHandle
         do {
             handle = try FileHandle(forReadingFrom: url)
@@ -127,6 +199,9 @@ struct CmuxPluginArtifactFingerprinter {
         do {
             while let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
                 byteCount += UInt64(chunk.count)
+                if let maximumBytes, byteCount > maximumBytes {
+                    throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
+                }
                 hasher.update(data: chunk)
             }
         } catch {

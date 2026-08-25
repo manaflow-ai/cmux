@@ -108,6 +108,16 @@ public actor CmuxPluginExecutionSnapshotter {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let copiedDirectory = stagingRoot
             .appendingPathComponent(plugin.manifest.id, isDirectory: true)
+        var snapshotCommitted = false
+        var preparedInterpreterDescriptor: Int32?
+        defer {
+            if !snapshotCommitted, let preparedInterpreterDescriptor {
+                closeEntrypointDescriptor(preparedInterpreterDescriptor)
+            }
+            if !snapshotCommitted {
+                removeStagingRoot(stagingRoot)
+            }
+        }
 
         do {
             try fileManager.createDirectory(
@@ -154,6 +164,30 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
+        let preparedInterpreter = try CmuxPluginInterpreterSnapshotter(
+            fileManager: fileManager
+        ).makeSnapshot(
+            for: provisionalEntrypointURL,
+            stagingRoot: stagingRoot
+        )
+        preparedInterpreterDescriptor = preparedInterpreter?.descriptor
+        if let descriptor = preparedInterpreter?.descriptor {
+            openEntrypointDescriptors.insert(descriptor)
+        }
+        let copiedManifestURL = copiedDirectory
+            .appendingPathComponent("manifest.json", isDirectory: false)
+        let copiedManifestData = try Data(contentsOf: copiedManifestURL)
+        let copiedFingerprint = try CmuxPluginArtifactFingerprinter().fingerprint(
+            manifestData: copiedManifestData,
+            pluginDirectoryURL: copiedDirectory,
+            entrypointDeclaration: declaredEntrypoint,
+            interpreterData: preparedInterpreter?.data
+        )
+        guard copiedFingerprint == plugin.manifestFingerprint else {
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
+        }
+
         do {
             try sealSnapshot(at: stagingRoot)
         } catch let error as CmuxPluginExecutionSnapshotError {
@@ -173,11 +207,11 @@ public actor CmuxPluginExecutionSnapshotter {
             interpreterDescriptor: Int32?
         )
         do {
-            pinnedEntrypoint = try openEntrypoint(at: provisionalEntrypointURL)
+            pinnedEntrypoint = try openEntrypoint(
+                at: provisionalEntrypointURL,
+                interpreterDescriptor: preparedInterpreter?.descriptor
+            )
             openEntrypointDescriptors.insert(pinnedEntrypoint.descriptor)
-            if let interpreterDescriptor = pinnedEntrypoint.interpreterDescriptor {
-                openEntrypointDescriptors.insert(interpreterDescriptor)
-            }
         } catch let error as CmuxPluginExecutionSnapshotError {
             removeStagingRoot(stagingRoot)
             throw error
@@ -186,26 +220,13 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
-        // Re-read after opening the descriptors. The immutable root means the
-        // descriptor and this final pathname projection cannot diverge.
-        let finalReport = await CmuxPluginDirectoryLoader(directoryURL: stagingRoot).load()
-        guard finalReport.failures.isEmpty,
-              let finalPlugin = finalReport.plugins.first(where: {
-                  $0.manifest.id == plugin.manifest.id
-              }),
-              finalPlugin.manifestFingerprint == plugin.manifestFingerprint else {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
-            closeEntrypointDescriptor(pinnedEntrypoint.interpreterDescriptor ?? -1, clearImmutable: false)
-            removeStagingRoot(stagingRoot)
-            throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
-        }
         guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
             closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
-            closeEntrypointDescriptor(pinnedEntrypoint.interpreterDescriptor ?? -1, clearImmutable: false)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
+        snapshotCommitted = true
         return CmuxPluginExecutionSnapshot(
             directoryURL: copiedPlugin.directoryURL,
             manifestURL: copiedPlugin.directoryURL
@@ -221,12 +242,13 @@ public actor CmuxPluginExecutionSnapshotter {
     /// Removes a previously-created snapshot.
     public func remove(_ snapshot: CmuxPluginExecutionSnapshot) {
         closeEntrypointDescriptor(snapshot.entrypointFileDescriptor)
-        closeEntrypointDescriptor(snapshot.interpreterFileDescriptor ?? -1, clearImmutable: false)
+        closeEntrypointDescriptor(snapshot.interpreterFileDescriptor ?? -1)
         removeStagingRoot(snapshot.directoryURL.deletingLastPathComponent())
     }
 
     private func openEntrypoint(
-        at url: URL
+        at url: URL,
+        interpreterDescriptor: Int32?
     ) throws -> (
         descriptor: Int32,
         execution: CmuxPluginEntrypointExecution,
@@ -245,11 +267,7 @@ public actor CmuxPluginExecutionSnapshotter {
 
         do {
             if let interpreterArguments = try shebangArguments(from: readableDescriptor) {
-                guard let interpreterPath = interpreterArguments.first else {
-                    throw CmuxPluginExecutionSnapshotError.invalidInterpreter
-                }
-                let interpreterDescriptor = Darwin.open(interpreterPath, O_EXEC)
-                guard interpreterDescriptor >= 0 else {
+                guard interpreterDescriptor != nil else {
                     throw CmuxPluginExecutionSnapshotError.invalidInterpreter
                 }
                 Darwin.close(executableDescriptor)
@@ -258,6 +276,9 @@ public actor CmuxPluginExecutionSnapshotter {
                     .interpreter(Array(interpreterArguments.dropFirst())),
                     interpreterDescriptor
                 )
+            }
+            guard interpreterDescriptor == nil else {
+                throw CmuxPluginExecutionSnapshotError.invalidInterpreter
             }
             Darwin.close(readableDescriptor)
             return (executableDescriptor, .executable, nil)
@@ -278,23 +299,14 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
-        let marker = Data("#!".utf8)
-        guard prefix.starts(with: marker) else { return nil }
-        guard let newline = prefix.firstIndex(of: 0x0A) else {
+        let shebang: CmuxPluginShebang?
+        do {
+            shebang = try CmuxPluginShebang.parse(prefix: prefix)
+        } catch {
             throw CmuxPluginExecutionSnapshotError.invalidInterpreter
         }
-        let line = String(decoding: prefix[marker.count..<newline], as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let arguments = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard let interpreter = arguments.first,
-              interpreter.hasPrefix("/"),
-              arguments.count <= 16,
-              arguments.allSatisfy({ !$0.isEmpty && $0.count <= 256 }),
-              arguments.allSatisfy({ !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }),
-              fileManager.isExecutableFile(atPath: interpreter) else {
-            throw CmuxPluginExecutionSnapshotError.invalidInterpreter
-        }
-        return arguments
+        guard let shebang else { return nil }
+        return [shebang.interpreterPath] + shebang.arguments
     }
 
     private func closeEntrypointDescriptor(_ descriptor: Int32, clearImmutable: Bool = true) {

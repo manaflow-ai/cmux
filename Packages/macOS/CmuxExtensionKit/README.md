@@ -45,13 +45,15 @@ directory after symlink resolution.
 `eventHooks` and `paletteActions` are explicit capability families. Declaring
 an event or action without its family is rejected. Every plugin is disabled
 until the user reviews its requested scopes in Settings → Automation. A
-manifest or bundle-content fingerprint change invalidates the previous
-approval. Approved processes launch from a revalidated private bundle snapshot,
-and the entrypoint is executed through a pinned descriptor. The complete launch
-snapshot is read-only, so source-directory, sibling-file, or snapshot-path
-replacement cannot change the bytes that receive the reviewed capabilities.
-Shebang entrypoints also launch through an opened interpreter descriptor; use an
-absolute executable interpreter path when writing scripts.
+manifest, bundle-content, or declared-interpreter fingerprint change
+invalidates the previous approval. Approved processes launch from a
+revalidated private bundle snapshot, and the entrypoint is executed through a
+pinned descriptor. The complete launch snapshot is read-only, so
+source-directory, sibling-file, or snapshot-path replacement cannot change the
+bytes that receive the reviewed capabilities. Shebang interpreters are copied
+into that private snapshot and pinned there; CMUX never changes the original
+interpreter file. Use an absolute executable interpreter path when writing
+scripts.
 Use `TMPDIR` or another application-data location for plugin-generated files.
 Disabling a plugin preserves the reviewed grant but stops its process and event
 stream.
