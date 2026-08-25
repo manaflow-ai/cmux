@@ -175,23 +175,28 @@ actor LivenessHostRouter {
     func waitForCount(
         of method: String,
         atLeast expectedCount: Int,
-        timeoutNanoseconds: UInt64 = 3_000_000_000,
+        timeoutNanoseconds: UInt64 = MobileShellWallClockWaitPolicy.defaultWaitTimeoutNanoseconds,
         recordIssueOnTimeout: Bool = true
     ) async -> Bool {
-        let reached = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await self.waitUntilCountReached(of: method, atLeast: expectedCount)
-                return true
+        let effectiveTimeoutNanoseconds = MobileShellWallClockWaitPolicy
+            .timeoutNanoseconds(for: timeoutNanoseconds)
+        let reached = (try? await MobileShellWallClockWaitGate.processWide.withLock {
+            try Task.checkCancellation()
+            return await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    await self.waitUntilCountReached(of: method, atLeast: expectedCount)
+                    return true
+                }
+                group.addTask {
+                    // Test assertion deadline only; request arrival is signaled by record().
+                    try? await Task.sleep(nanoseconds: effectiveTimeoutNanoseconds)
+                    return false
+                }
+                let reached = await group.next() ?? false
+                group.cancelAll()
+                return reached
             }
-            group.addTask {
-                // Test assertion deadline only; request arrival is signaled by record().
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                return false
-            }
-            let reached = await group.next() ?? false
-            group.cancelAll()
-            return reached
-        }
+        }) ?? false
         if !reached, recordIssueOnTimeout {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
@@ -973,20 +978,25 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
 }
 
-/// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
-/// final value so tests can assert both presence and (bounded) absence.
+/// Poll until `condition` is true, bounded at `attempts` x 10ms. The default
+/// budget is intentionally generous for whole-suite scheduling; callers that
+/// assert bounded absence can keep an explicit shorter attempt count. Returns
+/// the final value so tests can assert both presence and (bounded) absence.
 @MainActor
 func pollUntil(
-    attempts: Int = 300,
+    attempts: Int = MobileShellWallClockWaitPolicy.defaultPollAttempts,
     _ condition: @MainActor () async -> Bool
 ) async throws -> Bool {
-    for _ in 0..<attempts {
-        if await condition() {
-            return true
+    try await MobileShellWallClockWaitGate.processWide.withLock {
+        try Task.checkCancellation()
+        for _ in 0..<attempts {
+            if await condition() {
+                return true
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
-        try await Task.sleep(nanoseconds: 10_000_000)
+        return await condition()
     }
-    return await condition()
 }
 
 @MainActor
