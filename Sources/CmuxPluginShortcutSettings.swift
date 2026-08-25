@@ -36,9 +36,14 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
         observationTask = nil
         mutationTail = nil
         observationTask = Task { [weak self, jsonStore] in
+            var isInitialValue = true
             for await values in jsonStore.values(for: Self.key) {
                 guard let self else { return }
-                self.replace(values)
+                let changed = self.replace(values)
+                if changed && !isInitialValue {
+                    await self.postChange()
+                }
+                isInitialValue = false
             }
         }
     }
@@ -67,7 +72,9 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
     /// Refreshes the synchronous projection from the config file after an
     /// external settings watcher reports a change.
     func refreshFromDisk() {
-        replace(jsonStore.snapshotValue(for: Self.key))
+        if replace(jsonStore.snapshotValue(for: Self.key)) {
+            Task { await postChange() }
+        }
     }
 
     /// Schedules an atomic map update and publishes the normal shortcut
@@ -127,10 +134,16 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func replace(_ values: [String: CmuxPluginShortcutBinding]) {
+    @discardableResult
+    private func replace(_ values: [String: CmuxPluginShortcutBinding]) -> Bool {
         lock.lock()
+        guard rawBindings != values else {
+            lock.unlock()
+            return false
+        }
         rawBindings = values
         lock.unlock()
+        return true
     }
 
     @MainActor

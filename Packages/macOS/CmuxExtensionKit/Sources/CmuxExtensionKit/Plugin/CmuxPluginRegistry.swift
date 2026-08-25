@@ -90,6 +90,7 @@ public actor CmuxPluginRegistry {
         let generation = reloadGeneration
         let previousTokens = tokensByID
         let previousTokenFingerprints = tokenFingerprintsByID
+        let previousPermissions = permissionsByID
         let loadedReport = await loader.load()
         let loadedPermissionStoreFailure = await permissionStore.storageLoadFailure()
         var nextPermissions: [String: CmuxPluginPermissions] = [:]
@@ -106,7 +107,8 @@ public actor CmuxPluginRegistry {
             if permissions.enabled {
                 let pluginID = plugin.manifest.id
                 if let previousToken = previousTokens[pluginID],
-                   previousTokenFingerprints[pluginID] == plugin.manifestFingerprint {
+                   previousTokenFingerprints[pluginID] == plugin.manifestFingerprint,
+                   previousPermissions[pluginID] == permissions {
                     nextTokens[pluginID] = previousToken
                 } else {
                     nextTokens[pluginID] = UUID().uuidString

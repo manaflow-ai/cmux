@@ -2,23 +2,40 @@ import CmuxExtensionKit
 import Foundation
 
 extension CmuxPluginRuntime {
-    /// Rescans manifests after all previously requested registry mutations.
+    /// Requests a coalesced manifest rescan after filesystem or settings changes.
     func reload() {
-        enqueueRegistryUpdate { registry in
+        lock.lock()
+        let continuation = pluginReloadContinuation
+        lock.unlock()
+        if let continuation {
+            // The bufferingNewest(1) stream keeps a continuous filesystem storm
+            // at one in-flight scan plus one latest pending request.
+            continuation.yield(())
+            return
+        }
+        _ = enqueueRegistryUpdate { registry in
             await registry.reload()
         }
     }
 
+    /// Performs one serialized reload for the bounded request stream.
+    func performPluginReload() async {
+        let task = enqueueRegistryUpdate { registry in
+            await registry.reload()
+        }
+        await task.value
+    }
+
     /// Approves all declarations for a plugin after an explicit Settings action.
     func approveAll(pluginID: String) {
-        enqueueRegistryUpdate(errorPluginID: pluginID) { registry in
+        _ = enqueueRegistryUpdate(errorPluginID: pluginID) { registry in
             try await registry.approveAll(pluginID: pluginID)
         }
     }
 
     /// Enables or disables a plugin after a Settings action.
     func setEnabled(_ enabled: Bool, pluginID: String) {
-        enqueueRegistryUpdate(errorPluginID: pluginID) { registry in
+        _ = enqueueRegistryUpdate(errorPluginID: pluginID) { registry in
             try await registry.setEnabled(enabled, pluginID: pluginID)
         }
     }
@@ -26,14 +43,15 @@ extension CmuxPluginRuntime {
     /// Orders registry mutations by request time. Package actors remain the
     /// source of truth, while this chain prevents a slower earlier reload from
     /// overwriting a later Settings decision in the synchronous projection.
+    @discardableResult
     private func enqueueRegistryUpdate(
         errorPluginID: String? = nil,
         _ operation: @escaping @Sendable (CmuxPluginRegistry) async throws -> CmuxPluginRegistrySnapshot
-    ) {
+    ) -> Task<Void, Never> {
         lock.lock()
         guard !isStopping else {
             lock.unlock()
-            return
+            return Task {}
         }
         let predecessor = registryUpdateTail
         let registryActor = registry
@@ -69,5 +87,6 @@ extension CmuxPluginRuntime {
         }
         registryUpdateTail = task
         lock.unlock()
+        return task
     }
 }

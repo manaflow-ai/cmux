@@ -55,7 +55,11 @@ public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
             guard descriptor >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(
                 fileDescriptor: descriptor,
-                eventMask: [.write, .delete, .rename, .attrib, .extend, .link, .revoke],
+                // Do not subscribe to `.attrib`: reading a file can update
+                // last-used metadata and create a self-sustaining verify/hash
+                // loop. Any rewrite after an owner clears the immutable flag
+                // still emits `.write`/`.extend` and is caught here.
+                eventMask: [.write, .delete, .rename, .extend, .link, .revoke],
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {

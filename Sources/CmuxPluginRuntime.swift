@@ -48,8 +48,10 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     var pluginShortcutStore: CmuxPluginShortcutStore?
     var routablePluginShortcuts: [String: StoredShortcut] = [:]
     private var hasStarted = false
-    private var pluginDirectoryWatcher: FileWatcher?
+    private var pluginDirectoryWatcher: RecursivePathWatcher?
     private var pluginDirectoryWatchTask: Task<Void, Never>?
+    var pluginReloadContinuation: AsyncStream<Void>.Continuation?
+    private var pluginReloadTask: Task<Void, Never>?
     private var socketListenerObserver: NSObjectProtocol?
     private var shortcutSettingsObserver: NSObjectProtocol?
     var registryUpdateTail: Task<Void, Never>?
@@ -73,6 +75,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         shortcutSettingsObserver = nil
         pluginDirectoryWatcher = nil
         pluginDirectoryWatchTask = nil
+        pluginReloadContinuation = nil
+        pluginReloadTask = nil
         registryUpdateTail = nil
         processReconciliationTask = nil
         socketListenerObserver = NotificationCenter.default.addObserver(
@@ -117,6 +121,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             NotificationCenter.default.removeObserver(shortcutSettingsObserver)
         }
         pluginDirectoryWatchTask?.cancel()
+        pluginReloadContinuation?.finish()
+        pluginReloadTask?.cancel()
         if let pluginDirectoryWatcher {
             Task { await pluginDirectoryWatcher.stop() }
         }
@@ -154,16 +160,29 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         }
         hasStarted = true
         lock.unlock()
-        let watcher = FileWatcher(
-            path: CmuxPluginDirectoryLoader.defaultDirectoryURL.path,
-            throttle: .milliseconds(250)
+        let watcher = RecursivePathWatcher(
+            paths: [CmuxPluginDirectoryLoader.defaultDirectoryURL.path],
+            throttleInterval: .milliseconds(250)
         )
+        let (reloadEvents, reloadContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let reloadTask = Task { @MainActor [weak self] in
+            for await _ in reloadEvents {
+                guard let self, !Task.isCancelled else { return }
+                await self.performPluginReload()
+            }
+        }
         lock.lock()
         pluginDirectoryWatcher = watcher
-        pluginDirectoryWatchTask = Task { @MainActor [weak self, watcher] in
-            for await _ in watcher.events {
-                guard let self, !Task.isCancelled else { return }
-                self.reload()
+        pluginReloadContinuation = reloadContinuation
+        pluginReloadTask = reloadTask
+        if let watcher {
+            pluginDirectoryWatchTask = Task { @MainActor [weak self, watcher] in
+                for await _ in watcher.events {
+                    guard let self, !Task.isCancelled else { return }
+                    self.reload()
+                }
             }
         }
         lock.unlock()
@@ -403,6 +422,10 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         processReconciliationTask?.cancel()
         pluginDirectoryWatchTask?.cancel()
         pluginDirectoryWatchTask = nil
+        pluginReloadContinuation?.finish()
+        pluginReloadContinuation = nil
+        pluginReloadTask?.cancel()
+        pluginReloadTask = nil
         let pluginDirectoryWatcher = self.pluginDirectoryWatcher
         self.pluginDirectoryWatcher = nil
         let subscriptions = subscriptionsByPluginID.values.flatMap(\.values)
