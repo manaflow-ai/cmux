@@ -260,6 +260,67 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Dock lifecycle mutations keep the attention projection synchronized")
+    func dockLifecycleMutationsKeepAttentionProjectionSynchronized() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+
+        #expect(
+            dock.recordAgentPIDResult(
+                key: "amp.attention",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            ).accepted
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .needsInput,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .idle,
+                processGeneration: generation
+            )
+        )
+        #expect(!dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+
+        let token = try #require(
+            dock.beginAgentFeedAttention(
+                key: "amp",
+                panelId: panelID,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+        #expect(
+            dock.endAgentFeedAttention(
+                key: "amp",
+                panelId: panelID,
+                token: token
+            )
+        )
+        #expect(!dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+    }
+
     @Test("Workspace rejects delayed PID registration before replacing runtime")
     func workspaceRejectsDelayedOlderPIDRegistration() throws {
         let workspace = Workspace()

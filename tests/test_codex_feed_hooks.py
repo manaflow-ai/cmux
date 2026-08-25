@@ -3635,6 +3635,40 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     f"{leaked_attention!r}"
                 )
 
+            oversized_tool_call_id = "cursor-call-oversized-" + ("x" * 161)
+            oversized_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-oversized-id",
+                "tool_use_id": oversized_tool_call_id,
+            }
+            before_oversized = len(fake.frames)
+            oversized_stdout = run_cursor_feed(
+                "preToolUse",
+                oversized_payload,
+            )
+            if oversized_stdout != {}:
+                raise AssertionError(
+                    "Cursor oversized tool-call id changed hook output: "
+                    f"{oversized_stdout!r}"
+                )
+            # A malformed identifier must be rejected before the detached
+            # observer is spawned. Keep the assertion window long enough for
+            # a normal Process launch to appear on a loaded runner.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if cursor_observer_pids(oversized_tool_call_id):
+                    raise AssertionError(
+                        "Cursor oversized tool-call id spawned an observer"
+                    )
+                time.sleep(0.05)
+            if any(
+                frame.get("method") == "agent.attention.begin"
+                for frame in fake.frames[before_oversized:]
+            ):
+                raise AssertionError(
+                    "Cursor oversized tool-call id surfaced native attention"
+                )
+
             concurrent_start = len(fake.frames)
             concurrent_requested = {
                 **requested_payload,
