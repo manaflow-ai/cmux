@@ -101,6 +101,54 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func revealApplyPreservesReloadAfterHiddenRowPrune() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 2)
+
+        // Hiding prunes the controller snapshot and queues a reload. A reveal
+        // apply can arrive before that queued callback gets a run-loop turn.
+        controller.setPresentationActive(false, workspaceIds: [first.workspaceId])
+        controller.setPresentationActive(true, workspaceIds: [first.workspaceId])
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A reveal apply must still reload a table whose hidden snapshot was pruned before the apply."
+        )
+    }
+
+    @Test
     func visibleRowClickWhileRevealApplyIsPendingReplaysWhenActionsReturn() async throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let initiallySelectedWorkspace = try #require(tabManager.selectedWorkspace)
