@@ -55,7 +55,10 @@ extension MobileShellComposite {
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialPath,
                     surface: peerAlias,
-                    a: Self.diagnosticPathKind(for: transport).rawValue,
+                    // A failed dial never negotiated a concrete path. The
+                    // attempted route class belongs on `transportDialFailed`;
+                    // path attribution is reserved for success/observation.
+                    a: DiagnosticPathKind.unknown.rawValue,
                     c: attemptID
                 ))
             case let .cancelled(attemptID, _, reason, elapsedMilliseconds):

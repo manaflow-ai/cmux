@@ -232,10 +232,10 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
         guard let required = mode.pinnedClass else { return routes }
         let filtered: [CmxAttachRoute]
         if mode == .lan {
-            let hasAdvertisedLANRoute = routes.contains { $0.kind == .lan }
-            filtered = hasAdvertisedLANRoute
-                ? routes.filter { $0.kind == .iroh }
-                : []
+            // The broker-authorized Iroh peer can discover the current LAN
+            // address after a v3 identity-only pairing code, so the raw LAN
+            // route need not be present in the ticket itself.
+            filtered = routes.filter { $0.kind == .iroh }
         } else {
             filtered = routes.filter { $0.transportClass == required }
         }

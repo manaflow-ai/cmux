@@ -59,6 +59,30 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
         }
     }
 
+    @Test func rejectsRawLANBearerTransportAtEveryFactoryBoundary() throws {
+        let route = try CmxAttachRoute(
+            id: "lan",
+            kind: .lan,
+            endpoint: .hostPort(host: "192.168.1.20", port: 49_831)
+        )
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: "mac-1",
+            authorizationMode: .stackBearer,
+            transportMode: .lanOnly
+        )
+
+        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+            _ = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+        }
+        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+            _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
+        }
+        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+            _ = try CmxNetworkByteTransport(route: route)
+        }
+    }
+
     @Test func rejectsRouteKindAuthorizationSubstitution() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",

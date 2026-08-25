@@ -38,7 +38,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         guard case .hostPort = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
-        guard route.kind != .tailscale else {
+        guard route.kind != .tailscale, route.kind != .lan else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         return try CmxNetworkByteTransport(
@@ -90,16 +90,10 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
         case .lan:
-            guard request.authorizationMode == .stackBearer else {
-                throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
-                    request.authorizationMode
-                )
-            }
-            return try CmxNetworkByteTransport(
-                route: route,
-                maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
-            )
+            // Raw LAN TCP is intentionally unavailable to the RPC seam. LAN
+            // Only uses the encrypted Iroh peer route; accepting `.stackBearer`
+            // here would let a caller bypass the shell's auth gate.
+            throw CmxNetworkByteTransportError.authorizationIntentRequired
         case .debugLoopback:
             guard request.authorizationMode == .stackBearer else {
                 throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(

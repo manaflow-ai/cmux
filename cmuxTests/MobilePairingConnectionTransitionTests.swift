@@ -194,8 +194,21 @@ struct MobilePairingConnectionTransitionTests {
         #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
-    @Test("LAN-only routes stay out of legacy pairing QR payloads")
-    func lanOnlyPlanFailsClosedForLegacyClients() throws {
+    @Test("LAN-only pairing uses the current Iroh bootstrap grammar")
+    func lanOnlyPlanUsesIrohIdentityCode() throws {
+        let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try CmxAttachRoute(
+                id: "lan",
+                kind: .lan,
+                endpoint: .hostPort(host: "192.168.1.20", port: 58_465)
+            ),
+            try irohRoute()
+        ]))
+        #expect(plan.disclosureMode == .irohIdentityOnly)
+    }
+
+    @Test("LAN-only pairing without an Iroh identity fails closed")
+    func lanOnlyPlanWithoutEncryptedBootstrapIsUnavailable() throws {
         #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
             try CmxAttachRoute(
                 id: "lan",

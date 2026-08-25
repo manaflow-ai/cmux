@@ -36,8 +36,8 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case unsupportedRouteKind(CmxAttachTransportKind)
     /// The endpoint is not a host/port endpoint this transport can dial.
     case unsupportedEndpoint(CmxAttachEndpoint)
-    /// A Tailscale route reached the route-only factory seam without an
-    /// authorization context. Raw Tailscale TCP is never constructed there.
+    /// A private-network route reached the route-only factory seam without an
+    /// authorization context. Raw LAN/Tailscale TCP is never constructed there.
     case authorizationIntentRequired
     /// The request's authorization mode cannot be served by plaintext TCP.
     case unsupportedAuthorizationMode(CmxTransportAuthorizationMode)
@@ -146,7 +146,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         try route.validate()
-        guard route.kind != .tailscale else {
+        guard route.kind != .tailscale, route.kind != .lan else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         guard case let .hostPort(host, port) = route.endpoint else {

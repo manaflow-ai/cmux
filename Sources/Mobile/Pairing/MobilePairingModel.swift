@@ -76,12 +76,20 @@ final class MobilePairingModel {
         let disclosureMode: CmxPairingRouteDisclosureMode
 
         static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
-            guard routes.contains(where: MobilePairingModel.isPhoneReachableTailscaleRoute) else {
+            if routes.contains(where: MobilePairingModel.isPhoneReachableTailscaleRoute) {
+                return PairingRoutePlan(
+                    disclosureMode: .legacyPrivateNetworkCompatibility
+                )
+            }
+            // A current iOS client can bootstrap LAN Only from an identity-only
+            // Iroh code: the authenticated broker then supplies the LAN hint to
+            // the encrypted session. Older clients never see a new `.lan` route
+            // kind in their compatibility QR.
+            guard routes.contains(where: { $0.kind == .iroh }),
+                  routes.contains(where: { $0.kind == .lan }) else {
                 return nil
             }
-            return PairingRoutePlan(
-                disclosureMode: .legacyPrivateNetworkCompatibility
-            )
+            return PairingRoutePlan(disclosureMode: .irohIdentityOnly)
         }
     }
 

@@ -91,7 +91,7 @@ import Testing
 
         // Loopback never leaves the device and may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(advertisedLAN))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(advertisedLAN))
 
         // A numeric Tailscale address and an anonymous utun path do not prove
         // which VPN owns that path or which peer accepted plaintext TCP.
@@ -102,8 +102,8 @@ import Testing
         // bearer token must never be sent to the peer or any path hint.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
-        // A private address mislabeled as Tailscale remains untrusted; only the
-        // Mac-advertised `.lan` class can carry the LAN mode's account auth.
+        // Raw LAN TCP remains untrusted; LAN Only uses the encrypted Iroh path
+        // rather than carrying an account bearer over the local network.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
         // MagicDNS text is not a transport proof. The connection factory must

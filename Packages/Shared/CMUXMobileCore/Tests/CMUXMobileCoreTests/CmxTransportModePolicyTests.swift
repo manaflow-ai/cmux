@@ -37,8 +37,16 @@ struct CmxTransportModePolicyTests {
         }
     }
 
-    @Test("LAN Only fails closed when no encrypted Iroh route accompanies LAN")
-    func lanOnlyRequiresEncryptedPeerRoute() throws {
+    @Test("LAN Only accepts an encrypted Iroh peer for broker LAN discovery")
+    func lanOnlyUsesEncryptedPeerRoute() throws {
+        #expect(
+            try CmxTransportModePolicy(.lanOnly).routes(from: [try irohRoute()]).map(\.id)
+                == ["iroh"]
+        )
+    }
+
+    @Test("LAN Only fails closed when only raw TCP is available")
+    func lanOnlyRequiresEncryptedPeerWhenNoIrohRoute() throws {
         #expect(throws: CmxTransportModeError.self) {
             try CmxTransportModePolicy(.lanOnly).routes(
                 from: [try route(id: "lan", kind: .lan, host: "192.168.1.10")]
