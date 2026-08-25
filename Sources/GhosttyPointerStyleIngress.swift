@@ -39,7 +39,8 @@ actor GhosttyPointerStyleIngress {
     }
 
     /// Registers a native runtime before Ghostty can emit its first action.
-    nonisolated func activate(runtimeLifetimeId: UUID, surfaceId: UUID) {
+    @discardableResult
+    nonisolated func activate(runtimeLifetimeId: UUID, surfaceId: UUID) -> UInt64 {
         let generation = runtimeGeneration.advanceRelaxed()
         Task {
             await self.activateIsolated(
@@ -47,6 +48,7 @@ actor GhosttyPointerStyleIngress {
                 generation: generation
             )
         }
+        return generation
     }
 
     /// Retires a runtime; `nil` unconditionally retires the currently active one.
@@ -74,7 +76,6 @@ actor GhosttyPointerStyleIngress {
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
-        request.runtimeGeneration = runtimeGeneration.loadRelaxed()
         continuation.yield(request)
     }
 

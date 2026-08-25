@@ -26,7 +26,8 @@ final class FakeTerminalSurfaceNativeView: NSView {
     }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
-    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {}
+    @discardableResult
+    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) -> UInt64 { 0 }
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
         endedRuntimeLifetimeIds.append(runtimeLifetimeId)
     }

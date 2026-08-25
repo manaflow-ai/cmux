@@ -48,9 +48,10 @@ extension TerminalSurface {
         invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
-        view.prepareForRuntimeSurfaceCreation(
+        let runtimeGeneration = view.prepareForRuntimeSurfaceCreation(
             runtimeLifetimeId: callbackContextValue.runtimeLifetimeId
         )
+        callbackContextValue.installPointerIngressGeneration(runtimeGeneration)
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
         surfaceConfig.io_mode = ioMode.ghosttyMode

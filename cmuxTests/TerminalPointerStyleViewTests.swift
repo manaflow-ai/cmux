@@ -154,6 +154,14 @@ struct TerminalPointerStyleViewTests {
         )
 
         #expect(didInvalidateCursorRects)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: runtimeLifetimeId
+            )
+        )
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
 }
