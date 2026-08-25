@@ -85,19 +85,20 @@ extension BrowserPanel {
                     for: URLRequest(url: targetURL),
                     intent: .currentTab,
                     recordTypedNavigation: recordTypedNavigation,
+                    onResolution: { [weak self] resolution in
+                        guard let self else { return }
+                        if case .proceededInCurrentTab = resolution {
+                            self.startChromiumAutomationNavigation(
+                                ticket,
+                                targetURL: targetURL,
+                                recordTypedNavigation: recordTypedNavigation
+                            )
+                        } else {
+                            self.automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
+                        }
+                    },
                     deferNavigation: true
-                ) { [weak self] resolution in
-                    guard let self else { return }
-                    if case .proceededInCurrentTab = resolution {
-                        self.startChromiumAutomationNavigation(
-                            ticket,
-                            targetURL: targetURL,
-                            recordTypedNavigation: recordTypedNavigation
-                        )
-                    } else {
-                        self.automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
-                    }
-                }
+                )
             } else {
                 startChromiumAutomationNavigation(
                     ticket,

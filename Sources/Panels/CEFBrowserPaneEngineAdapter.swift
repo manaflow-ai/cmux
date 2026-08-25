@@ -66,7 +66,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         startupTask?.cancel()
         documentScriptRemovalTask?.cancel()
         colorSchemeTask?.cancel()
-        browser?.close()
+        // The lifecycle owner requests `close()` while isolated to the main
+        // actor. Swift deinitializers are nonisolated, so no AppKit/CEF call
+        // can be made safely from this finalizer.
     }
 
     func start(initialURL: URL?) {
@@ -255,7 +257,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         let waiterID = UUID()
         try await withTaskCancellationHandler(
             operation: {
-                try await withCheckedThrowingContinuation { continuation in
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<Void, any Error>) in
                     if Task.isCancelled {
                         continuation.resume(throwing: CancellationError())
                     } else if isReady {
