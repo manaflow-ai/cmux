@@ -213,7 +213,15 @@ extension DockSplitStore {
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
+        let restoreOwnershipAmbiguous: Bool = if shouldAutoResumeAgent || resumeBinding != nil {
+            let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+            liveIndex.hasAmbiguousPanel(snapshot.id)
+        } else {
+            false
+        }
         let resumeBindingForStartup = hibernation != nil ||
+            restoreOwnershipAmbiguous ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil
             : resumeBinding
@@ -228,7 +236,7 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
+        let unresolvedBindingLaunch = restoreOwnershipAmbiguous ? nil : approvedResumeBinding.flatMap {
             policy.surfaceResumeStartupLaunch(
                 forApprovedBinding: $0
             )
@@ -246,7 +254,7 @@ extension DockSplitStore {
                 ?? workingDirectory
         }()
         let bindingLaunch = unresolvedBindingLaunch
-        let tmuxStartCommand = restorableAgent == nil && bindingLaunch == nil
+        let tmuxStartCommand = !restoreOwnershipAmbiguous && restorableAgent == nil && bindingLaunch == nil
             ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
             : nil
         let tmuxLauncher = tmuxStartCommand.flatMap {
@@ -482,7 +490,7 @@ extension DockSplitStore {
             return true
         }
         if AgentResumeLiveness.hasLiveProcess(
-            for: index.entry(workspaceId: workspaceId, panelId: snapshotPanelId),
+            for: index.entryForStablePanel(workspaceId: workspaceId, panelId: snapshotPanelId),
             kind: restorableAgent.kind.rawValue,
             sessionId: restorableAgent.sessionId
         ) {

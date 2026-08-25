@@ -1480,8 +1480,12 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            let restoreOwnershipAmbiguous = SharedLiveAgentIndex.shared
+                .currentIndexSchedulingRefresh()?
+                .hasAmbiguousPanel(snapshot.id) == true
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
+                restoreOwnershipAmbiguous ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
@@ -1505,7 +1509,9 @@ extension Workspace {
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
-                if canAttemptLocalBindingResume, let effectiveResumeBindingForStartup {
+                if !restoreOwnershipAmbiguous,
+                   canAttemptLocalBindingResume,
+                   let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: effectiveResumeBindingForStartup
                     )
@@ -1540,7 +1546,8 @@ extension Workspace {
                     ?? workingDirectory
             }()
             let restoredBindingLaunch = unresolvedBindingLaunch
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
+            let restorableTmuxStartCommand = !restoreOwnershipAmbiguous &&
+                restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
