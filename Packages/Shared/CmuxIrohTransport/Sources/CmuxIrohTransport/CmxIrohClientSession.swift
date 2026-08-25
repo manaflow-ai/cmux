@@ -286,7 +286,7 @@ public actor CmxIrohClientSession {
         case .tailscale:
             return false
         case .lan:
-            return privatePathMatchesPlan(path, source: .lan)
+            return pathMatchesPlan(path, source: .lan)
         case .iroh:
             switch path {
             case .unavailable:
@@ -303,10 +303,7 @@ public actor CmxIrohClientSession {
                 _ = address
                 return true
             case let .privateNetwork(address):
-                return privatePathMatchesPlan(
-                    .privateNetwork(address: address),
-                    source: .native
-                )
+                return pathMatchesPlan(.privateNetwork(address: address), source: .native)
             }
         case .direct:
             switch path {
@@ -320,10 +317,7 @@ public actor CmxIrohClientSession {
                     source: .customVPN
                 )
             case let .privateNetwork(address):
-                return privatePathMatchesPlan(
-                    .privateNetwork(address: address),
-                    source: .customVPN
-                )
+                return pathMatchesPlan(.privateNetwork(address: address), source: .customVPN)
             }
         }
     }
@@ -336,21 +330,40 @@ public actor CmxIrohClientSession {
         switch path {
         case .unavailable:
             return .unavailable
-        case .direct:
-            return .irohDirect
+        case let .direct(address):
+            guard let address else { return .irohDirect }
+            return projectedAddressPath(address)
         case .relay:
             return .irohRelay(region: nil)
         case let .privateNetwork(address):
-            switch matchingPathHintSource(for: address) {
-            case .some(.lan):
-                return .lan(address: address)
-            case .some(.tailscale):
-                return .tailscale(address: address)
-            case .some(.native), .some(.customVPN):
-                return .irohDirect
-            case nil:
-                return .unavailable
-            }
+            return projectedAddressPath(address)
+        }
+    }
+
+    private func projectedAddressPath(_ address: String) -> CmxTransportPath {
+        switch matchingPathHintSource(for: address) {
+        case .some(.lan): .lan(address: address)
+        case .some(.tailscale): .tailscale(address: address)
+        case .some(.native), .some(.customVPN): .irohDirect
+        case nil: .unavailable
+        }
+    }
+
+    private func pathMatchesPlan(
+        _ path: CmxIrohObservedConnectionPath,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        switch path {
+        case let .privateNetwork(address):
+            return privatePathMatchesPlan(
+                .privateNetwork(address: address),
+                source: source
+            )
+        case let .direct(address):
+            guard let address else { return false }
+            return directPathMatchesPlan(address, source: source)
+        case .unavailable, .relay:
+            return false
         }
     }
 

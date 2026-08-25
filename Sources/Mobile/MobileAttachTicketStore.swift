@@ -305,8 +305,12 @@ final class MobileAttachTicketStore {
             }
             // The compact grammar is the fallback when no released-compatible
             // Tailscale URL exists (for example an Iroh+LAN-only ticket).
+            let compactTicket = try legacyCompatibleCompactTicket(
+                ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            )
             return try compactAttachURL(
-                for: ticket,
+                for: compactTicket,
                 routeDisclosureMode: .legacyPrivateNetworkCompatibility,
                 pairingURLScheme: pairingURLScheme
             )

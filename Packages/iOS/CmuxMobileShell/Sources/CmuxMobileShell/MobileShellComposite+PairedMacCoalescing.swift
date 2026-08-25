@@ -109,7 +109,8 @@ extension MobileShellComposite {
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ).map {
-                "iroh-authority:\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
+                let modeScope = mac.connectionMethodRawValue ?? "default"
+                return "iroh-authority:mode:\(modeScope):\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
             }
                 ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
