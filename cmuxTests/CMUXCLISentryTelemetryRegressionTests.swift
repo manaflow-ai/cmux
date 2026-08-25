@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 private final class CMUXCLISentryTelemetryBundleToken {}
 
 @Suite struct CMUXCLISentryTelemetryRegressionTests {
@@ -98,6 +104,99 @@ private final class CMUXCLISentryTelemetryBundleToken {}
             Comment(rawValue: "Unexpected relay auth failures should be stored durably without synchronously flushing Sentry. Output: \(result.stdout)")
         )
     }
+
+#if DEBUG
+#if canImport(cmux_DEV) || canImport(cmux)
+    @Test func scopedStructuredAndWrappedCLIErrorClassification() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-classification-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func telemetry(probePath: String) -> CLISocketSentryTelemetry {
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+            return CLISocketSentryTelemetry(
+                command: "ping",
+                commandArgs: [],
+                socketPath: "/tmp/cmux-regression.sock",
+                processEnv: environment
+            )
+        }
+
+        let wrappedUnavailableProbe = root.appendingPathComponent("wrapped-unavailable.txt").path
+        telemetry(probePath: wrappedUnavailableProbe).captureError(
+            stage: "agent-hook-notification-delivery",
+            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
+            classificationError: NSError(
+                domain: "com.cmuxterm.cli.inner-wrapper",
+                code: 1,
+                userInfo: [
+                    NSUnderlyingErrorKey: CLIError(
+                        message: "unavailable: TabManager not available (Code: 1)",
+                        v2Code: "unavailable"
+                    )
+                ]
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: wrappedUnavailableProbe))
+
+        let wrappedLegacyProbe = root.appendingPathComponent("wrapped-legacy.txt").path
+        telemetry(probePath: wrappedLegacyProbe).captureError(
+            stage: "agent-hook-notification-delivery",
+            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
+            classificationError: NSError(
+                domain: "com.cmuxterm.cli.inner-wrapper",
+                code: 1,
+                userInfo: [
+                    NSUnderlyingErrorKey: CLIError(message: "ERROR: TabManager not available")
+                ]
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: wrappedLegacyProbe))
+
+        let actionableCodeProbe = root.appendingPathComponent("actionable-code.txt").path
+        telemetry(probePath: actionableCodeProbe).captureError(
+            stage: "socket_command",
+            error: NSError(domain: "com.cmuxterm.cli.wrapper", code: 1),
+            classificationError: NSError(
+                domain: "com.cmuxterm.cli.inner-wrapper",
+                code: 1,
+                userInfo: [
+                    NSUnderlyingErrorKey: CLIError(
+                        message: "unavailable: TabManager not available (Code: 1)",
+                        v2Code: "internal_error"
+                    )
+                ]
+            )
+        )
+        #expect(FileManager.default.fileExists(atPath: actionableCodeProbe))
+
+        let missingPathProbe = root.appendingPathComponent("missing-path.txt").path
+        telemetry(probePath: missingPathProbe).captureError(
+            stage: "socket_connect",
+            error: CLIError(
+                message: "Socket not found at /tmp/cmux-regression.sock (Code: 1)",
+                socketFailureKind: .pathMissing
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: missingPathProbe))
+
+        let startupTimeoutProbe = root.appendingPathComponent("startup-timeout.txt").path
+        telemetry(probePath: startupTimeoutProbe).captureError(
+            stage: "socket_startup_wait",
+            error: CLIError(
+                message: "cmux app did not start in time (socket not found at /tmp/cmux-regression.sock)",
+                socketFailureKind: .startupTimeout
+            )
+        )
+        #expect(FileManager.default.fileExists(atPath: startupTimeoutProbe))
+    }
+#endif
+#endif
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CMUXCLISentryTelemetryBundleToken.self)

@@ -15,6 +15,16 @@ public struct SentryNoiseFilter: Sendable {
         normalizedCLIErrorCode(code) == "unavailable"
     }
 
+    /// Returns `true` for the legacy app-lifecycle text emitted by agent hooks.
+    ///
+    /// Agent-hook failures intentionally report a privacy-reduced wrapper, so
+    /// callers may pass the original error here when its structured code is
+    /// unavailable. The caller must still restrict this check to an agent-hook
+    /// stage; this method does not classify arbitrary Sentry messages.
+    public func isExpectedLegacyCLIAppLifecycleMessage(_ text: String) -> Bool {
+        text.lowercased().contains("tabmanager not available")
+    }
+
     /// Returns `true` for an expected CLI socket lifecycle failure.
     ///
     /// - Parameters:
@@ -48,7 +58,8 @@ public struct SentryNoiseFilter: Sendable {
             return normalizedCode == "unavailable" || socketPathMissing
         }
         if socketPathMissing { return true }
-        return isExpectedCLISocketTransportMessage(message) ||
+        return isExpectedCLIProtocolLifecycleMessage(message) ||
+            isExpectedCLISocketTransportMessage(message) ||
             (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
     }
 
@@ -56,14 +67,6 @@ public struct SentryNoiseFilter: Sendable {
     /// are normal lifecycle races at fleet scale.
     public func isExpectedCLISocketTransportMessage(_ text: String) -> Bool {
         let t = text.lowercased()
-
-        // V2 formats protocol failures as `unavailable: <message>`. Keep the
-        // legacy text fallback for older callers that do not preserve v2Code;
-        // the structured `cliErrorCode` path above remains authoritative for
-        // localized or otherwise changed unavailable messages.
-        if t.contains("unavailable:") || t.contains("tabmanager not available") {
-            return true
-        }
 
         let isSocketWriteFailure =
             t.contains("failed to write to socket") ||
@@ -115,6 +118,15 @@ public struct SentryNoiseFilter: Sendable {
             return nil
         }
         return normalized
+    }
+
+    private func isExpectedCLIProtocolLifecycleMessage(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+        // V2 formats protocol failures as `unavailable: <message>`. Keep this
+        // legacy fallback behind ``isExpectedCLISocketTransportFailure`` so a
+        // free-form Sentry message cannot be mistaken for a socket response.
+        return normalized.contains("unavailable:") ||
+            normalized.contains("tabmanager not available")
     }
 
     private func containsErrno(_ code: Int, in text: String) -> Bool {

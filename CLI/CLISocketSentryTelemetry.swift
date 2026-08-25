@@ -148,19 +148,38 @@ final class CLISocketSentryTelemetry {
         let errorDescription = String(describing: error)
         let classificationCandidate = classificationError ?? error
         let cliErrorMetadata = metadata(for: classificationCandidate)
+        let dataKeys = Set(data.keys)
+        let isAgentHookStage = stage.hasPrefix("agent-hook-")
         let isExpectedStructuredCLIError =
-            noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
-            cliErrorMetadata.socketPathMissing
+            noiseFilter.isExpectedCLISocketTransportFailure(
+                stage: stage,
+                message: errorDescription,
+                dataKeys: dataKeys,
+                cliErrorCode: cliErrorMetadata.code,
+                socketPathMissing: cliErrorMetadata.socketPathMissing
+            ) ||
+            (isAgentHookStage &&
+                (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
+                    cliErrorMetadata.socketPathMissing))
         let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let isExpectedLegacyCLIError = !hasStructuredCLIErrorCode &&
-            cliErrorMetadata.legacyMessage != nil &&
-            noiseFilter.isExpectedCLISocketTransportMessage(
-                cliErrorMetadata.legacyMessage ?? String(describing: classificationCandidate)
-            )
+        let isExpectedLegacyCLIError: Bool
+        if !hasStructuredCLIErrorCode, let legacyMessage = cliErrorMetadata.legacyMessage {
+            isExpectedLegacyCLIError =
+                noiseFilter.isExpectedCLISocketTransportFailure(
+                    stage: stage,
+                    message: legacyMessage,
+                    dataKeys: dataKeys,
+                    allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
+                ) ||
+                (isAgentHookStage &&
+                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(legacyMessage))
+        } else {
+            isExpectedLegacyCLIError = false
+        }
         let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
-            dataKeys: Set(data.keys),
+            dataKeys: dataKeys,
             allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial,
             cliErrorCode: cliErrorMetadata.code,
             socketPathMissing: cliErrorMetadata.socketPathMissing
@@ -338,40 +357,48 @@ final class CLISocketSentryTelemetry {
 
     private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
         let noiseFilter = SentryNoiseFilter()
-        var hasStructuredCLIErrorCode = false
-        if let socketContext = event.context?["cli_socket"] {
-            let stage = socketContext["stage"] as? String ?? ""
-            let message = socketContext["error"] as? String ?? ""
-            let cliErrorCode = socketContext["cli_error_code"] as? String
-            hasStructuredCLIErrorCode = cliErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            let socketPathMissing = socketContext["socket_path_missing"] as? Bool ?? false
-            if noiseFilter.isExpectedCLIErrorCode(cliErrorCode) || socketPathMissing {
-                return true
-            }
-            if noiseFilter.isExpectedCLISocketTransportFailure(
-                stage: stage,
-                message: message,
-                dataKeys: Set(socketContext.keys),
-                cliErrorCode: cliErrorCode,
-                socketPathMissing: socketPathMissing
-            ) {
-                return true
-            }
+        guard let socketContext = event.context?["cli_socket"] else {
+            return false
         }
-        if !hasStructuredCLIErrorCode,
-           let message = event.message?.formatted,
-           noiseFilter.isExpectedCLISocketTransportMessage(message) {
+        let stage = socketContext["stage"] as? String ?? ""
+        let contextMessage = socketContext["error"] as? String ?? ""
+        let cliErrorCode = socketContext["cli_error_code"] as? String
+        let socketPathMissing = socketContext["socket_path_missing"] as? Bool ?? false
+        let dataKeys = Set(socketContext.keys)
+        let isAgentHookStage = stage.hasPrefix("agent-hook-")
+        let hasStructuredCLIErrorCode =
+            cliErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        if noiseFilter.isExpectedCLISocketTransportFailure(
+            stage: stage,
+            message: contextMessage,
+            dataKeys: dataKeys,
+            cliErrorCode: cliErrorCode,
+            socketPathMissing: socketPathMissing
+        ) ||
+            (isAgentHookStage &&
+                (noiseFilter.isExpectedCLIErrorCode(cliErrorCode) || socketPathMissing)) {
             return true
         }
-        if !hasStructuredCLIErrorCode {
-            for exception in event.exceptions ?? [] {
-                if let value = exception.value,
-                   noiseFilter.isExpectedCLISocketTransportMessage(value) {
-                    return true
-                }
-            }
+
+        // A structured actionable code is authoritative. Do not let a legacy
+        // message in the rendered event override it.
+        guard !hasStructuredCLIErrorCode else { return false }
+
+        var legacyMessages = [String]()
+        if let message = event.message?.formatted {
+            legacyMessages.append(message)
         }
-        return false
+        legacyMessages.append(contentsOf: event.exceptions?.compactMap(\.value) ?? [])
+        return legacyMessages.contains {
+            noiseFilter.isExpectedCLISocketTransportFailure(
+                stage: stage,
+                message: $0,
+                dataKeys: dataKeys
+            ) ||
+                (isAgentHookStage &&
+                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage($0))
+        }
     }
 
     private func makeBreadcrumb(message: String, data: [String: Any]) -> Breadcrumb {

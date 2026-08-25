@@ -57,6 +57,26 @@ import Testing
         ))
     }
 
+    @Test func scopesLegacyLifecycleTextToSocketOrAgentHookContext() {
+        #expect(!filter.isExpectedCLISocketTransportMessage(
+            "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_startup_wait",
+            message: "cmux app did not start in time (socket not found at /tmp/cmux.sock)"
+        ))
+        #expect(filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "ERROR: TabManager not available"
+        ))
+        #expect(!filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "remote proxy unavailable: connection refused"
+        ))
+    }
+
     @Test func keepsActionableSocketFailures() {
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
