@@ -291,9 +291,11 @@ public actor CmxIrohClientSession {
             switch path {
             case .unavailable:
                 return true
-            case .relay:
+            case let .relay(url):
                 return dialPlan.publicPaths.contains {
-                    $0.source == .native && $0.kind == .relayURL
+                    $0.source == .native
+                        && $0.kind == .relayURL
+                        && $0.value == url
                 }
             case let .direct(address):
                 // Native Iroh may discover a fresh public direct address after

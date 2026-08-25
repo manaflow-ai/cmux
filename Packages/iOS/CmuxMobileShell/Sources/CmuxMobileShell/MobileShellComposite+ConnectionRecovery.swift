@@ -834,6 +834,7 @@ extension MobileShellComposite {
                 guard ifStillCurrent?() ?? true else { return .superseded }
                 if let modeError = error as? CmxTransportModeError {
                     lastTransportModeError = modeError
+                    presentTransportModeErrorIfNeeded()
                 }
                 outcome = .failed(Self.diagnosticFailureKind(for: error))
                 if let automaticReconnectAccountID {
