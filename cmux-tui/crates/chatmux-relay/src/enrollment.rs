@@ -198,9 +198,9 @@ fn parse_events(
             Ok(None)
         };
     };
-    let same_origin = url::Url::parse(url)
+    let same_origin = Url::parse(url)
         .ok()
-        .zip(url::Url::parse(backend).ok())
+        .zip(Url::parse(backend).ok())
         .is_some_and(|(events_url, backend_url)| events_url.origin() == backend_url.origin());
     if !same_origin {
         return if strict {

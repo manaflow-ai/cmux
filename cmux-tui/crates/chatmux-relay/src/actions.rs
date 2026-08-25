@@ -563,7 +563,7 @@ fn open_options_no_follow(read: bool) -> std::fs::OpenOptions {
 fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
     use std::io::Read as _;
     #[cfg(unix)]
-    let mut file = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
+    let file = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
     #[cfg(not(unix))]
     let mut file = open_options_no_follow(true).open(&path.path).map_err(|error| {
         if is_eloop(&error) {
