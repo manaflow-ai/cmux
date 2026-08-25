@@ -210,7 +210,14 @@ extension CmxTransportModeError: LocalizedError {
 }
 
 extension CmxTransportModeError: DiagnosticFailureProviding {
-    public var diagnosticFailureKind: DiagnosticFailureKind { .noRoute }
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .noRoute:
+            .noRoute
+        case .routeClassMismatch:
+            .unsupportedRoute
+        }
+    }
 }
 
 /// The one policy authority used by route selection and transport factories.

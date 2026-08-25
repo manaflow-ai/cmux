@@ -100,21 +100,38 @@ struct MobilePairingView: View {
 
     // MARK: Transport chooser
 
-    private func effectiveTransport(reachableViaIroh: Bool) -> TransportChoice {
-        chosenTransport ?? (reachableViaIroh ? .iroh : .tailscale)
+    private func effectiveTransport(
+        reachableViaIroh: Bool,
+        reachableViaTailscale: Bool
+    ) -> TransportChoice {
+        if chosenTransport == .tailscale, !reachableViaTailscale {
+            return reachableViaIroh ? .iroh : .tailscale
+        }
+        return chosenTransport
+            ?? (reachableViaIroh ? .iroh : .tailscale)
     }
 
-    private func transportPicker(reachableViaIroh: Bool) -> some View {
+    private func transportPicker(
+        reachableViaIroh: Bool,
+        reachableViaTailscale: Bool
+    ) -> some View {
         Picker(
             String(localized: "mobile.pairing.transportPicker", defaultValue: "Connection"),
             selection: Binding(
-                get: { effectiveTransport(reachableViaIroh: reachableViaIroh) },
+                get: {
+                    effectiveTransport(
+                        reachableViaIroh: reachableViaIroh,
+                        reachableViaTailscale: reachableViaTailscale
+                    )
+                },
                 set: { chosenTransport = $0 }
             )
         ) {
             // Transport product names are literal tokens, not translatable copy.
             Text(verbatim: "Iroh").tag(TransportChoice.iroh)
-            Text(verbatim: "Tailscale").tag(TransportChoice.tailscale)
+            Text(verbatim: "Tailscale")
+                .tag(TransportChoice.tailscale)
+                .disabled(!reachableViaTailscale)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -215,10 +232,16 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
-        let transport = effectiveTransport(reachableViaIroh: ready.reachableViaIroh)
+        let transport = effectiveTransport(
+            reachableViaIroh: ready.reachableViaIroh,
+            reachableViaTailscale: ready.reachableViaTailscale
+        )
 
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(reachableViaIroh: ready.reachableViaIroh)
+            transportPicker(
+                reachableViaIroh: ready.reachableViaIroh,
+                reachableViaTailscale: ready.reachableViaTailscale
+            )
             getIPhoneAppBadge
             if transport == .tailscale {
                 tailscaleReadyBody(ready)
@@ -350,10 +373,16 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func needsReachableTransportContent(reachableViaIroh: Bool) -> some View {
-        let transport = effectiveTransport(reachableViaIroh: reachableViaIroh)
+        let transport = effectiveTransport(
+            reachableViaIroh: reachableViaIroh,
+            reachableViaTailscale: false
+        )
 
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(reachableViaIroh: reachableViaIroh)
+            transportPicker(
+                reachableViaIroh: reachableViaIroh,
+                reachableViaTailscale: false
+            )
             getIPhoneAppBadge
             if transport == .iroh {
                 irohBody(waiting: reachableViaIroh)
