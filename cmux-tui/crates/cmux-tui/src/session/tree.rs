@@ -110,8 +110,11 @@ impl TreeView {
         for workspace in &mut self.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
+                    let active_surface = pane.tabs.get(pane.active_tab).map(|tab| tab.surface);
                     pane.tabs.retain(|tab| !retired.contains(&tab.surface));
-                    pane.active_tab = pane.active_tab.min(pane.tabs.len().saturating_sub(1));
+                    pane.active_tab = active_surface
+                        .and_then(|surface| pane.tabs.iter().position(|tab| tab.surface == surface))
+                        .unwrap_or_else(|| pane.active_tab.min(pane.tabs.len().saturating_sub(1)));
                 }
             }
         }
