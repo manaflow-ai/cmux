@@ -280,6 +280,13 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
+    /// Raw values used to decide whether typography normalization must run again.
+    struct PreviewTypographyInput: Equatable {
+        let fontFamily: String
+        let fontSize: CGFloat
+        let lineHeight: CGFloat
+    }
+
     private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
         .browserZoomIn,
         .browserZoomOut,
@@ -299,6 +306,8 @@ final class SavingTextView: NSTextView {
     var previewLineHeight = CGFloat(FilePreviewLineHeightSettings.defaultMultiplier)
     /// Whether the representable has supplied its first typography snapshot.
     var hasConfiguredPreviewTypography = false
+    /// Raw settings input last normalized by configurePreviewTypography.
+    var lastPreviewTypographyInput: PreviewTypographyInput?
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 

@@ -8,6 +8,16 @@ extension SavingTextView {
     /// A zoomed editor keeps its live size when the persisted default changes;
     /// an editor that still follows its default adopts the new size immediately.
     func configurePreviewTypography(fontFamily: String, defaultFontSize: CGFloat, lineHeight: CGFloat) {
+        let input = PreviewTypographyInput(
+            fontFamily: fontFamily,
+            fontSize: defaultFontSize,
+            lineHeight: lineHeight
+        )
+        if hasConfiguredPreviewTypography, input == lastPreviewTypographyInput {
+            return
+        }
+        lastPreviewTypographyInput = input
+
         let normalizedFamily = FilePreviewFontFamilySettings.normalized(fontFamily)
         let normalizedSize = CGFloat(FilePreviewFontSizeSettings.clamp(Double(defaultFontSize)))
         let normalizedLineHeight = CGFloat(FilePreviewLineHeightSettings.clamp(Double(lineHeight)))
