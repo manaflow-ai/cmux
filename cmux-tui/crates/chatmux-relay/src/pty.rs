@@ -1248,6 +1248,11 @@ impl OrderedControlQueue {
             if state.closed || !endpoint.is_active() {
                 return;
             }
+            // A worker may have retained a resize from an older generation
+            // while the viewer updated back to the already-applied grid.
+            // Drop that stale metadata before deciding whether input failed;
+            // a superseded resize is not a transport failure.
+            let stale_pending = self.discard_stale_pending_locked(&mut state);
             let close_ready = state.closing.iter().all(|closing| {
                 state.closing_waiters.iter().any(|(pointer, _)| *pointer == endpoint_ptr(closing))
                     || state.closing_inflight.contains(&endpoint_ptr(closing))
@@ -1265,7 +1270,7 @@ impl OrderedControlQueue {
             if state.closing_failed || !close_ready || claim_without_fence {
                 (false, false)
             } else {
-                let flushed = self.flush_resize_locked(&mut state);
+                let flushed = stale_pending || self.flush_resize_locked(&mut state);
                 let accepted = flushed
                     && self.enqueue_ordered_locked(
                         endpoint,
@@ -1613,6 +1618,22 @@ impl OrderedControlQueue {
             Some((generation, endpoint.viewer_id, endpoint_ptr(&endpoint), grid, claim));
         // The caller starts the wire worker after releasing `state`; starting
         // a synchronous fallback while this lock is held would self-deadlock.
+        true
+    }
+
+    /// Remove pending resize metadata that belongs to an older state
+    /// generation. The caller holds the queue actor lock. Return `true` when
+    /// a stale entry was removed so ingress can continue without treating it
+    /// as a queue-capacity or transport failure.
+    fn discard_stale_pending_locked(&self, state: &mut OrderedControlQueueState) -> bool {
+        let Some((generation, _, _, claim)) = state.pending_resize.as_ref() else { return false };
+        if *generation == self.current_generation() {
+            return false;
+        }
+        state.pending_resize = None;
+        if *claim || state.claim_fence.is_some_and(|fence| fence.generation != *generation) {
+            state.claim_fence = None;
+        }
         true
     }
 }
@@ -2547,6 +2568,10 @@ impl TerminalSizing {
                         queue_state.pending_resize = None;
                     }
                 }
+                // A pending pair from an older generation cannot satisfy the
+                // current candidate fence. Drop it before selecting whether
+                // to reuse or reserve a claim token.
+                target.queue.discard_stale_pending_locked(&mut queue_state);
                 let (should_start, token) = if let Some(fence) = queue_state.claim_fence {
                     (false, Some(fence.token))
                 } else {
@@ -7865,14 +7890,20 @@ mod tests {
                 false,
             ));
             queue_state.worker_running = true;
-            let new_generation = coordinator.advance_generation(&target);
-            assert!(new_generation > old_generation);
+            let first_new_generation = coordinator.advance_generation(&target);
+            state.viewers.get_mut(&1).unwrap().grid = SizingGrid { cols: 80, rows: 24 };
+            let second_new_generation = coordinator.advance_generation(&target);
+            assert!(first_new_generation > old_generation);
+            assert!(second_new_generation > first_new_generation);
         }
 
         let sends_before = control.sends().len();
         target.queue.clone().drain_async().await;
         assert!(target.queue.state.lock().unwrap().pending_resize.is_none());
-        assert_eq!(control.sends().len(), sends_before, "stale grid must not reach the daemon");
+        endpoint.enqueue_input(b"after-stale-resize");
+        control.wait_for_sends(sends_before + 1).await;
+        assert_eq!(control.sends()[sends_before].0, "send");
+        assert!(endpoint.is_active(), "stale resize must not detach a healthy endpoint");
     }
 
     #[test]
