@@ -456,6 +456,38 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("tab-bar browser creation honors pane zoom preference")
+    func tabBarBrowserCreationHonorsPaneZoomPreference() throws {
+        let suiteName = "cmux.tab-bar-new-browser-zoom.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.keepExpandedOnNewTab)
+        let workspace = Workspace(settings: settings)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.focusPanel(firstPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == paneId)
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestNewTab: "browser",
+            inPane: paneId
+        )
+
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == paneId,
+            "The tab-bar browser action should keep the pane expanded when opted in"
+        )
+    }
+
+    @MainActor
     @Test("new terminal to right keeps legacy unzoom behavior by default")
     func newTerminalToRightKeepsLegacyUnzoomBehaviorByDefault() throws {
         let suiteName = "cmux.context-new-terminal-zoom.\(UUID().uuidString)"
@@ -489,6 +521,33 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(
             workspace.bonsplitController.zoomedPaneId == nil,
             "The context-menu action should retain the default auto-unzoom behavior"
+        )
+    }
+
+    @MainActor
+    @Test("failed tab creation restores the previous pane zoom")
+    func failedTabCreationRestoresPreviousPaneZoom() throws {
+        let suiteName = "cmux.failed-new-tab-zoom.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.focusPanel(firstPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == paneId)
+
+        let result: TerminalPanel? = workspace.withNewTabZoomPolicy(inPane: paneId) { nil }
+
+        #expect(result == nil)
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == paneId,
+            "A failed tab operation must not change the existing pane layout"
         )
     }
 
