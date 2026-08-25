@@ -160,6 +160,7 @@ class _CommandWrapperSpec:
 class _FluentClientBinding:
     name: str
     kind: str
+    binding_indent: str
     constructor_end: int
     base_target_bounds: Optional[tuple[int, int]]
     scope_start: int
@@ -2708,6 +2709,7 @@ def _stored_fluent_client_bindings(
             _FluentClientBinding(
                 name=name,
                 kind=kind,
+                binding_indent=binding_indent,
                 constructor_end=constructor_end,
                 base_target_bounds=(
                     base_target.value_bounds if base_target is not None else None
@@ -2798,11 +2800,18 @@ def _has_executable_match(
     start: int,
     end: int,
     executable: bytes,
+    scope_indent: Optional[str] = None,
 ) -> bool:
-    return any(
-        executable[match.start()]
-        for match in pattern.finditer(source, start, end)
-    )
+    for match in pattern.finditer(source, start, end):
+        if not executable[match.start()]:
+            continue
+        if scope_indent is not None:
+            line_start = source.rfind("\n", 0, match.start()) + 1
+            line_indent = re.match(r"[ \t]*", source[line_start:])
+            if line_indent is None or line_indent.group(0) != scope_indent:
+                continue
+        return True
+    return False
 
 
 def _stored_fluent_client_verb_offsets(
@@ -2836,6 +2845,9 @@ def _stored_fluent_client_verb_offsets(
                 binding.constructor_end + 1,
                 binding.initialization_scope_end,
                 executable,
+                binding.binding_indent
+                if path_suffix == ".py" and not binding.is_instance_property
+                else None,
             )
         )
         for call in method_pattern.finditer(
@@ -2866,6 +2878,9 @@ def _stored_fluent_client_verb_offsets(
                 search_start,
                 call.start(),
                 executable,
+                binding.binding_indent
+                if path_suffix == ".py"
+                else None,
             ):
                 break
             if not executable[call.start()]:
