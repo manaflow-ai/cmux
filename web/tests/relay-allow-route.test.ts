@@ -72,17 +72,19 @@ describe("POST /api/relay/allow", () => {
     // iroh-relay compares res.text() == "true" byte-for-byte.
     expect(await response.text()).toBe("true");
     expect(response.headers.get("content-type")).toBe("application/json");
-    expect(response.headers.get("cache-control")).toBe("max-age=3600");
+    // Never cacheable: the endpoint identity rides a header, so a shared HTTP
+    // cache would cross decisions between endpoints and outlive revocation.
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  test("denies an unknown endpoint with `false` and a short cache hint", async () => {
+  test("denies an unknown endpoint with `false`, uncacheable", async () => {
     const response = await handleRelayAllowRequest(
       relayShapedRequest(UNKNOWN_ID),
       deps(),
     );
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("false");
-    expect(response.headers.get("cache-control")).toBe("max-age=60");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   test("denies a revoked binding", async () => {
@@ -183,6 +185,22 @@ describe("POST /api/relay/allow", () => {
     });
     const response = await handleRelayAllowRequest(request, deps());
     expect(response.status).toBe(400);
+  });
+
+  test("503 within the deadline when the admission lookup stalls", async () => {
+    const startedAt = Date.now();
+    const response = await handleRelayAllowRequest(
+      relayShapedRequest(ACTIVE_ID),
+      deps({
+        // Never settles: a stalled database query must not hold the relay's
+        // access check open. The deadline fails closed.
+        admission: () => new Promise<never>(() => {}),
+        admissionTimeoutMs: 25,
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toBe("true");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
   test("503 (deny at the relay) when the admission lookup throws", async () => {
