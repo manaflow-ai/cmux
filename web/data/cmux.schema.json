@@ -1839,7 +1839,19 @@
         "builtin": {
           "type": "string",
           "minLength": 1,
-          "pattern": "\\S"
+          "pattern": "\\S",
+          "enum": [
+            "cmux.newWorkspace", "newWorkspace",
+            "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat",
+            "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
+            "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
+            "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm",
+            "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
+            "cmux.connectPhone", "connectPhone",
+            "cmux.newTerminal", "newTerminal", "cmux.newBrowser", "newBrowser",
+            "cmux.newSimulator", "newSimulator", "new-simulator", "simulator",
+            "cmux.splitRight", "splitRight", "cmux.splitDown", "splitDown"
+          ]
         },
         "command": {
           "type": "string",

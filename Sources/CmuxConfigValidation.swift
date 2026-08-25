@@ -101,6 +101,10 @@ struct CmuxConfigValidator: Sendable {
         switch type {
         case "builtin":
             requireNonBlankString(action["builtin"], path: path + ".builtin", into: &issues)
+            if let builtin = action["builtin"] as? String,
+               !knownBuiltInIDs.contains(builtin) {
+                issues.append(issue(path + ".builtin", "unknown built-in action '\(builtin)'"))
+            }
         case "command":
             requireNonBlankString(action["command"], path: path + ".command", into: &issues)
         case "agent":
@@ -114,11 +118,20 @@ struct CmuxConfigValidator: Sendable {
             }
             validateOptionalString(action["args"], path: path + ".args", into: &issues)
         case "workspaceCommand":
-            let commandName = ["commandName", "name", "command"].compactMap { key -> String? in
-                guard let value = action[key] as? String else { return nil }
+            var commandName: String?
+            for key in ["commandName", "name", "command"] {
+                guard let rawValue = action[key] else { continue }
+                guard let value = rawValue as? String else {
+                    issues.append(issue(path + "." + key, "must be a non-empty string"))
+                    continue
+                }
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }.first
+                if trimmed.isEmpty {
+                    issues.append(issue(path + "." + key, "must be a non-empty string"))
+                } else if commandName == nil {
+                    commandName = trimmed
+                }
+            }
             if commandName == nil {
                 issues.append(issue(path, "workspaceCommand actions require commandName"))
             }
@@ -420,6 +433,21 @@ struct CmuxConfigValidator: Sendable {
         default:
             return id
         }
+    }
+
+    private var knownBuiltInIDs: Set<String> {
+        [
+            "cmux.newWorkspace", "newWorkspace",
+            "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat",
+            "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
+            "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
+            "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm",
+            "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
+            "cmux.connectPhone", "connectPhone",
+            "cmux.newTerminal", "newTerminal", "cmux.newBrowser", "newBrowser",
+            "cmux.newSimulator", "newSimulator", "new-simulator", "simulator",
+            "cmux.splitRight", "splitRight", "cmux.splitDown", "splitDown",
+        ]
     }
 
     private func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {
