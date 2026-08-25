@@ -844,7 +844,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
         guard let cell = rowView.view(atColumn: 0) as? NSView else { return }
         if let workspaceCell = cell as? SidebarWorkspaceRowTableCellView {
-            releasePumpHeightOverride(ownedBy: workspaceCell)
+            releasePumpHeightOverride(
+                ownedBy: workspaceCell,
+                in: tableView,
+                removedRow: row
+            )
         }
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
@@ -1733,12 +1737,30 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A pump height is installed-cell state. Retiring that exact cell returns
     /// the row to its authoritative cached geometry; an older retirement must
     /// not clear an override already transferred to a replacement cell.
-    private func releasePumpHeightOverride(ownedBy cell: SidebarWorkspaceRowTableCellView) {
+    private func releasePumpHeightOverride(
+        ownedBy cell: SidebarWorkspaceRowTableCellView,
+        in table: NSTableView,
+        removedRow: Int
+    ) {
         guard let workspaceId = cell.currentModelForMeasurement?.workspaceId else { return }
         let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
         guard pumpHeightOverrides[rowId]?.cellIdentity == ObjectIdentifier(cell) else { return }
         pumpHeightOverrides.removeValue(forKey: rowId)
-        deferredPumpHeightRowIds.remove(rowId)
+
+        let index: Int
+        if rows.indices.contains(removedRow), rows[removedRow].id == rowId {
+            index = removedRow
+        } else if let resolvedIndex = rows.firstIndex(where: { $0.id == rowId }) {
+            index = resolvedIndex
+        } else {
+            deferredPumpHeightRowIds.remove(rowId)
+            return
+        }
+        if isApplyingTableGeometryUpdate {
+            deferredPumpHeightRowIds.insert(rowId)
+        } else {
+            noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+        }
     }
 
     private func pumpHeightOverride(
