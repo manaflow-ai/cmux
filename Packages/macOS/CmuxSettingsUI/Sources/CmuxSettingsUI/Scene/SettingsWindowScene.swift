@@ -448,6 +448,9 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
+        CloudMachinesSection(hostActions: hostActions)
+            .id(anchorID(for: .cloudMachines))
+
         IrohNetworkingSection(hostActions: hostActions)
             .id(anchorID(for: .networking))
 

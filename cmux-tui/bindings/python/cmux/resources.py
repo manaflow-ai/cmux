@@ -4,6 +4,7 @@ import secrets
 import math
 import base64
 import binascii
+import os
 import threading
 from dataclasses import asdict, dataclass, fields
 from typing import (
@@ -23,7 +24,11 @@ from typing import (
 
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
-from .client_defaults import default_socket_path, env_socket_path
+from .client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    default_socket_path,
+    env_socket_path,
+)
 from .errors import (
     CancelledError,
     CmuxConnectionError,
@@ -2235,11 +2240,18 @@ class Client:
         local_executor: Optional[LocalExecutor] = None,
         random_hex_128: Optional[RandomHex128] = None,
     ) -> None:
-        self.socket_path = (
-            socket_path or env_socket_path() or default_socket_path(session)
-        )
+        explicit = socket_path or env_socket_path()
+        self.socket_path = explicit or default_socket_path(session)
         self.timeout = timeout
-        self._connection = ProtocolConnection(self.socket_path, timeout)
+        fallback = (
+            _legacy_raw_socket_fallback_path(session)
+            if not explicit
+            and os.path.basename(os.path.dirname(self.socket_path)).startswith(
+                "cmux-tui-hashed-"
+            )
+            else None
+        )
+        self._connection = ProtocolConnection(self.socket_path, timeout, fallback_path=fallback)
         self._local_executor = local_executor
         self._random_hex_128 = random_hex_128 or (lambda: secrets.token_hex(16))
         self._request_context = threading.local()

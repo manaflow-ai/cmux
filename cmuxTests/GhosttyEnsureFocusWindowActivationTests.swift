@@ -399,6 +399,23 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
+    func terminalBellInFocusedTerminalIsNotANotification() {
+        // Readline beeps when you press ← at the start of the line. In the
+        // terminal you are typing into, that bell must neither flash the pane
+        // like an arriving `cmux notify` nor mark it unread.
+        let focused = TerminalVisualBellResponse.resolve(ownsActiveFocus: true, isManuallyUnread: false)
+        #expect(focused == TerminalVisualBellResponse(marksUnread: false, flashes: false))
+
+        // A background pane still gets the attention treatment.
+        let background = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: false)
+        #expect(background == TerminalVisualBellResponse(marksUnread: true, flashes: true))
+
+        // Already-unread panes flash again but are not re-marked.
+        let alreadyUnread = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: true)
+        #expect(alreadyUnread == TerminalVisualBellResponse(marksUnread: false, flashes: true))
+    }
+
+    @Test
     func terminalBellInNonKeyCmuxWindowMarksPaneUnread() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared

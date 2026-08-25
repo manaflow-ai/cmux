@@ -866,4 +866,21 @@ mod tests {
         assert!(!pane.tabs[0].supports_clear_history_key_fallback);
         assert!(pane.tabs[1].supports_clear_history_key_fallback);
     }
+
+    #[test]
+    fn tree_parser_preserves_browser_source_and_rejects_unknown_values() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "tabs": [
+                {"surface": 4, "kind": "browser", "browser_source": "external"},
+                {"surface": 5, "kind": "browser", "browser_source": "launched"},
+                {"surface": 6, "kind": "browser", "browser_source": "remote"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs[0].browser_source, Some(BrowserSource::External));
+        assert_eq!(pane.tabs[1].browser_source, Some(BrowserSource::Launched));
+        assert_eq!(pane.tabs[2].browser_source, None);
+    }
 }

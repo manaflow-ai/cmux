@@ -36,6 +36,8 @@ use crate::workspace::{
 };
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
+#[cfg(unix)]
+const MAX_RENDERER_GRANT_LINE_BYTES: usize = 16 * 1024 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
 // A JSON control escape can expand one input byte to six output bytes. Leave
 // room for field names and collection punctuation without scanning strings on
@@ -700,8 +702,15 @@ impl DaemonServices {
         mux.write_all(b"\n").await?;
         mux.flush().await?;
         let mut response = String::new();
-        BufReader::new(mux).read_line(&mut response).await?;
-        if response.is_empty() {
+        let reader = BufReader::new(mux);
+        let read = reader
+            .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
+            .read_line(&mut response)
+            .await?;
+        if response.len() > MAX_RENDERER_GRANT_LINE_BYTES {
+            return Err(ServicesError::Remote("renderer grant response is too large".into()));
+        }
+        if read == 0 {
             return Err(ServicesError::Remote("mux closed before renderer grant".into()));
         }
         let response: serde_json::Value = serde_json::from_str(&response)?;
