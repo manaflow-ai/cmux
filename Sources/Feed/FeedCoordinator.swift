@@ -37,6 +37,12 @@ final class FeedCoordinator: @unchecked Sendable {
         userNotificationCenter ?? TerminalNotificationStore.shared.userNotificationCenter
     }
 
+    /// Phone forwarding is kept separate from Feed's native actionable banner:
+    /// the former is an ephemeral mirror, while the latter owns the desktop
+    /// request and its inline actions.
+    @MainActor private var phonePushForwarder: any FeedPhonePushForwarding =
+        DefaultFeedPhonePushForwarder()
+
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
     /// handler signals the semaphore after filling the slot.
@@ -80,13 +86,16 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func install(
         store: WorkstreamStore,
-        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil,
+        phonePushForwarder: (any FeedPhonePushForwarding)? = nil
     ) {
         self.store = store
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        self.phonePushForwarder = phonePushForwarder
+            ?? DefaultFeedPhonePushForwarder()
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
