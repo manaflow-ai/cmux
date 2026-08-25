@@ -9,7 +9,7 @@ import GhosttyKit
 struct GhosttyPointerStyleIngressRequest: @unchecked Sendable {
     enum Event: @unchecked Sendable {
         case activate
-        case retire
+        case retire(UUID?)
         case runtimeReset
         case runtimeEnded
         case shape(ghostty_action_mouse_shape_e)
@@ -18,7 +18,7 @@ struct GhosttyPointerStyleIngressRequest: @unchecked Sendable {
         @MainActor
         func terminalEvent(runtimeLifetimeId: UUID) -> TerminalPointerStyleEvent? {
             switch self {
-            case .activate, .retire:
+            case .activate, .retire(_):
                 return nil
             case .runtimeReset:
                 return .runtimeReset(runtimeLifetimeId)
