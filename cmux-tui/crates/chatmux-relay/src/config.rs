@@ -96,7 +96,10 @@ fn home_dir() -> PathBuf {
 }
 
 fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
-    let metadata = std::fs::metadata(path)?;
+    // Do not accept a config symlink. `metadata` follows links, which could
+    // make a compromised config path read credentials from an unrelated file.
+    // `symlink_metadata` performs the check on the directory entry itself.
+    let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -280,6 +283,20 @@ mod tests {
         std::fs::write(&path, "not json").unwrap();
         assert!(load_config(&path).is_none());
         assert!(load_config(&scratch("missing/config.json")).is_none());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_config_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let path = scratch("symlink/config.json");
+        let target = scratch("symlink/target.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&target, r#"{"deviceId":"dev_link","token":"tok_link"}"#).unwrap();
+        symlink(&target, &path).unwrap();
+        assert!(load_config(&path).is_none());
+        assert!(load_config_checked(&path).is_err());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
