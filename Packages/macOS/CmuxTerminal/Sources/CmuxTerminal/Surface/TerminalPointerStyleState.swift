@@ -20,6 +20,9 @@ public struct TerminalPointerStyleState {
     private var isFocused = false
     private var isCmuxLinkHoverActive = false
     private var isGhosttyLinkHoverActive = false
+    /// A pointer shape that arrived without a positive link-preview action is
+    /// provisional until Ghostty's empty link action confirms the exit.
+    private var hasPendingGhosttyLinkPointer = false
 
     /// Creates pointer state with the normal terminal I-beam.
     public init() {}
@@ -59,6 +62,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            hasPendingGhosttyLinkPointer = false
             return shouldInvalidate
 
         case .runtimeReset(let runtimeLifetimeId):
@@ -74,6 +78,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            hasPendingGhosttyLinkPointer = false
             return shouldInvalidate
 
         case .runtimeEnded(let runtimeLifetimeId):
@@ -93,6 +98,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            hasPendingGhosttyLinkPointer = false
             return shouldInvalidate
 
         case .ghosttyShape(let shape, let runtimeLifetimeId):
@@ -107,6 +113,13 @@ public struct TerminalPointerStyleState {
             guard ghosttyShape != shape || isGhosttyLinkHoverActive else {
                 return false
             }
+            if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
+               !isGhosttyLinkHoverActive,
+               ghosttyShape != shape {
+                hasPendingGhosttyLinkPointer = true
+            } else if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
+                hasPendingGhosttyLinkPointer = false
+            }
             if shape != GHOSTTY_MOUSE_SHAPE_POINTER {
                 lastNonPointerCursor = cursor
                 lastNonPointerShape = shape
@@ -120,6 +133,14 @@ public struct TerminalPointerStyleState {
         case .ghosttyLinkHoverChanged(let active, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
             let nextActive = isFocused && active
+            if !active,
+               !isGhosttyLinkHoverActive,
+               hasPendingGhosttyLinkPointer {
+                ghosttyCursor = lastNonPointerCursor
+                ghosttyShape = lastNonPointerShape
+                hasPendingGhosttyLinkPointer = false
+                return isFocused && !isCmuxLinkHoverActive
+            }
             guard isGhosttyLinkHoverActive != nextActive else { return false }
             if nextActive, ghosttyShape == GHOSTTY_MOUSE_SHAPE_POINTER {
                 // The pointer action is emitted before the link-hover action.
@@ -128,6 +149,7 @@ public struct TerminalPointerStyleState {
                 // when OSC 22 explicitly requested it.
                 ghosttyCursor = lastNonPointerCursor
                 ghosttyShape = lastNonPointerShape
+                hasPendingGhosttyLinkPointer = false
             }
             isGhosttyLinkHoverActive = nextActive
             return isFocused && !isCmuxLinkHoverActive

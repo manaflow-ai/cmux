@@ -34,6 +34,8 @@ struct TerminalSurfaceCallbackIdentityTests {
 
         #expect(!surface.isActiveRuntimeCallbackContext(firstContext))
         #expect(surface.isActiveRuntimeCallbackContext(secondContext))
+        #expect(!surface.isActiveRuntimeLifetime(firstContext.runtimeLifetimeId))
+        #expect(surface.isActiveRuntimeLifetime(secondContext.runtimeLifetimeId))
     }
 
     private func makeSurface() -> TerminalSurface {
