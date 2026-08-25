@@ -698,20 +698,15 @@ public final class MobileIrohRuntimeComposition:
     ) async throws -> any CmxByteTransport {
         #if DEBUG
         // Graduation lane routing: control rides the next transport when the
-        // dev flag is on and this Mac is bootstrapped + admitted. The first
-        // legacy connection also seeds the bootstrap (slice 2).
+        // dev flag is on and this Mac is bootstrapped + admitted. Bootstrap
+        // itself runs post-connect on the shell's live RPC client (slice 2);
+        // installing the hook here is idempotent.
+        NextTransportGraduationFacade.installProbeHook()
         if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
             for: request)
         {
             return try await BridgeLaneDialer.openControlTransport(on: connection)
         }
-        NextTransportGraduationFacade.shared.bootstrapIfNeeded(
-            for: request,
-            makeLegacyTransport: { [weak self] in
-                guard let self else { throw CancellationError() }
-                let runtime = try await self.preparedRuntimeForConnection()
-                return try runtime.transportFactory.makeTransport(for: request)
-            })
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)

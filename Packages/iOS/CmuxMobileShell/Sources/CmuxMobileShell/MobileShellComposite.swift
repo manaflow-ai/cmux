@@ -10968,11 +10968,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
+    #if DEBUG
+    /// Graduation bootstrap probe, installed by the app layer. Receives the
+    /// live authenticated RPC client and the connected Mac's device id each
+    /// time a connection turns healthy.
+    @MainActor public static var nextTransportBootstrapProbe:
+        (@Sendable (_ client: MobileCoreRPCClient, _ macDeviceID: String) async -> Void)?
+    #endif
+
     func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
         }
+        #if DEBUG
+        // Graduation bootstrap seam: runs over THIS composite's live RPC
+        // client after a connection turns healthy (the release-gate
+        // pattern), so the probe never contends for the pooled control
+        // lane. Installer owns idempotence; absent hook is a no-op.
+        if let probe = Self.nextTransportBootstrapProbe,
+            let client = remoteClient,
+            let macDeviceID = activeTicket?.macDeviceID
+        {
+            Task { await probe(client, macDeviceID) }
+        }
+        #endif
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in
                 lastSuccessfulTerminalSubscription

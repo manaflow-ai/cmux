@@ -1,6 +1,8 @@
 #if DEBUG
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxMobileRPC
+import CmuxMobileShell
 import CmuxNextTransport
 import CmuxNextTransportBridge
 import Foundation
@@ -98,74 +100,57 @@ final class NextTransportGraduationFacade {
         return fresh
     }
 
-    /// Slice 2 bootstrap: mints this phone's next-transport credentials over
-    /// one legacy transport-admitted connection, then persists them. Safe to
-    /// call often; runs at most once per Mac at a time and never re-runs
-    /// after success.
-    func bootstrapIfNeeded(
-        for request: CmxByteTransportRequest,
-        makeLegacyTransport: @escaping @Sendable () async throws -> any CmxByteTransport
-    ) {
-        guard isEnabled, let macID = request.expectedPeerDeviceID else { return }
-        guard storedBootstrap(macID: macID) == nil else { return }
-        guard !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID) else { return }
+    /// Installs the shell's post-connect probe hook exactly once. The probe
+    /// rides the composite's LIVE authenticated RPC client (the release-gate
+    /// pattern), so it never contends for the pooled control lane the app's
+    /// own requests own.
+    @MainActor
+    static func installProbeHook() {
+        guard MobileShellComposite.nextTransportBootstrapProbe == nil else { return }
+        MobileShellComposite.nextTransportBootstrapProbe = { client, macDeviceID in
+            await NextTransportGraduationFacade.shared.probeBootstrap(
+                client: client, macID: macDeviceID)
+        }
+    }
+
+    /// Slice 2 bootstrap: one pair RPC on the live client mints and persists
+    /// this phone's next-transport credentials. Once per Mac per run; a Mac
+    /// that answers method_not_found (old build) stays legacy silently.
+    private func probeBootstrap(client: MobileCoreRPCClient, macID: String) async {
+        guard isEnabled, storedBootstrap(macID: macID) == nil,
+            !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID)
+        else { return }
         probedThisRun.insert(macID)
         bootstrapsInFlight.insert(macID)
+        defer { bootstrapsInFlight.remove(macID) }
         let identity = bootstrapIdentity()
-        Task { [weak self] in
-            defer { Task { @MainActor in self?.bootstrapsInFlight.remove(macID) } }
-            do {
-                let transport = try await makeLegacyTransport()
-                try await transport.connect()
-                defer { Task { await transport.close() } }
-                let requestID = "next-pair-\(UUID().uuidString.prefix(8))"
-                let payload: [String: Any] = [
-                    "id": requestID,
-                    "method": "mobile.next_transport.pair",
-                    "params": [
-                        "device_id": identity.deviceID,
-                        "device_public_key": identity.publicKeyB64,
-                        "app_identity": identity.appIdentity,
-                    ],
-                ]
-                let body = try JSONSerialization.data(withJSONObject: payload)
-                try await transport.send(try MobileSyncFrameCodec.encodeFrame(body))
-                var buffer = Data()
-                let deadline = ContinuousClock.now + .seconds(15)
-                while ContinuousClock.now < deadline {
-                    guard let chunk = try await transport.receive() else { break }
-                    buffer.append(chunk)
-                    for frame in try MobileSyncFrameCodec.decodeFrames(from: &buffer) {
-                        guard
-                            let object = try? JSONSerialization.jsonObject(with: frame)
-                                as? [String: Any],
-                            object["id"] as? String == requestID
-                        else { continue }
-                        guard object["ok"] as? Bool == true,
-                            let result = object["result"] as? [String: Any],
-                            let ticket = result["ticket"] as? String,
-                            let grant = result["grant"] as? String
-                        else {
-                            let message =
-                                ((object["error"] as? [String: Any])?["message"] as? String)
-                                ?? "malformed response"
-                            graduationLog.error(
-                                "bootstrap \(macID, privacy: .public) refused: \(message, privacy: .public)")
-                            return
-                        }
-                        await MainActor.run {
-                            self?.storeBootstrap(macID: macID, ticket: ticket, grant: grant)
-                        }
-                        graduationLog.info(
-                            "bootstrap \(macID, privacy: .public): ticket + grant stored")
-                        return
-                    }
-                }
-                graduationLog.error("bootstrap \(macID, privacy: .public): no response")
-            } catch {
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.next_transport.pair",
+                params: [
+                    "device_id": identity.deviceID,
+                    "device_public_key": identity.publicKeyB64,
+                    "app_identity": identity.appIdentity,
+                ])
+            let responseData = try await client.sendRequest(request)
+            guard
+                let object = try JSONSerialization.jsonObject(with: responseData)
+                    as? [String: Any],
+                let result = object["result"] as? [String: Any],
+                let ticket = result["ticket"] as? String,
+                let grant = result["grant"] as? String
+            else {
                 graduationLog.error(
-                    "bootstrap \(macID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    "bootstrap \(macID, privacy: .public): malformed pair response")
+                return
             }
+            storeBootstrap(macID: macID, ticket: ticket, grant: grant)
+            graduationLog.info("bootstrap \(macID, privacy: .public): ticket + grant stored")
+        } catch {
+            // method_not_found (old Mac) and unavailable (host off) land
+            // here: this Mac stays legacy for the run.
+            graduationLog.info(
+                "bootstrap \(macID, privacy: .public): unsupported or refused (\(String(describing: error), privacy: .public))")
         }
     }
 
