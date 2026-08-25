@@ -47,12 +47,13 @@ actor MobileShellWallClockWaitGate {
 }
 
 enum MobileShellWallClockWaitPolicy {
-    /// Three seconds is shorter than a loaded whole-suite run. Keep the
-    /// default poll budget comfortably above that scheduling window.
+    /// One second is already long enough for a short assertion to be delayed
+    /// by a loaded suite. Keep the default poll budget comfortably above that
+    /// scheduling window.
     static let defaultPollAttempts = 3_000
     static let defaultWaitTimeoutNanoseconds: UInt64 = 30_000_000_000
 
-    private static let suiteScaleThresholdNanoseconds: UInt64 = 3_000_000_000
+    private static let suiteScaleThresholdNanoseconds: UInt64 = 1_000_000_000
     private static let pollIntervalNanoseconds: UInt64 = 10_000_000
 
     /// Preserve intentionally short assertion windows while giving every
@@ -177,6 +178,6 @@ func mobileShellWallClockWaitPolicyProvidesSuiteHeadroom() {
             == 200_000_000
     )
     #expect(!MobileShellWallClockWaitPolicy.shouldSerializeWait(timeoutNanoseconds: 250_000_000))
-    #expect(!MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: 100))
+    #expect(MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: 100))
     #expect(MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: 3_000))
 }
