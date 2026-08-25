@@ -2603,7 +2603,7 @@ impl TerminalSizing {
             return OwnerResizeRequestOutcome::Stale;
         }
         let (reply, response) = oneshot::channel();
-        let mut prequeued_response = None;
+        let mut prequeued_response: Option<oneshot::Receiver<Option<Value>>> = None;
         let batch: Result<(), OwnerResizeRequestOutcome> = {
             // All coordinator mutations use queue -> target-state order. Do
             // not await while either lock is held; the wire worker performs
@@ -2707,9 +2707,19 @@ impl TerminalSizing {
         }
         target.queue.start_wire_drain();
         if let Some(response) = prequeued_response {
-            return OwnerResizeRequestOutcome::Reply(response.await.ok().flatten());
+            let result = response.await.ok().flatten();
+            return if result.is_none() && Self::current_generation(target) != generation {
+                OwnerResizeRequestOutcome::Stale
+            } else {
+                OwnerResizeRequestOutcome::Reply(result)
+            };
         }
-        OwnerResizeRequestOutcome::Reply(response.await.ok().flatten())
+        let result = response.await.ok().flatten();
+        if result.is_none() && Self::current_generation(target) != generation {
+            OwnerResizeRequestOutcome::Stale
+        } else {
+            OwnerResizeRequestOutcome::Reply(result)
+        }
     }
 
     /// Prepare a candidate's verified report/claim request atomically with
