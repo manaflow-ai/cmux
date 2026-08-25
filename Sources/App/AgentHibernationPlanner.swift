@@ -35,6 +35,7 @@ enum AgentHibernationPlanner {
         let eligible = liveRestorable
             .filter { input in
                 !input.isProtected &&
+                    input.processSafetyAllowsHibernation &&
                     input.lifecycle.allowsHibernation &&
                     !input.isTemporarilyUnableToProtect &&
                     !input.hasUnconfirmedTerminalInput &&

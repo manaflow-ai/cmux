@@ -190,6 +190,8 @@ final class AgentHibernationController {
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
+            let processSafetyAllowsHibernation =
+                record.processSafetyAllowsHibernation(for: trigger)
             if record.hasLiveProcess {
                 let scheduledProcessIsUnsafe =
                     !record.processSafetyAllowsHibernation(for: .scheduled)
@@ -207,7 +209,7 @@ final class AgentHibernationController {
                 }
             }
             let canSampleTail = trigger == .scheduled
-                ? record.processSafetyAllowsHibernation(for: .scheduled)
+                ? processSafetyAllowsHibernation
                 : !record.hasLiveProcess
             if shouldMaintainTailSamples,
                isLive,
@@ -229,6 +231,7 @@ final class AgentHibernationController {
                 hasRestorableAgent: true,
                 isLive: isLive,
                 hasLiveProcess: record.hasLiveProcess,
+                processSafetyAllowsHibernation: processSafetyAllowsHibernation,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
                 isTemporarilyUnableToProtect: unableToProtectMarkerApplies,
