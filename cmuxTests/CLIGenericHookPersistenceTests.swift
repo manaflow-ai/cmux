@@ -1049,8 +1049,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let serverHandled = startAgentHookMockServer(
                 listenerFD: listenerFD,
                 state: state,
-                surfaceId: surfaceId,
-                connectionCount: 4
+                surfaceId: surfaceId
             )
             let result = runProcess(
                 executablePath: cliPath,
