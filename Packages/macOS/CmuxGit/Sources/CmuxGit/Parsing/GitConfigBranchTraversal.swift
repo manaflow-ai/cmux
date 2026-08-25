@@ -194,30 +194,26 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         guard path != "/" else { return false }
         let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
             .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        if roots.contains(where: { root in
+        let isInRepository = roots.contains(where: { root in
             path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-        }) {
+        })
+        if isInRepository {
             return true
         }
-        if storageName == "reftable" {
-            let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-            switch configReader.read(
-                at: tableList,
-                maximumByteCount: 1 * 1_024,
-                deadline: deadline
-            ) {
-            case .contents, .oversized:
-                return true
-            case .missing, .unavailable:
-                return false
-            }
+        // External files/custom stores can sit on an unavailable mount. Do not
+        // synchronously stat them during a bounded watcher traversal.
+        guard storageName == "reftable" else { return false }
+        let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
+        switch configReader.read(
+            at: tableList,
+            maximumByteCount: 1 * 1_024,
+            deadline: deadline
+        ) {
+        case .contents, .oversized:
+            return true
+        case .missing, .unavailable:
+            return false
         }
-        let refsPath = URL(fileURLWithPath: path).appendingPathComponent("refs").path
-        return storageProbe.isDirectory(atPath: refsPath)
-            || configReader.read(
-                at: URL(fileURLWithPath: path).appendingPathComponent("packed-refs"),
-                maximumByteCount: 1
-            ).isAvailable
     }
 
     /// Limits watch-mode include discovery to existing repository-local files.

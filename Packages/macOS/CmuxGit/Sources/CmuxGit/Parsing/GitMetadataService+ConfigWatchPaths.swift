@@ -49,10 +49,11 @@ extension GitMetadataService {
         var pathsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
 
-        guard let references = await gitReferenceSnapshotForConfig(
+        let references = await gitReferenceSnapshotForConfig(
             repository: repository,
             deadline: deadline
-        ), references.checkedOutBranch != .unreadable else {
+        )
+        guard references.checkedOutBranch != .unreadable else {
             // Keep the root metadata paths so a later HEAD/index/config event
             // can trigger a fresh plan instead of dropping the existing watcher.
             return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
