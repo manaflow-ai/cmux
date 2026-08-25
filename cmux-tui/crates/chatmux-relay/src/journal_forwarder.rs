@@ -597,6 +597,7 @@ fn absolute_env_path(name: &str) -> Option<PathBuf> {
 /// uses the normal root first, then `/tmp`, then hashed roots when a Unix
 /// socket path cannot fit `sockaddr_un`; scan all roots because the relay may
 /// start before or after a daemon selected any one of them.
+#[cfg(unix)]
 fn socket_directories_for(runtime_base: &Path, uid: u32) -> Vec<PathBuf> {
     let preferred = runtime_base.join(format!("cmux-tui-{uid}"));
     let fallback = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
