@@ -5,6 +5,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     var remainingPathCount: Int
     var remainingFileCount: Int
     var remainingByteCount: Int
+    var didEncounterOversizedFile = false
     let reader: GitConfigFileReader
 
     mutating func reservePath() -> Bool {
@@ -20,7 +21,11 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
         case .contents(let contents, consumedByteCount: byteCount):
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return contents
-        case .oversized(let byteCount), .unavailable(let byteCount):
+        case .oversized(let byteCount):
+            didEncounterOversizedFile = true
+            remainingByteCount = max(0, remainingByteCount - byteCount)
+            return nil
+        case .unavailable(let byteCount):
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
         }

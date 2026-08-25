@@ -315,47 +315,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// returns an unknown storage name, which conservatively selects Git
     /// plumbing rather than allowing repeated refreshes to scan unbounded data.
     private func referenceStorageName(repository: ResolvedGitRepository) -> String? {
-        var storageName: String?
-        var seenPaths: Set<String> = []
-        let configURLs = GitConfigBranchTraversal(
+        GitConfigBranchTraversal(
             repository: repository,
             branchContext: .fileBacked,
             configReader: configReader
-        ).configURLs()
-        for configURL in configURLs {
-            let configURL = configURL.standardizedFileURL
-            guard seenPaths.insert(configURL.path).inserted else {
-                continue
-            }
-            let configRead = boundedReferenceStorageConfig(at: configURL)
-            if configRead.isOversized {
-                return "unknown"
-            }
-            guard let config = configRead.contents else {
-                continue
-            }
-            var isExtensionsSection = false
-            config.enumerateLines { rawLine, _ in
-                let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
-                    .trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("[") && line.hasSuffix("]") {
-                    isExtensionsSection = line.lowercased() == "[extensions]"
-                    return
-                }
-                guard isExtensionsSection else { return }
-                let parts = line.split(separator: "=", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                guard parts.count == 2, parts[0].lowercased() == "refstorage" else {
-                    return
-                }
-                let value = GitMetadataService.gitConfigUnquotedValue(parts[1]).lowercased()
-                if !value.isEmpty {
-                    storageName = value
-                }
-            }
-        }
-        return storageName
+        ).referenceStorageName()
     }
 
     /// Whether a file-backed HEAD already resolves to a complete object ID.

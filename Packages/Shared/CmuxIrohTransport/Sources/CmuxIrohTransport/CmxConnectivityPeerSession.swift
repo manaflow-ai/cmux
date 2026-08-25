@@ -603,6 +603,11 @@ actor CmxConnectivityPeerSession {
         }
         retiredDialDrains.removeAll()
         let waiters = retiredDialWaiters.values
+        let registeredWaiterIDs = Set(retiredDialWaiters.keys)
+        for waiterID in retiredDialWaiterGenerations.keys where
+            !registeredWaiterIDs.contains(waiterID) {
+            expiredRetiredDialWaiters.insert(waiterID)
+        }
         for waiterID in retiredDialWaiters.keys {
             retiredDialWaiterGenerations.removeValue(forKey: waiterID)
             expiredRetiredDialWaiters.remove(waiterID)

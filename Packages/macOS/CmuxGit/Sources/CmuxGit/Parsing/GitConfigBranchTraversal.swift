@@ -26,16 +26,36 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     /// Returns every reachable config file in Git's include order.
     func configURLs() -> [URL] {
-        traverse()
+        traverse().configURLs
     }
 
     /// Returns bounded config paths to watch.
     func watchPaths() -> [String] {
-        traverse().map { $0.standardizedFileURL.path }
+        let result = traverse()
+        var paths = result.configURLs.map { $0.standardizedFileURL.path }
+        paths.append(contentsOf: result.referenceStoragePaths)
+        var seen: Set<String> = []
+        return paths.filter { seen.insert($0).inserted }
     }
 
-    private func traverse() -> [URL] {
+    /// Returns the configured reference backend discovered during one bounded pass.
+    func referenceStorageName() -> String? {
+        let result = traverse()
+        if result.referenceStorageName == nil, result.encounteredOversizedFile {
+            return "unknown"
+        }
+        return result.referenceStorageName
+    }
+
+    private func traverse() -> (
+        configURLs: [URL],
+        referenceStorageName: String?,
+        referenceStoragePaths: [String],
+        encounteredOversizedFile: Bool
+    ) {
         var urls: [URL] = []
+        var storageName: String?
+        var storagePaths: [String] = []
         var pendingURLs = GitMetadataService.gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
         var budget = GitConfigTraversalBudget(
@@ -44,6 +64,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             remainingByteCount: Self.maximumTotalConfigByteCount,
             reader: configReader
         )
+        var encounteredOversizedFile = false
 
         while !pendingURLs.isEmpty {
             let configURL = pendingURLs.removeFirst().standardizedFileURL
@@ -51,15 +72,77 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             guard budget.reservePath() else { break }
             urls.append(configURL)
             guard let config = budget.read(at: configURL) else {
+                encounteredOversizedFile = encounteredOversizedFile || budget.didEncounterOversizedFile
                 continue
             }
+            let storage = referenceStorageInfo(fromConfig: config, configURL: configURL)
+            storageName = storage.name ?? storageName
+            storagePaths.append(contentsOf: storage.paths)
             pendingURLs.append(contentsOf: includedConfigURLs(
                 fromConfig: config,
                 configURL: configURL,
                 maximumCount: budget.remainingPathCount
             ))
         }
-        return urls
+        return (urls, storageName, storagePaths, encounteredOversizedFile || budget.didEncounterOversizedFile)
+    }
+
+    private func referenceStorageInfo(
+        fromConfig config: String,
+        configURL: URL
+    ) -> (name: String?, paths: [String]) {
+        var name: String?
+        var paths: [String] = []
+        var inExtensionsSection = false
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                inExtensionsSection = line.lowercased() == "[extensions]"
+                continue
+            }
+            guard inExtensionsSection else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
+            let value = GitMetadataService.gitConfigUnquotedValue(parts[1])
+            let lowercasedValue = value.lowercased()
+            guard let separator = lowercasedValue.firstIndex(of: ":") else {
+                name = lowercasedValue
+                continue
+            }
+            name = String(lowercasedValue[..<separator])
+            var payload = String(value[value.index(after: separator)...])
+            while payload.hasPrefix("/") && !payload.hasPrefix("//") {
+                payload.removeFirst()
+            }
+            if payload.hasPrefix("//") {
+                payload = String(payload.drop(while: { $0 == "/" }))
+                payload = "/" + payload
+            }
+            guard !payload.isEmpty else { continue }
+            let path = if payload.hasPrefix("/") {
+                URL(fileURLWithPath: payload).standardizedFileURL.path
+            } else {
+                URL(fileURLWithPath: repository.commonDirectory)
+                    .appendingPathComponent(payload)
+                    .standardizedFileURL.path
+            }
+            if isSafeReferenceStoragePath(path) {
+                paths.append(path)
+            }
+        }
+        return (name, paths)
+    }
+
+    private func isSafeReferenceStoragePath(_ path: String) -> Bool {
+        guard path != "/" else { return false }
+        let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        return roots.contains { root in
+            path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.
