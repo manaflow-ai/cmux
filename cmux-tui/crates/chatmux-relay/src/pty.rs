@@ -2237,7 +2237,10 @@ struct SizingLeaseState {
     joining: bool,
     joined: bool,
     released: bool,
-    endpoint: Option<Arc<OrderedControlEndpoint>>,
+    // Keep only a non-owning identity. The endpoint owns the control handle,
+    // whose callbacks retain the lease; an owning Arc here would form a
+    // lease -> endpoint -> control -> callback -> lease cycle.
+    endpoint: Option<Weak<OrderedControlEndpoint>>,
 }
 
 impl TerminalSizingLease {
@@ -2301,10 +2304,16 @@ impl TerminalSizingLease {
                 let mut state = self.state.lock().expect("terminal sizing lease lock");
                 state.joining = false;
                 if state.released || endpoint.is_none() {
+                    // Do not retain the endpoint after a cancelled or failed
+                    // join. The endpoint owns the control callbacks, and
+                    // those callbacks can retain this lease. Keeping the
+                    // reference here would create a lease -> endpoint ->
+                    // control -> callback -> lease cycle.
+                    state.endpoint = None;
                     true
                 } else {
                     state.joined = true;
-                    state.endpoint = endpoint.clone();
+                    state.endpoint = endpoint.as_ref().map(Arc::downgrade);
                     false
                 }
             };
@@ -2321,7 +2330,11 @@ impl TerminalSizingLease {
     fn update(&self, grid: SizingGrid) {
         let endpoint = {
             let state = self.state.lock().expect("terminal sizing lease lock");
-            if state.joined && !state.released { state.endpoint.clone() } else { None }
+            if state.joined && !state.released {
+                state.endpoint.as_ref().and_then(Weak::upgrade)
+            } else {
+                None
+            }
         };
         if let Some(endpoint) = endpoint {
             if let Some(coordinator) = self.coordinator.upgrade() {
@@ -2333,7 +2346,11 @@ impl TerminalSizingLease {
     fn queue(&self) -> Option<Arc<OrderedControlEndpoint>> {
         let endpoint = {
             let state = self.state.lock().expect("terminal sizing lease lock");
-            if state.joined && !state.released { state.endpoint.clone() } else { None }
+            if state.joined && !state.released {
+                state.endpoint.as_ref().and_then(Weak::upgrade)
+            } else {
+                None
+            }
         };
         self.coordinator.upgrade()?;
         endpoint
@@ -2346,7 +2363,14 @@ impl TerminalSizingLease {
                 (false, None)
             } else {
                 state.released = true;
-                (state.joined && !state.joining, state.endpoint.clone())
+                // Clone only the endpoint needed for the immediate ordered
+                // removal, then drop the owning reference from the lease.
+                // Control callbacks may retain the lease, so retaining this
+                // Arc after release would keep the whole control cycle alive.
+                (
+                    state.joined && !state.joining,
+                    state.endpoint.take().and_then(|endpoint| endpoint.upgrade()),
+                )
             }
         };
         if should_leave && let Some(endpoint) = endpoint {
@@ -5790,6 +5814,52 @@ mod tests {
         }
     }
 
+    /// Control test double that retains the close callback. Raw attach uses
+    /// callbacks that retain its sizing lease, so this models the ownership
+    /// edge that must not keep an endpoint alive after release.
+    #[derive(Clone)]
+    struct CallbackSizingControl {
+        inner: SizingControl,
+        close_handler: TestArc<StdMutex<Option<CloseHandler>>>,
+    }
+
+    impl CallbackSizingControl {
+        fn new(protocol: i64) -> Self {
+            Self {
+                inner: SizingControl::new(protocol, &[]),
+                close_handler: TestArc::new(StdMutex::new(None)),
+            }
+        }
+    }
+
+    impl ControlHandle for CallbackSizingControl {
+        fn request(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            self.inner.request(cmd, params)
+        }
+
+        fn send(&self, cmd: &str, params: Value) {
+            self.inner.send(cmd, params);
+        }
+
+        fn on_event(&self, _handler: EventHandler) {}
+
+        fn on_close(&self, handler: CloseHandler) {
+            *self.close_handler.lock().unwrap() = Some(handler);
+        }
+
+        fn pause(&self) {}
+
+        fn resume(&self) {}
+
+        fn end(&self) {
+            self.inner.end();
+        }
+    }
+
     #[tokio::test]
     async fn terminal_sizing_retries_a_refused_claim_once_without_a_viewer_event() {
         let control = SizingControl::new(12, &[]);
@@ -6560,6 +6630,38 @@ mod tests {
         assert!(Arc::ptr_eq(&current, &new_endpoint));
         assert!(new_endpoint.is_active());
         new_lease.leave();
+    }
+
+    #[tokio::test]
+    async fn released_sizing_lease_drops_endpoint_callback_cycle() {
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-lease-cycle.sock"),
+            surface_id: 32,
+        };
+        let control = CallbackSizingControl::new(12);
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let lease = TerminalSizingLease::new(&coordinator, key, 1, 32);
+        let lease_for_callback = Arc::clone(&lease);
+        control_handle.on_close(Box::new(move || lease_for_callback.leave()));
+
+        let waiter = lease
+            .join(control_handle.clone(), SizingGrid { cols: 80, rows: 24 })
+            .expect("sizing lease join");
+        waiter.await.expect("sizing worker");
+        let endpoint = lease.queue().expect("sizing endpoint");
+        let endpoint_weak = Arc::downgrade(&endpoint);
+        let lease_weak = Arc::downgrade(&lease);
+
+        lease.leave();
+        assert!(lease.state.lock().unwrap().endpoint.is_none());
+        drop(endpoint);
+        drop(lease);
+        drop(control_handle);
+        drop(control);
+
+        assert!(endpoint_weak.upgrade().is_none(), "released lease retained endpoint");
+        assert!(lease_weak.upgrade().is_none(), "control callback retained released lease");
     }
 
     #[test]
