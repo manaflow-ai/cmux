@@ -203,6 +203,10 @@ struct ClaudeHookSessionRecord: Codable {
     /// sets it before best-effort replay, and a later Stop clears it only after
     /// the app confirms every affected title target was resolved.
     var autoNameTitleReconciliationGeneration: String?
+    /// Progress marker for the compact epoch that owns the pending generation.
+    /// Duplicate delivery with the same marker is ignored; a changed marker
+    /// starts a new obligation without letting an older finisher clear it.
+    var autoNameTitleReconciliationEpochLineCount: Int?
     /// Number of socket apply attempts made for the current durable compact
     /// obligation. A permanently unresolved target is abandoned after a small
     /// bounded number of retries so every later Stop cannot repeat the same
@@ -512,9 +516,13 @@ final class ClaudeHookSessionStore {
     }
 
     /// Records an explicit Claude compaction before any best-effort title
-    /// replay. Returns the new obligation generation, or nil when the session
-    /// has neither a generated title nor a naming pass that can produce one.
-    func markAutoNamingTitleReconciliationPending(sessionId: String) throws -> String? {
+    /// replay. Duplicate delivery for the same progress epoch is reported as
+    /// existing; a changed epoch mints a new generation. Returns nil when the
+    /// session has neither a generated title nor a naming pass that can produce one.
+    func markAutoNamingTitleReconciliationPending(
+        sessionId: String,
+        transcriptLineCount: Int? = nil
+    ) throws -> (generation: String, isNew: Bool)? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
@@ -523,20 +531,24 @@ final class ClaudeHookSessionStore {
                 return nil
             }
             let now = Date().timeIntervalSince1970
-            if let existingGeneration = record.autoNameTitleReconciliationGeneration {
+            if let existingGeneration = record.autoNameTitleReconciliationGeneration,
+               transcriptLineCount == nil
+                    || record.autoNameTitleReconciliationEpochLineCount == nil
+                    || record.autoNameTitleReconciliationEpochLineCount == transcriptLineCount {
                 // Duplicate compact delivery belongs to the same unresolved
                 // obligation. Keep its generation and attempt budget intact;
                 // only a later, cleared generation starts a new epoch.
                 record.updatedAt = now
                 state.sessions[normalized] = record
-                return existingGeneration
+                return (generation: existingGeneration, isNew: false)
             }
             let generation = UUID().uuidString
             record.autoNameTitleReconciliationGeneration = generation
+            record.autoNameTitleReconciliationEpochLineCount = transcriptLineCount
             record.autoNameTitleReconciliationAttemptCount = 0
             record.updatedAt = now
             state.sessions[normalized] = record
-            return generation
+            return (generation: generation, isNew: true)
         }
     }
 
@@ -574,6 +586,7 @@ final class ClaudeHookSessionStore {
                 // `pending=true` with `exhausted=true` keeps the caller from
                 // falling through into a fresh LLM pass on this Stop.
                 record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameTitleReconciliationEpochLineCount = nil
                 // Keep the maxed count as an exhausted marker. Without it,
                 // the next Stop would reopen the same transcript-shrink
                 // reconciliation through the ordinary path.
@@ -612,6 +625,7 @@ final class ClaudeHookSessionStore {
                     )
                 }
                 record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameTitleReconciliationEpochLineCount = nil
                 record.autoNameTitleReconciliationAttemptCount = nil
                 record.autoNameInFlightAt = nil
                 record.autoNameLastObservationGeneration = nil
@@ -679,6 +693,7 @@ final class ClaudeHookSessionStore {
                 if clearPendingOnConfirmation,
                    claimedReconciliationGeneration != nil {
                     record.autoNameTitleReconciliationGeneration = nil
+                    record.autoNameTitleReconciliationEpochLineCount = nil
                     record.autoNameTitleReconciliationAttemptCount = nil
                 } else if claimedReconciliationGeneration == nil {
                     // Ordinary transcript-shrink reconciliation has no
@@ -33325,18 +33340,20 @@ export default CMUXSessionRestore;
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
-               ) {
+               ), autoNameProbe["enabled"] as? Bool == true {
+                let workspaceUserOwned = autoNameProbe["workspace_user_owned"] as? Bool == true
+                let hasReplayableAutoName = hasReplayableAutoNamingState(autoNamingSession)
                 let autoNamingTranscriptPath: String? = {
                     let recorded = normalizedHookValue(input.transcriptPath ?? autoNamingSession?.transcriptPath)
-                    guard recorded == nil,
-                          autoNameProbe["workspace_user_owned"] as? Bool == true,
+                    guard workspaceUserOwned, hasReplayableAutoName,
+                          recorded == nil,
                           autoNamingSource(for: def) == .codexRollout else {
                         return recorded
                     }
                     return findCodexTranscriptPath(sessionId: sessionId, env: env)
                 }()
                 let autoNamingFallbackLineCount: Int? = {
-                    guard autoNameProbe["workspace_user_owned"] as? Bool == true,
+                    guard workspaceUserOwned, hasReplayableAutoName,
                           let autoNamingTranscriptPath,
                           let source = autoNamingSource(for: def) else {
                         return nil
@@ -33351,7 +33368,7 @@ export default CMUXSessionRestore;
                         return nil
                     }
                 }()
-                let autoNamingProgress: Int? = autoNameProbe["workspace_user_owned"] as? Bool == true
+                let autoNamingProgress: Int? = workspaceUserOwned && hasReplayableAutoName
                     ? autoNamingProgressMetric(
                         for: def,
                         session: autoNamingSession,

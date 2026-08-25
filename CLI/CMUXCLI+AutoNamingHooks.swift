@@ -134,8 +134,21 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.compact.stale")
             return
         }
-        guard (try? sessionStore.markAutoNamingTitleReconciliationPending(sessionId: sessionId)) != nil else {
+        let compactTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
+            ?? (try? sessionStore.lookup(sessionId: sessionId))?.transcriptPath
+        let compactTranscriptLineCount = compactTranscriptPath.flatMap { path in
+            guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else { return nil }
+            return textFileGrowthMetric(path: path, fallbackLineCount: lines.count)
+        }
+        guard let pending = try? sessionStore.markAutoNamingTitleReconciliationPending(
+            sessionId: sessionId,
+            transcriptLineCount: compactTranscriptLineCount
+        ) else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.no-title")
+            return
+        }
+        guard pending.isNew else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.duplicate")
             return
         }
         guard targetIsAuthoritative else {
