@@ -48,6 +48,8 @@ final class CLIBrowserEvalOutputTests {
         #expect(formatter.string(from: NSNumber(value: -Double.infinity)) == "-Infinity")
         #expect(formatter.string(from: "") == "")
         #expect(formatter.string(from: NSNull()) == "null")
+        #expect(formatter.string(from: [Any]()) == "[]")
+        #expect(formatter.string(from: [String: Any]()) == "{}")
     }
 
     private struct BrowserReadCase {

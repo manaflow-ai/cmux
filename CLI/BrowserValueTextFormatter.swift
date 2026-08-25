@@ -16,6 +16,12 @@ struct BrowserValueTextFormatter {
         if let number = value as? NSNumber {
             return string(from: number)
         }
+        if let array = value as? [Any], array.isEmpty {
+            return "[]"
+        }
+        if let dictionary = value as? [String: Any], dictionary.isEmpty {
+            return "{}"
+        }
         if JSONSerialization.isValidJSONObject(value),
            let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
            let text = String(data: data, encoding: .utf8) {
