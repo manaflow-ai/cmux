@@ -357,6 +357,71 @@ struct SudoReviewRegressionTests {
             ) { _ in }
         }
     }
+
+    @Test("Approval retains the script snapshot shown before a refresh")
+    func approvalUsesOriginalReviewedSnapshot() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "snapshot-refresh", createdAt: now)
+        let launcher = TestRunnerLauncher()
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: launcher,
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: .testMessages
+        )
+        _ = try await broker.start()
+        try Data("echo replaced\n".utf8).write(
+            to: fixture.paths.requests.appendingPathComponent("\(request.id).sh")
+        )
+        _ = try await broker.refresh()
+        await broker.approve(id: request.id)
+
+        let reviewedScript = await launcher.reviewedScripts[request.id]
+        if let reviewedScript {
+            #expect(reviewedScript == Data("echo test\n".utf8))
+        } else {
+            #expect(fixture.store.result(id: request.id)?.errorCode == .stagingFailed)
+        }
+    }
+
+    @Test("Unconsumed output is included in the bounded result budget")
+    func unconsumedOutputRetentionIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let policy = SudoResourcePolicy(maximumOutputBytes: 10)
+        let store = SudoSpoolStore(paths: fixture.paths, resourcePolicy: policy)
+        try store.ensureDirectories()
+        let oldDate = Date.now.addingTimeInterval(-48 * 60 * 60)
+        for index in 0..<3 {
+            let url = fixture.paths.results.appendingPathComponent("output-\(index).out")
+            try Data(repeating: UInt8(index), count: 8).write(to: url)
+            try FileManager.default.setAttributes(
+                [.modificationDate: oldDate.addingTimeInterval(TimeInterval(index))],
+                ofItemAtPath: url.path
+            )
+        }
+
+        try store.ensureDirectories()
+
+        let outputNames = try FileManager.default
+            .contentsOfDirectory(atPath: fixture.paths.results.path)
+            .filter { $0.hasSuffix(".out") }
+        var remainingBytes = 0
+        for name in outputNames {
+            remainingBytes += (try FileManager.default.attributesOfItem(
+                atPath: fixture.paths.results.appendingPathComponent(name).path
+            )[.size] as? NSNumber)?.intValue ?? 0
+        }
+        #expect(remainingBytes <= policy.maximumOutputBytes)
+    }
 }
 
 private actor ReviewRecovery: SudoInterruptedExecutionRecovering {
