@@ -142,6 +142,11 @@ public final class DictationController {
                 fail(.insertionTargetUnavailable, generation: generation)
                 return
             }
+            try Task.checkCancellation()
+            guard sessionGeneration == generation, phase == .requestingAuthorization else {
+                settle(generation: generation)
+                return
+            }
             insertionSessionActive = true
             phase = .preparing
             let transcriber = makeTranscriber()

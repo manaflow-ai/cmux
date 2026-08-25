@@ -16,7 +16,7 @@ import Foundation
 /// transcript.apply(.final("world"))          // → " world"
 /// ```
 public struct DictationTranscript: Equatable, Sendable {
-    /// Text already committed (typed into the insertion target).
+    /// Recent text already committed (typed into the insertion target).
     public private(set) var committedText: String = ""
 
     /// The rolling hypothesis for the utterance currently being spoken.
@@ -28,6 +28,7 @@ public struct DictationTranscript: Equatable, Sendable {
     private var committedDisplayTail = ""
 
     private static let displayTailLimit = 512
+    private static let committedTextLimit = 4_096
 
     /// Creates an empty transcript.
     public init() {}
@@ -77,7 +78,9 @@ public struct DictationTranscript: Equatable, Sendable {
     private mutating func commit(_ text: String) -> String? {
         guard !text.isEmpty else { return nil }
         let delta = needsSeparator(before: text) ? " " + text : text
-        committedText += delta
+        committedText = String(
+            (committedText + delta).suffix(Self.committedTextLimit)
+        )
         committedDisplayTail = String(
             (committedDisplayTail + delta).suffix(Self.displayTailLimit)
         )

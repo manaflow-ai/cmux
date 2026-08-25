@@ -54,6 +54,7 @@ struct DictationTranscriptTests {
         var transcript = DictationTranscript()
         _ = transcript.apply(.final(String(repeating: "x", count: 1_000)))
         _ = transcript.apply(.partial(String(repeating: "y", count: 1_000)))
+        #expect(transcript.committedText.count <= 4_096)
         #expect(transcript.displayText.count <= 512)
         #expect(transcript.displayText.hasSuffix(String(repeating: "y", count: 512)))
     }

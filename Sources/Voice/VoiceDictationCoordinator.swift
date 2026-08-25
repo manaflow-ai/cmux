@@ -125,9 +125,12 @@ final class VoiceDictationCoordinator {
                     localized: "voice.error.localeUnavailable.title",
                     defaultValue: "Language not available for dictation"
                 ),
-                informative: String(
-                    localized: "voice.error.localeUnavailable.message",
-                    defaultValue: "On-device speech recognition does not support “\(localeIdentifier)” on this Mac. Pick another language in Settings › Voice. cmux never sends audio to a server."
+                informative: String.localizedStringWithFormat(
+                    String(
+                        localized: "voice.error.localeUnavailable.message",
+                        defaultValue: "On-device speech recognition does not support “%@” on this Mac. Pick another language in Settings › Voice. cmux never sends audio to a server."
+                    ),
+                    localeIdentifier
                 )
             )
         case .modelDownloadFailed(let detail):
