@@ -36,6 +36,7 @@ final class CmuxPluginProcessSupervisor {
         let sessionToken: String
         let socketPath: String
         let processID: pid_t
+        let authorizationIdentity: CmuxPluginProcessIdentity
         let snapshot: CmuxPluginExecutionSnapshot
         let integrityMonitor: CmuxPluginSnapshotIntegrityMonitor
         let integrityTask: Task<Void, Never>
@@ -192,6 +193,7 @@ final class CmuxPluginProcessSupervisor {
         }
 
         let process = Process()
+        let processGeneration = UUID()
         let launchGate = Pipe()
         let integrityMonitor = CmuxPluginSnapshotIntegrityMonitor(
             rootURL: executionSnapshot.directoryURL.deletingLastPathComponent()
@@ -249,6 +251,7 @@ final class CmuxPluginProcessSupervisor {
                 self.processDidTerminate(
                     pluginID: pluginID,
                     processID: terminatedID,
+                    processGeneration: processGeneration,
                     status: status,
                     runtime: runtime,
                     reportError: reportError
@@ -303,23 +306,28 @@ final class CmuxPluginProcessSupervisor {
         }
 
         let processID = process.processIdentifier
+        let authorizationIdentity = runtime.registerProcess(
+            processID,
+            for: pluginID,
+            generation: processGeneration
+        )
         processes[pluginID] = RunningProcess(
             process: process,
             fingerprint: descriptor.plugin.manifestFingerprint,
             sessionToken: sessionToken,
             socketPath: socketPath,
             processID: processID,
+            authorizationIdentity: authorizationIdentity,
             snapshot: executionSnapshot,
             integrityMonitor: integrityMonitor,
             integrityTask: integrityTask
         )
-        runtime.registerProcess(processID, for: pluginID)
         let snapshotVerifiedBeforeGate = await snapshotter.verify(executionSnapshot)
         guard !Task.isCancelled,
               snapshotVerifiedBeforeGate,
               runtime.processReconciliationIsAllowed(generation: generation) else {
             processes.removeValue(forKey: pluginID)
-            runtime.revokeProcess(processID)
+            runtime.revokeProcess(processID, identity: authorizationIdentity)
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
@@ -344,7 +352,7 @@ final class CmuxPluginProcessSupervisor {
         } catch {
             try? launchGate.fileHandleForWriting.close()
             processes.removeValue(forKey: pluginID)
-            runtime.revokeProcess(processID)
+            runtime.revokeProcess(processID, identity: authorizationIdentity)
             integrityMonitor.cancel()
             integrityTask.cancel()
             Task { await snapshotter.remove(executionSnapshot) }
@@ -371,6 +379,7 @@ final class CmuxPluginProcessSupervisor {
             processDidTerminate(
                 pluginID: pluginID,
                 processID: processID,
+                processGeneration: processGeneration,
                 status: process.terminationStatus,
                 runtime: runtime,
                 reportError: reportError
@@ -406,7 +415,10 @@ final class CmuxPluginProcessSupervisor {
         processes.removeValue(forKey: pluginID)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
-        runtime.revokeProcess(running.processID)
+        runtime.revokeProcess(
+            running.processID,
+            identity: running.authorizationIdentity
+        )
         if running.process.isRunning {
             running.process.terminate()
         }
@@ -426,16 +438,19 @@ final class CmuxPluginProcessSupervisor {
     private func processDidTerminate(
         pluginID: String,
         processID: pid_t,
+        processGeneration: UUID,
         status: Int32,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
-        guard let running = processes[pluginID], running.processID == processID else {
-            runtime.processDidExit(processID)
+        guard let running = processes[pluginID],
+              running.processID == processID,
+              running.authorizationIdentity.generation == processGeneration else {
+            runtime.processDidExit(processID, generation: processGeneration)
             return
         }
         processes.removeValue(forKey: pluginID)
-        runtime.processDidExit(processID)
+        runtime.processDidExit(processID, generation: processGeneration)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
         Task { await snapshotter.remove(running.snapshot) }
@@ -468,7 +483,10 @@ final class CmuxPluginProcessSupervisor {
         // Revoke the old generation before a replacement can subscribe. Its
         // delayed termination callback must never tear down the replacement's
         // streams merely because both generations share a plugin id.
-        runtime.revokeProcess(running.processID)
+        runtime.revokeProcess(
+            running.processID,
+            identity: running.authorizationIdentity
+        )
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
         Task { await snapshotter.remove(running.snapshot) }

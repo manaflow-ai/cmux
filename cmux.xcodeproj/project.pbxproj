@@ -885,6 +885,7 @@
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
 		F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
 		F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
+		E7E100000000000000000021 /* CmuxPluginProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000022 /* CmuxPluginProcessIdentity.swift */; };
 		E7E100000000000000000001 /* CmuxPluginProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000002 /* CmuxPluginProcessSupervisor.swift */; };
 		E7E100000000000000000007 /* CmuxPluginRuntime+ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */; };
 		E7E10000000000000000000F /* CmuxPluginRuntime+Registry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */; };
@@ -3998,6 +3999,7 @@
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
+		E7E100000000000000000022 /* CmuxPluginProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginProcessIdentity.swift; sourceTree = "<group>"; };
 		E7E100000000000000000002 /* CmuxPluginProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginProcessSupervisor.swift; sourceTree = "<group>"; };
 		E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+ProcessIdentity.swift"; sourceTree = "<group>"; };
 		E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+Registry.swift"; sourceTree = "<group>"; };
@@ -7440,6 +7442,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E7E100000000000000000016 /* HostSettingsActions+Plugins.swift */,
 				E7E100000000000000000004 /* CmuxPluginRuntime.swift */,
 				E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */,
+				E7E100000000000000000022 /* CmuxPluginProcessIdentity.swift */,
 				E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */,
 				E7E10000000000000000000A /* CmuxPluginRuntime+Shortcuts.swift */,
 				E7E10000000000000000001A /* CmuxPluginRuntime+SocketAuthorization.swift */,
@@ -10348,6 +10351,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */,
 				468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */,
 				468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */,
+				E7E100000000000000000021 /* CmuxPluginProcessIdentity.swift in Sources */,
 				E7E100000000000000000001 /* CmuxPluginProcessSupervisor.swift in Sources */,
 				E7E100000000000000000007 /* CmuxPluginRuntime+ProcessIdentity.swift in Sources */,
 				E7E10000000000000000000F /* CmuxPluginRuntime+Registry.swift in Sources */,

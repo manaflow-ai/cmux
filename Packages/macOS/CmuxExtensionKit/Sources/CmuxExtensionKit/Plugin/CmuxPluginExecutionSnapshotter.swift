@@ -34,6 +34,10 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
     /// An open descriptor for the pinned shebang interpreter, when needed.
     /// The snapshotter owns and closes it with the snapshot.
     public let interpreterFileDescriptor: Int32?
+    /// Open descriptors for every regular file in the copied plugin bundle,
+    /// keyed by path relative to ``directoryURL``. The verifier uses these
+    /// identities to reject sibling replacement before capabilities are released.
+    public let pinnedFileDescriptors: [String: Int32]
 
     /// Creates an execution snapshot value.
     public init(
@@ -43,7 +47,8 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         fingerprint: String,
         entrypointFileDescriptor: Int32 = -1,
         entrypointExecution: CmuxPluginEntrypointExecution = .executable,
-        interpreterFileDescriptor: Int32? = nil
+        interpreterFileDescriptor: Int32? = nil,
+        pinnedFileDescriptors: [String: Int32] = [:]
     ) {
         self.directoryURL = directoryURL
         self.manifestURL = manifestURL
@@ -52,6 +57,7 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         self.entrypointFileDescriptor = entrypointFileDescriptor
         self.entrypointExecution = entrypointExecution
         self.interpreterFileDescriptor = interpreterFileDescriptor
+        self.pinnedFileDescriptors = pinnedFileDescriptors
     }
 }
 
@@ -110,9 +116,15 @@ public actor CmuxPluginExecutionSnapshotter {
             .appendingPathComponent(plugin.manifest.id, isDirectory: true)
         var snapshotCommitted = false
         var preparedInterpreterDescriptor: Int32?
+        var pinnedFileDescriptors: [String: Int32] = [:]
         defer {
             if !snapshotCommitted, let preparedInterpreterDescriptor {
                 closeEntrypointDescriptor(preparedInterpreterDescriptor)
+            }
+            if !snapshotCommitted {
+                for descriptor in pinnedFileDescriptors.values {
+                    closeEntrypointDescriptor(descriptor)
+                }
             }
             if !snapshotCommitted {
                 removeStagingRoot(stagingRoot)
@@ -198,6 +210,17 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
+        do {
+            pinnedFileDescriptors = try openPinnedFiles(at: copiedDirectory)
+            pinnedFileDescriptors.values.forEach { openEntrypointDescriptors.insert($0) }
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            removeStagingRoot(stagingRoot)
+            throw error
+        } catch {
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+        }
+
         // Open only after the complete staging tree is immutable. A malicious
         // same-user process can race the first pathname scan, but it cannot
         // substitute the inode selected here after the root directory is sealed.
@@ -235,7 +258,8 @@ public actor CmuxPluginExecutionSnapshotter {
             fingerprint: copiedPlugin.manifestFingerprint,
             entrypointFileDescriptor: pinnedEntrypoint.descriptor,
             entrypointExecution: pinnedEntrypoint.execution,
-            interpreterFileDescriptor: pinnedEntrypoint.interpreterDescriptor
+            interpreterFileDescriptor: pinnedEntrypoint.interpreterDescriptor,
+            pinnedFileDescriptors: pinnedFileDescriptors
         )
     }
 
@@ -243,6 +267,9 @@ public actor CmuxPluginExecutionSnapshotter {
     public func remove(_ snapshot: CmuxPluginExecutionSnapshot) {
         closeEntrypointDescriptor(snapshot.entrypointFileDescriptor)
         closeEntrypointDescriptor(snapshot.interpreterFileDescriptor ?? -1)
+        for descriptor in snapshot.pinnedFileDescriptors.values {
+            closeEntrypointDescriptor(descriptor)
+        }
         removeStagingRoot(snapshot.directoryURL.deletingLastPathComponent())
     }
 
@@ -290,6 +317,50 @@ public actor CmuxPluginExecutionSnapshotter {
         } catch {
             Darwin.close(executableDescriptor)
             Darwin.close(readableDescriptor)
+            throw error
+        }
+    }
+
+    private func openPinnedFiles(at root: URL) throws -> [String: Int32] {
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: []
+        ) else {
+            throw CmuxPluginExecutionSnapshotError.validationFailed
+        }
+        var descriptors: [String: Int32] = [:]
+        do {
+            for case let url as URL in enumerator {
+                let values = try url.resourceValues(forKeys: [
+                    .isDirectoryKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ])
+                guard values.isSymbolicLink != true else {
+                    throw CmuxPluginExecutionSnapshotError.validationFailed
+                }
+                guard values.isDirectory != true else { continue }
+                guard values.isRegularFile == true,
+                      url.path.hasPrefix(root.path + "/") else {
+                    throw CmuxPluginExecutionSnapshotError.validationFailed
+                }
+                guard descriptors.count < 4_096 else {
+                    throw CmuxPluginExecutionSnapshotError.validationFailed
+                }
+                let descriptor = Darwin.open(
+                    url.path,
+                    O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+                )
+                guard descriptor >= 0 else {
+                    throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+                }
+                let relativePath = String(url.path.dropFirst(root.path.count + 1))
+                descriptors[relativePath] = descriptor
+            }
+            return descriptors
+        } catch {
+            descriptors.values.forEach { Darwin.close($0) }
             throw error
         }
     }

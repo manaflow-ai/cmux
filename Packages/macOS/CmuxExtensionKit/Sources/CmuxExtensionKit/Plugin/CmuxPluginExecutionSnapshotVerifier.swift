@@ -18,6 +18,15 @@ struct CmuxPluginExecutionSnapshotVerifier {
     func verify(_ snapshot: CmuxPluginExecutionSnapshot) -> Bool {
         guard snapshot.entrypointFileDescriptor >= 0,
               sameFile(snapshot.entrypointFileDescriptor, snapshot.entrypointURL),
+              snapshot.pinnedFileDescriptors.allSatisfy({ relativePath, descriptor in
+                  sameFile(
+                      descriptor,
+                      snapshot.directoryURL.appendingPathComponent(
+                          relativePath,
+                          isDirectory: false
+                      )
+                  )
+              }),
               let manifestData = try? Data(contentsOf: snapshot.manifestURL),
               let manifest = try? JSONDecoder().decode(
                   CmuxExtensionManifest.self,

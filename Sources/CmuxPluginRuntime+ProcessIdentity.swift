@@ -1,19 +1,35 @@
 import CmuxExtensionKit
 import Darwin
+import Foundation
 
 extension CmuxPluginRuntime {
     /// Records the PID of a supervised plugin child so its socket requests can
     /// be required to carry the matching plugin token.
-    func registerProcess(_ processID: pid_t, for pluginID: String) {
+    @discardableResult
+    func registerProcess(
+        _ processID: pid_t,
+        for pluginID: String,
+        generation: UUID = UUID()
+    ) -> CmuxPluginProcessIdentity {
+        let identity = CmuxPluginProcessIdentity(
+            generation: generation,
+            startMicroseconds: Self.processStartMicroseconds(processID)
+        )
         lock.lock()
         processAuthorizations[processID] = .active(pluginID: pluginID)
+        processAuthorizationIdentities[processID] = identity
         lock.unlock()
+        return identity
     }
 
     /// Revokes a supervised child while retaining a deny-only lineage marker
     /// until the operating system reports that the root process has exited.
-    func revokeProcess(_ processID: pid_t) {
+    func revokeProcess(_ processID: pid_t, identity: CmuxPluginProcessIdentity? = nil) {
         lock.lock()
+        guard identity == nil || processAuthorizationIdentities[processID] == identity else {
+            lock.unlock()
+            return
+        }
         let pluginID: String?
         if case .active(let activePluginID)? = processAuthorizations[processID] {
             pluginID = activePluginID
@@ -30,9 +46,14 @@ extension CmuxPluginRuntime {
     }
 
     /// Removes a process-lineage marker after its root has exited.
-    func processDidExit(_ processID: pid_t) {
+    func processDidExit(_ processID: pid_t, generation: UUID) {
         lock.lock()
+        guard processAuthorizationIdentities[processID]?.generation == generation else {
+            lock.unlock()
+            return
+        }
         let authorization = processAuthorizations.removeValue(forKey: processID)
+        processAuthorizationIdentities.removeValue(forKey: processID)
         let pluginID: String?
         if case .active(let activePluginID)? = authorization {
             pluginID = activePluginID
@@ -62,6 +83,11 @@ extension CmuxPluginRuntime {
         guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
             return nil
         }
+        guard let identity = processAuthorizationIdentities[resolved.rootProcessID],
+              let expectedStart = identity.startMicroseconds,
+              Self.processStartMicroseconds(resolved.rootProcessID) == expectedStart else {
+            return nil
+        }
         return resolved.authorization
     }
 
@@ -85,6 +111,11 @@ extension CmuxPluginRuntime {
         }
 
     private static func parentProcessID(_ processID: Int32) -> Int32? {
+        guard let info = processBSDInfo(processID) else { return nil }
+        return pid_t(info.pbi_ppid)
+    }
+
+    private static func processBSDInfo(_ processID: Int32) -> proc_bsdinfo? {
         guard processID > 0 else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.stride)
@@ -95,7 +126,12 @@ extension CmuxPluginRuntime {
             &info,
             expectedSize
         )
-        guard result == expectedSize else { return nil }
-        return pid_t(info.pbi_ppid)
+        return result == expectedSize ? info : nil
+    }
+
+    private static func processStartMicroseconds(_ processID: Int32) -> Int64? {
+        guard let info = processBSDInfo(processID) else { return nil }
+        return Int64(info.pbi_start_tvsec) * 1_000_000
+            + Int64(info.pbi_start_tvusec)
     }
 }

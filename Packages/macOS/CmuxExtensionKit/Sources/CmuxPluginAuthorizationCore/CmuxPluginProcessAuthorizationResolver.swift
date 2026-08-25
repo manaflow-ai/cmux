@@ -39,8 +39,10 @@ public struct CmuxPluginProcessAuthorizationResolver: Sendable {
 
     /// Resolves a peer's ancestry against supervised root authorizations.
     ///
-    /// The walk is bounded and cycle-safe. A descendant stops matching when
-    /// its supervised ancestor has exited or the parent lookup fails.
+    /// The walk is bounded and cycle-safe. The 128-level ceiling mirrors the
+    /// host control-socket ancestry check, so a peer admitted as a cmux
+    /// descendant cannot fall through to ordinary socket privileges merely
+    /// because this plugin-specific walk used a shorter bound.
     public func resolve(
         processID: Int32,
         authorizations: [Int32: CmuxPluginProcessAuthorization]
@@ -48,7 +50,7 @@ public struct CmuxPluginProcessAuthorizationResolver: Sendable {
         guard processID > 0 else { return nil }
         var current = processID
         var visited = Set<Int32>()
-        for _ in 0..<32 {
+        for _ in 0..<128 {
             guard visited.insert(current).inserted else { return nil }
             if let authorization = authorizations[current] {
                 return Resolution(rootProcessID: current, authorization: authorization)
