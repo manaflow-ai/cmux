@@ -298,6 +298,7 @@ struct ShellInner {
     ring: VecDeque<Bytes>,
     ring_size: usize,
     alive: bool,
+    exit_code: Option<i64>,
     viewers: Vec<ViewerSink>,
 }
 
@@ -1062,6 +1063,7 @@ impl Inner {
                         ring: VecDeque::new(),
                         ring_size: 0,
                         alive: true,
+                        exit_code: None,
                         viewers: Vec::new(),
                     }),
                 });
@@ -1094,6 +1096,7 @@ impl Inner {
                     let viewers = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         inner.alive = false;
+                        inner.exit_code = Some(code);
                         std::mem::take(&mut inner.viewers)
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
@@ -1130,13 +1133,13 @@ impl Inner {
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
-            let (banner, replay, alive) = {
+            let (banner, replay) = {
                 let inner = start_session.inner.lock().expect("shell inner lock");
                 let banner = created.then(|| start_session.banner.clone()).flatten();
                 let replay = (!created && inner.ring_size > 0).then(|| {
                     inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
                 });
-                (banner, replay, inner.alive)
+                (banner, replay)
             };
             if let Some(banner) = banner {
                 on_data(Bytes::from(banner));
@@ -1147,13 +1150,26 @@ impl Inner {
             if released.load(Ordering::SeqCst) {
                 return;
             }
-            if !alive {
-                on_exit(0);
-                return;
-            }
-            let mut inner = start_session.inner.lock().expect("shell inner lock");
-            if !released.load(Ordering::SeqCst) && inner.alive {
-                inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
+            // Registration and the alive check are one critical section.
+            // Exit can therefore either take this viewer or leave its
+            // terminal exit code for the just-completed attachment.
+            let exit_code = {
+                let mut inner = start_session.inner.lock().expect("shell inner lock");
+                if !released.load(Ordering::SeqCst) && inner.alive {
+                    inner.viewers.push(ViewerSink {
+                        id: viewer_id,
+                        on_data: Arc::clone(&on_data),
+                        on_exit: Arc::clone(&on_exit),
+                    });
+                    None
+                } else if !inner.alive {
+                    inner.exit_code
+                } else {
+                    None
+                }
+            };
+            if let Some(code) = exit_code {
+                on_exit(code);
             }
         });
 
