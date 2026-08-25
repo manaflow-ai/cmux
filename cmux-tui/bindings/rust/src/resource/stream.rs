@@ -681,7 +681,7 @@ mod tests {
     use std::io::Read;
 
     #[test]
-    fn failed_cancel_send_can_be_retried_and_closes_the_transport() {
+    fn failed_cancel_send_is_retired_and_closes_the_transport() {
         let (client, mut peer) = UnixStream::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
         let connection =
@@ -706,11 +706,41 @@ mod tests {
         let detached = stream.cancellation();
 
         assert!(matches!(stream.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
-        assert!(matches!(detached.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
+        assert!(!detached.send().unwrap());
 
         let mut received = Vec::new();
         peer.read_to_end(&mut received).unwrap();
         assert!(received.is_empty());
+    }
+
+    #[test]
+    fn partial_cancel_write_is_not_retried() {
+        const PREFIX_BYTES: usize = 4096;
+        const REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        let cancellation = StreamCancellation {
+            inner: Arc::new(CancellationInner {
+                id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+                writer: Mutex::new(client),
+                cancel_params: Params::new().string("padding", "x".repeat(REQUEST_BYTES)),
+                max_request_bytes: REQUEST_BYTES * 2,
+                canceled: AtomicU8::new(0),
+            }),
+        };
+        let reader = std::thread::spawn(move || {
+            let mut prefix = vec![0; PREFIX_BYTES];
+            peer.read_exact(&mut prefix).unwrap();
+            peer.shutdown(Shutdown::Both).unwrap();
+            prefix
+        });
+
+        assert!(matches!(cancellation.send(), Err(Error::Connection(_))));
+        assert!(!cancellation.send().unwrap());
+
+        let prefix = reader.join().unwrap();
+        assert_eq!(prefix.len(), PREFIX_BYTES);
+        assert!(!prefix.ends_with(b"\n"));
     }
 
     #[test]
