@@ -170,7 +170,10 @@ extension CMUXCLI {
                 let normalizedSource = source?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased() ?? ""
-                return sources.contains(normalizedSource)
+                return sources.contains {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        == normalizedSource
+                }
             }
         }
 

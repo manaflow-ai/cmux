@@ -400,6 +400,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(replacementStart.timedOut, replacementStart.stderr)
         XCTAssertEqual(replacementStart.status, 0, replacementStart.stderr)
 
+        let replayedStartCommandStart = state.snapshot().count
+        let replayedOriginalStart = runCopilotHook(
+            "session-start",
+            surface: surfaceId,
+            input: #"{"session_id":"\#(originalSessionId)","source":"new","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(replayedOriginalStart.timedOut, replayedOriginalStart.stderr)
+        XCTAssertEqual(replayedOriginalStart.status, 0, replayedOriginalStart.stderr)
+        let replayedStartCommands = Array(state.snapshot().dropFirst(replayedStartCommandStart))
+        XCTAssertFalse(
+            replayedStartCommands.contains { command in
+                guard let request = self.jsonObject(command),
+                      request["method"] as? String == "surface.resume.set",
+                      let params = request["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == originalSessionId
+            },
+            "A replayed SessionStart for the superseded conversation must not restore its checkpoint: \(replayedStartCommands)"
+        )
+
         let lateHookCommandStart = state.snapshot().count
         let lateStop = runCopilotHook(
             "stop",

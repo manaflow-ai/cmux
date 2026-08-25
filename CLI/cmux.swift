@@ -32352,7 +32352,8 @@ export default CMUXSessionRestore;
                         markActive: def.tracksSurfaceSessionIdentity,
                         supersedesSameProcessSession: supersedesSameProcessSession,
                         supersedesSameProcessSessionOnSameSurfaceOnly:
-                            def.tracksSurfaceSessionIdentity
+                            def.tracksSurfaceSessionIdentity,
+                        rejectSupersededSameProcessSession: def.tracksSurfaceSessionIdentity
                     )
                     supersededSessionRecords = result?.superseded ?? []
                     acceptedSessionStart = result?.accepted ?? true
