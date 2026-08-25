@@ -615,7 +615,8 @@ final class SharedLiveAgentIndex {
     ) {
         insertPendingForkValidation(probeKey, fallbackSnapshot: fallbackSnapshot)
         guard refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+              forkAvailabilityRefreshTask == nil,
+              sidebarLivenessRefreshTask == nil else {
             return
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
@@ -874,7 +875,8 @@ final class SharedLiveAgentIndex {
     private func restartForkAvailabilityRefreshIfPending() {
         guard !pendingForkValidationRequests.isEmpty,
               refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+              forkAvailabilityRefreshTask == nil,
+              sidebarLivenessRefreshTask == nil else {
             return
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
