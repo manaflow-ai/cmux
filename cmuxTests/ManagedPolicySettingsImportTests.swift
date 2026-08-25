@@ -231,4 +231,62 @@ struct ManagedPolicySettingsImportTests {
             }
         }
     }
+
+    @Test func legacyArrayExternalPatternsSurviveManagedSettingsRemoval() throws {
+        let defaults = UserDefaults.standard
+        let key = BrowserExternalURLPolicy.userDefaultsKey
+        let preservedKeys = [key, Self.backupsKey, Self.importedManagedDefaultsKey]
+        let previousValues = preservedKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (preservedKey, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: preservedKey)
+                } else {
+                    defaults.removeObject(forKey: preservedKey)
+                }
+            }
+        }
+        preservedKeys.forEach { defaults.removeObject(forKey: $0) }
+
+        // Older releases persisted this setting as an array. Keep that shape
+        // here so the managed-settings backup exercises the compatibility path.
+        defaults.set(["legacy.example.com"], forKey: key)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManagedPolicySettingsImportTests.LegacyExternalPatterns.\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let managedSettings = """
+        {
+          "browser": {
+            "urlsToAlwaysOpenExternally": ["managed.example.com"]
+          }
+        }
+        """
+        try Data(managedSettings.utf8).write(to: settingsFileURL)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+        try withExtendedLifetime(store) {
+            #expect(defaults.string(forKey: key) == "managed.example.com")
+
+            // Removing the file-managed value must restore the legacy user's
+            // rules rather than treating the array backup as absent.
+            try Data("{\"browser\": {}}".utf8).write(to: settingsFileURL)
+            store.reload()
+
+            #expect(defaults.object(forKey: key) != nil)
+            #expect(BrowserExternalURLPolicy(defaults: defaults).patterns == ["legacy.example.com"])
+        }
+    }
 }
