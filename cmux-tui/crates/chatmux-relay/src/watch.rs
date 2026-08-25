@@ -129,7 +129,7 @@ impl WatchRegistry {
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
         let mut task = Some(tokio::spawn(async move {
-            run_watch(&task_id, &root, &outbound).await;
+            run_watch(&task_id, generation, &root, &outbound, &sessions).await;
             if let Ok(mut sessions) = sessions.lock() {
                 // `tokio::spawn` starts the task immediately, so a watcher
                 // that fails during startup can finish before its handle is
@@ -161,6 +161,7 @@ impl WatchRegistry {
         }
         if let Some((_, Some(previous))) = previous {
             previous.abort();
+            tokio::spawn(async move { let _ = previous.await; });
         }
     }
 }
@@ -199,7 +200,14 @@ fn watch_root_with_capabilities(
 // The watch task: notify events -> debounce -> gitignore filter -> frames
 // ---------------------------------------------------------------------------
 
-async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
+async fn run_watch(
+    watch_id: &str,
+    generation: u64,
+    root: &Path,
+    outbound: &OutboundSink,
+    sessions: &Sessions,
+) {
+    let current = || sessions.lock().map(|s| s.get(watch_id).is_some_and(|e| e.0 == generation)).unwrap_or(false);
     use notify::Watcher as _;
     let (event_tx, mut event_rx) =
         channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
@@ -228,6 +236,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
         }) {
             Ok(watcher) => watcher,
             Err(error) => {
+                if !current() { return; }
                 let _ = outbound
                     .critical_text(watch_error_frame(
                         watch_id,
@@ -239,6 +248,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             }
         };
     if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
+        if !current() { return; }
         let _ = outbound
             .critical_text(watch_error_frame(
                 watch_id,
@@ -292,6 +302,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             overflow = true;
         }
         if overflow {
+            if !current() { break 'watch; }
             let _ = outbound
                 .critical_text(watch_error_frame(
                     watch_id,
@@ -302,6 +313,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
         }
         let latched_error = latched_error.lock().ok().and_then(|mut error| error.take());
         if !changes.is_empty() || overflow {
+            if !current() { break 'watch; }
             let frame = serde_json::to_string(&wire::RelayFsWatchEvent {
                 version: WORKSPACE_FRAME_VERSION,
                 r#type: wire::TagFsWatchEvent::FsWatchEvent,
@@ -322,6 +334,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             matcher = build_ignore_matcher(root);
         }
         if let Some(error) = fatal {
+            if !current() { break; }
             let _ = outbound
                 .critical_text(watch_error_frame(
                     watch_id,
@@ -332,6 +345,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             break;
         }
         if let Some(error) = latched_error {
+            if !current() { break; }
             let _ = outbound
                 .critical_text(watch_error_frame(
                     watch_id,
