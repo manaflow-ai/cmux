@@ -350,14 +350,6 @@ function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & obj
   if (tag === "IrohConflictError") {
     return jsonResponse({ error: (error as { code: string }).code }, 409);
   }
-  if (tag === "IrohQuotaExceededError") {
-    const quota = error as { code: string; retryAfterSeconds: number };
-    return irohJsonResponse(
-      { error: quota.code, retry_after_seconds: quota.retryAfterSeconds },
-      429,
-      { "retry-after": String(quota.retryAfterSeconds) },
-    );
-  }
   return jsonResponse({ error: "iroh_service_unavailable" }, 503);
 }
 

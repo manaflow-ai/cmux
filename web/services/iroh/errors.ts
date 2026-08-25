@@ -17,11 +17,6 @@ export class IrohConflictError extends Data.TaggedError("IrohConflictError")<{
   readonly code: string;
 }> {}
 
-export class IrohQuotaExceededError extends Data.TaggedError("IrohQuotaExceededError")<{
-  readonly code: string;
-  readonly retryAfterSeconds: number;
-}> {}
-
 export class IrohConfigurationError extends Data.TaggedError("IrohConfigurationError")<{
   readonly component:
     | "grant_signing"
@@ -40,7 +35,6 @@ export type IrohExpectedError =
   | IrohNotFoundError
   | IrohForbiddenError
   | IrohConflictError
-  | IrohQuotaExceededError
   | IrohConfigurationError
   | IrohDatabaseError;
 
@@ -78,7 +72,6 @@ const IROH_ERROR_TAGS = new Set([
   "IrohNotFoundError",
   "IrohForbiddenError",
   "IrohConflictError",
-  "IrohQuotaExceededError",
   "IrohConfigurationError",
   "IrohDatabaseError",
 ]);

@@ -1834,13 +1834,6 @@ class MemoryRepository implements IrohRepositoryShape {
   readonly challenges: IrohChallengeRecord[] = [];
   readonly bindings: MutableBinding[] = [];
   readonly pairGrantAudits: unknown[] = [];
-  readonly relayIssuances: Array<{
-    id: string;
-    userId: string;
-    bindingId: string;
-    requestedAt: Date;
-    status: string;
-  }> = [];
   private lanGenerations = new Map<string, number>();
   private routeRevisions = new Map<string, number>();
   beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
@@ -2244,41 +2237,6 @@ class MemoryRepository implements IrohRepositoryShape {
     ) {
       return Effect.fail(new IrohConflictError({ code: "binding_changed_during_attestation" }));
     }
-    return Effect.void;
-  }
-
-  reserveRelayIssuance(input: Parameters<IrohRepositoryShape["reserveRelayIssuance"]>[0]) {
-    const active = this.bindings.find((row) =>
-      row.id === input.bindingId && row.userId === input.userId && !row.revokedAt);
-    if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    if (active.clientNamespace !== (input.clientNamespace ?? "legacy")) {
-      return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    active.lastSeenAt = input.now;
-    active.updatedAt = input.now;
-    const issuanceId = randomUUID();
-    this.relayIssuances.push({ id: issuanceId, userId: input.userId, bindingId: active.id, requestedAt: input.now, status: "pending" });
-    return Effect.succeed({ issuanceId, binding: active });
-  }
-
-  completeRelayIssuance(input: Parameters<IrohRepositoryShape["completeRelayIssuance"]>[0]) {
-    const row = this.relayIssuances.find((candidate) => candidate.id === input.issuanceId);
-    const active = this.bindings.find((candidate) =>
-      candidate.id === input.bindingId &&
-      candidate.userId === input.userId &&
-      candidate.endpointId === input.endpointId &&
-      !candidate.revokedAt);
-    if (!row || !active) {
-      if (row) row.status = "failed";
-      return Effect.succeed(false);
-    }
-    row.status = "succeeded";
-    return Effect.succeed(true);
-  }
-
-  failRelayIssuance(input: Parameters<IrohRepositoryShape["failRelayIssuance"]>[0]) {
-    const row = this.relayIssuances.find((candidate) => candidate.id === input.issuanceId);
-    if (row) row.status = "failed";
     return Effect.void;
   }
 }
