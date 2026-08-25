@@ -263,8 +263,7 @@ struct SudoReviewRegressionTests {
         #expect(await recovery.callCount == 1)
         for _ in 0..<20 { await Task.yield() }
         await clock.advance(to: manifest.deadline)
-        _ = try await broker.refresh()
-        for _ in 0..<100 {
+        for _ in 0..<1_000 {
             await Task.yield()
             if await recovery.callCount >= 2,
                fixture.store.result(id: request.id) != nil {
