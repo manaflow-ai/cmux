@@ -121,7 +121,6 @@ extension AppDelegate {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
         includeScrollback: Bool
     ) -> [RecoverableMainWindowRoute] {
-        guard includeScrollback else { return routes }
         var updatedRoutes: [RecoverableMainWindowRoute] = []
         for route in routes {
             guard route.frozenWindowSnapshot == nil else {
@@ -150,7 +149,8 @@ extension AppDelegate {
         }
     }
 
-    /// Freezes one route only after a complete agent index is available.
+    /// Freezes one route into a bounded value snapshot. Full snapshots carry
+    /// scrollback; lightweight projections pass an empty index and omit it.
     @discardableResult
     private func freezeWindowlessRecoverableMainWindowRoute(
         _ route: RecoverableMainWindowRoute,
@@ -372,7 +372,7 @@ extension AppDelegate {
         let restorableAgentIndexForFreeze = includeScrollback
             ? suppliedRestorableAgentIndex
                 ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            : nil
+            : suppliedRestorableAgentIndex ?? .empty
         _ = freezeWindowlessRecoverableMainWindowRoutes(
             Array(candidateOrphanedRoutes),
             windowsByWindowId: windowsByWindowId,

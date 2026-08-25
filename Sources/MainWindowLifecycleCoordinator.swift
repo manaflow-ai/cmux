@@ -83,6 +83,12 @@ final class MainWindowLifecycleCoordinator {
             return indexes
         }
 
+        if !Task.isCancelled {
+            // The bounded retry exhausted without cancellation. Drop the
+            // completed task so a later orphan can start a fresh generation.
+            windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+            windowlessRecoveryResumeIndexesTask = nil
+        }
         return nil
     }
 

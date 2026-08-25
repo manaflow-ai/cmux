@@ -3772,6 +3772,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func consumeWindowlessRecoverableRouteForSessionReopen(windowId: UUID) {
+        guard let route = mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId),
+              route.window == nil else {
+            return
+        }
+        if let manager = route.tabManager,
+           route.frozenWindowSnapshot == nil {
+            tearDownWindowlessMainWindowRouteResources(
+                windowId: windowId,
+                manager: manager
+            )
+        }
+        route.markForTeardown()
+        mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: windowId)
+    }
+
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
         guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
@@ -3805,7 +3821,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didAttemptStartupSessionRestore = true
         for windowSnapshot in snapshotWindows {
             guard let windowId = windowSnapshot.windowId else { continue }
-            _ = mainWindowLifecycleCoordinator.removeFrozenOrphanRoute(windowId: windowId)
+            consumeWindowlessRecoverableRouteForSessionReopen(windowId: windowId)
         }
         var createdWindowIds: [UUID] = []
         var excludedWorkspaceIds = liveWorkspaceIdSet()
