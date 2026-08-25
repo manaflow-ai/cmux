@@ -640,13 +640,10 @@ fn make_context(
                             let overflow_size = serde_json::to_string(&overflow)
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
-                            pending_send.fetch_add(overflow_size, Ordering::SeqCst);
-                            if sender.try_critical_value(overflow).is_err() {
-                                pending_send.fetch_sub(
-                                    overflow_size.min(pending_send.load(Ordering::SeqCst)),
-                                    Ordering::SeqCst,
-                                );
-                            }
+                            let overflow_pending =
+                                PendingBytes::new(Arc::clone(&pending_send), overflow_size);
+                            let _ =
+                                sender.try_critical_value_with_pending(overflow, overflow_pending);
                             overflow_manager.detach_on_output_overflow(&pty_id);
                         }
                     }
