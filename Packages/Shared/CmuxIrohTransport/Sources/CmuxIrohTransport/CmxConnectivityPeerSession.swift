@@ -603,6 +603,10 @@ actor CmxConnectivityPeerSession {
         }
         retiredDialDrains.removeAll()
         let waiters = retiredDialWaiters.values
+        for waiterID in retiredDialWaiters.keys {
+            retiredDialWaiterGenerations.removeValue(forKey: waiterID)
+            expiredRetiredDialWaiters.remove(waiterID)
+        }
         retiredDialWaiters.removeAll()
         if waiters.isEmpty {
             // Retain a timeout that won before its continuation registered.

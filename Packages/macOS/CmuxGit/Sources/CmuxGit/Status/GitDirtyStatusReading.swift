@@ -11,7 +11,9 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
     ) {
+        let resolver = SystemGitExecutableResolver()
         runner = SystemWorkspaceChangesGitRunner(
+            executableURL: resolver.referenceExecutableURLs().first,
             boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
         )
     }

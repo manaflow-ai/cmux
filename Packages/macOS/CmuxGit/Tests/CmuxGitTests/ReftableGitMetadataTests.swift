@@ -96,6 +96,7 @@ import Testing
                 [
                     "rev-parse",
                     "--verify",
+                    "--quiet",
                     "refs/heads/feature/large-config^{commit}",
                 ]: FakeWorkspaceChangesGitRunner.result("\(commit)\n"),
             ])

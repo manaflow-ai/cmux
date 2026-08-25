@@ -168,7 +168,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         }
 
         let currentCommit = output(
-            arguments: ["rev-parse", "--verify", "HEAD^{commit}"],
+            arguments: ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount,
             runner: runner,
@@ -281,7 +281,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         deadline: DispatchTime
     ) -> GitReferenceCommandResult {
         let result = commandOutput(
-            arguments: ["rev-parse", "--verify", "\(symbolicReference)^{commit}"],
+            arguments: ["rev-parse", "--verify", "--quiet", "\(symbolicReference)^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount,
             runner: runner,
@@ -332,7 +332,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         let output = String(data: result.output, encoding: .utf8) else {
             return .failed
         }
-        guard result.exitCode == 0 else { return .missing }
+        guard result.exitCode == 0 else {
+            return result.exitCode == 1 ? .missing : .failed
+        }
         guard let normalized = GitMetadataService.normalizedBranchName(output) else {
             return .failed
         }
