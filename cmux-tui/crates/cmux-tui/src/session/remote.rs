@@ -3374,6 +3374,12 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
+        // A tree snapshot can race a detach or overflow event. The surface
+        // catalog is authoritative for what can be rendered, so filter the
+        // snapshot while holding one catalog snapshot before publishing it.
+        let attached_surface_ids = self.surfaces.lock().unwrap().keys().copied().collect();
+        let mut tree = tree;
+        tree.retain_surfaces(&attached_surface_ids);
         let live_surface_ids = tree
             .workspaces
             .iter()
