@@ -36,6 +36,7 @@ Terminal presentation settings from Settings > Terminal.
 |---|---|---|---|
 | `terminal.showScrollBar` | boolean | `true` | Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces. |
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
+| `terminal.restoreTerminalSessions` | boolean | `true` | Restore terminal-containing workspaces and surfaces when cmux reopens after quit. Set false to skip those workspaces while preserving browser-only workspaces and window layout. |
 
 ## notifications
 

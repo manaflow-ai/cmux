@@ -6273,7 +6273,8 @@ extension TabManager {
         remapClosedPanelHistory: Bool = true,
         excludingStableIdentities: Set<UUID> = [],
         excludingWorkspaceIds: Set<UUID> = [],
-        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
+        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil,
+        applyTerminalSessionRestorePolicy: Bool = true
     ) -> [[UUID: UUID]] {
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
@@ -6306,9 +6307,13 @@ extension TabManager {
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+        let restoreSnapshot = applyTerminalSessionRestorePolicy
+            ? SessionTerminalRestorePolicy(defaults: .standard)
+                .tabManagerSnapshotForRestore(snapshot)
+            : snapshot
         let (normalizedWorkspaceSnapshots, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
-            snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
-            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
+            restoreSnapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
+            selectedWorkspaceIndex: restoreSnapshot.selectedWorkspaceIndex
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
@@ -6395,9 +6400,9 @@ extension TabManager {
         for workspace in newTabs {
             workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }
-        restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
+        restoreWorkspaceDockSessionSnapshots(from: restoreSnapshot, excludingStableIdentities: excludingStableIdentities)
         let restoredGroups: [WorkspaceGroup] = {
-            guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
+            guard let groupSnapshots = restoreSnapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {
                 var map: [UUID: [UUID]] = [:]
                 for workspace in newTabs {

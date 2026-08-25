@@ -458,6 +458,37 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "restoreTerminalSessions",
+                settingsKey: "terminal.restoreTerminalSessions",
+                title: {
+                    String(
+                        localized: "settings.terminal.restoreTerminalSessions",
+                        defaultValue: "Restore Terminal Sessions on Reopen"
+                    )
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.restoreTerminalSessions",
+                    "terminal",
+                    "restore",
+                    "sessions",
+                    "workspaces",
+                    "tabs",
+                    "reopen",
+                    "relaunch",
+                ],
+                isOn: { defaults in
+                    TerminalSessionRestoreSettings.isEnabled(defaults: defaults)
+                },
+                setOn: { newValue, defaults, notificationCenter in
+                    TerminalSessionRestoreSettings.setEnabled(
+                        newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",
                 settingsKey: "terminal.agentHibernation.enabled",
                 title: {

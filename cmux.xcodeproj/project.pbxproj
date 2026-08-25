@@ -1940,6 +1940,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
+		D10668030000000000000001 /* SessionTerminalRestorePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10668040000000000000001 /* SessionTerminalRestorePolicy.swift */; };
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
@@ -2486,6 +2487,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C75100020000000000000001 /* TerminalSelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100020000000000000002 /* TerminalSelectionTranslation.swift */; };
 		C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */; };
 		D10668010000000000000001 /* TerminalSessionRestoreOptOutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10668020000000000000001 /* TerminalSessionRestoreOptOutTests.swift */; };
+		D10668050000000000000001 /* TerminalSessionRestoreSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10668060000000000000001 /* TerminalSessionRestoreSettings.swift */; };
 		85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */; };
@@ -4752,6 +4754,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerLayoutCodec.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
+		D10668040000000000000001 /* SessionTerminalRestorePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTerminalRestorePolicy.swift; sourceTree = "<group>"; };
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
@@ -5290,6 +5293,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C75100020000000000000002 /* TerminalSelectionTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslation.swift; sourceTree = "<group>"; };
 		C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslationAnchorView.swift; sourceTree = "<group>"; };
 		D10668020000000000000001 /* TerminalSessionRestoreOptOutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionRestoreOptOutTests.swift; sourceTree = "<group>"; };
+		D10668060000000000000001 /* TerminalSessionRestoreSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionRestoreSettings.swift; sourceTree = "<group>"; };
 		85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalShellResolver+CurrentUser.swift"; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreCoordinator.swift; sourceTree = "<group>"; };
@@ -6681,6 +6685,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */,
+				D10668060000000000000001 /* TerminalSessionRestoreSettings.swift */,
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */,
 				859110000000000000000006 /* TerminalLinkOpenContainer.swift */,
@@ -7425,6 +7430,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				D10668040000000000000001 /* SessionTerminalRestorePolicy.swift */,
 				87590000000000000000000A /* MainThreadHangCaptureStore.swift */,
 				87590000000000000000000C /* MainThreadHangSampleRunner.swift */,
 				875900000000000000000004 /* MainThreadHangWatchdog.swift */,
@@ -10253,6 +10259,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
+				D10668030000000000000001 /* SessionTerminalRestorePolicy.swift in Sources */,
 				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
@@ -10657,6 +10664,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A11E5E1E0000000000000001 /* TerminalSelectionAccessibilityNotifier.swift in Sources */,
 				C75100020000000000000001 /* TerminalSelectionTranslation.swift in Sources */,
 				C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */,
+				D10668050000000000000001 /* TerminalSessionRestoreSettings.swift in Sources */,
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */,

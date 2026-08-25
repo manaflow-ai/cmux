@@ -128,6 +128,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",
         "terminal.autoResumeAgentSessions",
+        "terminal.restoreTerminalSessions",
         "terminal.copyOnSelect",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",

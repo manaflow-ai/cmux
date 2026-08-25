@@ -3,11 +3,13 @@ import CmuxSettings
 import SwiftUI
 
 /// **Terminal** section — mirrors the legacy in-app section
-/// row-for-row: scroll bar, copy on selection, resume agent sessions,
+/// row-for-row: scroll bar, copy on selection, terminal session restore,
+/// resume agent sessions,
 /// agent hibernation enable + idle seconds + max live terminals, plus
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -40,6 +42,7 @@ public struct TerminalSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
+        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
@@ -409,6 +412,8 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
             }
+            SettingsCardDivider()
+            TerminalSessionRestoreRow(defaultsStore: defaultsStore, catalog: catalog)
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.autoResumeAgentSessions"),

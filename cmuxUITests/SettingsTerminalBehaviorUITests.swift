@@ -2,8 +2,9 @@ import XCTest
 
 /// Behavioral UI tests for the Settings **Terminal** and **TextBox** sections.
 ///
-/// The Terminal section exposes six controls:
-/// Show Terminal Scroll Bar, Copy on Selection, Resume Agent Sessions on Reopen,
+/// The Terminal section exposes seven controls:
+/// Show Terminal Scroll Bar, Copy on Selection, Restore Terminal Sessions on Reopen,
+/// Resume Agent Sessions on Reopen,
 /// Agent Hibernation (enable), Hibernate After Idle Seconds, and Max Live Agent
 /// Terminals. The TextBox section exposes three controls:
 /// Show TextBox on New Terminals, Focus TextBox on New Terminals, and TextBox
@@ -14,7 +15,7 @@ import XCTest
 /// app relaunch — none of which a single in-process XCUITest can drive
 /// deterministically without adding a runtime seam (which this task
 /// forbids). What *is* observable through XCUITest is the Settings row
-/// itself: six of the rows render a description (`subtitle`) whose text
+/// itself: seven of the rows render a description (`subtitle`) whose text
 /// is bound to the live setting value and flips between an "on" and
 /// "off" sentence when the control changes, and the three numeric rows
 /// render a value label that updates when the stepper is driven.
@@ -31,6 +32,7 @@ import XCTest
 /// migrated `CmuxSettingsUI.TerminalSection`:
 ///   SettingsTerminalScrollBarToggle,
 ///   SettingsTerminalCopyOnSelectToggle,
+///   SettingsTerminalRestoreSessionsToggle,
 ///   SettingsTerminalAgentAutoResumeToggle,
 ///   SettingsTerminalAgentHibernationToggle,
 ///   SettingsTerminalAgentHibernationIdleSecondsStepper,
@@ -103,6 +105,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     private static let terminalKeys = [
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
+        "terminal.restoreTerminalSessions",
         "terminal.autoResumeAgentSessions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",

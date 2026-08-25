@@ -3505,7 +3505,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        startupSessionSnapshot = sanitizedStartupSnapshot.flatMap {
+            SessionTerminalRestorePolicy(defaults: .standard)
+                .appSnapshotForRestore($0)
+        }
     }
 
     private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
@@ -3780,9 +3783,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+        guard let prunedSnapshot = SessionPersistencePolicy
+            .pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot,
+              let filteredSnapshot = SessionTerminalRestorePolicy(defaults: .standard)
+                  .appSnapshotForRestore(prunedSnapshot) else {
             return false
         }
+        let snapshot = filteredSnapshot
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
@@ -9191,9 +9198,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
         excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
+        applyTerminalSessionRestorePolicy: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
-        let isRestoringSessionWindowSnapshot = sessionWindowSnapshot != nil
+        let resolvedSessionWindowSnapshot: SessionWindowSnapshot? = {
+            guard applyTerminalSessionRestorePolicy else { return sessionWindowSnapshot }
+            return sessionWindowSnapshot.flatMap {
+                SessionTerminalRestorePolicy(defaults: .standard)
+                    .windowSnapshotForRestore($0)
+            }
+        }()
+        let isRestoringSessionWindowSnapshot = resolvedSessionWindowSnapshot != nil
         if isRestoringSessionWindowSnapshot {
             SurfaceResumeRunPromptBatch.shared.beginRestorePass()
         }
@@ -9204,7 +9219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         reserveInitialSocketPathIfNeeded()
-        let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
+        let requestedWindowId = preferredWindowId ?? resolvedSessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
@@ -9218,13 +9233,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
-        if let sessionWindowSnapshot {
+        if let sessionWindowSnapshot = resolvedSessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
                 excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
                 excludingWorkspaceIds: excludingWorkspaceIdsFromSessionSnapshot,
-                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
+                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache,
+                applyTerminalSessionRestorePolicy: applyTerminalSessionRestorePolicy
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -9237,7 +9253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
-        let sidebarWidth = sessionWindowSnapshot?.sidebar.width
+        let sidebarWidth = resolvedSessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
 #if DEBUG
@@ -9249,11 +9265,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarState = SidebarState(
             isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
                 ? false
-                : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
+                : (resolvedSessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(
-            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
+            selection: resolvedSessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
 
         // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
@@ -9323,8 +9339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return sourceWindow?.styleMask.contains(.fullScreen) == true
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
-            sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+            resolvedSessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+        let restoredFrame = resolvedWindowFrame(from: resolvedSessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
             : nil
@@ -9424,7 +9440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
-        restoreWindowDockSessionSnapshot(forWindowId: windowId, from: sessionWindowSnapshot, excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot)
+        restoreWindowDockSessionSnapshot(forWindowId: windowId, from: resolvedSessionWindowSnapshot, excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot)
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {

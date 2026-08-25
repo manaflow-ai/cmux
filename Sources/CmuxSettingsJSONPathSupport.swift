@@ -236,6 +236,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
+        .init(
+            jsonKey: "restoreTerminalSessions",
+            defaultsKey: TerminalSessionRestoreSettings.restoreTerminalSessionsKey,
+            invalidPath: "terminal.restoreTerminalSessions"
+        ),
     ]
 }
 
@@ -431,6 +436,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.restoreTerminalSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",

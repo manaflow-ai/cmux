@@ -195762,6 +195762,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.restore-terminal-sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions restore terminal sessions workspaces tabs reopen relaunch fresh state browser-only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions ターミナル セッション 復元 ワークスペース タブ 再起動 ブラウザのみ 初期状態"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -201511,6 +201528,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Terminal Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にターミナルセッションを復元"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-containing workspaces are skipped on reopen; browser-only workspaces and window layout still restore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時はターミナルを含むワークスペースをスキップし、ブラウザのみのワークスペースとウインドウのレイアウトは復元します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, terminal-containing workspaces and their surfaces are restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、ターミナルを含むワークスペースとそのサーフェスを復元します。"
           }
         }
       }
