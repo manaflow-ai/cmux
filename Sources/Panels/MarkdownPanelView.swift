@@ -81,6 +81,7 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
+                allowedLocalResourceRoot: panel.artifactResourceRoot,
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,

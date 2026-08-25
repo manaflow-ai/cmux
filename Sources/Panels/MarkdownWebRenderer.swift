@@ -14,6 +14,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
+    let allowedLocalResourceRoot: URL? = nil
     /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline
@@ -25,7 +26,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        session.coordinator(
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            allowedLocalResourceRoot: allowedLocalResourceRoot
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -100,7 +106,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
-        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        context.coordinator.bind(
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            allowedLocalResourceRoot: allowedLocalResourceRoot
+        )
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
@@ -147,6 +158,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
+        var allowedLocalResourceRoot: URL?
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
@@ -192,10 +204,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 #endif
 
-        func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+        func bind(
+            panelId: UUID,
+            workspaceId: UUID,
+            filePath: String,
+            allowedLocalResourceRoot: URL? = nil
+        ) {
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
+            self.allowedLocalResourceRoot = allowedLocalResourceRoot
         }
 
         /// Records the desired body font size and applies it as `pageZoom`.
@@ -577,9 +595,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return nil
             }
 
-            let markdownRoot = markdownDirectory.path.hasSuffix("/")
-                ? markdownDirectory.path
-                : markdownDirectory.path + "/"
+            let resourceRoot = allowedLocalResourceRoot?.resolvingSymlinksInPath()
+                .standardizedFileURL ?? markdownDirectory
+            let markdownRoot = resourceRoot.path.hasSuffix("/")
+                ? resourceRoot.path
+                : resourceRoot.path + "/"
             let standardizedURL = fileURL
                 .standardizedFileURL
                 .resolvingSymlinksInPath()
@@ -631,6 +651,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func openMarkdownFile(_ path: String) {
+            // Artifact previews are intentionally read-only and do not open
+            // mutable relative documents through the pathname-based route.
+            guard allowedLocalResourceRoot == nil else { return }
 #if DEBUG
             NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
 #endif

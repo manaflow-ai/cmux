@@ -146,27 +146,42 @@ extension CMUXCLI {
               isPath(openedPath, inside: allowedRoot) else {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
-        let childDescriptor = fcntl(descriptor, F_DUPFD, 3)
-        guard childDescriptor >= 0 else {
+        guard status.st_size >= 0, status.st_size <= 64 * 1024 * 1024 else {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
-        let flags = fcntl(childDescriptor, F_GETFD)
-        guard flags >= 0, fcntl(childDescriptor, F_SETFD, flags & ~FD_CLOEXEC) == 0 else {
-            _ = Darwin.close(childDescriptor)
+        let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
+        guard duplicate >= 0,
+              Darwin.lseek(duplicate, 0, SEEK_SET) >= 0 else {
+            if duplicate >= 0 { _ = Darwin.close(duplicate) }
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        let handle = FileHandle(fileDescriptor: duplicate, closeOnDealloc: false)
+        guard let data = try? handle.read(upToCount: Int(status.st_size) + 1),
+              data.count <= 64 * 1024 * 1024 else {
+            _ = Darwin.close(duplicate)
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        _ = Darwin.close(duplicate)
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-project-file-\(UUID().uuidString)")
+            .appendingPathExtension(openedPath.pathExtension)
+        do {
+            try data.write(to: temporaryURL, options: .atomic)
+        } catch {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["/dev/fd/\(childDescriptor)"]
+        process.arguments = [temporaryURL.path]
         do {
             try process.run()
             process.waitUntilExit()
         } catch {
-            _ = Darwin.close(childDescriptor)
+            try? FileManager.default.removeItem(at: temporaryURL)
             throw error
         }
-        _ = Darwin.close(childDescriptor)
         guard process.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(at: temporaryURL)
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
     }

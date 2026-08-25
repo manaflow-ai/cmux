@@ -55,6 +55,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         artifactFile != nil
     }
 
+    /// Root used to confine relative images and links in an artifact preview.
+    var artifactResourceRoot: URL? {
+        artifactFile?.artifactRoot
+    }
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 

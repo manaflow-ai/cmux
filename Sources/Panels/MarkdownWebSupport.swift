@@ -424,9 +424,15 @@ final class MarkdownRendererSession {
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,
-        filePath: String
+        filePath: String,
+        allowedLocalResourceRoot: URL? = nil
     ) -> MarkdownWebRenderer.Coordinator {
-        ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        ownedCoordinator.bind(
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            allowedLocalResourceRoot: allowedLocalResourceRoot
+        )
         return ownedCoordinator
     }
 

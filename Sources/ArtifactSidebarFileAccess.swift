@@ -10,6 +10,7 @@ struct ArtifactSidebarFileAccess {
     /// descriptor, so replacing the original pathname cannot redirect reads.
     final class OpenedFile {
         let sourceURL: URL
+        let artifactRoot: URL
         private let descriptor: Int32
 
         var readURL: URL {
@@ -42,8 +43,9 @@ struct ArtifactSidebarFileAccess {
             }
         }
 
-        init(sourceURL: URL, descriptor: Int32) {
+        init(sourceURL: URL, artifactRoot: URL, descriptor: Int32) {
             self.sourceURL = sourceURL
+            self.artifactRoot = artifactRoot
             self.descriptor = descriptor
         }
 
@@ -98,7 +100,11 @@ struct ArtifactSidebarFileAccess {
             _ = Darwin.close(descriptor)
             return nil
         }
-        return OpenedFile(sourceURL: openedPath, descriptor: descriptor)
+        return OpenedFile(
+            sourceURL: openedPath,
+            artifactRoot: artifactRoot.resolvingSymlinksInPath().standardizedFileURL,
+            descriptor: descriptor
+        )
     }
 
     private func openedPath(for descriptor: Int32) -> URL? {

@@ -1,5 +1,4 @@
 import CmuxArtifacts
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -291,83 +290,17 @@ extension CMUXCLI {
     }
 
     private func openArtifact(_ node: ArtifactNode, projectRoot: URL) throws {
-        let descriptor = Darwin.open(
-            node.absolutePath,
-            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        try openProjectFile(
+            path: node.absolutePath,
+            allowedRoot: ArtifactStorePaths(projectRoot: projectRoot).filesystemRoot,
+            failureMessage: String(
+                format: String(
+                    localized: "cli.artifact.error.openFailed",
+                    defaultValue: "Could not open artifact at %@"
+                ),
+                node.absolutePath
+            )
         )
-        guard descriptor >= 0 else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.artifact.error.openFailed",
-                    defaultValue: "Could not open artifact at %@"
-                ),
-                node.absolutePath
-            ))
-        }
-        defer { _ = Darwin.close(descriptor) }
-        var status = stat()
-        guard fstat(descriptor, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFREG,
-              let openedPath = openedPath(for: descriptor),
-              isPath(openedPath, inside: ArtifactStorePaths(projectRoot: projectRoot).filesystemRoot) else {
-            throw CLIError(message: String(
-                localized: "cli.artifact.error.openFailed",
-                defaultValue: "Could not open the artifact safely."
-            ))
-        }
-        let childDescriptor = fcntl(descriptor, F_DUPFD, 3)
-        guard childDescriptor >= 0 else {
-            throw CLIError(message: String(
-                localized: "cli.artifact.error.openFailed",
-                defaultValue: "Could not open the artifact safely."
-            ))
-        }
-        let flags = fcntl(childDescriptor, F_GETFD)
-        guard flags >= 0, fcntl(childDescriptor, F_SETFD, flags & ~FD_CLOEXEC) == 0 else {
-            _ = Darwin.close(childDescriptor)
-            throw CLIError(message: String(
-                localized: "cli.artifact.error.openFailed",
-                defaultValue: "Could not open the artifact safely."
-            ))
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["/dev/fd/\(childDescriptor)"]
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            _ = Darwin.close(childDescriptor)
-            throw error
-        }
-        _ = Darwin.close(childDescriptor)
-        guard process.terminationStatus == 0 else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.artifact.error.openFailed",
-                    defaultValue: "Could not open artifact at %@"
-                ),
-                node.absolutePath
-            ))
-        }
-    }
-
-    private func openedPath(for descriptor: Int32) -> URL? {
-        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
-        let result = buffer.withUnsafeMutableBytes { bytes in
-            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
-        }
-        guard result == 0 else { return nil }
-        return URL(fileURLWithPath: String(
-            decoding: buffer.prefix { $0 != 0 },
-            as: UTF8.self
-        )).resolvingSymlinksInPath().standardizedFileURL
-    }
-
-    private func isPath(_ path: URL, inside root: URL) -> Bool {
-        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
-        let path = path.path
-        return path == rootPath || path.hasPrefix(rootPath + "/")
     }
 
     private func artifactErrorMessage(_ error: ArtifactStoreError) -> String {
