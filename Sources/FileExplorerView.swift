@@ -1845,6 +1845,7 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
+    private let iconRenderer = CmuxResolvedIconRenderer()
     private let pathLabel = NSTextField(labelWithString: "")
     private var displayPath = ""
     private var quickSearchQuery: String?
@@ -1860,7 +1861,7 @@ final class FileExplorerHeaderView: NSView {
 
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = nil
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
@@ -1897,20 +1898,42 @@ final class FileExplorerHeaderView: NSView {
         applyHeaderState()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        renderIcon()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        renderIcon()
+    }
+
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
             pathLabel.stringValue = "/" + quickSearchQuery
             pathLabel.toolTip = pathLabel.stringValue
         } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
             pathLabel.stringValue = displayPath
             pathLabel.toolTip = displayPath
         }
+        iconView.image = nil
+        renderIcon()
+    }
+
+    private func renderIcon() {
+        let systemName = quickSearchQuery == nil ? "folder.fill" : "magnifyingglass"
+        let fallbackName = quickSearchQuery == nil ? "folder" : "circle.fill"
+        let request = CmuxResolvedIconRequest(
+            sources: [
+                .systemSymbol(name: systemName, accessibilityDescription: nil),
+                .systemSymbol(name: fallbackName, accessibilityDescription: nil),
+            ],
+            size: NSSize(width: 14, height: 14),
+            tintColor: .secondaryLabelColor
+        )
+        iconView.image = iconRenderer.image(for: request, appearance: effectiveAppearance)
+        iconView.contentTintColor = nil
     }
 }
 
@@ -1918,12 +1941,14 @@ final class FileExplorerHeaderView: NSView {
 
 final class FileExplorerCellView: NSTableCellView {
     private let iconView = NSImageView()
+    private let iconRenderer = CmuxResolvedIconRenderer()
     private let nameLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
     private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
     private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
+    private var iconRequest: CmuxResolvedIconRequest?
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -1943,6 +1968,7 @@ final class FileExplorerCellView: NSTableCellView {
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = nil
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.textColor = .labelColor
@@ -2005,28 +2031,41 @@ final class FileExplorerCellView: NSTableCellView {
 
         if style == .finder {
             if node.isDirectory {
-                let folderIcon = NSWorkspace.shared.icon(for: .folder)
-                folderIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = folderIcon
-                iconView.contentTintColor = nil
+                iconRequest = CmuxResolvedIconRequest(
+                    sources: [
+                        .image(NSWorkspace.shared.icon(for: .folder)),
+                        .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+                    ],
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                )
             } else {
-                let fileIcon = NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)
-                fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = fileIcon
-                iconView.contentTintColor = nil
+                iconRequest = CmuxResolvedIconRequest(
+                    sources: [
+                        .image(NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)),
+                        .systemSymbol(name: "doc", accessibilityDescription: nil),
+                    ],
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                )
             }
         } else {
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
             if node.isDirectory {
-                iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.folderIconTint
+                iconRequest = CmuxResolvedIconRequest(
+                    source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.folderIconTint,
+                    symbolWeight: style.iconWeight
+                )
             } else {
-                iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.fileIconTint
+                iconRequest = CmuxResolvedIconRequest(
+                    source: .systemSymbol(name: "doc", accessibilityDescription: nil),
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.fileIconTint,
+                    symbolWeight: style.iconWeight
+                )
             }
         }
+        iconView.image = nil
+        renderIcon()
 
         if node.isLoading {
             loadingWidthConstraint.constant = 12
@@ -2052,6 +2091,27 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabel.textColor = .labelColor
             nameLabel.toolTip = node.path
         }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        renderIcon()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        renderIcon()
+    }
+
+    private func renderIcon() {
+        guard let iconRequest else {
+            iconView.image = nil
+            return
+        }
+        if let image = iconRenderer.image(for: iconRequest, appearance: effectiveAppearance) {
+            iconView.image = image
+        }
+        iconView.contentTintColor = nil
     }
 
     override func updateTrackingAreas() {

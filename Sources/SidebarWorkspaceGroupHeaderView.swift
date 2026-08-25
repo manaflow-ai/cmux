@@ -73,11 +73,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
     }
 
-    private var iconColor: Color {
+    private var iconNSColor: NSColor {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
-            return Color(nsColor: nsColor)
+            return nsColor
         }
-        return .secondary
+        return .secondaryLabelColor
     }
 
     private var displayedIconSymbol: String {
@@ -105,8 +105,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: metrics.chevronFontSize, weight: .semibold))
+            CmuxSystemSymbolImage(
+                systemName: isCollapsed ? "chevron.right" : "chevron.down",
+                pointSize: metrics.chevronFontSize,
+                weight: .semibold
+            )
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
@@ -121,9 +124,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: displayedIconSymbol)
-                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
-                    .foregroundStyle(iconColor)
+                CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                    sources: [
+                        .systemSymbol(name: displayedIconSymbol, accessibilityDescription: nil),
+                        .image(NSWorkspace.shared.icon(for: .folder)),
+                    ],
+                    size: NSSize(width: metrics.iconFrame, height: metrics.iconFrame),
+                    tintColor: iconNSColor
+                ))
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
@@ -156,8 +164,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
             let plusVisible = isHovered && !showsShortcutHint
             Button(action: onTapPlus) {
-                Image(systemName: "plus")
-                    .font(.system(size: metrics.plusFontSize, weight: .medium))
+                CmuxSystemSymbolImage(systemName: "plus", pointSize: metrics.plusFontSize, weight: .medium)
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())

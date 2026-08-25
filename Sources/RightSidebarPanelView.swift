@@ -314,7 +314,7 @@ struct RightSidebarPanelView: View {
         Button {
             onOpenAsPane(mode)
         } label: {
-            Image(systemName: "rectangle.split.2x1")
+            CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 13)
         }
         .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
         .frame(
@@ -347,7 +347,7 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                Image(systemName: "xmark")
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 11)
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
@@ -605,14 +605,11 @@ private struct ModeBarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: mode.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.modeIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight
-                        )
-                    )
+                CmuxSystemSymbolImage(
+                    systemName: mode.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight
+                )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
                         isVisible: true

@@ -68,8 +68,11 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     }
                     showsInspector = true
                 } label: {
-                    Image(systemName: accessory.systemImageName)
-                        .font(.system(size: isSuperCompact ? 10 : 12, weight: .regular))
+                    CmuxSystemSymbolImage(
+                        systemName: accessory.systemImageName,
+                        pointSize: isSuperCompact ? 10 : 12,
+                        weight: .regular
+                    )
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
                 .buttonStyle(.plain)
@@ -192,7 +195,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
                 .pickerStyle(.segmented)
 
                 Button(action: onOpenWindow) {
-                    Image(systemName: "macwindow")
+                    CmuxSystemSymbolImage(systemName: "macwindow", pointSize: 13)
                         .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
@@ -212,7 +215,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
             case .browser, .pullRequest:
                 VStack(spacing: 0) {
                     HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
+                        CmuxSystemSymbolImage(systemName: "magnifyingglass", pointSize: 12)
                             .foregroundColor(.secondary)
                         TextField(
                             String(localized: "sidebar.extension.browserAddress", defaultValue: "Search or enter URL"),

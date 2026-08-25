@@ -1,3 +1,4 @@
+import AppKit
 import Observation
 import SwiftUI
 
@@ -173,8 +174,7 @@ struct CmuxTaskManagerView: View {
     private func sortIndicator(for column: CmuxTaskManagerSortOrder.Column) -> some View {
         let isActive = model.sortOrder.column == column
         let imageName = model.sortOrder.direction == .ascending ? "chevron.up" : "chevron.down"
-        return Image(systemName: imageName)
-            .font(.system(size: 8, weight: .bold))
+        return CmuxSystemSymbolImage(systemName: imageName, pointSize: 8, weight: .bold)
             .opacity(isActive ? 1 : 0)
             .frame(width: 8)
             .accessibilityHidden(true)
@@ -465,15 +465,17 @@ struct CmuxTaskManagerRowView: View, Equatable {
     @ViewBuilder
     private var rowIcon: some View {
         if let agentAssetName = row.agentAssetName {
-            Image(agentAssetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                sources: [
+                    .asset(name: agentAssetName, bundle: .main),
+                    .systemSymbol(name: row.kind.systemImage, accessibilityDescription: nil),
+                ],
+                size: NSSize(width: 14, height: 14)
+            ))
+            .frame(width: 14, height: 14)
         } else {
-            Image(systemName: row.kind.systemImage)
+            CmuxSystemSymbolImage(systemName: row.kind.systemImage, pointSize: 12)
                 .foregroundStyle(row.kind.tint)
-                .font(.system(size: 12))
                 .frame(width: 14)
         }
     }

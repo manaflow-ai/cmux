@@ -832,8 +832,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
+            CmuxSystemSymbolImage(systemName: "terminal.fill", pointSize: 48)
                 .foregroundStyle(.tertiary)
 
             Text("Empty Panel")

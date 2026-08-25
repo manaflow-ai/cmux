@@ -166,8 +166,7 @@ struct MarkdownPanelView: View {
 
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
-            Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+            CmuxSystemSymbolImage(systemName: "doc.questionmark", pointSize: 40)
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
                 .font(.headline)

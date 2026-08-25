@@ -276,8 +276,7 @@ struct FileExternalOpenMenu: View {
         case .header:
             PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         case .chrome:
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 16, weight: .semibold))
+            CmuxSystemSymbolImage(systemName: "square.and.arrow.up", pointSize: 16, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: style.buttonSize.width, height: style.buttonSize.height)
                 .contentShape(Rectangle())
@@ -1392,8 +1391,7 @@ struct FilePreviewPanelView: View {
 
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
-            Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+            CmuxSystemSymbolImage(systemName: "doc.questionmark", pointSize: 40)
                 .foregroundStyle(.secondary)
             Text(String(localized: "filePreview.fileUnavailable.title", defaultValue: "File unavailable"))
                 .font(.headline)
@@ -1595,10 +1593,8 @@ private struct FilePreviewPDFSidebarChromeView: View {
             sidebarMenuItems
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 17, weight: .regular))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                CmuxSystemSymbolImage(systemName: "sidebar.left", pointSize: 17, weight: .regular)
+                CmuxSystemSymbolImage(systemName: "chevron.down", pointSize: 10, weight: .semibold)
                     .foregroundStyle(.secondary)
             }
             .frame(width: 58, height: 36)
@@ -1658,7 +1654,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
         Button(action: action) {
             HStack {
                 if isSelected {
-                    Image(systemName: "checkmark")
+                    CmuxSystemSymbolImage(systemName: "checkmark", pointSize: 12)
                 }
                 Text(title)
             }
@@ -1776,8 +1772,7 @@ struct FilePreviewPDFZoomChromeView: View {
             FilePreviewChromeIconButton(systemName: systemName, label: label, action: action)
         } else {
             Button(action: action) {
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .regular))
+                CmuxSystemSymbolImage(systemName: systemName, pointSize: 16, weight: .regular)
                     .frame(width: 38, height: 36)
                     .contentShape(Rectangle())
             }
@@ -1806,8 +1801,7 @@ private struct FilePreviewChromeIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
+            CmuxSystemSymbolImage(systemName: systemName, pointSize: 16, weight: .semibold)
                 .frame(width: 42, height: 40)
         }
         .buttonStyle(FilePreviewChromeHoverButtonStyle(isHovered: isHovered))
@@ -1825,11 +1819,9 @@ private struct FilePreviewChromeSidebarMenuLabel: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "sidebar.left")
-            Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
+            CmuxSystemSymbolImage(systemName: "sidebar.left", pointSize: 16)
+            CmuxSystemSymbolImage(systemName: "chevron.down", pointSize: 11, weight: .semibold)
         }
-        .font(.system(size: 16, weight: .semibold))
         .foregroundStyle(isHovered ? Color.primary : Color.secondary)
         .frame(width: 68, height: 34)
         .background {

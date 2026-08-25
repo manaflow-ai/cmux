@@ -216,8 +216,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             } else {
                 VStack(spacing: 16) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .font(.system(size: 26, weight: .regular))
+                    CmuxSystemSymbolImage(systemName: "puzzlepiece.extension", pointSize: 26, weight: .regular)
                         .foregroundStyle(.secondary)
                         .frame(width: 60, height: 60)
                         .background(
@@ -397,7 +396,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             Button {
                 isShowingExtensionDetails = true
             } label: {
-                Image(systemName: "info.circle")
+                CmuxSystemSymbolImage(systemName: "info.circle", pointSize: 14)
             }
             .buttonStyle(.plain)
             .controlSize(.small)
@@ -417,8 +416,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func extensionDetailsPopover(activeIdentity: AppExtensionIdentity?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 18, weight: .medium))
+                CmuxSystemSymbolImage(systemName: "puzzlepiece.extension", pointSize: 18, weight: .medium)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
                         .font(.system(size: 13, weight: .semibold))
@@ -501,8 +499,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func blockedExtensionView(reason: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 20, weight: .regular))
+            CmuxSystemSymbolImage(systemName: "exclamationmark.triangle", pointSize: 20, weight: .regular)
                 .foregroundStyle(.secondary)
             Text(String(localized: "sidebar.extensions.blocked.title", defaultValue: "Extension Blocked"))
                 .font(.system(size: 13, weight: .semibold))
@@ -627,8 +624,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionRow(title: String, detail: String, isGranted: Bool) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 11, weight: .medium))
+            CmuxSystemSymbolImage(
+                systemName: isGranted ? "checkmark.circle.fill" : "circle",
+                pointSize: 11,
+                weight: .medium
+            )
                 .foregroundStyle(isGranted ? .green : .secondary)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 1) {
@@ -759,8 +759,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 22, weight: .medium))
+                CmuxSystemSymbolImage(systemName: "puzzlepiece.extension", pointSize: 22, weight: .medium)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String.localizedStringWithFormat(
                         String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),

@@ -142,7 +142,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconSystemName)
+            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(filePath)
@@ -182,9 +182,7 @@ struct PanelHeaderIconGlyph: View {
     let systemName: String
 
     var body: some View {
-        Image(systemName: systemName)
-            .resizable()
-            .scaledToFit()
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
             .frame(width: 13, height: 13)
             .frame(width: 20, height: 20, alignment: .center)
             .contentShape(Rectangle())

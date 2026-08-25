@@ -11,6 +11,20 @@ import Testing
 @MainActor
 struct ResolvedIconRenderingTests {
     @Test
+    func materializedTemplateHelperReturnsConcretePixels() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "folder.fill",
+            pointSize: 14,
+            weight: .regular
+        ))
+
+        #expect(image.isTemplate)
+        #expect(image.representations.contains { $0 is NSBitmapImageRep })
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
+    @Test
     func systemSymbolProducesVisibleNonTemplateBitmap() throws {
         let renderer = CmuxResolvedIconRenderer()
         let request = CmuxResolvedIconRequest(
@@ -51,6 +65,29 @@ struct ResolvedIconRenderingTests {
         let preservedImage = try #require(renderedImage(in: view))
         #expect(preservedImage === firstImage)
         #expect(visiblePixelCount(in: preservedImage) > 0)
+    }
+
+    @Test
+    func rendererUsesTheNextSourceWhenThePrimarySourceIsBlank() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let blankSource = NSImage(size: NSSize(width: 16, height: 16))
+        let blankRepresentation = try #require(bitmap(color: .clear, pixels: 16))
+        blankSource.addRepresentation(blankRepresentation)
+        let request = CmuxResolvedIconRequest(
+            sources: [
+                .image(blankSource),
+                .systemSymbol(name: "person.crop.circle", accessibilityDescription: nil),
+            ],
+            size: NSSize(width: 16, height: 16),
+            tintColor: .secondaryLabelColor
+        )
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        guard case .success(let image) = renderer.render(for: request, appearance: appearance) else {
+            Issue.record("A blank primary source must not suppress a visible fallback")
+            return
+        }
+        #expect(visiblePixelCount(in: image) > 0)
     }
 
     private func bitmap(color: NSColor, pixels: Int) -> NSBitmapImageRep? {
