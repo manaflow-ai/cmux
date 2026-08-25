@@ -28,6 +28,7 @@ extension GitMetadataService {
         var urlRewrites: [GitRemoteURLRewrite] = []
         var configStatuses: [String: GitFileStatus?] = [:]
         var worktreeConfigEnabled = false
+        var discoveredRemoteURLs: Set<String> = []
         let commonConfigPaths: Set<String>
         let fileStatusReader: any GitFileStatusReading
 
@@ -78,7 +79,14 @@ extension GitMetadataService {
                 return nil
             }
             let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
-            guard descriptor >= 0 else { return nil }
+            guard descriptor >= 0 else {
+                for (path, fileStatus) in statusesBefore {
+                    configStatuses.updateValue(fileStatus, forKey: path)
+                }
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
             defer { Darwin.close(descriptor) }
 
             var status = stat()
@@ -125,14 +133,8 @@ extension GitMetadataService {
         }
 
         mutating func recordWorktreeConfigSetting(_ value: String) {
-            let normalized = GitMetadataService.gitConfigUnquotedValue(value).lowercased()
-            switch normalized {
-            case "true", "yes", "on", "1":
-                worktreeConfigEnabled = true
-            case "false", "no", "off", "0":
-                worktreeConfigEnabled = false
-            default:
-                break
+            if let enabled = GitMetadataService.gitConfigBooleanValue(value) {
+                worktreeConfigEnabled = enabled
             }
         }
 
@@ -140,6 +142,64 @@ extension GitMetadataService {
             let standardized = url.standardizedFileURL
             return commonConfigPaths.contains(standardized.path)
                 || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
+        }
+
+        mutating func discoverRemoteURLs(
+            from url: URL,
+            seenConfigPaths: inout Set<String>,
+            depth: Int
+        ) {
+            guard depth <= Self.maximumIncludeDepth,
+                  !exceeded else {
+                return
+            }
+            let normalizedURL = url.standardizedFileURL
+            guard seenConfigPaths.insert(normalizedURL.path).inserted,
+                  let config = read(normalizedURL) else {
+                return
+            }
+
+            var currentRemoteName: String?
+            var allowsUnconditionalInclude = false
+            for rawLine in config.components(separatedBy: .newlines) {
+                let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
+                    .trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("[") && line.hasSuffix("]") {
+                    currentRemoteName = GitMetadataService.gitConfigRemoteName(
+                        fromSectionHeader: line
+                    )
+                    allowsUnconditionalInclude = line.lowercased() == "[include]"
+                    continue
+                }
+
+                let parts = line.split(separator: "=", maxSplits: 1).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                if currentRemoteName != nil,
+                   parts.count == 2,
+                   parts[0].lowercased() == "url" {
+                    let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
+                    if !remoteURL.isEmpty {
+                        discoveredRemoteURLs.insert(remoteURL)
+                    }
+                    continue
+                }
+
+                guard allowsUnconditionalInclude,
+                      parts.count == 2,
+                      parts[0].lowercased() == "path",
+                      let includeURL = GitMetadataService.gitConfigIncludeURL(
+                          fromPathValue: parts[1],
+                          relativeTo: normalizedURL
+                      ) else {
+                    continue
+                }
+                discoverRemoteURLs(
+                    from: includeURL,
+                    seenConfigPaths: &seenConfigPaths,
+                    depth: depth + 1
+                )
+            }
         }
 
         mutating func appendOutput(_ line: String) -> Bool {
@@ -172,11 +232,28 @@ extension GitMetadataService {
         var configURLs: [URL] = []
         let commonConfigURL = URL(fileURLWithPath: repository.commonDirectory)
             .appendingPathComponent("config")
+        let rootConfigURLs = gitRootConfigURLs(
+            repository: repository,
+            environment: environment
+        )
+        var discoveryBudget = GitConfigTraversalBudget(
+            fileStatusReader: fileStatusReader,
+            commonConfigURL: commonConfigURL
+        )
+        var discoverySeenConfigPaths: Set<String> = []
+        for configURL in rootConfigURLs {
+            discoveryBudget.discoverRemoteURLs(
+                from: configURL,
+                seenConfigPaths: &discoverySeenConfigPaths,
+                depth: 0
+            )
+        }
+        let discoveredRemoteURLs = discoveryBudget.discoveredRemoteURLs
         var budget = GitConfigTraversalBudget(
             fileStatusReader: fileStatusReader,
             commonConfigURL: commonConfigURL
         )
-        for configURL in gitRootConfigURLs(repository: repository, environment: environment) {
+        for configURL in rootConfigURLs {
             let isCommonConfigScope = budget.isCommonConfig(configURL)
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
@@ -186,7 +263,8 @@ extension GitMetadataService {
                 lines: &lines,
                 budget: &budget,
                 depth: 0,
-                isCommonConfigScope: isCommonConfigScope
+                isCommonConfigScope: isCommonConfigScope,
+                discoveredRemoteURLs: discoveredRemoteURLs
             )
         }
         if budget.worktreeConfigEnabled {
@@ -198,7 +276,8 @@ extension GitMetadataService {
                 lines: &lines,
                 budget: &budget,
                 depth: 0,
-                isCommonConfigScope: false
+                isCommonConfigScope: false,
+                discoveredRemoteURLs: discoveredRemoteURLs
             )
         }
         return GitRemoteConfigSnapshot(
@@ -230,8 +309,8 @@ extension GitMetadataService {
         environment: [String: String]
     ) -> [URL] {
         var urls = gitSystemConfigURLs(environment: environment)
-        if let global = environment["GIT_CONFIG_GLOBAL"], !global.isEmpty {
-            if global != "/dev/null" {
+        if let global = environment["GIT_CONFIG_GLOBAL"] {
+            if !global.isEmpty, global != "/dev/null" {
                 urls.append(URL(fileURLWithPath: global))
             }
         } else {
@@ -253,9 +332,12 @@ extension GitMetadataService {
     private nonisolated static func gitSystemConfigURLs(
         environment: [String: String]
     ) -> [URL] {
-        let noSystemConfig = environment["GIT_CONFIG_NOSYSTEM"].map {
-            !$0.isEmpty && $0 != "0"
-        } ?? false
+        let noSystemConfig: Bool
+        if let rawValue = environment["GIT_CONFIG_NOSYSTEM"] {
+            noSystemConfig = gitConfigBooleanValue(rawValue) ?? true
+        } else {
+            noSystemConfig = false
+        }
         guard !noSystemConfig else { return [] }
 
         if let configured = environment["GIT_CONFIG_SYSTEM"],
@@ -348,6 +430,17 @@ extension GitMetadataService {
             .path
     }
 
+    private nonisolated static func gitConfigBooleanValue(_ value: String) -> Bool? {
+        switch gitConfigUnquotedValue(value).lowercased() {
+        case \"\", \"false\", \"no\", \"off\", \"0\":
+            return false
+        case \"true\", \"yes\", \"on\", \"1\":
+            return true
+        default:
+            return nil
+        }
+    }
+
     /// Returns the per-worktree config path for a resolved checkout.
     nonisolated static func gitWorktreeConfigURL(repository: ResolvedGitRepository) -> URL {
         URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config.worktree")
@@ -424,7 +517,8 @@ extension GitMetadataService {
         lines: inout [String],
         budget: inout GitConfigTraversalBudget,
         depth: Int,
-        isCommonConfigScope: Bool
+        isCommonConfigScope: Bool,
+        discoveredRemoteURLs: Set<String>
     ) {
         guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
               !budget.exceeded else {
@@ -467,7 +561,8 @@ extension GitMetadataService {
                     currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
                         condition,
                         repository: repository,
-                        configURL: configURL
+                        configURL: configURL,
+                        discoveredRemoteURLs: discoveredRemoteURLs
                     )
                 } else {
                     currentSectionAllowsIncludePath = false
@@ -527,7 +622,8 @@ extension GitMetadataService {
                 lines: &lines,
                 budget: &budget,
                 depth: depth + 1,
-                isCommonConfigScope: isCommonConfigScope
+                isCommonConfigScope: isCommonConfigScope,
+                discoveredRemoteURLs: discoveredRemoteURLs
             )
         }
     }
@@ -755,9 +851,17 @@ extension GitMetadataService {
     nonisolated static func gitConfigIncludeIfConditionMatches(
         _ condition: String,
         repository: ResolvedGitRepository,
-        configURL: URL
+        configURL: URL,
+        discoveredRemoteURLs: Set<String> = []
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
+        let hasConfigPrefix = "hasconfig:remote.*.url:"
+        if lowercasedCondition.hasPrefix(hasConfigPrefix) {
+            let pattern = String(condition.dropFirst(hasConfigPrefix.count))
+            return !pattern.isEmpty && discoveredRemoteURLs.contains {
+                gitConfigGlobMatches($0, pattern: pattern, caseInsensitive: false)
+            }
+        }
         if lowercasedCondition.hasPrefix("gitdir/i:") {
             let pattern = String(condition.dropFirst("gitdir/i:".count))
             return gitConfigGitdirPatternMatches(
