@@ -445,6 +445,9 @@ final class SharedLiveAgentIndex {
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
+        if let sidebarLivenessRefreshTask {
+            await sidebarLivenessRefreshTask.value
+        }
         if refreshTask == nil, forkAvailabilityRefreshTask == nil {
             startReload()
         }
@@ -629,6 +632,10 @@ final class SharedLiveAgentIndex {
     }
 
     private func startReload() {
+        guard sidebarLivenessRefreshTask == nil else {
+            changePending = true
+            return
+        }
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
         refreshTask = Task { @MainActor [weak self] in
@@ -1097,12 +1104,20 @@ final class SharedLiveAgentIndex {
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             return
         }
+        let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
+        var currentPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
+        for panelId in changedPanelIds {
+            if let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) {
+                currentPanelIdsByWorkspaceId[owner.workspace.id, default: []].insert(panelId)
+            }
+        }
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: self,
             userInfo: [
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
-                "panelIds": Set(panelIdsByWorkspaceId.values.joined()),
+                "panelIds": changedPanelIds,
+                "currentPanelIdsByWorkspaceId": currentPanelIdsByWorkspaceId,
             ]
         )
     }
@@ -1110,7 +1125,7 @@ final class SharedLiveAgentIndex {
     private func reloadIfLiveAgentProcessFingerprintChanged(
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> (didReload: Bool, panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
-        guard refreshTask == nil else {
+        guard refreshTask == nil, sidebarLivenessRefreshTask == nil else {
             changePending = true
             return (false, [:])
         }

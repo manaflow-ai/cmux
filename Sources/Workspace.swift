@@ -3703,14 +3703,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 if let index = SharedLiveAgentIndex.shared.index {
                     let completedPanelIds: [UUID]
                     if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                        let directPanelIds = panelIdsByWorkspaceId[self.id] ?? []
-                        let aliasPanelIds = notification.userInfo?["panelIds"] as? Set<UUID>
-                            ?? Set(panelIdsByWorkspaceId.values.joined())
-                        let ownedAliases = aliasPanelIds.filter { panelId in
-                            self.panels[panelId] != nil
-                                || self.restoredAgentResumeStatesByPanelId[panelId] != nil
+                        let currentPanelIdsByWorkspaceId = notification.userInfo?[
+                            "currentPanelIdsByWorkspaceId"
+                        ] as? [UUID: Set<UUID>]
+                        let changedPanelIds: Set<UUID>
+                        if let currentPanelIdsByWorkspaceId {
+                            guard let currentPanelIds = currentPanelIdsByWorkspaceId[self.id] else {
+                                return
+                            }
+                            changedPanelIds = currentPanelIds.union(
+                                panelIdsByWorkspaceId[self.id] ?? []
+                            )
+                        } else {
+                            let directPanelIds = panelIdsByWorkspaceId[self.id] ?? []
+                            let aliasPanelIds = notification.userInfo?["panelIds"] as? Set<UUID>
+                                ?? Set(panelIdsByWorkspaceId.values.joined())
+                            let ownedAliases = aliasPanelIds.filter { panelId in
+                                self.panels[panelId] != nil
+                                    || self.restoredAgentResumeStatesByPanelId[panelId] != nil
+                            }
+                            changedPanelIds = directPanelIds.union(ownedAliases)
                         }
-                        let changedPanelIds = directPanelIds.union(ownedAliases)
                         guard !changedPanelIds.isEmpty else { return }
                         completedPanelIds = changedPanelIds.filter { panelId in
                             self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
