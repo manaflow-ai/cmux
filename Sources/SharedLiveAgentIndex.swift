@@ -85,11 +85,12 @@ final class SharedLiveAgentIndex {
     private var changePending = false
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
+    private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let sidebarLivenessRefreshCadence: TimeInterval = 10.0
+    private static let sidebarLivenessRefreshCadence: TimeInterval = 30.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
@@ -264,6 +265,9 @@ final class SharedLiveAgentIndex {
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
+        for source in sidebarProcessExitWatchers.values {
+            source.cancel()
+        }
         for record in forkExecutableWatchRecords.values {
             for source in record.sources {
                 source.cancel()
@@ -474,6 +478,7 @@ final class SharedLiveAgentIndex {
               refreshTask == nil,
               forkAvailabilityRefreshTask == nil else { return }
         guard !panelIDs.isEmpty else { return }
+        synchronizeSidebarProcessExitWatchers(index: cachedIndex, panelIDs: panelIDs)
         let now = dateProvider()
         if let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
@@ -541,6 +546,50 @@ final class SharedLiveAgentIndex {
             return
         }
         startReload()
+    }
+
+    /// Arms one kernel-backed exit source per active local agent PID.
+    /// Polling remains a low-frequency safety net; process exit is the primary
+    /// path for crash-without-hook liveness updates.
+    private func synchronizeSidebarProcessExitWatchers(
+        index: RestorableAgentSessionIndex,
+        panelIDs: Set<UUID>
+    ) {
+        var panelKeysByPID: [Int: Set<RestorableAgentSessionIndex.PanelKey>] = [:]
+        for (panelKey, entry) in index.forkValidationEntries()
+        where panelIDs.contains(panelKey.panelId) {
+            let processIDs = entry.agentProcessIDs.isEmpty
+                ? entry.processIDs
+                : entry.agentProcessIDs
+            for processID in processIDs where processID > 0 {
+                panelKeysByPID[processID, default: []].insert(panelKey)
+            }
+        }
+
+        for processID in Array(sidebarProcessExitWatchers.keys)
+        where panelKeysByPID[processID] == nil {
+            sidebarProcessExitWatchers.removeValue(forKey: processID)?.cancel()
+        }
+        for processID in panelKeysByPID.keys {
+            guard sidebarProcessExitWatchers[processID] == nil else { continue }
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(processID),
+                eventMask: .exit,
+                queue: watchQueue
+            )
+            source.setEventHandler { [weak self] in
+                Task { @MainActor in
+                    self?.sidebarAgentProcessDidExit(processID)
+                }
+            }
+            sidebarProcessExitWatchers[processID] = source
+            source.resume()
+        }
+    }
+
+    private func sidebarAgentProcessDidExit(_ processID: Int) {
+        sidebarProcessExitWatchers.removeValue(forKey: processID)?.cancel()
+        requestSidebarIndexRefresh()
     }
 
 

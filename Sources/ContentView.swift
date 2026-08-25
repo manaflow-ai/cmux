@@ -11668,7 +11668,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     )
                 }
                 do {
-                    try await ContinuousClock().sleep(for: .seconds(10))
+                    try await ContinuousClock().sleep(for: .seconds(30))
                 } catch {
                     return
                 }
