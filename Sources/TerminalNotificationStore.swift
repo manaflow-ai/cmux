@@ -1098,6 +1098,7 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
+        correlationKey: String? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil,
@@ -1144,7 +1145,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            correlationKey: cooldownKey,
+            correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks,
             agent: agent
         )
@@ -1946,6 +1947,37 @@ final class TerminalNotificationStore: ObservableObject {
         }
         ids.forEach(remove)
         removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+    }
+
+    /// Clears one surface notification by its producer correlation key. This
+    /// is intentionally narrower than a surface clear: a completion callback
+    /// may arrive after a newer question, error, or approval was delivered to
+    /// the same pane.
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String,
+        throughNotificationGeneration: UInt64? = nil
+    ) {
+        inFlightPolicyRequests.discard(
+            forSurfaceId: surfaceId,
+            correlationKey: correlationKey,
+            through: throughNotificationGeneration
+        )
+        let liveTabId = AppDelegate.shared?
+            .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
+        let ids = notifications.compactMap { notification in
+            guard notification.correlationKey == correlationKey,
+                  notification.matchesClear(
+                      tabId: tabId,
+                      liveTabId: liveTabId,
+                      surfaceId: surfaceId
+                  ) else {
+                return nil
+            }
+            return notification.id
+        }
+        ids.forEach(remove)
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {

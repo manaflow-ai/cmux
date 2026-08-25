@@ -158,6 +158,10 @@ struct ClaudeHookSessionRecord: Codable {
         let commandLength: Int
         let displayCommand: String
         let toolUseId: String?
+        /// Opaque identity of the notification created for this approval.
+        /// It lets completion clear one entry without scanning or clearing a
+        /// newer notification on the same surface.
+        let notificationCorrelationKey: String?
         let createdAt: TimeInterval
         let requiresToolUseId: Bool
 
@@ -165,13 +169,15 @@ struct ClaudeHookSessionRecord: Codable {
             command: String,
             toolUseId: String?,
             createdAt: TimeInterval,
-            requiresToolUseId: Bool = false
+            requiresToolUseId: Bool = false,
+            notificationCorrelationKey: String? = UUID().uuidString.lowercased()
         ) {
             let normalized = Self.normalizedCommand(command)
             self.commandFingerprint = Self.fingerprint(for: normalized)
             self.commandLength = normalized.utf8.count
             self.displayCommand = Self.redactedPreview(for: normalized)
             self.toolUseId = toolUseId
+            self.notificationCorrelationKey = notificationCorrelationKey
             self.createdAt = createdAt
             self.requiresToolUseId = requiresToolUseId
         }
@@ -213,6 +219,7 @@ struct ClaudeHookSessionRecord: Codable {
             case commandLength
             case displayCommand
             case toolUseId
+            case notificationCorrelationKey
             case createdAt
             case requiresToolUseId
             case legacyCommand = "command"
@@ -233,6 +240,7 @@ struct ClaudeHookSessionRecord: Codable {
                 displayCommand = Self.redactedPreview(for: normalized)
             }
             toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+            notificationCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
@@ -326,9 +334,19 @@ final class ClaudeHookSessionStore {
         matched: Bool,
         hasRemaining: Bool,
         expired: Bool,
-        remainingDisplayCommand: String?
+        remainingDisplayCommand: String?,
+        notificationCorrelationKeys: [String],
+        remainingNotificationCorrelationKey: String?
     )
-    typealias CursorShellApprovalRememberResult = (accepted: Bool, inserted: Bool)
+    typealias CursorShellApprovalRememberResult = (
+        accepted: Bool,
+        inserted: Bool,
+        notificationCorrelationKey: String?
+    )
+    typealias CursorShellApprovalClearResult = (
+        cleared: Bool,
+        notificationCorrelationKeys: [String]
+    )
 
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
@@ -420,11 +438,11 @@ final class ClaudeHookSessionStore {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (accepted: false, inserted: false)
+            return (accepted: false, inserted: false, notificationCorrelationKey: nil)
         }
         return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession] else {
-                return (accepted: false, inserted: false)
+                return (accepted: false, inserted: false, notificationCorrelationKey: nil)
             }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
@@ -489,7 +507,11 @@ final class ClaudeHookSessionStore {
                     workspaceId: record.workspaceId,
                     surfaceId: record.surfaceId
                 )
-                return (accepted: true, inserted: false)
+                return (
+                    accepted: true,
+                    inserted: false,
+                    notificationCorrelationKey: pending[duplicateIndex].notificationCorrelationKey
+                )
             }
             guard pending.count < Self.maxPendingCursorShellApprovals else {
                 if hadExpiredApprovals {
@@ -498,7 +520,7 @@ final class ClaudeHookSessionStore {
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
                 }
-                return (accepted: false, inserted: false)
+                return (accepted: false, inserted: false, notificationCorrelationKey: nil)
             }
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
@@ -516,7 +538,11 @@ final class ClaudeHookSessionStore {
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId
             )
-            return (accepted: true, inserted: true)
+            return (
+                accepted: true,
+                inserted: true,
+                notificationCorrelationKey: pending.last?.notificationCorrelationKey
+            )
         }
     }
 
@@ -543,18 +569,33 @@ final class ClaudeHookSessionStore {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
+            return (
+                matched: false,
+                hasRemaining: false,
+                expired: false,
+                remainingDisplayCommand: nil,
+                notificationCorrelationKeys: [],
+                remainingNotificationCorrelationKey: nil
+            )
         }
         return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
-                return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
+                return (
+                    matched: false,
+                    hasRemaining: false,
+                    expired: false,
+                    remainingDisplayCommand: nil,
+                    notificationCorrelationKeys: [],
+                    remainingNotificationCorrelationKey: nil
+                )
             }
             let now = Date().timeIntervalSince1970
             let beforePruneCount = pending.count
             let expiredApprovals = pending.filter {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
             }
+            let expiredNotificationCorrelationKeys = expiredApprovals.compactMap(\.notificationCorrelationKey)
             pending.removeAll {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
             }
@@ -619,9 +660,12 @@ final class ClaudeHookSessionStore {
                     matched: false,
                     hasRemaining: !pending.isEmpty,
                     expired: expired,
-                    remainingDisplayCommand: pending.last?.displayCommand
+                    remainingDisplayCommand: pending.last?.displayCommand,
+                    notificationCorrelationKeys: expiredNotificationCorrelationKeys,
+                    remainingNotificationCorrelationKey: pending.last?.notificationCorrelationKey
                 )
             }
+            let matchedNotificationCorrelationKey = pending[matchIndex].notificationCorrelationKey
             pending.remove(at: matchIndex)
             let hasRemaining = !pending.isEmpty
             let lifecycle = failureWasError
@@ -679,25 +723,33 @@ final class ClaudeHookSessionStore {
                 matched: true,
                 hasRemaining: hasRemaining,
                 expired: expired,
-                remainingDisplayCommand: pending.last?.displayCommand
+                remainingDisplayCommand: pending.last?.displayCommand,
+                notificationCorrelationKeys: expiredNotificationCorrelationKeys
+                    + [matchedNotificationCorrelationKey].compactMap { $0 },
+                remainingNotificationCorrelationKey: pending.last?.notificationCorrelationKey
             )
         }
     }
 
     /// Drops all pending Cursor shell approvals when a session stops or starts
-    /// a new turn. Returns whether visible pending state was actually present.
+    /// a new turn, returning the exact notification identities that were
+    /// visible for those approvals.
     @discardableResult
     func clearCursorShellApprovals(
         sessionId: String,
         deadline: Date? = nil
-    ) throws -> Bool {
+    ) throws -> CursorShellApprovalClearResult {
         let normalizedSession = normalizeSessionId(sessionId)
-        guard !normalizedSession.isEmpty else { return false }
+        guard !normalizedSession.isEmpty else {
+            return (cleared: false, notificationCorrelationKeys: [])
+        }
         return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession],
                   record.pendingCursorShellApprovals?.isEmpty == false else {
-                return false
+                return (cleared: false, notificationCorrelationKeys: [])
             }
+            let notificationCorrelationKeys = (record.pendingCursorShellApprovals ?? [])
+                .compactMap(\.notificationCorrelationKey)
             let now = Date().timeIntervalSince1970
             var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
                 now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
@@ -726,7 +778,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationStatus = nil
             record.updatedAt = now
             state.sessions[normalizedSession] = record
-            return true
+            return (cleared: true, notificationCorrelationKeys: notificationCorrelationKeys)
         }
     }
 
@@ -32914,6 +32966,19 @@ export default CMUXSessionRestore;
                 deadline: cursorShellDeadline
             )
         }
+        func clearCursorApprovalNotification(
+            correlationKey: String?,
+            workspaceId: String,
+            surfaceId: String
+        ) {
+            guard let correlationKey,
+                  UUID(uuidString: correlationKey) != nil else {
+                return
+            }
+            sendCursorCriticalCommand(
+                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) --correlation-key=\(correlationKey)"
+            )
+        }
         // One structured semantic event per hook invocation: the append-only
         // agent journal is what the sidebar reduces lifecycle state from, so
         // every action lane below emits exactly one of these (attributed to
@@ -32963,9 +33028,13 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 if def.name == "cursor", consumed.pendingCursorShellApprovals?.isEmpty == false {
-                    sendCursorCriticalCommand(
-                        "clear_notifications --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId))"
-                    )
+                    for correlationKey in consumed.pendingCursorShellApprovals?.compactMap(\.notificationCorrelationKey) ?? [] {
+                        clearCursorApprovalNotification(
+                            correlationKey: correlationKey,
+                            workspaceId: consumed.workspaceId,
+                            surfaceId: consumed.surfaceId
+                        )
+                    }
                 }
                 if !clearAgentSurfaceResumeBinding(
                     client: client,
@@ -33504,6 +33573,13 @@ export default CMUXSessionRestore;
             func reconcileCursorShellUI(
                 _ resolution: ClaudeHookSessionStore.CursorShellApprovalResolution
             ) {
+                for correlationKey in resolution.notificationCorrelationKeys {
+                    clearCursorApprovalNotification(
+                        correlationKey: correlationKey,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
                 if (resolution.matched || resolution.expired), resolution.hasRemaining {
                     let pendingSubtitle = String(
                         localized: "agent.generic.notification.subtitle.permission",
@@ -33516,7 +33592,8 @@ export default CMUXSessionRestore;
                     let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
                         pending: false,
                         agentKind: def.name,
-                        isSubagent: false
+                        isSubagent: false,
+                        correlationKey: resolution.remainingNotificationCorrelationKey
                     )
                     let pendingPayload = notificationPayload(
                         title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -33533,15 +33610,17 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
-                guard let hasOtherPending = try? store.hasPendingCursorShellApproval(
+                // A sibling session may still own the surface's Needs input
+                // state. The approval clear above is identity-scoped, but the
+                // shared status must remain pending in that case.
+                if (try? store.hasPendingCursorShellApproval(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     excludingSessionId: sessionId,
                     deadline: cursorShellDeadline
-                ), !hasOtherPending else { return }
-                sendCursorCriticalCommand(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-                )
+                )) == true {
+                    return
+                }
                 let runningStatus = failureRestoresRunning
                     ? String(localized: "agent.generic.status.running", defaultValue: "Running")
                     : String.localizedStringWithFormat(
@@ -33830,15 +33909,16 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            var cursorPromptApprovalNotificationKeys: [String] = []
             if def.name == "cursor", !sessionId.isEmpty {
                 guard acquireCursorLifecycleLease() else {
                     print("{}")
                     return
                 }
-                _ = try? store.clearCursorShellApprovals(
+                cursorPromptApprovalNotificationKeys = (try? store.clearCursorShellApprovals(
                     sessionId: sessionId,
                     deadline: cursorShellDeadline
-                )
+                ))?.notificationCorrelationKeys ?? []
             }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
@@ -34122,9 +34202,19 @@ export default CMUXSessionRestore;
                     return
                 }
                 if def.name == "cursor" {
-                    sendCursorCriticalCommand(
-                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-                    )
+                    if cursorPromptApprovalNotificationKeys.isEmpty {
+                        sendCursorCriticalCommand(
+                            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        for correlationKey in cursorPromptApprovalNotificationKeys {
+                            clearCursorApprovalNotification(
+                                correlationKey: correlationKey,
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId
+                            )
+                        }
+                    }
                 } else {
                     _ = try? sendV1Command(
                         "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -34388,16 +34478,21 @@ export default CMUXSessionRestore;
             }
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
-            let clearedCursorApprovalOnStop = def.name == "cursor"
-                && !sessionId.isEmpty
-                && ((try? store.clearCursorShellApprovals(
+            let cursorStopApprovalNotificationKeys: [String] = {
+                guard def.name == "cursor", !sessionId.isEmpty else { return [] }
+                return (try? store.clearCursorShellApprovals(
                     sessionId: sessionId,
                     deadline: cursorShellDeadline
-                )) == true)
-            if clearedCursorApprovalOnStop, !suppressVisibleMutations {
-                sendCursorCriticalCommand(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-                )
+                ))?.notificationCorrelationKeys ?? []
+            }()
+            if !cursorStopApprovalNotificationKeys.isEmpty, !suppressVisibleMutations {
+                for correlationKey in cursorStopApprovalNotificationKeys {
+                    clearCursorApprovalNotification(
+                        correlationKey: correlationKey,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
             }
 
             // The journal records the turn boundary unconditionally: the
@@ -34773,6 +34868,7 @@ export default CMUXSessionRestore;
                 }
             }
 
+            var cursorApprovalNotificationCorrelationKey: String?
             if cursorShellNeedsApproval {
                 guard acquireCursorLifecycleLease() else {
                     print(hookResponse)
@@ -34813,6 +34909,7 @@ export default CMUXSessionRestore;
                     print(hookResponse)
                     return
                 }
+                cursorApprovalNotificationCorrelationKey = rememberResult.notificationCorrelationKey
             }
 
             var summary = summarizeAgentHookNotification(
@@ -35052,7 +35149,10 @@ export default CMUXSessionRestore;
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork(),
                     agentKind: def.name,
-                    isSubagent: isNestedAgentSession
+                    isSubagent: isNestedAgentSession,
+                    correlationKey: cursorShellNeedsApproval
+                        ? cursorApprovalNotificationCorrelationKey
+                        : nil
                 )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),

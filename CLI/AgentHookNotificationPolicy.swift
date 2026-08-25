@@ -22,12 +22,18 @@ enum AgentHookNotifyCategory: String {
 
     /// Extended meta segment carrying optional agent-event context for the
     /// app's notification-policy hooks:
-    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>]` (canonical field
-    /// order; `a=` is the stable lowercase agent slug, `n=` marks a nested
-    /// subagent session). An agent kind that fails slug validation is dropped
-    /// rather than risking the app-side parser folding the whole meta back
-    /// into the body.
-    func metaSegment(pending: Bool, agentKind: String?, isSubagent: Bool?) -> String? {
+    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
+    /// field order; `a=` is the stable lowercase agent slug, `n=` marks a
+    /// nested subagent session, and `k=` is an opaque notification identity).
+    /// An agent kind or correlation key that fails validation is dropped rather
+    /// than risking the app-side parser folding the whole meta back into the
+    /// body.
+    func metaSegment(
+        pending: Bool,
+        agentKind: String?,
+        isSubagent: Bool?,
+        correlationKey: String? = nil
+    ) -> String? {
         guard self != .other else { return nil }
         var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
         if let agentKind, Self.isValidAgentKindTag(agentKind) {
@@ -35,6 +41,9 @@ enum AgentHookNotifyCategory: String {
         }
         if let isSubagent {
             segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
+            segment += ";k=\(correlationKey)"
         }
         return segment
     }
@@ -49,6 +58,11 @@ enum AgentHookNotifyCategory: String {
                 && (character.isLowercase || character.isNumber
                     || character == "." || character == "_" || character == "-")
         }
+    }
+
+    /// Correlation keys are opaque UUIDs used only to clear one notification.
+    static func isValidCorrelationKey(_ value: String) -> Bool {
+        UUID(uuidString: value) != nil
     }
 }
 
