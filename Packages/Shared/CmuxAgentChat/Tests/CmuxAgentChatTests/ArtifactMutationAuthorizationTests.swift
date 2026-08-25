@@ -83,6 +83,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.captureAuthorization == nil)
     }
 
+    @Test("Claude textual exit code without an explicit success flag remains read-only")
+    func unflaggedClaudeExitCodeIsReference() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "unflagged-exit", "name": "Write",
+            "input": ["file_path": "/tmp/unflagged-exit.md", "content": "draft"],
+        ]])
+        let result = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "unflagged-exit",
+            "content": "Exit code: 0\nOutput: saved",
+        ]])
+
+        let parsed = ClaudeTranscriptParser().parse(
+            lines: [invocation, result],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(parsed).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/unflagged-exit.md"))
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     @Test("Failed Codex apply_patch remains a read-only reference")
     func failedCodexPatchIsReference() throws {
         let call = codexLine(type: "response_item", payload: [

@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CmuxArtifacts
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -3498,6 +3499,47 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(result.stderr.isEmpty, "\(item.name): \(result.stderr)")
             XCTAssertEqual(state.commands, [item.expectedCommand], item.name)
         }
+    }
+
+    func testNoteRemovalRequiresExplicitConfirmation() async throws {
+        let root = try makeTemporaryDirectory(prefix: "cmux-note-rm-confirm")
+        let git = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", root.path, "init", "--quiet"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        XCTAssertFalse(git.timedOut, git.stderr)
+        XCTAssertEqual(git.status, 0, git.stderr)
+
+        let cli = CMUXCLI(args: [])
+        let environment = ["CMUX_WORKSPACE_ID": "workspace:note-confirm"]
+        try await cli.runNoteCommand(
+            commandArgs: ["write", "draft", "--text", "hello", "--project", root.path],
+            jsonOutput: false,
+            processEnvironment: environment
+        )
+        let repository = LocalArtifactRepository()
+        #expect(try await repository.listNotes(projectRoot: root).count == 1)
+
+        do {
+            try await cli.runNoteCommand(
+                commandArgs: ["rm", "draft", "--project", root.path],
+                jsonOutput: false,
+                processEnvironment: environment
+            )
+            XCTFail("note rm without --yes should be rejected")
+        } catch let error as CLIError {
+            XCTAssertTrue(error.message.contains("--yes"), error.message)
+        }
+        #expect(try await repository.listNotes(projectRoot: root).count == 1)
+
+        try await cli.runNoteCommand(
+            commandArgs: ["rm", "draft", "--project", root.path, "--yes"],
+            jsonOutput: false,
+            processEnvironment: environment
+        )
+        #expect(try await repository.listNotes(projectRoot: root).isEmpty)
     }
 
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {

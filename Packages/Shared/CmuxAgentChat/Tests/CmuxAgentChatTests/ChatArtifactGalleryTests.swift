@@ -534,6 +534,35 @@ struct ChatArtifactGalleryTests {
         #expect(record.provenance == .created)
     }
 
+    @Test("derived path cap retains the most recent transcript occurrences")
+    func derivedPathCapRetainsNewestOccurrences() {
+        let timestamp = Date(timeIntervalSince1970: 0)
+        let messages = (0...1_024).map { index in
+            ChatMessage(
+                id: "cap-\(index)",
+                seq: index,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(ChatToolUse(
+                    toolName: "Read",
+                    summary: "read",
+                    status: .succeeded,
+                    referencedPaths: ["/tmp/cap-\(index).md"]
+                ))
+            )
+        }
+
+        let records = ChatArtifactIndexedReference.derive(
+            from: messages,
+            canonicalizer: ChatArtifactPathCanonicalizer { $0 }
+        )
+
+        #expect(records.count == 1_024)
+        #expect(!records.contains { $0.path == "/tmp/cap-0.md" })
+        #expect(records.contains { $0.path == "/tmp/cap-1_024.md" })
+        #expect(records.map(\.lastReferencedSeq).min() == 1)
+    }
+
     @Test("cursor remains strictly append-only across generation refresh")
     func cursorStability() throws {
         let ordering = ChatArtifactGalleryOrdering()
