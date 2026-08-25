@@ -438,15 +438,38 @@ final class SharedLiveAgentIndex {
         return index
     }
 
-    /// Returns a freshly loaded index, coalescing with any refresh already in flight.
-    func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+    /// Starts a full refresh for an ownership-sensitive restore.
+    ///
+    /// A TTL-valid cache is still only a historical observation: a new agent
+    /// process or hook owner can appear before the next scheduled reload. The
+    /// synchronous restore path therefore never consumes that cache. Callers
+    /// build their topology and defer the launch until ``indexRefreshingNow``
+    /// returns the coalesced fresh result.
+    func currentIndexForOwnershipSensitiveRestore() -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
         if refreshTask == nil, forkAvailabilityRefreshTask == nil {
             startReload()
         }
-        let inFlight = forkAvailabilityRefreshTask ?? refreshTask
-        await inFlight?.value
-        return index
+        return nil
+    }
+
+    /// Returns a freshly loaded index, coalescing with any refresh already in flight.
+    func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+        ensureWatchingHookStoreDirectory()
+        while true {
+            if let refreshTask {
+                await refreshTask.value
+                return index
+            }
+            if let forkAvailabilityRefreshTask {
+                await forkAvailabilityRefreshTask.value
+                // Fork availability reloads may intentionally retain an
+                // unchanged index. Ownership-sensitive callers need the full
+                // refresh task below as well.
+                continue
+            }
+            startReload()
+        }
     }
 
     func scheduleRefreshIfStale(

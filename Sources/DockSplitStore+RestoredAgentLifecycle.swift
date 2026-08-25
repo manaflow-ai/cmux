@@ -446,6 +446,11 @@ extension DockSplitStore {
     ) {
         let policy = Workspace.makeSessionRestorePolicyService()
         for (panelId, restore) in Array(deferredAgentResumeRestoresByPanelId) {
+            // Explicit input can cancel the staged record while this snapshot
+            // is being iterated. Never resurrect a cancelled command.
+            guard deferredAgentResumeRestoresByPanelId[panelId] != nil else {
+                continue
+            }
             guard let terminal = panels[panelId] as? TerminalPanel else {
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
@@ -466,6 +471,7 @@ extension DockSplitStore {
                     panelId: ownershipPanelID
                 )
             guard !ownershipIsBlocked else {
+                terminal.surface.cancelStartupRestoreAdmission()
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
@@ -497,6 +503,7 @@ extension DockSplitStore {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
+                terminal.surface.cancelStartupRestoreAdmission()
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
@@ -505,6 +512,7 @@ extension DockSplitStore {
                    kind: claim.kind,
                    sessionId: claim.sessionId
                ) {
+                terminal.surface.cancelStartupRestoreAdmission()
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
@@ -518,8 +526,10 @@ extension DockSplitStore {
                 .awaitingAutoResumeCommand,
                 panelId: panelId
             )
-            let sendResult = terminal.sendInputResult(startupInput)
-            if !sendResult.accepted {
+            let admitted = terminal.surface.admitStartupRestoreRuntime(
+                initialInput: startupInput
+            )
+            if !admitted {
                 if let claim {
                     AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                         kind: claim.kind,
@@ -535,8 +545,9 @@ extension DockSplitStore {
                 } else {
                     restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
                 }
+            } else {
+                deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
             }
-            deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
         }
     }
 
@@ -558,6 +569,7 @@ extension DockSplitStore {
                 + Array(deferredAgentResumeClaimsByPanelId.keys)
         )
         for panelId in panelIds {
+            (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
             removeDeferredAgentResumeRestore(panelId: panelId)
         }
         deferredAgentResumeRestoresByPanelId.removeAll()

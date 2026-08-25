@@ -69,6 +69,21 @@ extension DockSplitStore {
                 surfaceId: terminal.id
             )
         }
+        terminal.surface.onStartupRestoreAdmissionCancelled = { [weak self, weak terminal] in
+            guard let self, let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal,
+                  self.deferredAgentResumeRestoresByPanelId[terminal.id] != nil else {
+                return
+            }
+            self.removeDeferredAgentResumeRestore(panelId: terminal.id)
+            if self.restoredAgentLifecycle.snapshotsByPanelId[terminal.id] != nil {
+                self.restoredAgentLifecycle.setResumeState(
+                    .manualResumeAvailable,
+                    panelId: terminal.id
+                )
+            }
+        }
         terminal.onRequestWorkspacePaneFlash = { [weak self, weak terminal] reason in
             guard let self, let terminal,
                   let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,

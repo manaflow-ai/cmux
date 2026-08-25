@@ -34,13 +34,19 @@ final class TerminalStartupRestoreCoordinator {
     ///   - requestedPolicy: Timing policy selected by the terminal creation path.
     ///   - willRunStartupCommand: Whether a restored agent command will run.
     ///   - willRunStartupInput: Whether a restored agent selector will be queued.
+    ///   - awaitsDeferredAgentResume: Whether the ownership scan must decide
+    ///     the first runtime's resume command after topology commit.
     /// - Returns: The requested policy with a restore gate when one is required.
     nonisolated func runtimeSpawnPolicy(
         requestedPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
+        willRunStartupInput: Bool,
+        awaitsDeferredAgentResume: Bool = false
     ) -> TerminalSurfaceRuntimeSpawnPolicy {
-        willRunStartupCommand || willRunStartupInput
+        if awaitsDeferredAgentResume {
+            return requestedPolicy.requiringDeferredAgentResumeAdmission()
+        }
+        return willRunStartupCommand || willRunStartupInput
             ? requestedPolicy.requiringStartupRestoreAdmission()
             : requestedPolicy
     }
@@ -62,6 +68,8 @@ final class TerminalStartupRestoreCoordinator {
     ///   - chatWorkingDirectory: Working directory used to resolve the resumed transcript.
     ///   - agentSessionAlreadyActive: Whether another surface already owns the live session.
     ///   - ownsResumeLaunchClaim: Whether this transaction claimed the agent resume launch.
+    ///   - defersStartupRestoreAdmission: Whether ownership resolution must
+    ///     admit or cancel the runtime after the topology commit.
     func stage(
         panel: TerminalPanel,
         snapshot: SessionRestorableAgentSnapshot?,
@@ -72,7 +80,8 @@ final class TerminalStartupRestoreCoordinator {
         resumeWorkingDirectory: String?,
         chatWorkingDirectory: String? = nil,
         agentSessionAlreadyActive: Bool = false,
-        ownsResumeLaunchClaim: Bool = false
+        ownsResumeLaunchClaim: Bool = false,
+        defersStartupRestoreAdmission: Bool = false
     ) {
         pendingRestoresByPanelID[panel.id] = PendingTerminalStartupRestore(
             panel: panel,
@@ -81,6 +90,7 @@ final class TerminalStartupRestoreCoordinator {
             manualResumeAvailable: manualResumeAvailable,
             willRunStartupCommand: willRunStartupCommand,
             willRunStartupInput: willRunStartupInput,
+            defersStartupRestoreAdmission: defersStartupRestoreAdmission,
             resumeWorkingDirectory: resumeWorkingDirectory,
             chatResumeBinding: chatResumeBinding(
                 snapshot: snapshot,
@@ -176,7 +186,7 @@ final class TerminalStartupRestoreCoordinator {
                 )
 #endif
             }
-            if pending.willRunStartupWork {
+            if pending.willRunStartupWork, !pending.defersStartupRestoreAdmission {
                 pending.panel.surface.admitStartupRestoreRuntime()
             }
         }

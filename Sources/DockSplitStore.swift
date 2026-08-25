@@ -315,7 +315,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
-            SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
         }
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,

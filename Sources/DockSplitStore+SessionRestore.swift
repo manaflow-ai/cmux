@@ -311,13 +311,42 @@ extension DockSplitStore {
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
+        let deferredAgentResumeAdmission = restoreIndexUnavailable &&
+            hibernation == nil &&
+            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+        // Keep a deferred command visible as staged startup metadata while its
+        // runtime remains held until the fresh ownership scan completes.
+        let deferredAgentResumeStartupInput: String? = if deferredAgentResumeAdmission {
+            if let restorableAgent {
+                restorableAgent.resumeStartupInput(
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            } else {
+                policy
+                    .approvedSurfaceResumeBinding(
+                        resumeBinding,
+                        autoResumeAgentSessions: shouldAutoResumeAgent,
+                        promptForApproval: true,
+                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                    )
+                    .flatMap {
+                        policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
+                    }
+            }
+        } else {
+            nil
+        }
         let initialCommand = tmuxLauncher
-        let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
+        let initialInput = bindingLaunch?.initialInput ??
+            agentLaunch?.initialInput ??
+            deferredAgentResumeStartupInput
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
-            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
+            deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
-            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
+            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||
+            deferredAgentResumeStartupInput != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
@@ -326,7 +355,8 @@ extension DockSplitStore {
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,
             tmuxStartCommand: restoredTmuxStartCommand,
-            hasResumeStartupWork: bindingLaunch != nil || agentLaunch != nil
+            hasResumeStartupWork: bindingLaunch != nil || agentLaunch != nil ||
+                deferredAgentResumeStartupInput != nil
         )
         let restoredScrollback = shouldReplayScrollback ? terminalSnapshot.scrollback : nil
         let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
@@ -363,7 +393,8 @@ extension DockSplitStore {
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
                 willRunStartupCommand: false,
-                willRunStartupInput: willRunAgentInput
+                willRunStartupInput: willRunAgentInput,
+                awaitsDeferredAgentResume: deferredAgentResumeAdmission
             )
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
@@ -408,7 +439,8 @@ extension DockSplitStore {
             agentSessionAlreadyActive: restoreIndexUnavailable
                 ? false
                 : agentSessionAlreadyActive,
-            ownsResumeLaunchClaim: agentLaunch != nil
+            ownsResumeLaunchClaim: agentLaunch != nil,
+            defersStartupRestoreAdmission: deferredAgentResumeAdmission
         )
         if restoreIndexUnavailable,
            hibernation == nil,
@@ -572,8 +604,8 @@ extension DockSplitStore {
         }) else {
             return nil
         }
-        // Restore decisions stay cache-only on the main actor. A cold cache is
-        // resolved by the deferred restore queue after the off-main refresh.
+        // Ownership-sensitive restore decisions use the injected authoritative
+        // index, or defer launch until the off-main refresh completes.
         return restorableAgentIndexProvider()
     }
 

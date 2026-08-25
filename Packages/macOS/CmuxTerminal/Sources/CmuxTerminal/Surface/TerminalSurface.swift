@@ -187,6 +187,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Text written to the surface immediately after the first spawn, if any.
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
+    /// When true, a deferred restore was cancelled before its first runtime.
+    /// This suppresses the construction-time input while retaining
+    /// ``initialInput`` for persistence/debug inspection.
+    var suppressConfiguredInitialInput = false
     let initialEnvironmentOverrides: [String: String]
 
     /// The working directory requested at construction, if any.
@@ -217,6 +221,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Notifies the owner when explicit input cancels a deferred auto-resume.
+    @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
@@ -295,6 +301,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
+    var cancelsStartupRestoreAdmissionOnExplicitInput = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
@@ -566,6 +573,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.cancelsStartupRestoreAdmissionOnExplicitInput =
+            runtimeSpawnPolicy.cancelsStartupRestoreAdmissionOnExplicitInput
         self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
             ? .awaitingAdmission
             : .unrestricted

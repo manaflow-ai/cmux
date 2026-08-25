@@ -261,6 +261,9 @@ extension TerminalSurface {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
             }
+            if suppressConfiguredInitialInput {
+                return nil
+            }
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
             }

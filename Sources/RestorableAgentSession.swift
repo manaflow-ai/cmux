@@ -1029,6 +1029,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
+    private let boundedAmbiguousPanelIds: Set<UUID>
 
     // A corrupt or very old hook store can contain an unbounded owner history
     // for one surface. Keep stable-panel resolution bounded and fail closed if
@@ -1065,6 +1066,11 @@ struct RestorableAgentSessionIndex: Sendable {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool {
+        // A truncated owner history is structurally incomplete; current PID
+        // probes cannot make the omitted records safe to ignore.
+        if boundedAmbiguousPanelIds.contains(panelId) {
+            return true
+        }
         let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
             Self.currentProcessEvidence(
                 for: entry,
@@ -1075,7 +1081,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let candidates = candidatesByPanelId[panelId] ?? []
         return evidence.filter { $0 == .live }.count > 1 || evidence.enumerated().contains {
             index, value in
-            value == .unknown && !candidates[index].1.processIDs.isEmpty
+            value == .unknown && !Self.recordedProcessIDs(for: candidates[index].1).isEmpty
         }
     }
 
@@ -1136,7 +1142,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 for: entry,
                 processIdentityProvider: processIdentityProvider,
                 processPresenceProvider: processPresenceProvider
-            ) == .unknown && !entry.processIDs.isEmpty
+            ) == .unknown && !Self.recordedProcessIDs(for: entry).isEmpty
         }
     }
 
@@ -1228,6 +1234,7 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> Entry? {
         let candidates = candidatesByPanelId[panelId] ?? []
         guard !candidates.isEmpty else { return nil }
+        guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -1242,7 +1249,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         let liveCandidates = candidatesWithEvidence.filter { $0.evidence == .live }
         let hasUncertainCandidate = candidatesWithEvidence.contains {
-            $0.evidence == .unknown && !$0.entry.processIDs.isEmpty
+            $0.evidence == .unknown && !Self.recordedProcessIDs(for: $0.entry).isEmpty
         }
         if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
             return exact.entry
@@ -1254,6 +1261,7 @@ struct RestorableAgentSessionIndex: Sendable {
         // Do not let a stale exact-owner record or a cached timestamp pick one.
         guard liveCandidates.isEmpty,
               !hasUncertainCandidate,
+              !ambiguousPanelIds.contains(panelId),
               !equalRankAmbiguousPanelIds.contains(panelId) else {
             return nil
         }
@@ -1985,7 +1993,8 @@ struct RestorableAgentSessionIndex: Sendable {
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
         processPresenceProvider: (Int) -> PIDPresence
     ) -> CurrentProcessEvidence {
-        guard !entry.processIDs.isEmpty else {
+        let processIDs = recordedProcessIDs(for: entry)
+        guard !processIDs.isEmpty else {
             return entry.processLiveness == .unknown ? .unknown : .notLive
         }
         guard entry.processLiveness == .running else {
@@ -1994,22 +2003,17 @@ struct RestorableAgentSessionIndex: Sendable {
         let identities = entry.agentProcessIdentities.isEmpty
             ? entry.processIdentities
             : entry.agentProcessIdentities
-        guard !identities.isEmpty else {
-            var sawUnknown = false
-            for processID in entry.processIDs {
+        var sawUnknown = false
+        for processID in processIDs {
+            guard let recordedIdentity = identities[processID] else {
                 switch processPresenceProvider(processID) {
-                case .present:
-                    sawUnknown = true
-                case .unknown:
+                case .present, .unknown:
                     sawUnknown = true
                 case .absent:
-                    continue
+                    break
                 }
+                continue
             }
-            return sawUnknown ? .unknown : .notLive
-        }
-        var sawUnknown = false
-        for (processID, recordedIdentity) in identities {
             guard let currentIdentity = processIdentityProvider(processID) else {
                 switch processPresenceProvider(processID) {
                 case .present, .unknown:
@@ -2024,6 +2028,10 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         return sawUnknown ? .unknown : .notLive
+    }
+
+    private static func recordedProcessIDs(for entry: Entry) -> Set<Int> {
+        entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
     }
 
     private static func shouldPreferStablePanelEntry(
@@ -2944,6 +2952,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var entriesByPanelId: [UUID: Entry] = [:]
         var ambiguousPanelIds: Set<UUID> = []
         var equalRankAmbiguousPanelIds: Set<UUID> = []
+        var boundedAmbiguousPanelIds: Set<UUID> = []
         var candidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
         for (panelId, candidates) in allCandidatesByPanelId {
             let rankedCandidates = candidates.sorted { lhs, rhs in
@@ -2968,6 +2977,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 // Equal top-ranked owner records have no reliable panel-only winner.
                 ambiguousPanelIds.insert(panelId)
             }
+            if rankedCandidates.count > Self.maximumStablePanelCandidates {
+                boundedAmbiguousPanelIds.insert(panelId)
+            }
             if topRankCount > 1 {
                 equalRankAmbiguousPanelIds.insert(panelId)
             }
@@ -2980,6 +2992,7 @@ struct RestorableAgentSessionIndex: Sendable {
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
+        self.boundedAmbiguousPanelIds = boundedAmbiguousPanelIds
     }
 }
 
