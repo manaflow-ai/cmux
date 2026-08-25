@@ -395,7 +395,9 @@ extension RemoteSessionCoordinator {
               continue
               ;;
             *)
-              if kill -0 "$cmux_pid" 2>/dev/null; then continue; fi
+              # The marker mtime is the upload heartbeat. Do not trust the
+              # numeric PID, because it can belong to an unrelated process.
+              if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
               cmux_temp_path="${cmux_pid_file%.pid}"
               rm -f -- "$cmux_temp_path" "$cmux_pid_file"
               ;;
