@@ -258,6 +258,97 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCompactSessionIgnoresSameSessionMetadataTimestampRace() throws {
+        let context = try makeClaudeHookContext(name: "compact-metadata-race")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-metadata-race-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+        let expected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            agentLifecycle: .idle,
+            markActive: true
+        )
+
+        XCTAssertTrue(try store.upsertCompactSessionIfCurrent(
+            sessionId: sessionId,
+            expectedRecord: expected,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            targetIsAuthoritative: true
+        ))
+    }
+
+    func testCompactSessionRehomeRepairsActiveIndexes() throws {
+        let context = try makeClaudeHookContext(name: "compact-rehome-indexes")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-rehome-indexes-session"
+        let oldWorkspaceId = context.workspaceId
+        let oldSurfaceId = context.surfaceId
+        let newWorkspaceId = "44444444-4444-4444-4444-444444444444"
+        let newSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: oldWorkspaceId,
+            surfaceId: oldSurfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+        let expected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
+
+        var state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let active: [String: Any] = ["sessionId": sessionId, "updatedAt": Date().timeIntervalSince1970]
+        state["activeSessionsByWorkspace"] = [newWorkspaceId: active]
+        state["activeSessionsBySurface"] = [newSurfaceId: active]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        XCTAssertTrue(try store.upsertCompactSessionIfCurrent(
+            sessionId: sessionId,
+            expectedRecord: expected,
+            workspaceId: newWorkspaceId,
+            surfaceId: newSurfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            targetIsAuthoritative: true
+        ))
+        let finalState = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let workspaces = try XCTUnwrap(finalState["activeSessionsByWorkspace"] as? [String: Any])
+        let surfaces = try XCTUnwrap(finalState["activeSessionsBySurface"] as? [String: Any])
+        XCTAssertNil(workspaces[oldWorkspaceId])
+        XCTAssertNil(surfaces[oldSurfaceId])
+        XCTAssertEqual((workspaces[newWorkspaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
+        XCTAssertEqual((surfaces[newSurfaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
+    }
+
     func testClaudeCompactFallbackPersistsReconciliationForAuthoritativeStop() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-fallback")
         defer { context.cleanup() }
