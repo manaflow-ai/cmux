@@ -101,7 +101,7 @@ actor GhosttyPointerStyleIngress {
         }
 
         var runtime = state.byRuntime[request.runtimeLifetimeId] ??
-            GhosttyPointerStyleIngressPendingState.RuntimePending()
+            GhosttyPointerStyleIngressRuntimePending()
         switch request.event {
         case .runtimeReset:
             runtime.latestRuntimeReset = request
@@ -166,7 +166,7 @@ actor GhosttyPointerStyleIngress {
     }
 
     private func takePending() -> [
-        UUID: GhosttyPointerStyleIngressPendingState.RuntimePending
+        UUID: GhosttyPointerStyleIngressRuntimePending
     ] {
         let pending = state.byRuntime
         state.byRuntime.removeAll(keepingCapacity: true)

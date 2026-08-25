@@ -1226,8 +1226,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */; };
 		7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */; };
 		A10200000000000000000001 /* GhosttyPointerStyleIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */; };
+		A10500000000000000000001 /* GhosttyPointerStyleIngressEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */; };
 		A10400000000000000000001 /* GhosttyPointerStyleIngressPendingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */; };
 		A10300000000000000000001 /* GhosttyPointerStyleIngressRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */; };
+		A10600000000000000000001 /* GhosttyPointerStyleIngressRuntimePending.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */; };
 		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		816400000000000000000001 /* GhosttyScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000002 /* GhosttyScrollView.swift */; };
 		816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000004 /* GhosttyScrollViewTests.swift */; };
@@ -4051,8 +4053,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPasteboardFidelityTests.swift; sourceTree = "<group>"; };
 		7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPhysicalInputFocusReassertionTests.swift; sourceTree = "<group>"; };
 		A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngress.swift; sourceTree = "<group>"; };
+		A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressEvent.swift; sourceTree = "<group>"; };
 		A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressPendingState.swift; sourceTree = "<group>"; };
 		A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressRequest.swift; sourceTree = "<group>"; };
+		A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressRuntimePending.swift; sourceTree = "<group>"; };
 		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		816400000000000000000002 /* GhosttyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollView.swift; sourceTree = "<group>"; };
 		816400000000000000000004 /* GhosttyScrollViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollViewTests.swift; sourceTree = "<group>"; };
@@ -6092,6 +6096,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */,
 				A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */,
 				A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */,
+				A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */,
+				A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */,
 				46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */,
 				46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -9779,8 +9785,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */,
 				C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */,
 				A10200000000000000000001 /* GhosttyPointerStyleIngress.swift in Sources */,
+				A10500000000000000000001 /* GhosttyPointerStyleIngressEvent.swift in Sources */,
 				A10400000000000000000001 /* GhosttyPointerStyleIngressPendingState.swift in Sources */,
 				A10300000000000000000001 /* GhosttyPointerStyleIngressRequest.swift in Sources */,
+				A10600000000000000000001 /* GhosttyPointerStyleIngressRuntimePending.swift in Sources */,
 				816400000000000000000001 /* GhosttyScrollView.swift in Sources */,
 				B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
