@@ -34829,13 +34829,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser cookies <get|set|clear> [--http-only] [...]"
+            "value": "browser cookies <get|set|clear> [set: --http-only] [...]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser cookies <get|set|clear> [--http-only] [...]"
+            "value": "browser cookies <get|set|clear> [set: --http-only] [...]"
           }
         }
       }
@@ -34846,13 +34846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"
+            "value": "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [set: --http-only] [--all]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"
+            "value": "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [set: --http-only] [--all]"
           }
         }
       }

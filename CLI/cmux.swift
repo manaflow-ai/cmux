@@ -15891,9 +15891,6 @@ struct CMUXCLI {
             if hasFlag(cookieArgs, name: "--secure") {
                 params["secure"] = true
             }
-            if hasFlag(cookieArgs, name: "--http-only") {
-                params["httpOnly"] = true
-            }
             if hasFlag(cookieArgs, name: "--all") {
                 params["all"] = true
             }
@@ -15910,6 +15907,9 @@ struct CMUXCLI {
                 output(payload, fallback: "OK")
             case "set":
                 var setParams = params
+                if hasFlag(cookieArgs, name: "--http-only") {
+                    setParams["httpOnly"] = true
+                }
                 let positional = nonFlagArgs(cookieArgs)
                 if setParams["name"] == nil, positional.count >= 1 {
                     setParams["name"] = positional[0]
