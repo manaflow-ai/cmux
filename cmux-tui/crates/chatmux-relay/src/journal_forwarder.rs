@@ -515,7 +515,8 @@ fn valid_session_key(name: &str) -> bool {
 #[cfg(unix)]
 fn parse_session_identity(response: &str) -> Option<String> {
     let envelope = parse_journal_line(response.trim_end_matches(['\r', '\n']))?;
-    if envelope.get("type").and_then(Value::as_str) != Some("response")
+    if envelope.get("protocol").and_then(Value::as_str) != Some(PROTOCOL)
+        || envelope.get("type").and_then(Value::as_str) != Some("response")
         || envelope.get("id").and_then(Value::as_str) != Some("chatmux-journal-identity")
         || envelope.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -1097,7 +1098,7 @@ async fn persist_cursors(shared: &Shared) {
 #[cfg(unix)]
 fn cursor_file_metadata_ok(metadata: &std::fs::Metadata) -> bool {
     metadata.is_file()
-        && metadata.uid() == unsafe { libc::geteuid() }
+        && metadata.uid() == unsafe { libc::getuid() }
         // Cursor revisions are not credentials, but sharing this file allows
         // another user to influence replay and delivery. Keep it private.
         && metadata.permissions().mode() & 0o077 == 0
@@ -1116,9 +1117,13 @@ async fn open_cursor_file(path: &Path) -> Option<tokio::fs::File> {
 }
 
 #[cfg(unix)]
-async fn cursor_path_is_acceptable(path: &Path) -> bool {
+async fn cursor_path_is_replaceable(path: &Path) -> bool {
     match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) => cursor_file_metadata_ok(&metadata),
+        // An existing file from the Node relay may have been created with a
+        // broad umask. It is safe to replace it because it is our regular
+        // file; the new atomic file is always 0600. We still reject links,
+        // directories, and files owned by another user.
+        Ok(metadata) => metadata.is_file() && metadata.uid() == unsafe { libc::getuid() },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
         Err(_) => false,
     }
@@ -1135,7 +1140,7 @@ fn cursor_temp_path(path: &Path, nonce: &[u8; 16]) -> Option<PathBuf> {
 async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCursor>) -> bool {
     let Ok(raw) = serde_json::to_string_pretty(cursors) else { return false };
     let body = format!("{raw}\n");
-    if body.len() > MAX_CURSOR_FILE_BYTES || !cursor_path_is_acceptable(path).await {
+    if body.len() > MAX_CURSOR_FILE_BYTES || !cursor_path_is_replaceable(path).await {
         return false;
     }
 
@@ -1160,12 +1165,22 @@ async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCurso
         }
         drop(file);
 
-        // Never replace a symlink, non-regular file, foreign-owned file, or a
-        // file that is readable by another user. The rename itself is atomic,
-        // so readers see either the old valid file or the complete new file.
-        if !cursor_path_is_acceptable(path).await {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return false;
+        // Never replace a symlink, non-regular file, or foreign-owned file.
+        // A legacy own file may be broader than 0600; remove that file only
+        // after checking its owner, then install the private replacement.
+        match tokio::fs::symlink_metadata(path).await {
+            Ok(metadata) if cursor_file_metadata_ok(&metadata) => {}
+            Ok(metadata) if metadata.is_file() && metadata.uid() == unsafe { libc::getuid() } => {
+                if tokio::fs::remove_file(path).await.is_err() {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return false;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return false;
+            }
         }
         match tokio::fs::rename(&temp_path, path).await {
             Ok(()) => return true,
@@ -1233,6 +1248,7 @@ mod tests {
     #[test]
     fn identity_handshake_requires_one_verified_session() {
         let valid = json!({
+            "protocol": PROTOCOL,
             "type": "response",
             "id": "chatmux-journal-identity",
             "ok": true,
@@ -1240,7 +1256,11 @@ mod tests {
         })
         .to_string();
         assert_eq!(parse_session_identity(&valid), Some(String::from("legacy name")));
+        let mut wrong_protocol = serde_json::from_str::<Value>(&valid).expect("identity JSON");
+        wrong_protocol["protocol"] = json!("cmux.protocol/1");
+        assert!(parse_session_identity(&wrong_protocol.to_string()).is_none());
         let ambiguous = json!({
+            "protocol": PROTOCOL,
             "type": "response",
             "id": "chatmux-journal-identity",
             "ok": true,
@@ -1547,7 +1567,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn cursor_store_rejects_symlinks_non_regular_files_and_shared_modes() {
+    async fn cursor_store_rejects_symlinks_and_non_regular_files_and_migrates_shared_modes() {
         let (root, path) = cursor_test_path("reject").await;
         let target = root.join("target.json");
         tokio::fs::write(&target, b"{}").await.expect("write target");
@@ -1569,7 +1589,9 @@ mod tests {
             .await
             .expect("make cursor shared");
         assert!(load_cursor_file(&path).await.is_empty());
-        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
+        assert!(persist_cursor_file(&path, &HashMap::new()).await);
+        let metadata = tokio::fs::symlink_metadata(&path).await.expect("read migrated cursor");
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         remove_cursor_test_path(&root).await;
     }
 
