@@ -79,8 +79,14 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
             switch request.event {
             case .runtimeReset:
                 runtime.latestRuntimeReset = request
+                runtime.firstShape = nil
+                runtime.latestShape = nil
+                runtime.latestLinkHover = nil
             case .runtimeEnded:
                 runtime.latestRuntimeEnded = request
+                runtime.firstShape = nil
+                runtime.latestShape = nil
+                runtime.latestLinkHover = nil
             case .shape:
                 if runtime.firstShape == nil {
                     runtime.firstShape = request
