@@ -8566,17 +8566,25 @@ final class cmuxUITests: XCTestCase {
             )
             return
         }
+        // Blank rows below the content absorb the keyboard before the render
+        // slides (`keyboardSlack`), so the render's bottom edge legitimately
+        // sits `slack` above the dock top: a mostly-empty screen stays
+        // top-pinned and the keyboard covers only blank rows. The seam
+        // contract is therefore gap == slack (and slack == 0 whenever content
+        // reaches the composer bar, restoring the strict glue).
+        let slack = dock["keyboardSlack"].flatMap(Double.init) ?? 0
         let twoPhysicalPixels = 2 / screenScale
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             currentGap,
-            twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            slack,
+            accuracy: twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock beyond the blank-space slack for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertLessThanOrEqual(
             maximumGap,
-            twoPhysicalPixels,
+            slack + twoPhysicalPixels,
             "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
             file: file,
             line: line
@@ -9285,8 +9293,8 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
-        let dock = waitForDock(in: app, describe: "legacy dock tracks keyboard") {
-            $0["keyboardDockSource"] == "legacyNotification"
+        let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
+            $0["keyboardDockSource"] == "notification"
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
