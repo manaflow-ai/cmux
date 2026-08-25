@@ -531,16 +531,6 @@ extension CMUXCLI {
                     workspaceIDs: [resolvedTarget.workspaceId],
                     deadlineUptime: hookDeadlineUptime
                 ) else { return }
-                guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
-                    currentRecord: currentRecord,
-                    taskDirectoryName: sessionSnapshot.directoryName,
-                    taskStoreIdentity: taskStoreIdentity,
-                    currentWorkspaceID: resolvedTarget.workspaceId,
-                    recordedWorkspaceIDs: destinationTransition.workspaceIDs,
-                    client: client,
-                    telemetry: telemetry,
-                    deadlineUptime: hookDeadlineUptime
-                ) else { return }
                 let delivery: (
                     reconciliationSucceeded: Bool,
                     workspaceItemsAreEmpty: Bool,
@@ -574,12 +564,6 @@ extension CMUXCLI {
                     && delivery.reconciliationSucceeded
                     ? []
                     : delivery.retainedWorkspaceIDs
-                try persistClaudeTaskListDestinations(
-                    taskDirectoryName: sessionSnapshot.directoryName,
-                    taskStoreIdentity: taskStoreIdentity,
-                    retainedWorkspaceIDs: retainedPersonalWorkspaceIDs,
-                    sessionStore: sessionStore
-                )
                 let normalizedWorkspaceID = resolvedTarget.workspaceId.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
@@ -587,6 +571,22 @@ extension CMUXCLI {
                       delivery.retainedWorkspaceIDs.contains(normalizedWorkspaceID) else {
                     return
                 }
+                guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
+                    currentRecord: currentRecord,
+                    taskDirectoryName: sessionSnapshot.directoryName,
+                    taskStoreIdentity: taskStoreIdentity,
+                    currentWorkspaceID: resolvedTarget.workspaceId,
+                    recordedWorkspaceIDs: destinationTransition.workspaceIDs,
+                    client: client,
+                    telemetry: telemetry,
+                    deadlineUptime: hookDeadlineUptime
+                ) else { return }
+                try persistClaudeTaskListDestinations(
+                    taskDirectoryName: sessionSnapshot.directoryName,
+                    taskStoreIdentity: taskStoreIdentity,
+                    retainedWorkspaceIDs: retainedPersonalWorkspaceIDs,
+                    sessionStore: sessionStore
+                )
                 guard try sessionStore.bindClaudeTaskDirectory(
                     sessionId: sessionID,
                     directoryName: sessionSnapshot.directoryName,

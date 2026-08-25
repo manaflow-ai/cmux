@@ -27041,14 +27041,31 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let consumedSession = try? sessionStore.consumeAfterClaudeTaskSync(
-                sessionId: parsedInput.sessionId,
-                workspaceId: liveEndTarget.workspaceId,
-                surfaceId: liveEndTarget.surfaceId,
-                turnId: parsedInput.turnId,
-                deadlineUptime: ProcessInfo.processInfo.systemUptime
-                    + Self.claudeSessionEndTaskSyncLockBudgetSeconds
-            )
+            let consumedSession: ClaudeHookSessionRecord?
+            do {
+                consumedSession = try sessionStore.consumeAfterClaudeTaskSync(
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: liveEndTarget.workspaceId,
+                    surfaceId: liveEndTarget.surfaceId,
+                    turnId: parsedInput.turnId,
+                    deadlineUptime: ProcessInfo.processInfo.systemUptime
+                        + Self.claudeSessionEndTaskSyncLockBudgetSeconds
+                )
+            } catch {
+                // A long-running task hook may still hold the shared lease.
+                // Consume directly as a bounded recovery path so the tombstone
+                // and lifecycle cleanup are not silently abandoned.
+                telemetry.breadcrumb(
+                    "claude-hook.session-end.task-sync-lock-recovery",
+                    data: ["error": String(describing: error)]
+                )
+                consumedSession = try? sessionStore.consume(
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: liveEndTarget.workspaceId,
+                    surfaceId: liveEndTarget.surfaceId,
+                    turnId: parsedInput.turnId
+                )
+            }
             // consume() calls clearActiveSessionIfMatching before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
@@ -34219,7 +34236,13 @@ export default CMUXSessionRestore;
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         let reportedEvent = reportedHookEventName(from: parsedInput)
         let hookEventName: String
-        if let reportedEvent,
+        if subcommand == "task-sync" {
+            // Claude delivers task-sync through PostToolUse, but the payload
+            // carries an authoritative TodoWrite-shaped snapshot. Keep Feed's
+            // task decoder on the TodoWrite wire event regardless of the raw
+            // lifecycle discriminator.
+            hookEventName = fallbackHookEventName
+        } else if let reportedEvent,
            (source == "claude" || source == "codex") {
             // Preserve an explicit lifecycle discriminator when a command
             // entrypoint was selected by stale/duplicated settings. The
