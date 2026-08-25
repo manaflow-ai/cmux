@@ -27,7 +27,11 @@ struct ArtifactGitPrivacyValidator: Sendable {
         ) else {
             return false
         }
-        return trackedStatus == 1
+        // Git exits 128 when a trusted `.git` marker is only partially
+        // initialized. Treat that marker as a non-Git project rather than
+        // rejecting every artifact write; malformed/symlinked metadata is
+        // rejected before this validator is constructed.
+        return trackedStatus == 1 || trackedStatus == 128
     }
 
     func permits(destinations: [URL]) async -> Bool {
@@ -55,9 +59,10 @@ struct ArtifactGitPrivacyValidator: Sendable {
                 "check-ignore", "-z", "--stdin",
             ],
             standardInput: standardInput
-        ), result.terminationStatus == 0 else {
+        ), result.terminationStatus == 0 || result.terminationStatus == 128 else {
             return false
         }
+        guard result.terminationStatus == 0 else { return true }
         let outputBytes = [UInt8](result.standardOutput)
         var ignoredPaths: Set<Data> = []
         for pathBytes in outputBytes.split(whereSeparator: { $0 == 0 }) {

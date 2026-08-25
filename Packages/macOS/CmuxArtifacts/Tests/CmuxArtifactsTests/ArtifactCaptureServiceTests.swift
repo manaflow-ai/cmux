@@ -185,6 +185,34 @@ struct ArtifactCaptureServiceTests {
         #expect(await store.importCount == sources.count)
     }
 
+    @Test("Explicit saves reject a parent swap after authorization")
+    func rejectsAuthorizedPathParentSwap() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let authorizedParent = root.appendingPathComponent("authorized", isDirectory: true)
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        try FileManager.default.createDirectory(at: authorizedParent, withIntermediateDirectories: true)
+        let source = authorizedParent.appendingPathComponent("plan.md")
+        try "authorized".write(to: source, atomically: true, encoding: .utf8)
+        let expectedCanonicalPath = source.resolvingSymlinksInPath().standardizedFileURL.path
+        try "outside".write(
+            to: outside.appendingPathComponent("plan.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.removeItem(at: authorizedParent)
+        try FileManager.default.createSymbolicLink(at: authorizedParent, withDestinationURL: outside)
+
+        await #expect(throws: ArtifactStoreError.self) {
+            _ = try await ArtifactCaptureService(store: LocalArtifactRepository()).add(
+                sourceURL: source,
+                context: ArtifactCaptureContext(projectRoot: root),
+                expectedCanonicalPath: expectedCanonicalPath
+            )
+        }
+    }
+
     @Test("Manual selections continue across aggregate byte-bounded batches")
     func boundsManualSelectionBatchBytes() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

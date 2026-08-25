@@ -285,7 +285,8 @@ extension TerminalController {
             }
             let result = try await service.saveArtifact(
                 context: captureContext,
-                sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false)
+                sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false),
+                expectedCanonicalPath: resolved.canonicalPath
             )
             return ChatArtifactWire.result(result)
         } catch {

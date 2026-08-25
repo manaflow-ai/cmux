@@ -296,14 +296,16 @@ extension AgentChatTranscriptService {
 
     func saveArtifact(
         context: ArtifactCaptureContext,
-        sourceURL: URL
+        sourceURL: URL,
+        expectedCanonicalPath: String
     ) async throws -> ChatArtifactSaveResult {
         guard let artifactCaptureCoordinator else {
             throw AgentArtifactCaptureSaveError.rejected
         }
         return try await artifactCaptureCoordinator.save(
             context: context,
-            sourceURL: sourceURL
+            sourceURL: sourceURL,
+            expectedCanonicalPath: expectedCanonicalPath
         )
     }
 

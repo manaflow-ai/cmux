@@ -189,11 +189,13 @@ actor AgentArtifactCaptureCoordinator {
     func save(
         context: ArtifactCaptureContext,
         sourceURL: URL,
+        expectedCanonicalPath: String,
         capturedAt: Date = .now
     ) async throws -> ChatArtifactSaveResult {
         let outcome = try await captureService.add(
             sourceURL: sourceURL,
             context: context,
+            expectedCanonicalPath: expectedCanonicalPath,
             capturedAt: capturedAt
         )
         guard let importedRecord = outcome.record else {

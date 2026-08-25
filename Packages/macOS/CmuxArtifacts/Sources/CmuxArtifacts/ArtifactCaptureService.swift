@@ -134,6 +134,37 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         return attempts
     }
 
+    /// Explicitly adds one file while preserving a previously authorized
+    /// canonical identity through the descriptor-backed import.
+    public func add(
+        sourceURL: URL,
+        context: ArtifactCaptureContext,
+        expectedCanonicalPath: String,
+        capturedAt: Date = .now
+    ) async throws -> ArtifactImportOutcome {
+        let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
+        let attempts = await store.importFiles(
+            candidates: [ArtifactCandidate(
+                sourceURL: sourceURL,
+                provenance: .manual,
+                expectedCanonicalPath: expectedCanonicalPath
+            )],
+            context: context,
+            configuration: configuration,
+            maximumBatchBytes: configuration.maximumFileBytes,
+            capturedAt: capturedAt
+        )
+        guard let attempt = attempts.first else {
+            throw ArtifactStoreError.sourceNotRegularFile(sourceURL.path)
+        }
+        switch attempt {
+        case .imported(let outcome):
+            return outcome
+        case .rejected(let error):
+            throw error
+        }
+    }
+
     private func isAggregateBatchLimit(_ attempt: ArtifactImportAttempt) -> Bool {
         if case .rejected(.batchByteLimitReached) = attempt { return true }
         return false

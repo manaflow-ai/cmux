@@ -80,11 +80,16 @@ extension LocalArtifactRepository {
                     configuration: configuration,
                     maximumBytes: remainingBytes,
                     stagedURL: stagedURL,
-                    expectedCanonicalPath: sourcePathResolver.canonicalPath(source)
+                    expectedCanonicalPath: candidate.expectedCanonicalPath
+                        ?? sourcePathResolver.canonicalPath(source)
                 )
                 stagedBytes += snapshot.size
                 preparedByIndex[index] = PreparedArtifactImport(
-                    candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
+                    candidate: ArtifactCandidate(
+                        sourceURL: source,
+                        provenance: candidate.provenance,
+                        expectedCanonicalPath: candidate.expectedCanonicalPath
+                    ),
                     snapshot: snapshot,
                     digest: try ArtifactDigestCalculator(fileManager: fileManager).digest(
                         url: snapshot.url,

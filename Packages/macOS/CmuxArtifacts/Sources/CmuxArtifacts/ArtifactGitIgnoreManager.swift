@@ -13,6 +13,9 @@ struct ArtifactGitIgnoreManager {
     func ensureIgnored(projectRoot: URL) throws {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
             if let marker = gitMarker(startingAt: projectRoot) {
+                if isIncompleteGitDirectory(marker) {
+                    return
+                }
                 throw ArtifactStoreError.gitPrivacyUnavailable(marker.path)
             }
             return
@@ -56,7 +59,10 @@ struct ArtifactGitIgnoreManager {
         commandRunner: any ArtifactGitCommandRunning
     ) -> ArtifactGitPrivacyValidator? {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
-            guard gitMarker(startingAt: projectRoot) == nil else { return nil }
+            if let marker = gitMarker(startingAt: projectRoot),
+               !isIncompleteGitDirectory(marker) {
+                return nil
+            }
             return ArtifactGitPrivacyValidator(
                 worktreeRoot: nil,
                 commandRunner: commandRunner,
@@ -91,7 +97,8 @@ struct ArtifactGitIgnoreManager {
         guard let entryType = try? filesystemEntryType(dotGit) else { return nil }
         if entryType == S_IFDIR {
             let commonDirectoryFile = dotGit.appendingPathComponent("commondir", isDirectory: false)
-            guard isTrustedDirectory(dotGit), !filesystemEntryExists(commonDirectoryFile) else {
+            guard isTrustedDirectory(dotGit),
+                  !filesystemEntryExists(commonDirectoryFile) else {
                 return nil
             }
             let gitDirectory = dotGit.standardizedFileURL
@@ -125,6 +132,56 @@ struct ArtifactGitIgnoreManager {
             gitDirectory: url,
             commonGitDirectory: commonGitDirectory
         )
+    }
+
+    /// Empty `.git` markers are common in project fixtures and newly-created
+    /// folders. Treat only a trusted directory with no suspicious metadata as
+    /// a non-Git marker; malformed links/files remain fail-closed.
+    private func isIncompleteGitDirectory(_ marker: URL) -> Bool {
+        guard (try? filesystemEntryType(marker)) == S_IFDIR,
+              isTrustedDirectory(marker),
+              !filesystemEntryExists(marker.appendingPathComponent("commondir")) else {
+            return false
+        }
+        let metadataNames = ["HEAD", "config", "objects", "refs", "info"]
+        guard metadataNames.allSatisfy({ name in
+            let url = marker.appendingPathComponent(name)
+            guard filesystemEntryExists(url) else { return true }
+            return (try? filesystemEntryType(url)) != S_IFLNK
+        }) else {
+            return false
+        }
+        let exclude = marker.appendingPathComponent("info/exclude", isDirectory: false)
+        if filesystemEntryExists(exclude) {
+            guard (try? filesystemEntryType(exclude)) == S_IFREG,
+                  readRegularFile(
+                      exclude,
+                      allowedRoot: marker,
+                      maximumBytes: Self.maximumExcludeBytes
+                  ) != nil else {
+                return false
+            }
+        }
+        return !isUsableGitDirectory(marker)
+    }
+
+    private func isUsableGitDirectory(_ directory: URL) -> Bool {
+        guard isTrustedDirectory(directory),
+              isTrustedDirectory(directory.appendingPathComponent("objects", isDirectory: true)),
+              isTrustedDirectory(directory.appendingPathComponent("refs", isDirectory: true)),
+              readRegularFile(
+                  directory.appendingPathComponent("HEAD"),
+                  allowedRoot: directory,
+                  maximumBytes: 4 * 1024
+              ) != nil,
+              readRegularFile(
+                  directory.appendingPathComponent("config"),
+                  allowedRoot: directory,
+                  maximumBytes: Self.maximumGitMetadataBytes
+              ) != nil else {
+            return false
+        }
+        return true
     }
 
     private func linkedCommonGitDirectory(

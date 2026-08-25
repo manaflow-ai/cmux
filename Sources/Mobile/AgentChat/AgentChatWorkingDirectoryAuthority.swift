@@ -1,5 +1,5 @@
 /// Records whether a session working directory is trusted to select a persistence root.
-enum AgentChatWorkingDirectoryAuthority: Sendable {
+enum AgentChatWorkingDirectoryAuthority: Sendable, Equatable {
     /// No source has established the directory.
     case unknown
     /// Best-effort process observation, such as an inherited `PWD`.
