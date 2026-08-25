@@ -19,6 +19,9 @@ final class MainWindowLifecycleCoordinator {
     private var windowlessRecoveryResumeIndexesTask:
         Task<ProcessDetectedResumeIndexes?, Never>?
     @ObservationIgnored
+    private var windowlessRouteFreezeTasks:
+        [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
+    @ObservationIgnored
     private var windowlessRecoveryResumeIndexesBindings:
         [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     @ObservationIgnored
@@ -26,6 +29,11 @@ final class MainWindowLifecycleCoordinator {
         [SurfaceResumeBindingIndex.PanelKey: Int64]?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
+
+    deinit {
+        windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
+        windowlessRecoveryResumeIndexesTask?.cancel()
+    }
 
     init(
         maximumFrozenOrphanRecords: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
@@ -126,6 +134,39 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryTTYDeviceBindings = nil
     }
 
+    /// Owns one deferred freeze task until it completes or its route leaves recovery.
+    ///
+    /// The token prevents an older task's completion callback from removing a newer
+    /// task that was scheduled for the same window id after a reattachment race.
+    func retainWindowlessRouteFreezeTask(
+        _ task: Task<Void, Never>,
+        windowId: UUID,
+        token: UUID
+    ) {
+        windowlessRouteFreezeTasks[windowId]?.task.cancel()
+        windowlessRouteFreezeTasks[windowId] = (token: token, task: task)
+    }
+
+    /// Drops a completed deferred freeze task without touching a replacement task.
+    func releaseWindowlessRouteFreezeTask(windowId: UUID, token: UUID) {
+        guard windowlessRouteFreezeTasks[windowId]?.token == token else { return }
+        windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+    }
+
+    /// Cancels and forgets the deferred freeze for one route.
+    func cancelWindowlessRouteFreezeTask(windowId: UUID) {
+        guard let entry = windowlessRouteFreezeTasks.removeValue(forKey: windowId) else {
+            return
+        }
+        entry.task.cancel()
+    }
+
+    /// Cancels every deferred freeze when the coordinator's owner is tearing down.
+    func cancelAllWindowlessRouteFreezeTasks() {
+        windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
+        windowlessRouteFreezeTasks.removeAll(keepingCapacity: false)
+    }
+
     /// Indicates whether a windowless route is within the caller's bounded orphan set.
     func shouldFreezeWindowlessRoute(
         windowId: UUID,
@@ -182,6 +223,7 @@ final class MainWindowLifecycleCoordinator {
                       ) else {
                     return nil
                 }
+                cancelWindowlessRouteFreezeTask(windowId: context.windowId)
                 registeredContextsByLookupKey[lookupKey] = reattached
                 record.phase = .registered(lookupKey: lookupKey)
                 recordsByWindowId[context.windowId] = record
@@ -245,6 +287,7 @@ final class MainWindowLifecycleCoordinator {
             return false
         }
         registeredContextsByLookupKey.removeValue(forKey: lookupKey)
+        cancelWindowlessRouteFreezeTask(windowId: context.windowId)
         record.order = issueOrder()
         record.phase = .orphaned(route)
         recordsByWindowId[context.windowId] = record
@@ -264,6 +307,7 @@ final class MainWindowLifecycleCoordinator {
             return false
         }
         registeredContextsByLookupKey.removeValue(forKey: lookupKey)
+        cancelWindowlessRouteFreezeTask(windowId: context.windowId)
         route.markForTeardown()
         record.phase = .closing(route)
         recordsByWindowId[context.windowId] = record
@@ -282,6 +326,7 @@ final class MainWindowLifecycleCoordinator {
             return false
         }
         route.markForTeardown()
+        cancelWindowlessRouteFreezeTask(windowId: windowId)
         record.phase = .closing(route)
         recordsByWindowId[windowId] = record
         bumpPersistenceTopologyRevision()
@@ -339,6 +384,7 @@ final class MainWindowLifecycleCoordinator {
     func removeRecoverableRoute(windowId: UUID) {
         guard let phase = recordsByWindowId[windowId]?.phase else { return }
         if case .registered = phase { return }
+        cancelWindowlessRouteFreezeTask(windowId: windowId)
         recordsByWindowId.removeValue(forKey: windowId)
         bumpPersistenceTopologyRevision()
     }
@@ -351,6 +397,7 @@ final class MainWindowLifecycleCoordinator {
               route.frozenWindowSnapshot != nil else {
             return false
         }
+        cancelWindowlessRouteFreezeTask(windowId: windowId)
         recordsByWindowId.removeValue(forKey: windowId)
         bumpPersistenceTopologyRevision()
         return true
@@ -365,6 +412,7 @@ final class MainWindowLifecycleCoordinator {
             return windowId
         }
         for windowId in windowIds {
+            cancelWindowlessRouteFreezeTask(windowId: windowId)
             recordsByWindowId.removeValue(forKey: windowId)
         }
         if !windowIds.isEmpty {
@@ -399,6 +447,7 @@ final class MainWindowLifecycleCoordinator {
             .prefix(excessCount)
             .map(\.0)
         for windowId in oldestWindowIds {
+            cancelWindowlessRouteFreezeTask(windowId: windowId)
             recordsByWindowId.removeValue(forKey: windowId)
         }
     }

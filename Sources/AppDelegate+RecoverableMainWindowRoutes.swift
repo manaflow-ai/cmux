@@ -154,6 +154,9 @@ extension AppDelegate {
     /// Tears down a windowless route that cannot participate in persistence.
     func retireWindowlessRecoverableMainWindowRoute(_ route: RecoverableMainWindowRoute) {
         guard route.window == nil else { return }
+        mainWindowLifecycleCoordinator.cancelWindowlessRouteFreezeTask(
+            windowId: route.windowId
+        )
         if let manager = route.tabManager {
             tearDownWindowlessMainWindowRouteResources(
                 windowId: route.windowId,
@@ -265,32 +268,46 @@ extension AppDelegate {
         _ route: RecoverableMainWindowRoute
     ) {
         let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
-        Task { @MainActor [weak self, weak route] in
-            guard let self, let route,
-                  self.mainWindowLifecycleCoordinator.orphanedRoute(
-                      windowId: route.windowId
+        let windowId = route.windowId
+        let taskToken = UUID()
+        let task = Task { @MainActor [weak self, weak route] in
+            defer {
+                self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
+                    windowId: windowId,
+                    token: taskToken
+                )
+            }
+            guard !Task.isCancelled else { return }
+            guard let route,
+                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                      windowId: windowId
                   ) === route,
                   route.window == nil,
-                  self.windowForMainWindowId(route.windowId) == nil else {
+                  self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
-            guard self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
-                windowId: route.windowId,
-                availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
-            ) else {
-                self.retireWindowlessRecoverableMainWindowRoute(route)
+            guard !Task.isCancelled else { return }
+            guard self?.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
+                windowId: windowId,
+                availablePersistenceSlots: self?.availableWindowlessPersistenceSlots() ?? 0
+            ) == true else {
+                self?.retireWindowlessRecoverableMainWindowRoute(route)
                 return
             }
             defer {
-                self.mainWindowLifecycleCoordinator
+                self?.mainWindowLifecycleCoordinator
                     .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
             }
-            let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
+            guard let ttyDeviceBindings = self?.mainWindowLifecycleCoordinator
                 .windowlessRecoveryTTYDeviceBindings(
-                    allBindingsProvider: { self.currentSurfaceTTYDeviceBindings() },
+                    allBindingsProvider: { [weak self] in
+                        self?.currentSurfaceTTYDeviceBindings() ?? [:]
+                    },
                     routeBindings: routeTTYDeviceBindings
-                )
-            let resumeIndexes = await self.mainWindowLifecycleCoordinator
+                ) else {
+                return
+            }
+            guard let resumeIndexes = await self?.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
@@ -298,22 +315,28 @@ extension AppDelegate {
                         ttyDeviceBindings: bindings
                     ) ?? .cached(restorableAgentIndex: .empty)
                 }
-            guard self.mainWindowLifecycleCoordinator.orphanedRoute(
-                      windowId: route.windowId
+            guard !Task.isCancelled,
+                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                      windowId: windowId
                   ) === route,
                   route.window == nil,
-                  self.windowForMainWindowId(route.windowId) == nil else {
+                  self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
-            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex ?? .empty
-            self.freezeWindowlessRecoverableMainWindowRoute(
+            let restorableAgentIndex = resumeIndexes.restorableAgentIndex
+            self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: ttyDeviceBindings.isEmpty
                     ? nil
-                    : resumeIndexes?.surfaceResumeBindingIndex
+                    : resumeIndexes.surfaceResumeBindingIndex
             )
         }
+        mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
+            task,
+            windowId: windowId,
+            token: taskToken
+        )
     }
 
     /// Clears ephemeral UI state once a window's live graph can no longer return.

@@ -2032,6 +2032,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     ttyDeviceBindings: ttyDeviceBindings
                 )
                 guard !Task.isCancelled else { return }
+                self.mainWindowLifecycleCoordinator
+                    .cancelAllWindowlessRouteFreezeTasks()
                 _ = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
@@ -2266,6 +2268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // widens coverage to other entrypoints.
         let needsTerminationSnapshotBackstop = !isTerminatingApp
         isTerminatingApp = true
+        mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
         if needsTerminationSnapshotBackstop {
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         }
@@ -2308,6 +2311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
+        mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false

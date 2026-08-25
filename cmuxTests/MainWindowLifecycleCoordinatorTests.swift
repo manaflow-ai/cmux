@@ -326,6 +326,43 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(await probe.observedCancellation)
     }
 
+    @Test("Removing a windowless orphan cancels its owned freeze task")
+    func removingWindowlessOrphanCancelsItsOwnedFreezeTask() async {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tearDown(manager) }
+
+        let context = makeContext(windowId: windowId, manager: manager)
+        coordinator.register(context, lookupKey: ObjectIdentifier(manager))
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebar: context.sidebarState,
+            sidebarSelection: context.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(route, from: context))
+
+        let task: Task<Bool, Never> = Task { @MainActor in
+            for _ in 0..<256 {
+                if Task.isCancelled { return true }
+                await Task.yield()
+            }
+            return false
+        }
+        coordinator.retainWindowlessRouteFreezeTask(
+            task,
+            windowId: windowId,
+            token: UUID()
+        )
+        coordinator.removeRecoverableRoute(windowId: windowId)
+
+        #expect(await task.value)
+    }
+
     private func emptyWindowSnapshot(windowId: UUID) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
             windowId: windowId,
