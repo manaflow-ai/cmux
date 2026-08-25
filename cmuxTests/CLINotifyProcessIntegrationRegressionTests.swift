@@ -81,6 +81,92 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testPiPromptSubmitStartsWorkspaceAutoNaming() throws {
+        let context = try makeClaudeHookContext(name: "pi-first-prompt-auto-name")
+        defer { context.cleanup() }
+
+        // Gate the Pi summarizer so the test controls when detached naming can finish.
+        let piURL = context.root.appendingPathComponent("pi", isDirectory: false)
+        let piStartedURL = context.root.appendingPathComponent("pi-started", isDirectory: false)
+        let piReleaseURL = context.root.appendingPathComponent("pi-release", isDirectory: false)
+        guard Darwin.mkfifo(piReleaseURL.path, 0o600) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let piReleaseFD = Darwin.open(piReleaseURL.path, O_RDWR | O_CLOEXEC)
+        guard piReleaseFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var piWasReleased = false
+        let releasePiSummarizer = {
+            guard !piWasReleased else { return }
+            piWasReleased = true
+            // A newline releases the mock's blocking read exactly once.
+            _ = "\n".withCString { Darwin.write(piReleaseFD, $0, 1) }
+        }
+        defer {
+            releasePiSummarizer()
+            Darwin.close(piReleaseFD)
+        }
+        // The isolated paths avoid relying on credentials-safe summarizer environment variables.
+        try """
+        #!/bin/sh
+        : > "\(piStartedURL.path)"
+        IFS= read -r _ < "\(piReleaseURL.path)"
+        printf 'Java Workspace\\n'
+        """.write(
+            to: piURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: piURL.path)
+        startAgentHookMockServerAccepting(
+            context: context,
+            workspaceAutoTitleResult: [
+                "enabled": true,
+                "workspace_user_owned": false,
+                "workspace_applied": true,
+            ]
+        )
+
+        let result = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"pi-first-prompt","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Fix the Java build"}"#,
+            extraEnvironment: [
+                "PATH": "\(context.root.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, "The prompt hook must return before Pi completes: \(result.stderr)")
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            waitForConditionBlocking(timeout: 5) { FileManager.default.fileExists(atPath: piStartedURL.path) },
+            "The Pi summarizer must reach the controlled release point."
+        )
+        XCTAssertFalse(
+            context.state.snapshot().compactMap(self.jsonObject).contains { payload in
+                guard payload["method"] as? String == "workspace.set_auto_title",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["title"] != nil
+            },
+            "Auto-naming must remain blocked until the test releases Pi."
+        )
+
+        releasePiSummarizer()
+        XCTAssertTrue(waitForConditionBlocking(timeout: 5) {
+            context.state.snapshot().compactMap(self.jsonObject).contains { payload in
+                guard payload["method"] as? String == "workspace.set_auto_title",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["title"] as? String == "Java Workspace"
+            }
+        }, "The first submitted Pi prompt must start and apply workspace auto-naming.")
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
@@ -9248,10 +9334,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     /// Serves this context's agent-hook mock socket for the rest of the test. One
     /// accept loop answers every connection, including the CLI's extra `system.top`
     /// lookup connection, and the registry reaps the loop at teardown.
-    private func startAgentHookMockServerAccepting(context: ClaudeHookContext) {
+    private func startAgentHookMockServerAccepting(
+        context: ClaudeHookContext,
+        workspaceAutoTitleResult: [String: Any]? = nil
+    ) {
         let state = context.state
         let mockResponse: @Sendable (String) -> String = { line in
-            self.agentHookMockResponse(line: line, context: context)
+            self.agentHookMockResponse(
+                line: line,
+                context: context,
+                workspaceAutoTitleResult: workspaceAutoTitleResult
+            )
         }
         CLIMockAcceptLoopRegistry.shared.start(listenerFD: context.listenerFD, onConnection: { clientFD in
             defer { Darwin.close(clientFD) }
@@ -9262,7 +9355,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }, onListenerClosed: {})
     }
 
-    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+    private func agentHookMockResponse(
+        line: String,
+        context: ClaudeHookContext,
+        workspaceAutoTitleResult: [String: Any]? = nil
+    ) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -9278,6 +9375,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
         case "surface.resume.clear":
             return v2Response(id: id, ok: true, result: ["cleared": true])
+        case "workspace.set_auto_title":
+            guard let workspaceAutoTitleResult else {
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+            return v2Response(id: id, ok: true, result: workspaceAutoTitleResult)
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
