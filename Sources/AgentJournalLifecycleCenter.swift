@@ -460,7 +460,7 @@ final class AgentJournalLifecycleCenter: Sendable {
     /// it, so collapsing the phase here would repaint every errored or
     /// quota-exhausted agent as merely waiting on an answer — the one thing that
     /// state is meant to be distinguishable from.
-    private static func lifecycle(for phase: AgentLifecyclePhase) -> AgentHibernationLifecycleState {
+    static func lifecycle(for phase: AgentLifecyclePhase) -> AgentHibernationLifecycleState {
         switch phase {
         case .unknown: .unknown
         case .running: .running

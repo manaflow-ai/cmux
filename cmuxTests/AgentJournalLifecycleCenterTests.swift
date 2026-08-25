@@ -45,6 +45,28 @@ struct AgentJournalLifecycleCenterTests {
         store.close()
     }
 
+    /// The whole phase table, because this one function decides whether an
+    /// errored or quota-exhausted pane renders red or orange, and nothing else
+    /// pinned it. `error` used to collapse into `needsInput` on the grounds that
+    /// nothing rendered errors distinctly; `AgentStatus.error` now does, so that
+    /// collapse would make a stuck agent indistinguishable from one waiting on
+    /// an answer — the single distinction the state exists to draw.
+    @Test func everyJournalPhaseProjectsOntoItsOwnLifecycle() {
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .unknown) == .unknown)
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .running) == .running)
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .idle) == .idle)
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .needsInput) == .needsInput)
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .error) == .error)
+        #expect(AgentJournalLifecycleCenter.lifecycle(for: .error) != .needsInput)
+
+        // The projection must stay injective: two phases sharing a lifecycle is
+        // exactly how the error state went missing before.
+        let projected = AgentLifecyclePhase.allCases.map {
+            AgentJournalLifecycleCenter.lifecycle(for: $0)
+        }
+        #expect(Set(projected).count == AgentLifecyclePhase.allCases.count)
+    }
+
     @Test func guessedTargetsAreRejectedAtAdmission() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-journal-center-\(UUID().uuidString)", isDirectory: true)
