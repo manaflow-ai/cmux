@@ -2889,6 +2889,7 @@ struct ContentView: View {
                 tabManager.workspaceSwitchCoordinator.noteInteractionReady(
                     workspaceID: tabId
                 )
+                clearWorkspaceSwitchPortalSignalsIfFinished()
             }
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
@@ -2946,6 +2947,7 @@ struct ContentView: View {
             tabManager.workspaceSwitchCoordinator.noteInteractionReady(
                 workspaceID: tabId
             )
+            clearWorkspaceSwitchPortalSignalsIfFinished()
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
                 ?? tabManager.selectedWorkspace?.activeFocusTransactionId
             attemptCommandPaletteFocusRestoreIfNeeded(focusTransactionId: focusTransactionId)
@@ -2962,6 +2964,7 @@ struct ContentView: View {
                 workspaceID: selectedTabId,
                 webView: webView
             )
+            clearWorkspaceSwitchPortalSignalsIfFinished()
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedPanelId,
@@ -2980,6 +2983,7 @@ struct ContentView: View {
                 workspaceID: selectedTabId,
                 webView: webView
             )
+            clearWorkspaceSwitchPortalSignalsIfFinished()
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedBrowser.id,
@@ -2997,6 +3001,7 @@ struct ContentView: View {
                 workspaceID: selectedTabId,
                 webView: focusedBrowser.webView
             )
+            clearWorkspaceSwitchPortalSignalsIfFinished()
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: panelId,
@@ -3036,6 +3041,7 @@ struct ContentView: View {
                 return
             }
             tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
+            clearWorkspaceSwitchPortalSignalsIfFinished()
         })
 
         view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
@@ -3047,6 +3053,7 @@ struct ContentView: View {
                 return
             }
             tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
+            clearWorkspaceSwitchPortalSignalsIfFinished()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -3680,7 +3687,6 @@ struct ContentView: View {
             workspaceID: retiringWorkspaceID,
             reason: reason
         )
-        workspaceSwitchPortalSignalRouter.clearSources()
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3874,6 +3880,12 @@ struct ContentView: View {
             surfaceID: surface.id,
             renderedFrameSequence: hostedView.surfaceView.renderedFrameSequence
         )
+        clearWorkspaceSwitchPortalSignalsIfFinished()
+    }
+
+    private func clearWorkspaceSwitchPortalSignalsIfFinished() {
+        guard !tabManager.workspaceSwitchCoordinator.isMeasuringSwitch else { return }
+        workspaceSwitchPortalSignalRouter.clearSources()
     }
 
     private var commandPaletteOverlay: some View {
