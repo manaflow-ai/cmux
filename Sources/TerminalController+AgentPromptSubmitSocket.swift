@@ -54,14 +54,14 @@ extension TerminalController {
                 data: nil
             ))
         }
-        guard text.utf8.count <= 1_048_576 else {
+        guard text.utf8.count <= AgentPromptSubmissionService.maximumPromptBytes else {
             return .failure(.err(
                 code: "invalid_params",
                 message: String(
                     localized: "socket.workspace.agentSubmit.promptTooLarge",
                     defaultValue: "Agent prompt text is too large; keep it under 1 MiB."
                 ),
-                data: ["maximum_bytes": 1_048_576]
+                data: ["maximum_bytes": AgentPromptSubmissionService.maximumPromptBytes]
             ))
         }
 
@@ -119,6 +119,9 @@ extension TerminalController {
                 surfaceId: resolvedSurfaceID,
                 state: queued ? "queued" : "accepted"
             )
+            if !queued {
+                scheduleAgentPromptConfirmationFallback(workspaceID: workspaceID)
+            }
         case .queued(let resolvedWorkspaceID, let resolvedSurfaceID, let reason):
             CmuxEventBus.shared.publishAgentPromptDelivery(
                 messageID: receipt.messageID,
@@ -127,10 +130,27 @@ extension TerminalController {
                 state: "queued",
                 reason: reason
             )
+            if reason == "prior_prompt_in_flight" {
+                scheduleAgentPromptConfirmationFallback(workspaceID: workspaceID)
+            }
         default:
             break
         }
         return receipt
+    }
+
+    /// Guarantees the workspace FIFO advances even when no later hook,
+    /// panel, or workspace event triggers a drain. `drain` clears a stale
+    /// unconfirmed barrier itself, so the fallback is just a delayed drain.
+    @MainActor
+    private func scheduleAgentPromptConfirmationFallback(workspaceID: UUID) {
+        let timeout = agentPromptSubmissionService.confirmationTimeout
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(max(0, timeout + 0.5) * 1_000_000_000)
+            )
+            self?.drainAgentPromptQueue(workspaceID: workspaceID)
+        }
     }
 
     /// Retries queued requests after a hook, shell-idle transition, or agent
@@ -139,9 +159,11 @@ extension TerminalController {
     @MainActor
     func drainAgentPromptQueue(workspaceID: UUID) {
         let receipts = agentPromptSubmissionService.drain(workspaceID: workspaceID)
+        var acceptedPrompt = false
         for receipt in receipts {
             switch receipt.result {
             case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
+                if !queued { acceptedPrompt = true }
                 CmuxEventBus.shared.publishAgentPromptDelivery(
                     messageID: receipt.messageID,
                     workspaceId: resolvedWorkspaceID,
@@ -179,6 +201,9 @@ extension TerminalController {
                 )
             }
         }
+        if acceptedPrompt {
+            scheduleAgentPromptConfirmationFallback(workspaceID: workspaceID)
+        }
     }
 
     /// Completes queued messages explicitly when their workspace is closed.
@@ -209,10 +234,45 @@ extension TerminalController {
         }
     }
 
+    private nonisolated static func agentPromptHandleNeedsResolution(
+        _ raw: String?
+    ) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && UUID(uuidString: trimmed) == nil
+    }
+
+    private nonisolated static func agentPromptParamsApplyingResolvedHandles(
+        _ params: [String: Any],
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) -> [String: Any] {
+        var updated = params
+        if let workspaceID { updated["workspace_id"] = workspaceID.uuidString }
+        if let surfaceID { updated["surface_id"] = surfaceID.uuidString }
+        return updated
+    }
+
     /// Worker-lane handler for `workspace.agent_submit` used by synchronous
     /// in-process callers and the legacy socket path.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
-        let parsed = Self.parseAgentPromptSubmit(params: params)
+        // Accept the same workspace/surface handle refs as other v2 methods
+        // by resolving non-UUID handles before the strict parser.
+        var requestParams = params
+        let rawWorkspace = params["workspace_id"] as? String
+        let rawSurface = params["surface_id"] as? String
+        if Self.agentPromptHandleNeedsResolution(rawWorkspace)
+            || Self.agentPromptHandleNeedsResolution(rawSurface) {
+            let resolved = v2MainSync {
+                (self.v2UUIDAny(rawWorkspace), self.v2UUIDAny(rawSurface))
+            }
+            requestParams = Self.agentPromptParamsApplyingResolvedHandles(
+                params,
+                workspaceID: resolved.0,
+                surfaceID: resolved.1
+            )
+        }
+        let parsed = Self.parseAgentPromptSubmit(params: requestParams)
         guard case .success(let workspaceID, let surfaceID, let text) = parsed else {
             guard case .failure(let error) = parsed else {
                 return .err(code: "invalid_params", message: "Invalid agent prompt", data: nil)
@@ -238,7 +298,21 @@ extension TerminalController {
         params: [String: Any],
         id: JSONValue?
     ) async -> String {
-        let parsed = Self.parseAgentPromptSubmit(params: params)
+        var requestParams = params
+        let rawWorkspace = params["workspace_id"] as? String
+        let rawSurface = params["surface_id"] as? String
+        if Self.agentPromptHandleNeedsResolution(rawWorkspace)
+            || Self.agentPromptHandleNeedsResolution(rawSurface) {
+            let resolved = await v2MainAsync {
+                (self.v2UUIDAny(rawWorkspace), self.v2UUIDAny(rawSurface))
+            }
+            requestParams = Self.agentPromptParamsApplyingResolvedHandles(
+                params,
+                workspaceID: resolved.0,
+                surfaceID: resolved.1
+            )
+        }
+        let parsed = Self.parseAgentPromptSubmit(params: requestParams)
         guard case .success(let workspaceID, let surfaceID, let text) = parsed else {
             guard case .failure(let error) = parsed else {
                 return v2Error(

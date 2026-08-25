@@ -13,7 +13,8 @@ import Foundation
 /// agent panes.
 @MainActor
 final class AgentPromptSubmissionService {
-    private static let maximumPromptBytes = 1_048_576
+    /// One shared prompt-size limit for the socket parser and this service.
+    static let maximumPromptBytes = 1_048_576
     typealias Delivery = @MainActor @Sendable () -> AgentPromptSubmissionResult
 
     struct Receipt: Sendable {
@@ -35,6 +36,7 @@ final class AgentPromptSubmissionService {
         let signature: Data
         let byteCount: Int
         let surfaceID: UUID
+        let acceptedAt = Date()
     }
 
     private let maximumPendingRequests: Int
@@ -50,8 +52,31 @@ final class AgentPromptSubmissionService {
     /// One accepted prompt at a time is the per-workspace FIFO barrier.
     private var inFlightByWorkspace: [UUID: AcceptedMessage] = [:]
 
-    init(maximumPendingRequests: Int = 256) {
+    /// How long an accepted prompt may wait for its hook confirmation before
+    /// it stops blocking the workspace FIFO. Confirmation is best-effort
+    /// enrichment; an agent without cmux hooks (or one that decorates the
+    /// submitted text) must not stall every later queued message.
+    let confirmationTimeout: TimeInterval
+
+    init(
+        maximumPendingRequests: Int = 256,
+        confirmationTimeout: TimeInterval = 30
+    ) {
         self.maximumPendingRequests = max(1, maximumPendingRequests)
+        self.confirmationTimeout = confirmationTimeout
+    }
+
+    /// Clears an unconfirmed accepted prompt after the confirmation window
+    /// so a missing or unroutable hook cannot block `drain` forever. The
+    /// accepted-message record is kept, so a late hook still confirms and
+    /// carries the message id.
+    @discardableResult
+    func expireStaleInFlight(workspaceID: UUID, now: Date = Date()) -> UUID? {
+        guard let inFlight = inFlightByWorkspace[workspaceID],
+              now.timeIntervalSince(inFlight.acceptedAt) >= confirmationTimeout
+        else { return nil }
+        inFlightByWorkspace.removeValue(forKey: workspaceID)
+        return inFlight.messageID
     }
 
     /// Admits one request and returns its stable message id immediately.
@@ -84,6 +109,8 @@ final class AgentPromptSubmissionService {
             text: text,
             delivery: delivery
         )
+
+        expireStaleInFlight(workspaceID: workspaceID)
 
         if pendingCount >= maximumPendingRequests {
             return Receipt(
@@ -244,6 +271,7 @@ final class AgentPromptSubmissionService {
     /// a second global observer or notification dependency.
     @discardableResult
     func drain(workspaceID: UUID) -> [Receipt] {
+        expireStaleInFlight(workspaceID: workspaceID)
         guard inFlightByWorkspace[workspaceID] == nil else { return [] }
         guard var pending = pendingByWorkspace[workspaceID], !pending.isEmpty else {
             pendingByWorkspace.removeValue(forKey: workspaceID)
