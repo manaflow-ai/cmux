@@ -1480,9 +1480,14 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
-            let restoreOwnershipAmbiguous = SharedLiveAgentIndex.shared
-                .currentIndexSchedulingRefresh()?
-                .hasAmbiguousPanel(snapshot.id) == true
+            let restoreAgentIndex: RestorableAgentSessionIndex? = if restorableAgent != nil ||
+                resumeBinding?.isAgentHookBinding == true {
+                SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
+            } else {
+                nil
+            }
+            let restoreOwnershipAmbiguous = restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 restoreOwnershipAmbiguous ||
@@ -1571,14 +1576,15 @@ extension Workspace {
                       let restorableAgent else {
                     return false
                 }
-                let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
-                if liveIndex.hasAmbiguousPanel(snapshot.id) {
+                if restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true {
                     // Do not launch while panel ownership is ambiguous; a live process
                     // may still be attached to another owner record.
                     return true
                 }
-                let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
+                let liveEntry = restoreAgentIndex?.entryForStablePanel(
+                    workspaceId: id,
+                    panelId: snapshot.id
+                )
                 if AgentResumeLiveness.hasLiveProcess(
                     for: liveEntry,
                     kind: restorableAgent.kind.rawValue,

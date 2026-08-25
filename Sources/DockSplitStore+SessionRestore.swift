@@ -213,13 +213,14 @@ extension DockSplitStore {
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
-        let restoreOwnershipAmbiguous: Bool = if shouldAutoResumeAgent || resumeBinding != nil {
-            let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        let restoreAgentIndex: RestorableAgentSessionIndex? = if restorableAgent != nil ||
+            resumeBinding?.isAgentHookBinding == true {
+            SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                 ?? RestorableAgentSessionIndex.load()
-            liveIndex.hasAmbiguousPanel(snapshot.id)
         } else {
-            false
+            nil
         }
+        let restoreOwnershipAmbiguous = restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true
         let resumeBindingForStartup = hibernation != nil ||
             restoreOwnershipAmbiguous ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
@@ -267,7 +268,8 @@ extension DockSplitStore {
         let agentSessionAlreadyActive = sessionAgentAlreadyActive(
             restorableAgent: restorableAgent,
             snapshotPanelId: snapshot.id,
-            shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
+            shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil,
+            liveIndex: restoreAgentIndex
         )
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
@@ -479,11 +481,11 @@ extension DockSplitStore {
     private func sessionAgentAlreadyActive(
         restorableAgent: SessionRestorableAgentSnapshot?,
         snapshotPanelId: UUID,
-        shouldAutoResume: Bool
+        shouldAutoResume: Bool,
+        liveIndex: RestorableAgentSessionIndex?
     ) -> Bool {
         guard shouldAutoResume, let restorableAgent else { return false }
-        let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+        guard let index = liveIndex else { return true }
         if index.hasAmbiguousPanel(snapshotPanelId) {
             // Unknown ownership is safer than launching a duplicate agent against a
             // session that may still be live under another restored owner.
