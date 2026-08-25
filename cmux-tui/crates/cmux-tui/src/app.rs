@@ -11554,6 +11554,7 @@ impl App {
             self.tree.active_workspace.min(self.tree.workspaces.len().saturating_sub(1));
         self.sidebar_recoverable_workspace_selection = 0;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        self.workspace_preview = None;
         self.tabs_rail_selection = 0;
         self.tabs_rail_scroll = 0;
         self.tabs_rail_follow_selection = true;
@@ -36346,6 +36347,23 @@ mod tests {
         app.reset_session_presentation(TreeView::default());
 
         assert!(app.pending_pointer_motion.is_none());
+    }
+
+    #[test]
+    fn session_presentation_reset_clears_workspace_preview() {
+        let mux = Mux::new("reset-workspace-preview-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let tree = Session::Local(mux.clone()).tree();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: tree.workspaces[0].id, target: tree.workspaces[1].id });
+
+        app.reset_session_presentation(tree);
+
+        assert!(app.workspace_preview.is_none());
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
     }
 
     #[test]
