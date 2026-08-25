@@ -56,6 +56,7 @@ final class SharedLiveAgentIndex {
     )
 
     private(set) var index: RestorableAgentSessionIndex?
+    private var indexGeneration: UInt64 = 0
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
@@ -88,7 +89,6 @@ final class SharedLiveAgentIndex {
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let sidebarLivenessFreshnessWindow: TimeInterval = 10.0
     private static let sidebarLivenessRefreshCadence: TimeInterval = 10.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
@@ -474,6 +474,7 @@ final class SharedLiveAgentIndex {
         lastSidebarLivenessRefreshAt = now
 
         let previousFingerprint = liveAgentProcessFingerprint
+        let sourceGeneration = indexGeneration
         sidebarLivenessRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let refreshed = await Task.detached(priority: .utility) {
@@ -484,19 +485,16 @@ final class SharedLiveAgentIndex {
                 self.sidebarLivenessRefreshTask = nil
                 return
             }
+            guard self.indexGeneration == sourceGeneration else {
+                self.sidebarLivenessRefreshTask = nil
+                self.restartForkAvailabilityRefreshIfPending()
+                return
+            }
             let nextFingerprint = refreshed.liveAgentProcessFingerprint()
             let changedPanelIdsByWorkspaceId = RestorableAgentSessionIndexChangeSet(
                 previous: previousFingerprint,
                 current: nextFingerprint
             ).panelIdsByWorkspaceId
-            let refreshedProcessPanelIdsByWorkspaceId = refreshed.forkValidationEntries()
-                .reduce(into: [UUID: Set<UUID>]()) { result, pair in
-                    let (panelKey, entry) = pair
-                    guard !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty else {
-                        return
-                    }
-                    result[panelKey.workspaceId, default: []].insert(panelKey.panelId)
-                }
             // This is process-only validation. Preserve the full hook-index
             // loadedAt so the normal TTL reload still discovers new records,
             // lifecycle changes, and SessionStart anchors.
@@ -504,12 +502,9 @@ final class SharedLiveAgentIndex {
             self.liveAgentProcessFingerprint = nextFingerprint
             self.sidebarLivenessRefreshTask = nil
             self.restartForkAvailabilityRefreshIfPending()
-            let notificationPanelIdsByWorkspaceId = changedPanelIdsByWorkspaceId.isEmpty
-                ? refreshedProcessPanelIdsByWorkspaceId
-                : changedPanelIdsByWorkspaceId
-            if !notificationPanelIdsByWorkspaceId.isEmpty {
+            if !changedPanelIdsByWorkspaceId.isEmpty {
                 self.postSharedLiveAgentIndexDidChange(
-                    panelIdsByWorkspaceId: notificationPanelIdsByWorkspaceId
+                    panelIdsByWorkspaceId: changedPanelIdsByWorkspaceId
                 )
             }
             if self.changePending {
@@ -525,14 +520,6 @@ final class SharedLiveAgentIndex {
         index?.hasRecordedProcessGenerationsValue() == true
     }
 
-    /// Whether the process-generation cache is fresh enough for confident
-    /// sidebar liveness projection. Callers fail closed when this is false.
-    func sidebarLivenessIsFresh() -> Bool {
-        let anchor = lastSidebarLivenessRefreshAt ?? loadedAt
-        guard let anchor else { return false }
-        let elapsed = dateProvider().timeIntervalSince(anchor)
-        return elapsed >= 0 && elapsed < Self.sidebarLivenessFreshnessWindow
-    }
 
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
@@ -1191,6 +1178,7 @@ final class SharedLiveAgentIndex {
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
         index = newIndex
+        indexGeneration &+= 1
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
         validatedMissingForkPanels.removeAll()
