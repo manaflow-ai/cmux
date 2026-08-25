@@ -65,6 +65,33 @@ extension GitMetadataService {
         .resolved((await gitReferenceSnapshot(repository: repository)).branchName)
     }
 
+    /// Probes backend metadata on the same blocking lane as the eventual read.
+    private nonisolated func referenceRequiresGitPlumbing(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?,
+        referenceReader: any GitReferenceReading
+    ) async -> Bool {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let requiresPlumbing = cancellationSignal.withCurrentBinding {
+                        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+                            return true
+                        }
+                        return referenceReader.requiresGitPlumbing(
+                            repository: repository,
+                            deadline: deadline
+                        )
+                    }
+                    continuation.resume(returning: requiresPlumbing)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
     /// Resolves refs on the package's bounded blocking-I/O lane.
     ///
     /// - Parameter repository: The already-resolved repository to inspect.
@@ -82,9 +109,11 @@ extension GitMetadataService {
                 currentCommit: nil
             )
         }
-        let shouldLimit = referenceReader.requiresGitPlumbing(
+        let referenceReader = referenceReader
+        let shouldLimit = await referenceRequiresGitPlumbing(
             repository: repository,
-            deadline: deadline
+            deadline: deadline,
+            referenceReader: referenceReader
         )
         guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
             return GitReferenceSnapshot(
@@ -110,7 +139,6 @@ extension GitMetadataService {
             )
         }
         let cancellationSignal = WorkspaceChangesCancellationSignal()
-        let referenceReader = referenceReader
         let snapshot = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {

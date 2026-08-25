@@ -210,6 +210,25 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
     }
 
+    @Test func includeTraversalStopsAtItsPathBudget() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let includes = (0..<400)
+            .map { "    path = missing-\($0).inc" }
+            .joined(separator: "\n")
+        try fixture.writeConfig("[include]\n(includes)\n")
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let paths = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved("main")
+        ).watchPaths()
+
+        #expect(paths.count <= 256)
+    }
+
     @Test func treatsTrailingSlashGitdirAsRecursive() throws {
         // Repo nested under a parent; an includeIf gitdir with a trailing slash
         // must match recursively.

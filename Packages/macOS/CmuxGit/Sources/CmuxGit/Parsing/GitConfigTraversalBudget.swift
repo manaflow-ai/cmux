@@ -17,11 +17,16 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
         return deadline <= DispatchTime.now()
     }
 
-    mutating func reservePath() -> Bool {
+    mutating func canReservePath() -> Bool {
         guard !isExpired, remainingPathCount > 0 else {
             didExhaustBudget = true
             return false
         }
+        return true
+    }
+
+    mutating func reservePath() -> Bool {
+        guard canReservePath() else { return false }
         remainingPathCount -= 1
         return true
     }

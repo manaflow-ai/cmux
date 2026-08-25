@@ -95,9 +95,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         state: inout GitConfigTraversalState
     ) {
         let configURL = rawURL.standardizedFileURL
-        guard state.seenConfigPaths.insert(configURL.path).inserted else { return }
+        guard !state.seenConfigPaths.contains(configURL.path),
+              state.budget.reservePath() else { return }
+        state.seenConfigPaths.insert(configURL.path)
         state.configURLs.append(configURL)
-        guard state.budget.reservePath() else { return }
         guard let config = state.budget.read(at: configURL) else { return }
 
         var inExtensionsSection = false
@@ -124,16 +125,23 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                     state: &state
                 )
             }
-            if currentSectionAllowsIncludePath,
-               parts.count == 2,
-               parts[0].lowercased() == "path",
-               let includeURL = GitMetadataService.gitConfigIncludeURL(
-                   fromPathValue: parts[1],
-                   relativeTo: configURL
-               ),
-               (!includeConditionalPathsForWatch || isSafeConfigWatchPath(includeURL)) {
-                processConfig(at: includeURL, state: &state)
+            guard currentSectionAllowsIncludePath,
+                  parts.count == 2,
+                  parts[0].lowercased() == "path",
+                  let includeURL = GitMetadataService.gitConfigIncludeURL(
+                      fromPathValue: parts[1],
+                      relativeTo: configURL
+                  ) else {
+                continue
             }
+            guard !state.seenConfigPaths.contains(includeURL.standardizedFileURL.path) else {
+                continue
+            }
+            guard state.budget.canReservePath() else { return }
+            guard !includeConditionalPathsForWatch || isSafeConfigWatchPath(includeURL) else {
+                continue
+            }
+            processConfig(at: includeURL, state: &state)
         }
     }
 
@@ -273,11 +281,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         budget: inout GitConfigTraversalBudget
     ) {
         let configURL = rawConfigURL.standardizedFileURL
-        guard seenConfigPaths.insert(configURL.path).inserted,
-              budget.reservePath(),
-              let config = budget.read(at: configURL) else {
+        guard !seenConfigPaths.contains(configURL.path),
+              budget.reservePath() else {
             return
         }
+        seenConfigPaths.insert(configURL.path)
+        guard let config = budget.read(at: configURL) else { return }
 
         var currentRemoteName: String?
         var currentSectionAllowsIncludePath = false
@@ -317,6 +326,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                   ) else {
                 continue
             }
+            guard !seenConfigPaths.contains(includeURL.standardizedFileURL.path) else {
+                continue
+            }
+            guard budget.canReservePath() else { return }
             appendRemoteVLines(
                 fromConfigURL: includeURL,
                 seenConfigPaths: &seenConfigPaths,

@@ -167,7 +167,8 @@ public struct GitMetadataService: Sendable {
     ///
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
-    ///   not inside a git repository.
+    ///   outside a repository. Incomplete branch-aware plans retain conservative
+    ///   root metadata paths so a later event can trigger a retry.
     @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
         await watchDescriptor(for: directory)?.watchedPaths
@@ -182,12 +183,10 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return nil
         }
-        guard let watchInputs = await branchAwareConfigPathsByRepository(
+        let watchInputs = await branchAwareConfigPathsByRepository(
             repository: repository,
             safetyConfiguration: safetyConfiguration
-        ) else {
-            return nil
-        }
+        )
         return Self.workspaceGitMetadataWatchDescriptor(
             for: directory,
             safetyConfiguration: safetyConfiguration,

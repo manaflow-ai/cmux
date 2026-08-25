@@ -7,12 +7,10 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private static let maximumObjectIDByteCount = 128
     /// Configs above this bound use Git plumbing instead of an unbounded scan.
     private static let maximumReferenceStorageConfigByteCount = 1 * 1_024 * 1_024
-
     private let runnerSelector: GitReferenceRunnerSelector
     let storageProbe: any GitReferenceStorageProbing
     let configReader: GitConfigFileReader
     private let boundedCommandWallTimeLimit: TimeInterval
-
     /// Creates a production reader backed by the system Git executable.
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
@@ -28,7 +26,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
     }
-
     /// Creates a reader with an injected runner for deterministic tests.
     init(
         runner: any WorkspaceChangesGitRunning,
@@ -40,7 +37,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
     }
-
     /// Creates a reader with ordered injected runners for behavior tests.
     init(
         runners: [any WorkspaceChangesGitRunning],
@@ -52,7 +48,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.configReader = configReader
         self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
     }
-
     /// Resolves refs using direct files or Git plumbing according to storage.
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
         snapshot(repository: repository, deadline: nil, includeStorageWatchPaths: false)

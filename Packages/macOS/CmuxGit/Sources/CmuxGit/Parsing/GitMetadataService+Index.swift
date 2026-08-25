@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -229,7 +230,11 @@ extension GitMetadataService {
     /// Handles v3 extended flags, v4 path prefix-compression, assume-unchanged
     /// and skip-worktree exclusion, and entry padding. Returns `nil` for an
     /// absent, truncated, or unsupported-version index.
-    nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
+    nonisolated static func gitIndexSnapshot(
+        indexURL: URL,
+        deadline: DispatchTime? = nil
+    ) -> GitIndexSnapshot? {
+        if let deadline, deadline <= DispatchTime.now() { return nil }
         guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
             return nil
         }
@@ -251,6 +256,7 @@ extension GitMetadataService {
         var previousPathBytes: [UInt8] = []
 
         for _ in 0..<entryCount {
+            if let deadline, deadline <= DispatchTime.now() { return nil }
             guard offset + 62 <= contentEnd else { return nil }
             let entryStart = offset
             let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
