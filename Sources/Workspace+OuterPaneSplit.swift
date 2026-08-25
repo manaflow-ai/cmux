@@ -15,7 +15,6 @@ extension Workspace {
         let sourceTabs = bonsplitController.tabs(inPane: sourcePaneId)
         guard !sourceTabs.isEmpty else { return false }
         let selectedTabId = bonsplitController.selectedTab(inPane: sourcePaneId)?.id
-        let sourcePanelIds = sourceTabs.compactMap { panelIdFromSurfaceId($0.id) }
 
         let didMove = PaneOuterSplitLayoutMutation.movePane(
             sourcePaneId,
@@ -36,9 +35,8 @@ extension Workspace {
 
         guard didMove else { return false }
 
-        for panelId in sourcePanelIds {
-            scheduleMovedTerminalRefresh(panelId: panelId)
-        }
+        // The Bonsplit move callbacks already schedule the normal event-driven
+        // geometry pass; repeat it once after the root tree has been rebuilt.
         scheduleTerminalGeometryReconcile()
 
         if let selectedTabId,
