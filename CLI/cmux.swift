@@ -147,9 +147,80 @@ struct ClaudeHookSessionRecord: Codable {
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
-        let command: String
+        let commandFingerprint: String
+        let commandLength: Int
+        let displayCommand: String
         let toolUseId: String?
         let createdAt: TimeInterval
+
+        init(command: String, toolUseId: String?, createdAt: TimeInterval) {
+            let normalized = Self.normalizedCommand(command)
+            self.commandFingerprint = Self.fingerprint(for: normalized)
+            self.commandLength = normalized.count
+            self.displayCommand = Self.redactedPreview(for: normalized)
+            self.toolUseId = toolUseId
+            self.createdAt = createdAt
+        }
+
+        static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
+            (
+                fingerprint: fingerprint(for: normalizedCommand),
+                length: normalizedCommand.count
+            )
+        }
+
+        private static func normalizedCommand(_ value: String) -> String {
+            value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private static func fingerprint(for value: String) -> String {
+            SHA256.hash(data: Data(value.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
+
+        private static func redactedPreview(for value: String) -> String {
+            let redacted = value
+                .replacingOccurrences(
+                    of: #"(?:~|/)[^\s\"']+"#,
+                    with: "<path>",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+                .replacingOccurrences(
+                    of: #"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#,
+                    with: "<token>",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+            return String(redacted.prefix(180))
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case commandFingerprint
+            case commandLength
+            case displayCommand
+            case toolUseId
+            case createdAt
+            case legacyCommand = "command"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let fingerprint = try container.decodeIfPresent(String.self, forKey: .commandFingerprint),
+               let length = try container.decodeIfPresent(Int.self, forKey: .commandLength) {
+                commandFingerprint = fingerprint
+                commandLength = length
+                displayCommand = try container.decodeIfPresent(String.self, forKey: .displayCommand) ?? ""
+            } else {
+                let legacy = try container.decodeIfPresent(String.self, forKey: .legacyCommand) ?? ""
+                let normalized = Self.normalizedCommand(legacy)
+                commandFingerprint = Self.fingerprint(for: normalized)
+                commandLength = normalized.count
+                displayCommand = Self.redactedPreview(for: normalized)
+            }
+            toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+            createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
+        }
     }
 
     var sessionId: String
@@ -340,14 +411,17 @@ final class ClaudeHookSessionStore {
             }
             let expired = pending.count != beforePruneCount
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
+            let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
             guard let matchIndex = pending.firstIndex(where: { pendingApproval in
                 if let normalizedToolUseId {
                     if let pendingToolUseId = pendingApproval.toolUseId {
                         return normalizedToolUseId == pendingToolUseId
                     }
-                    return pendingApproval.command == normalizedCommand
+                    return pendingApproval.commandFingerprint == commandIdentity.fingerprint
+                        && pendingApproval.commandLength == commandIdentity.length
                 }
-                return pendingApproval.command == normalizedCommand
+                return pendingApproval.commandFingerprint == commandIdentity.fingerprint
+                    && pendingApproval.commandLength == commandIdentity.length
             }) else {
                 if expired {
                     record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
@@ -377,7 +451,7 @@ final class ClaudeHookSessionStore {
             )
             record.pendingCursorShellApprovals = hasRemaining ? pending : nil
             if hasRemaining {
-                record.lastBody = pending.last?.command
+                record.lastBody = pending.last?.displayCommand
             } else {
                 record.lastSubtitle = nil
                 record.lastBody = nil
@@ -412,8 +486,10 @@ final class ClaudeHookSessionStore {
     private func normalizedCursorShellCommand(_ command: String) -> String? {
         let collapsed = command.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !collapsed.isEmpty else { return nil }
-        return String(collapsed.prefix(Self.maxPendingCursorShellCommandLength))
+        guard !collapsed.isEmpty, collapsed.count <= Self.maxPendingCursorShellCommandLength else {
+            return nil
+        }
+        return collapsed
     }
 
     private func normalizedCursorShellToolUseId(_ value: String?) -> String? {
@@ -31715,12 +31791,15 @@ export default CMUXSessionRestore;
         let cursorLaunchRequestsEverything = mappedSessionForPolicy?.launchCommand?.arguments.contains {
             $0 == "-f" || $0 == "--force" || $0 == "--yolo"
         } == true
+        let cursorLaunchUsesAutoReview = mappedSessionForPolicy?.launchCommand?.arguments.contains {
+            $0 == "--auto-review"
+        } == true
         let cursorShellNeedsApproval = cursorShellEvent
             && AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: input.rawObject,
                 approvalMode: cursorLaunchRequestsEverything
                     ? "unrestricted"
-                    : cursorApprovalSettings.mode,
+                    : (cursorLaunchUsesAutoReview ? "auto-review" : cursorApprovalSettings.mode),
                 allowedShellCommands: cursorApprovalSettings.allowedShellCommands,
                 deniedShellCommands: cursorApprovalSettings.deniedShellCommands
             )
@@ -32176,6 +32255,12 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if !failed {
+                guard input.rawObject?["sandbox"] as? Bool == false else {
+                    telemetry.breadcrumb("\(def.name)-hook.shell-done.non-unsandboxed")
+                    return
+                }
+            }
 
             guard let command = cursorShellCommand(from: input), !sessionId.isEmpty else {
                 telemetry.breadcrumb(

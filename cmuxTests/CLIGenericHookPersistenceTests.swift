@@ -1179,6 +1179,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
         )
 
+        let sandboxedCompletionStart = state.snapshot().count
+        let sandboxedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(secondCommand)","output":"","duration":1,"sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxedCompletion.timedOut, sandboxedCompletion.stderr)
+        XCTAssertEqual(sandboxedCompletion.status, 0, sandboxedCompletion.stderr)
+        let sandboxedCompletionCommands = Array(state.snapshot().dropFirst(sandboxedCompletionStart))
+        XCTAssertFalse(
+            sandboxedCompletionCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "A sandboxed completion must not consume an unsandboxed pending approval, saw \(sandboxedCompletionCommands)"
+        )
+
         let nonShellFailureStart = state.snapshot().count
         let nonShellFailure = runCursorHook(
             "shell-failed",

@@ -318,10 +318,10 @@ enum AgentHookNotificationPolicy {
             return globMatches(argumentPattern, value: commandArguments)
         }
         if !pattern.contains("*"), !pattern.contains("?") {
-            // Cursor's Shell(commandBase) form allows any arguments for that
-            // command; matching the whole string would reject valid entries
-            // such as Shell(git) for a git status command.
-            return pattern == commandBase
+            // Cursor's Shell(prefix) form allows the prefix plus additional
+            // arguments, so Shell(git status) matches git status --short.
+            return normalizedCommand == pattern
+                || normalizedCommand.hasPrefix(pattern + " ")
         }
 
         return globMatches(pattern, value: normalizedCommand)
