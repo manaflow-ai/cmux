@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -31,12 +32,7 @@ struct cmuxApp: App {
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current(),
-            compatibleMacTags: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXCompatibleMacTags"
-            ) as? String
-        )
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current()
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
@@ -111,6 +107,15 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
+                )
             }
         )
 
@@ -157,6 +162,7 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {

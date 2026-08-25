@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -22,8 +24,6 @@
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CMUXCompatibleMacTags</key>
-	<string>$(CMUX_COMPATIBLE_MAC_TAGS)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
 	<key>CMUXCrashReportingEnabled</key>
@@ -96,7 +96,15 @@
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<!-- HIG "Launching": match the first screen (plain systemBackground
+		     surfaces) and keep it static — a solid adaptive background with the
+		     small cmux mark from the sign-in header, no text. -->
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeRight</string>

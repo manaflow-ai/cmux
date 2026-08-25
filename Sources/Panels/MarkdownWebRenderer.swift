@@ -1,10 +1,11 @@
 import AppKit
+import CmuxAgentChat
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
 
     let markdown: String
     let theme: MarkdownWebTheme
@@ -797,6 +798,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            let decisionHandler = BrowserNavigationActionDecisionHandler(
+                decisionHandler,
+                fallbackPolicy: WKNavigationActionPolicy.cancel,
+                label: "MarkdownWebRenderer.Coordinator.navigationAction"
+            ).closure
+
             // The first load (loadHTMLString) has navigationType = .other —
             // allow it. Anything the user clicks (links, anchors, ...) we
             // route through the cmux tab/browser machinery.
