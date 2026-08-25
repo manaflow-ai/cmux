@@ -51,7 +51,7 @@ RELAY_TARGETS = [
 ]
 
 VERSION_RE = re.compile(
-    r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
+    r"^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
 )
 
 
@@ -68,7 +68,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         required=True,
-        help="Package version in X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N form.",
+        help=(
+            "Package version in X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N form."
+        ),
     )
     parser.add_argument(
         "--out",
@@ -212,7 +215,10 @@ def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None
 def main() -> None:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise SystemExit("--version must match X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N")
+        raise SystemExit(
+            "--version must match X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N"
+        )
 
     binaries_dir = args.binaries_dir.resolve()
     out_dir = args.out.resolve()
