@@ -48,13 +48,21 @@ extension DockSplitStore {
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
                 // when the panel moves between containers. The panel UUID is persisted,
-                // so select the newest record for that stable surface without allowing an
-                // older exact-owner record to shadow it.
+                // so select the newest safe record for that stable surface while preserving
+                // live process evidence for the current owner.
+                let observationWorkspaceId = detachedSurfaceTransfersByPanelId[panelId]?
+                    .sessionRestoreWorkspaceId ?? workspaceId
                 return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    observation: restorableAgentIndex?.entry(panelId: panelId),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.binding(panelId: panelId),
+                    observation: restorableAgentIndex?.entryForStablePanel(
+                        workspaceId: observationWorkspaceId,
+                        panelId: panelId
+                    ),
+                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
+                        workspaceId: observationWorkspaceId,
+                        panelId: panelId
+                    ),
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,

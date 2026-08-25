@@ -1035,6 +1035,19 @@ struct RestorableAgentSessionIndex: Sendable {
         entriesByPanelId[panelId]
     }
 
+    /// Resolves a restart-stable panel while preserving a live entry for its current owner.
+    ///
+    /// Dock owners can rotate independently of the panel UUID. An exact owner entry is
+    /// authoritative when it still carries live process evidence; otherwise the panel-only
+    /// index supplies the newest safe entry, with live process evidence taking precedence over
+    /// stale hook history.
+    func entryForStablePanel(workspaceId: UUID, panelId: UUID) -> Entry? {
+        let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        guard let exact else { return entriesByPanelId[panelId] }
+        guard !Self.entryHasLiveProcess(exact) else { return exact }
+        return entriesByPanelId[panelId] ?? exact
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
@@ -1722,6 +1735,10 @@ struct RestorableAgentSessionIndex: Sendable {
             return false
         }
         return existing.updatedAt <= incoming.updatedAt
+    }
+
+    private static func entryHasLiveProcess(_ entry: Entry) -> Bool {
+        entry.processLiveness == .running && !entry.processIDs.isEmpty
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -2603,8 +2620,25 @@ struct RestorableAgentSessionIndex: Sendable {
         self.entriesByPanel = entriesByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
         for (key, entry) in entriesByPanel {
-            let existing = entriesByPanelId[key.panelId]
-            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
+            guard let existing = entriesByPanelId[key.panelId] else {
+                entriesByPanelId[key.panelId] = entry
+                continue
+            }
+            let incomingIsLive = Self.entryHasLiveProcess(entry)
+            let existingIsLive = Self.entryHasLiveProcess(existing)
+            if incomingIsLive != existingIsLive {
+                if incomingIsLive { entriesByPanelId[key.panelId] = entry }
+                continue
+            }
+            if entry.updatedAt != existing.updatedAt {
+                if entry.updatedAt > existing.updatedAt { entriesByPanelId[key.panelId] = entry }
+                continue
+            }
+            // Dictionary iteration order is not stable. Keep equal-timestamp fallback
+            // selection deterministic so a restored panel cannot change identity at random.
+            let incomingIdentity = "\(entry.snapshot.kind.rawValue):\(entry.snapshot.sessionId)"
+            let existingIdentity = "\(existing.snapshot.kind.rawValue):\(existing.snapshot.sessionId)"
+            if incomingIdentity > existingIdentity {
                 entriesByPanelId[key.panelId] = entry
             }
         }
