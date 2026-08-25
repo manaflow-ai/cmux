@@ -187,7 +187,7 @@ struct TranscriptToolCompletion: Sendable {
     }
 
     /// Some tools can report failure only in their text envelope.
-    private static func reportsFailureWithoutExitStatus(_ output: String) -> Bool {
+    static func reportsFailureWithoutExitStatus(_ output: String) -> Bool {
         let prefix = output
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(400)
@@ -199,6 +199,13 @@ struct TranscriptToolCompletion: Sendable {
             || prefix.hasPrefix("permission denied")
             || prefix.hasPrefix("access denied")
             || prefix.hasPrefix("operation not permitted")
+            || prefix.contains("failed")
+            || prefix.contains("failure")
+            || prefix.contains("error")
+            || prefix.contains("denied")
+            || prefix.contains("unable")
+            || prefix.contains("exception")
+            || prefix.hasPrefix("no matches")
     }
 
     private var reportsFailureWithoutExitStatus: Bool {

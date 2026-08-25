@@ -181,9 +181,10 @@ public struct ClaudeTranscriptParser: Sendable {
                 // Display status may use a non-empty, non-failure result even
                 // when Claude omitted `is_error`; mutation authorization above
                 // remains fail-closed until the explicit false flag arrives.
-                hasPositiveSuccessEvidence: output?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .isEmpty == false
+                hasPositiveSuccessEvidence: output.map {
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && !TranscriptToolCompletion.reportsFailureWithoutExitStatus($0)
+                } ?? false
             ),
             resultSeq: seq
         )

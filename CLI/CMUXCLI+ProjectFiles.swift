@@ -61,6 +61,24 @@ extension CMUXCLI {
                 nativeIdentities.append((sessionID: sessionID, name: candidate.name))
             }
         }
+        if let genericSessionID = normalizedProjectFilesEnvironmentValue(
+            environment["CMUX_AGENT_SESSION_ID"]
+        ) {
+            let genericName = canonicalProjectFilesAgentName(
+                normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_NAME"])
+            ) ?? launchName
+            if let existing = nativeIdentities.first {
+                guard existing.sessionID == genericSessionID,
+                      genericName == nil || genericName == existing.name else {
+                    throw ambiguousProjectFilesAgentIdentityError()
+                }
+            } else {
+                nativeIdentities.append((
+                    sessionID: genericSessionID,
+                    name: genericName ?? "agent"
+                ))
+            }
+        }
         guard nativeIdentities.count <= 1 else {
             throw ambiguousProjectFilesAgentIdentityError()
         }
@@ -179,14 +197,13 @@ extension CMUXCLI {
         let systemTemporaryDirectory = FileManager.default.temporaryDirectory
         let temporaryDirectory = systemTemporaryDirectory
             .appendingPathComponent("cmux-project-files", isDirectory: true)
+        let directoryDescriptor: Int32
         do {
-            try FileManager.default.createDirectory(
-                at: temporaryDirectory,
-                withIntermediateDirectories: true
-            )
+            directoryDescriptor = try openPrivateProjectFilesDirectory(temporaryDirectory)
         } catch {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
+        defer { _ = Darwin.close(directoryDescriptor) }
         // Keep both new copies and legacy root-level copies bounded. The
         // dedicated directory prevents ordinary /tmp entries from being
         // materialized or competing with editor handoffs.
@@ -203,12 +220,27 @@ extension CMUXCLI {
             )
         }
         cleanupTemporaryProjectFiles(in: systemTemporaryDirectory)
-        let temporaryURL = temporaryDirectory
-            .appendingPathComponent("cmux-project-file-\(UUID().uuidString)")
-            .appendingPathExtension(openedPath.pathExtension)
+        let temporaryName = "cmux-project-file-\(UUID().uuidString)"
+            + (openedPath.pathExtension.isEmpty ? "" : ".\(openedPath.pathExtension)")
+        let temporaryURL = temporaryDirectory.appendingPathComponent(temporaryName)
+        let outputDescriptor = temporaryName.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard outputDescriptor >= 0 else {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
         do {
-            try data.write(to: temporaryURL, options: .atomic)
+            let output = FileHandle(fileDescriptor: outputDescriptor, closeOnDealloc: false)
+            try output.write(contentsOf: data)
+            try output.close()
         } catch {
+            _ = Darwin.close(outputDescriptor)
+            _ = Darwin.unlink(temporaryURL.path)
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
         let process = Process()
@@ -228,6 +260,31 @@ extension CMUXCLI {
         }
         cleanupTemporaryProjectFiles(in: temporaryDirectory)
         cleanupTemporaryProjectFiles(in: systemTemporaryDirectory)
+    }
+
+    private func openPrivateProjectFilesDirectory(_ directory: URL) throws -> Int32 {
+        if mkdir(directory.path, S_IRWXU) != 0, errno != EEXIST {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let descriptor = Darwin.open(
+            directory.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        var status = stat()
+        guard lstat(directory.path, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFDIR,
+              status.st_uid == geteuid(),
+              fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFDIR,
+              status.st_uid == geteuid(),
+              fchmod(descriptor, S_IRWXU) == 0 else {
+            _ = Darwin.close(descriptor)
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        return descriptor
     }
 
     private func projectFilesLaunchServicesEnvironment() -> [String: String] {

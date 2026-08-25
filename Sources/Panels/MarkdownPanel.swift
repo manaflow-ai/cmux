@@ -24,6 +24,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private var artifactReadCopyURL: URL?
     private var artifactPreviewTask: Task<Void, Never>?
+    private var artifactPreviewToken = UUID()
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -145,13 +146,29 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         observeTypographyDefaults()
     }
 
-    private func startArtifactPreviewLoad() {
+    private func startArtifactPreviewLoad(force: Bool = false) {
+        if force {
+            artifactPreviewToken = UUID()
+            artifactPreviewTask?.cancel()
+            artifactPreviewTask = nil
+            if let artifactReadCopyURL {
+                try? FileManager.default.removeItem(at: artifactReadCopyURL)
+                self.artifactReadCopyURL = nil
+            }
+        }
         guard let artifactFile, artifactPreviewTask == nil else { return }
+        let token = artifactPreviewToken
         artifactPreviewTask = Task { @MainActor [weak self, artifactFile] in
             let temporaryURL = await artifactFile.makeTemporaryPreviewURLAsync(
                 maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
             )
             guard let self else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard self.artifactPreviewToken == token else {
                 if let temporaryURL {
                     try? FileManager.default.removeItem(at: temporaryURL)
                 }
@@ -298,6 +315,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        artifactPreviewToken = UUID()
         artifactPreviewTask?.cancel()
         artifactPreviewTask = nil
         rendererSession.close()
@@ -330,7 +348,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Re-reads the file without discarding an unsaved TextEdit buffer.
     func reloadFromDisk() {
-        loadFileContent(replacingDirtyContent: false)
+        if artifactFile != nil {
+            startArtifactPreviewLoad(force: true)
+        } else {
+            loadFileContent(replacingDirtyContent: false)
+        }
     }
 
     func attachTextView(_ textView: NSTextView) {

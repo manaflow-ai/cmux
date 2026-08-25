@@ -95,7 +95,6 @@ extension CodexTranscriptParser {
             exitCode: exitCode,
             durationSeconds: duration,
             authorizesArtifactMutation: authorizesArtifactMutation(
-                output: text,
                 exitCode: exitCode
             ),
             hasPositiveSuccessEvidence: exitCode != nil
@@ -103,16 +102,11 @@ extension CodexTranscriptParser {
         )
     }
 
-    private func authorizesArtifactMutation(output: String?, exitCode: Int?) -> Bool {
-        if let exitCode { return exitCode == 0 }
-        guard let firstLine = output?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: { $0.isNewline })
-            .first?
-            .lowercased() else {
-            return false
-        }
-        return firstLine == "done!" || firstLine == "success." || firstLine == "success"
+    private func authorizesArtifactMutation(exitCode: Int?) -> Bool {
+        // Free-form custom-tool text is not provider-authenticated success
+        // evidence. Only a structured zero exit code can grant Created
+        // provenance to a mutation path.
+        return exitCode == 0
     }
 
     /// Extracts renderable output from strings, inline/nested output objects,
