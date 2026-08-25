@@ -78,6 +78,29 @@ extension Workspace {
                         entry.snapshot.kind.rawValue
                     ) == canonicalStatusKey ? entry : nil
                 }
+                let indexHasDifferentGeneration: Bool = if let runtimeIndexEntry {
+                    if runtimeIndexEntry.processLiveness == .exited {
+                        true
+                    } else {
+                        let indexedIdentities = runtimeIndexEntry.agentProcessIdentities.isEmpty
+                            ? runtimeIndexEntry.processIdentities
+                            : runtimeIndexEntry.agentProcessIdentities
+                        !indexedIdentities.isEmpty
+                            && !matchingPIDKeys.contains { key in
+                                guard let identity = agentPIDProcessIdentitiesByKey[key] else {
+                                    return false
+                                }
+                                return Self.indexEntry(
+                                    runtimeIndexEntry,
+                                    containsProcessIdentity: identity
+                                )
+                            }
+                    }
+                } else {
+                    // A cold index cannot disprove an owner-bound lifecycle
+                    // event; wait for its deterministic index evidence.
+                    false
+                }
                 let livenessByPIDKey = Dictionary(uniqueKeysWithValues: matchingPIDKeys.map {
                     let identity = agentPIDProcessIdentitiesByKey[$0]
                     let isLive: Bool
@@ -116,6 +139,7 @@ extension Workspace {
                 let suppressStaleLifecycle = !isRemoteRuntime
                     && !matchingPIDKeys.isEmpty
                     && !exactProcessIsLive
+                    && indexHasDifferentGeneration
                 // A definitively exited indexed generation suppresses a stale
                 // lifecycle map until a different cmux-bound generation is
                 // recorded. Unknown index state remains eligible for a live

@@ -204,7 +204,8 @@ extension Workspace {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
-            if !isRemoteWorkspace {
+            if !isRemoteWorkspace,
+               SharedLiveAgentIndex.shared.isSidebarProcessMonitoringEnabled() {
                 // Drop the old owner before arming the replacement. Keep a
                 // shared PID source alive when another runtime key still
                 // references the same panel/process generation.

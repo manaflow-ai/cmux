@@ -97,6 +97,7 @@ final class SharedLiveAgentIndex {
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
     private var sidebarProcessWorkspaceIDsByPID: [Int: [UUID: UUID]] = [:]
+    private var sidebarProcessMonitoringEnabled = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -597,6 +598,21 @@ final class SharedLiveAgentIndex {
         index?.hasRecordedProcessGenerationsValue() == true
     }
 
+    /// Enables immediate PID watcher/reload work only while the default
+    /// activity sidebar owns a visible monitoring lease.
+    func setSidebarProcessMonitoringEnabled(_ enabled: Bool) {
+        guard sidebarProcessMonitoringEnabled != enabled else { return }
+        sidebarProcessMonitoringEnabled = enabled
+        if !enabled {
+            disarmSidebarProcessExitWatchers()
+        }
+    }
+
+    /// Whether runtime PID mutations may use the sidebar-only fast path.
+    func isSidebarProcessMonitoringEnabled() -> Bool {
+        sidebarProcessMonitoringEnabled
+    }
+
     /// Requests an event-driven full index reload for a newly bound agent PID.
     /// Calls coalesce behind the existing reload task and never scan inline.
     func requestSidebarIndexRefresh() {
@@ -737,6 +753,9 @@ final class SharedLiveAgentIndex {
         pendingSidebarLivenessPanelIDs.removeAll()
         pendingSidebarLivenessWorkspaceIDs.removeAll()
         sidebarLivenessRefreshTask?.cancel()
+        sidebarExplicitRefreshRetryTimer?.cancel()
+        sidebarExplicitRefreshRetryTimer = nil
+        lastExplicitSidebarRefreshAt = nil
         lastSidebarLivenessRefreshAt = nil
     }
 
