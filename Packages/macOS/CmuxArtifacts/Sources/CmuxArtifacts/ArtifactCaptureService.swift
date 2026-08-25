@@ -2,6 +2,7 @@ public import Foundation
 
 /// Applies project capture policy before importing detected agent artifacts.
 public actor ArtifactCaptureService: ArtifactCapturing {
+    private static let maximumManualSelectionFiles = 1_024
     private let store: any ArtifactStoring
     private let fileManager: FileManager
 
@@ -99,16 +100,19 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
         let batchSize = configuration.maximumFilesPerCapture
         let batchByteLimit = configuration.maximumFileBytes
+        let acceptedURLs = Array(sourceURLs.prefix(Self.maximumManualSelectionFiles))
+        let rejectedCount = sourceURLs.count - acceptedURLs.count
         var attempts: [ArtifactImportAttempt] = []
-        attempts.reserveCapacity(sourceURLs.count)
-        var batchStart = sourceURLs.startIndex
-        while batchStart < sourceURLs.endIndex {
-            let batchEnd = sourceURLs.index(
+        attempts.reserveCapacity(acceptedURLs.count + rejectedCount)
+        var batchStart = acceptedURLs.startIndex
+        while batchStart < acceptedURLs.endIndex {
+            guard !Task.isCancelled else { break }
+            let batchEnd = acceptedURLs.index(
                 batchStart,
                 offsetBy: batchSize,
-                limitedBy: sourceURLs.endIndex
-            ) ?? sourceURLs.endIndex
-            let candidates = sourceURLs[batchStart..<batchEnd].map {
+                limitedBy: acceptedURLs.endIndex
+            ) ?? acceptedURLs.endIndex
+            let candidates = acceptedURLs[batchStart..<batchEnd].map {
                 ArtifactCandidate(sourceURL: $0, provenance: .manual)
             }
             let batchAttempts = await store.importFiles(
@@ -123,13 +127,22 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             }.count
             if completedCount > 0 {
                 attempts.append(contentsOf: batchAttempts.prefix(completedCount))
-                batchStart = sourceURLs.index(batchStart, offsetBy: completedCount)
+                batchStart = acceptedURLs.index(batchStart, offsetBy: completedCount)
                 continue
             }
             attempts.append(batchAttempts.first ?? .rejected(
-                .sourceNotRegularFile(sourceURLs[batchStart].path)
+                .sourceNotRegularFile(acceptedURLs[batchStart].path)
             ))
-            batchStart = sourceURLs.index(after: batchStart)
+            batchStart = acceptedURLs.index(after: batchStart)
+        }
+        if rejectedCount > 0 {
+            attempts.append(contentsOf: repeatElement(
+                .rejected(.batchByteLimitReached(
+                    actual: 0,
+                    limit: Int64(Self.maximumManualSelectionFiles)
+                )),
+                count: rejectedCount
+            ))
         }
         return attempts
     }

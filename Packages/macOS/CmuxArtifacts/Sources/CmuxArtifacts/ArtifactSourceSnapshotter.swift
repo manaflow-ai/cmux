@@ -12,7 +12,8 @@ struct ArtifactSourceSnapshotter {
         configuration: ArtifactCaptureConfiguration,
         maximumBytes: Int64?,
         stagedURL: URL,
-        expectedCanonicalPath: String? = nil
+        expectedCanonicalPath: String? = nil,
+        stagingLease: ArtifactImportStagingLease? = nil
     ) throws -> ArtifactSourceSnapshot {
         try Task.checkCancellation()
         let normalizedConfiguration = configuration.normalized
@@ -61,11 +62,16 @@ struct ArtifactSourceSnapshotter {
             )
         }
 
-        let stagedDescriptor = open(
-            stagedURL.path,
-            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
-            S_IRUSR | S_IWUSR
-        )
+        let stagedDescriptor: Int32
+        if let stagingLease {
+            stagedDescriptor = stagingLease.openStagedFile(for: stagedURL) ?? -1
+        } else {
+            stagedDescriptor = open(
+                stagedURL.path,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
         guard stagedDescriptor >= 0 else {
             throw CocoaError(.fileWriteUnknown)
         }
@@ -73,7 +79,13 @@ struct ArtifactSourceSnapshotter {
         var keepsStagedFile = false
         defer {
             try? stagedHandle.close()
-            if !keepsStagedFile { try? fileManager.removeItem(at: stagedURL) }
+            if !keepsStagedFile {
+                if let stagingLease {
+                    stagingLease.removeStagedFile(for: stagedURL)
+                } else {
+                    try? fileManager.removeItem(at: stagedURL)
+                }
+            }
         }
 
         var size: Int64 = 0

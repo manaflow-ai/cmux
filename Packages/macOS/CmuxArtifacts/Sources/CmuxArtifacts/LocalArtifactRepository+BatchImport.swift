@@ -81,7 +81,8 @@ extension LocalArtifactRepository {
                     maximumBytes: remainingBytes,
                     stagedURL: stagedURL,
                     expectedCanonicalPath: candidate.expectedCanonicalPath
-                        ?? sourcePathResolver.canonicalPath(source)
+                        ?? sourcePathResolver.canonicalPath(source),
+                    stagingLease: stagingLease
                 )
                 stagedBytes += snapshot.size
                 preparedByIndex[index] = PreparedArtifactImport(

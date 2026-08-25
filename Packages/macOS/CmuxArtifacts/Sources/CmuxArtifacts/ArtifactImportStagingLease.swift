@@ -10,11 +10,25 @@ final class ArtifactImportStagingLease {
     let directory: URL
     private let fileManager: FileManager
     private var descriptor: Int32
+    private let directoryDescriptor: Int32
+    private let rootDescriptor: Int32
+    private let directoryName: String
+    private var stagedNames: Set<String> = []
 
-    private init(directory: URL, fileManager: FileManager, descriptor: Int32) {
+    private init(
+        directory: URL,
+        fileManager: FileManager,
+        descriptor: Int32,
+        directoryDescriptor: Int32,
+        rootDescriptor: Int32,
+        directoryName: String
+    ) {
         self.directory = directory
         self.fileManager = fileManager
         self.descriptor = descriptor
+        self.directoryDescriptor = directoryDescriptor
+        self.rootDescriptor = rootDescriptor
+        self.directoryName = directoryName
     }
 
     convenience init(root: URL, fileManager: FileManager) throws {
@@ -46,23 +60,78 @@ final class ArtifactImportStagingLease {
             throw CocoaError(.fileWriteUnknown)
         }
         try fileManager.moveItem(at: claim, to: directory)
+        let rootDescriptor = Darwin.open(
+            root.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard rootDescriptor >= 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let directoryDescriptor = Darwin.open(
+            directory.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard directoryDescriptor >= 0 else {
+            _ = Darwin.close(rootDescriptor)
+            throw CocoaError(.fileWriteUnknown)
+        }
         keepsLease = true
         self.init(
             directory: directory,
             fileManager: fileManager,
-            descriptor: descriptor
+            descriptor: descriptor,
+            directoryDescriptor: directoryDescriptor,
+            rootDescriptor: rootDescriptor,
+            directoryName: directory.lastPathComponent
         )
     }
 
     func makeStagedURL() -> URL {
-        directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+        let name = UUID().uuidString
+        stagedNames.insert(name)
+        return directory.appendingPathComponent(name, isDirectory: false)
+    }
+
+    /// Opens a staged destination relative to the pinned batch directory.
+    func openStagedFile(for url: URL) -> Int32? {
+        let name = url.lastPathComponent
+        guard stagedNames.contains(name) else { return nil }
+        return name.withCString { pointer in
+            Darwin.openat(
+                directoryDescriptor,
+                pointer,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
+    }
+
+    /// Removes one staged entry without following a replacement symlink.
+    func removeStagedFile(for url: URL) {
+        let name = url.lastPathComponent
+        guard stagedNames.remove(name) != nil else { return }
+        _ = name.withCString { pointer in
+            Darwin.unlinkat(directoryDescriptor, pointer, 0)
+        }
     }
 
     func finish() {
         guard descriptor >= 0 else { return }
-        try? fileManager.removeItem(at: directory)
+        for name in stagedNames {
+            _ = name.withCString { pointer in
+                Darwin.unlinkat(directoryDescriptor, pointer, 0)
+            }
+        }
+        stagedNames.removeAll()
+        _ = Self.leaseFilename.withCString { pointer in
+            Darwin.unlinkat(directoryDescriptor, pointer, 0)
+        }
+        _ = Darwin.fsync(directoryDescriptor)
+        _ = Darwin.close(directoryDescriptor)
+        _ = Darwin.unlinkat(rootDescriptor, directoryName, AT_REMOVEDIR)
         _ = flock(descriptor, LOCK_UN)
         _ = close(descriptor)
+        _ = Darwin.close(rootDescriptor)
         descriptor = -1
     }
 

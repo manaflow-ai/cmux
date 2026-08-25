@@ -29,6 +29,8 @@ struct TranscriptBatchAssembler {
     /// the entire cross-call mutation budget.
     static let maxArtifactMutationBytesPerCall = 64 * 1_024
     static let maxArtifactMutationPathBytes = 4_096
+    static let maxArtifactReferenceCount = 4_096
+    static let maxArtifactReferenceBytes = 512 * 1_024
 
     /// Creates an assembler seeded with carried-over pending tool uses.
     ///
@@ -73,9 +75,17 @@ struct TranscriptBatchAssembler {
         provenance: ChatArtifactProvenance = .referenced,
         seq: Int
     ) {
-        artifactReferences.append(contentsOf: paths.map {
-            ChatArtifactTranscriptReference(path: $0, provenance: provenance, seq: seq)
-        })
+        for path in paths {
+            let bytes = path.utf8.count
+            guard !path.isEmpty,
+                  bytes <= Self.maxArtifactMutationPathBytes else { continue }
+            artifactReferences.append(ChatArtifactTranscriptReference(
+                path: path,
+                provenance: provenance,
+                seq: seq
+            ))
+        }
+        trimArtifactReferences()
     }
 
     /// Registers sidechain mutation targets without exposing sidechain messages.
@@ -213,6 +223,20 @@ struct TranscriptBatchAssembler {
             }
         }
         return bounded
+    }
+
+    private mutating func trimArtifactReferences() {
+        guard artifactReferences.count > Self.maxArtifactReferenceCount
+                || artifactReferences.reduce(0, { $0 + $1.path.utf8.count })
+                    > Self.maxArtifactReferenceBytes else {
+            return
+        }
+        var byteCount = artifactReferences.reduce(0) { $0 + $1.path.utf8.count }
+        while artifactReferences.count > Self.maxArtifactReferenceCount
+                || byteCount > Self.maxArtifactReferenceBytes {
+            guard !artifactReferences.isEmpty else { break }
+            byteCount -= artifactReferences.removeFirst().path.utf8.count
+        }
     }
 
     private func mutationPaths(in message: ChatMessage) -> [String] {
