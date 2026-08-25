@@ -5406,10 +5406,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {
+        pointerStyleIngress?.activate(runtimeLifetimeId: runtimeLifetimeId)
         applyTerminalPointerStyle(.runtimeActivated(runtimeLifetimeId))
     }
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
+        if let runtimeLifetimeId {
+            pointerStyleIngress?.retire(runtimeLifetimeId: runtimeLifetimeId)
+        }
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 
