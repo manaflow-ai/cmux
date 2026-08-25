@@ -33,7 +33,25 @@ struct CmuxConfigValidator: Sendable {
                 issues.append(issue("actions", "must be a JSON object"))
                 return issues
             }
+            var normalizedIDs = Set<String>()
+            var canonicalIDs = [String: String]()
             for actionID in actions.keys.sorted() {
+                let normalizedID = actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+                if normalizedID.isEmpty {
+                    issues.append(issue("actions", "keys must not be blank"))
+                } else if !normalizedIDs.insert(normalizedID).inserted {
+                    issues.append(issue("actions", "must not contain duplicate ids after trimming whitespace"))
+                } else {
+                    let canonicalID = canonicalBuiltInID(normalizedID)
+                    if let existingID = canonicalIDs[canonicalID] {
+                        issues.append(issue(
+                            "actions",
+                            "must not contain duplicate aliases for '\(canonicalID)' (found '\(existingID)' and '\(normalizedID)')"
+                        ))
+                    } else {
+                        canonicalIDs[canonicalID] = normalizedID
+                    }
+                }
                 validateAction(actions[actionID], path: "actions.\(actionID)", into: &issues)
             }
         }
@@ -374,6 +392,34 @@ struct CmuxConfigValidator: Sendable {
 
     private func isNumber(_ value: Any) -> Bool {
         value is NSNumber && !(value is Bool)
+    }
+
+    private func canonicalBuiltInID(_ id: String) -> String {
+        switch id {
+        case "cmux.newWorkspace", "newWorkspace":
+            return "cmux.newWorkspace"
+        case "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat":
+            return "cmux.newAgentChat"
+        case "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
+             "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
+             "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
+            return "cmux.cloudvm"
+        case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
+             "cmux.connectPhone", "connectPhone":
+            return "cmux.mobileconnect"
+        case "cmux.newTerminal", "newTerminal":
+            return "cmux.newTerminal"
+        case "cmux.newBrowser", "newBrowser":
+            return "cmux.newBrowser"
+        case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
+            return "cmux.newSimulator"
+        case "cmux.splitRight", "splitRight":
+            return "cmux.splitRight"
+        case "cmux.splitDown", "splitDown":
+            return "cmux.splitDown"
+        default:
+            return id
+        }
     }
 
     private func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {

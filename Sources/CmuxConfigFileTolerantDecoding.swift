@@ -27,6 +27,10 @@ extension CmuxConfigFile {
                   let rawActions = root["actions"] as? [String: Any] else {
                 throw originalError
             }
+            // Validate the action map before dropping any malformed values.
+            // Otherwise an invalid entry could conceal a duplicate normalized
+            // ID or built-in alias that the strict decoder must reject.
+            guard actionMapCanBeNormalized(rawActions) else { throw originalError }
 
             var validActions = [String: Any]()
             var actionIssues = [CmuxConfigActionDecodeIssue]()
@@ -69,6 +73,18 @@ extension CmuxConfigFile {
     private static func decodeAction(data: Data) throws -> CmuxConfigActionDefinition {
         let decoder = JSONDecoder()
         return try decoder.decode(CmuxConfigActionDefinition.self, from: data)
+    }
+
+    private static func actionMapCanBeNormalized(_ actions: [String: Any]) -> Bool {
+        var normalizedIDs = Set<String>()
+        var canonicalIDs = Set<String>()
+        for rawID in actions.keys {
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, normalizedIDs.insert(id).inserted else { return false }
+            let canonicalID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
+            guard canonicalIDs.insert(canonicalID).inserted else { return false }
+        }
+        return true
     }
 
     private static func actionIssuePath(actionID: String, error: Error) -> String {
