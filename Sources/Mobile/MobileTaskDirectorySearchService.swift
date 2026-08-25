@@ -7,6 +7,7 @@ actor MobileTaskDirectorySearchService {
         var maximumMetadataResults = 2_048
         var maximumWireResults = 64
         var queryTimeout: Duration = .seconds(2)
+        var walkBudget = MobileTaskDirectoryFilesystemWalker.Budget()
     }
 
     struct SearchablePath: Sendable {
@@ -34,19 +35,25 @@ actor MobileTaskDirectorySearchService {
         _ limit: Int
     ) async -> [String]
     typealias DirectoryExists = @Sendable (_ path: String) -> Bool
+    typealias FilesystemWalkOperation = @Sendable (
+        _ query: String,
+        _ roots: [String]
+    ) async -> MobileTaskDirectoryFilesystemWalker.Outcome
 
     private let homeDirectory: URL
     private let configuration: Configuration
     private let metadataSearchOperation: MetadataSearchOperation
     private let rankOperation: RankOperation
     private let directoryExists: DirectoryExists
+    private let filesystemWalkOperation: FilesystemWalkOperation
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         configuration: Configuration = Configuration(),
         metadataSearchOperation: MetadataSearchOperation? = nil,
         rankOperation: RankOperation? = nil,
-        directoryExists: DirectoryExists? = nil
+        directoryExists: DirectoryExists? = nil,
+        filesystemWalkOperation: FilesystemWalkOperation? = nil
     ) {
         precondition(configuration.maximumMetadataResults > 0)
         precondition(configuration.maximumWireResults > 0)
@@ -68,6 +75,13 @@ actor MobileTaskDirectorySearchService {
             var isDirectory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
                 && isDirectory.boolValue
+        }
+        let walkBudget = configuration.walkBudget
+        self.filesystemWalkOperation = filesystemWalkOperation ?? { query, roots in
+            let walker = MobileTaskDirectoryFilesystemWalker(budget: walkBudget)
+            return await Task.detached(priority: .userInitiated) {
+                walker.search(query: query, roots: roots)
+            }.value
         }
     }
 
@@ -106,6 +120,14 @@ actor MobileTaskDirectorySearchService {
             try await metadataSearchOperation(expandedQuery, maximumMetadataResults, queryTimeout)
         }
 
+        // The live walk runs concurrently with the Spotlight query so folders
+        // outside the index (developer trees, excluded volumes) still match.
+        let filesystemWalkOperation = filesystemWalkOperation
+        let walkRoots = Self.walkRoots(homeDirectory: homeDirectory, contextual: contextualPaths)
+        let walkTask = Task {
+            await filesystemWalkOperation(expandedQuery, walkRoots)
+        }
+
         let metadataSnapshot: MobileTaskDirectoryMetadataQueryRunner.Snapshot
         do {
             metadataSnapshot = try await withTaskCancellationHandler {
@@ -119,21 +141,33 @@ actor MobileTaskDirectorySearchService {
             return try await contextualResult(
                 paths: contextualPaths,
                 query: expandedQuery,
-                maximumResults: maximumResults
+                maximumResults: maximumResults,
+                walkTask: walkTask
             )
         } catch {
             return try await contextualResult(
                 paths: contextualPaths,
                 query: expandedQuery,
-                maximumResults: maximumResults
+                maximumResults: maximumResults,
+                walkTask: walkTask
             )
         }
         guard !Task.isCancelled else {
             throw CancellationError()
         }
 
+        let walkOutcome = await withTaskCancellationHandler {
+            await walkTask.value
+        } onCancel: {
+            walkTask.cancel()
+        }
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
+
         let metadataPaths = Self.prepare(paths: metadataSnapshot.paths)
-        let merged = Self.unique(contextualPaths + metadataPaths)
+        let walkPaths = Self.prepare(paths: walkOutcome.matches)
+        let merged = Self.unique(contextualPaths + metadataPaths + walkPaths)
         let ranked = await rankOperation(merged, expandedQuery, merged.count)
         guard !Task.isCancelled else {
             throw CancellationError()
@@ -142,7 +176,7 @@ actor MobileTaskDirectorySearchService {
             directories: Array(ranked.prefix(maximumResults)),
             scope: .allIndexedVolumes,
             gatheringComplete: metadataSnapshot.gatheringComplete,
-            filesystemComplete: false,
+            filesystemComplete: walkOutcome.complete,
             truncated: metadataSnapshot.truncated || ranked.count > maximumResults,
             indexedMatchCount: metadataSnapshot.totalMatchCount
         )
@@ -151,9 +185,19 @@ actor MobileTaskDirectorySearchService {
     private func contextualResult(
         paths: [SearchablePath],
         query: String,
-        maximumResults: Int
+        maximumResults: Int,
+        walkTask: Task<MobileTaskDirectoryFilesystemWalker.Outcome, Never>
     ) async throws -> MobileTaskDirectorySearchResult {
-        let ranked = await rankOperation(paths, query, paths.count)
+        let walkOutcome = await withTaskCancellationHandler {
+            await walkTask.value
+        } onCancel: {
+            walkTask.cancel()
+        }
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
+        let merged = Self.unique(paths + Self.prepare(paths: walkOutcome.matches))
+        let ranked = await rankOperation(merged, query, merged.count)
         guard !Task.isCancelled else {
             throw CancellationError()
         }
@@ -161,7 +205,7 @@ actor MobileTaskDirectorySearchService {
             directories: Array(ranked.prefix(maximumResults)),
             scope: .contextualCandidatesOnly,
             gatheringComplete: false,
-            filesystemComplete: false,
+            filesystemComplete: walkOutcome.complete,
             truncated: ranked.count > maximumResults,
             indexedMatchCount: 0
         )
@@ -227,6 +271,28 @@ actor MobileTaskDirectorySearchService {
     private nonisolated static func unique(_ paths: [SearchablePath]) -> [SearchablePath] {
         var seen = Set<Data>()
         return paths.filter { seen.insert(Data($0.pathBytes)).inserted }
+    }
+
+    /// The Mac home directory plus the parents of contextual candidates that
+    /// live outside it, so the walk covers external project volumes without
+    /// ever scanning the whole disk from `/`.
+    nonisolated static func walkRoots(
+        homeDirectory: URL,
+        contextual: [SearchablePath]
+    ) -> [String] {
+        let home = homeDirectory.standardizedFileURL.path
+        var roots = [home]
+        var seen: Set<String> = [home]
+        let homePrefix = home.hasSuffix("/") ? home : home + "/"
+        for candidate in contextual {
+            let parent = URL(fileURLWithPath: candidate.path, isDirectory: true)
+                .deletingLastPathComponent().standardizedFileURL.path
+            guard parent != "/", parent != home, !parent.hasPrefix(homePrefix) else { continue }
+            if seen.insert(parent).inserted {
+                roots.append(parent)
+            }
+        }
+        return roots
     }
 
     private nonisolated static func seedCandidates(

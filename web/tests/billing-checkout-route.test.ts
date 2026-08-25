@@ -31,7 +31,11 @@ const anonymousUser = {
 };
 
 let userResponses: unknown[] = [];
-const getUser = mock(async () => userResponses.shift() ?? null);
+let stackAuthUnavailable = false;
+const getUser = mock(async () => {
+  if (stackAuthUnavailable) throw new Error("Stack Auth unavailable");
+  return userResponses.shift() ?? null;
+});
 let stripeConfigured = false;
 const createdStripeSessions: unknown[] = [];
 const createdStripeCustomers: unknown[] = [];
@@ -48,7 +52,9 @@ const createStripeCustomer = mock(async (params: unknown) => {
 const resolveProPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_month" : "price_year",
 );
-const resolveTeamPrice = mock(async () => "price_team");
+const resolveTeamPrice = mock(async (interval: unknown) =>
+  interval === "month" ? "price_team_month" : "price_team_year",
+);
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
 
@@ -124,6 +130,7 @@ describe("billing checkout route", () => {
     anonymousUser.update.mockResolvedValue(undefined);
     signedInUser.selectedTeam = null;
     userResponses = [];
+    stackAuthUnavailable = false;
     stripeConfigured = false;
     createdStripeSessions.length = 0;
     createdStripeCustomers.length = 0;
@@ -173,16 +180,191 @@ describe("billing checkout route", () => {
 
     const response = await GET(
       new NextRequest(
-        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+        "https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_distribution=appstore&cmux_scheme=cmux",
       ),
     );
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&interval=year",
     );
     expect(getUser).not.toHaveBeenCalled();
     expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("relays an app-pricing checkout through the server-configured destination", async () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/checkout?campaign=annual";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=team&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://billing.example/checkout?campaign=annual&plan=team&interval=year&cmux_scheme=cmux",
+      );
+      expect(getUser).not.toHaveBeenCalled();
+      expect(createStripeSession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
+  });
+
+  test("preserves a validated tagged callback through the configured relay", async () => {
+    const previousURL = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    const previousSchemes = process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/api/billing/checkout";
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
+    try {
+      const relayResponse = await GET(
+        new NextRequest(
+          "http://localhost:4100/api/billing/checkout?plan=pro&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+      const relayLocation = relayResponse.headers.get("location");
+      expect(relayLocation).toBeString();
+      const relayURL = new URL(relayLocation!);
+      expect(relayURL.origin).toBe("https://billing.example");
+      expect(relayURL.searchParams.get("cmux_scheme")).toBe("cmux-dev-test");
+      expect(relayURL.searchParams.get("cmux_relay_expires")).toMatch(/^\d+$/);
+      expect(relayURL.searchParams.get("cmux_relay_signature")).toMatch(
+        /^[a-f0-9]{64}$/,
+      );
+
+      delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      stripeConfigured = true;
+      userResponses = [null, anonymousUser];
+      const originalNow = Date.now;
+      let checkoutResponse: Awaited<ReturnType<typeof GET>>;
+      try {
+        const verifierNow = originalNow() - 1_000;
+        Date.now = () => verifierNow;
+        checkoutResponse = await GET(new NextRequest(relayURL));
+      } finally {
+        Date.now = originalNow;
+      }
+
+      expect(checkoutResponse.headers.get("location")).toBe(
+        "https://checkout.stripe.com/c/session",
+      );
+      expect(createdStripeSessions).toHaveLength(1);
+      expect(createdStripeSessions[0]).toMatchObject({
+        metadata: { nativeCallbackScheme: "cmux-dev-test" },
+        subscription_data: {
+          metadata: { nativeCallbackScheme: "cmux-dev-test" },
+        },
+        success_url:
+          "https://billing.example/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux-dev-test",
+      });
+
+      createdStripeSessions.length = 0;
+      userResponses = [null, anonymousUser];
+      const signature = relayURL.searchParams.get("cmux_relay_signature")!;
+      relayURL.searchParams.set(
+        "cmux_relay_signature",
+        `${signature[0] === "0" ? "1" : "0"}${signature.slice(1)}`,
+      );
+      const invalidRelayResponse = await GET(new NextRequest(relayURL));
+      expect(invalidRelayResponse.headers.get("location")).toBe(
+        "https://billing.example/pricing?billing=invalid_relay",
+      );
+      expect(createdStripeSessions).toHaveLength(0);
+    } finally {
+      if (previousURL === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previousURL;
+      }
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+      if (previousSchemes === undefined) {
+        delete process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+      } else {
+        process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = previousSchemes;
+      }
+    }
+  });
+
+  test("does not sign tagged callback relays from a public request origin", async () => {
+    const previousURL = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    const previousSchemes = process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/api/billing/checkout";
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+      const location = response.headers.get("location");
+      expect(location).toBeString();
+      const relayURL = new URL(location!);
+
+      expect(relayURL.searchParams.get("cmux_scheme")).toBe("cmux");
+      expect(relayURL.searchParams.has("cmux_relay_expires")).toBe(false);
+      expect(relayURL.searchParams.has("cmux_relay_signature")).toBe(false);
+    } finally {
+      if (previousURL === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previousURL;
+      }
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+      if (previousSchemes === undefined) {
+        delete process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+      } else {
+        process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = previousSchemes;
+      }
+    }
+  });
+
+  test("rejects invalid app-pricing relay parameters before forwarding", async () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/checkout";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=enterprise&interval=forever&cmux_scheme=https&cmux_app_checkout=1",
+        ),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://cmux.test/pricing?billing=invalid_plan",
+      );
+      expect(getUser).not.toHaveBeenCalled();
+      expect(createStripeSession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
   });
 
   test("creates Stripe checkout for anonymous Pro visitors when configured", async () => {
@@ -203,16 +385,41 @@ describe("billing checkout route", () => {
       mode: "subscription",
       line_items: [{ price: "price_month", quantity: 1 }],
       client_reference_id: "user-anonymous",
-      metadata: { stackUserId: "user-anonymous", plan: "pro", app: "cmux" },
+      metadata: {
+        stackUserId: "user-anonymous",
+        plan: "pro",
+        app: "cmux",
+        billingInterval: "month",
+      },
       subscription_data: {
-        metadata: { stackUserId: "user-anonymous", plan: "pro", app: "cmux" },
+        metadata: {
+          stackUserId: "user-anonymous",
+          plan: "pro",
+          app: "cmux",
+          billingInterval: "month",
+        },
       },
       allow_promotion_codes: true,
       customer_email: undefined,
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
-      cancel_url: "https://cmux.test/pricing?billing=cancelled",
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
     });
+  });
+
+  test("bounds Stack Auth failures before creating a checkout", async () => {
+    stripeConfigured = true;
+    stackAuthUnavailable = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("format=json returns the Stripe URL as JSON instead of a 302", async () => {
@@ -256,6 +463,9 @@ describe("billing checkout route", () => {
     expect(createdStripeSessions[0]).toMatchObject({
       customer_email: "signed@example.com",
       line_items: [{ price: "price_year", quantity: 1 }],
+      metadata: { billingInterval: "year" },
+      subscription_data: { metadata: { billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
 
@@ -284,7 +494,7 @@ describe("billing checkout route", () => {
     );
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(resolveTeamPrice).toHaveBeenCalled();
+    expect(resolveTeamPrice).toHaveBeenCalledWith("month");
     expect(createStripeCustomer).toHaveBeenCalledWith({
       name: "Signed Team",
       metadata: { stackTeamId: "team-signed-in", app: "cmux" },
@@ -299,21 +509,51 @@ describe("billing checkout route", () => {
       mode: "subscription",
       line_items: [
         {
-          price: "price_team",
+          price: "price_team_month",
           quantity: 2,
           adjustable_quantity: { enabled: true, minimum: 1 },
         },
       ],
       customer: "cus_team",
       client_reference_id: "team-signed-in",
-      metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+      metadata: {
+        stackTeamId: "team-signed-in",
+        plan: "team",
+        app: "cmux",
+        billingInterval: "month",
+      },
       subscription_data: {
-        metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+        metadata: {
+          stackTeamId: "team-signed-in",
+          plan: "team",
+          app: "cmux",
+          billingInterval: "month",
+        },
       },
       allow_promotion_codes: true,
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
-      cancel_url: "https://cmux.test/pricing?billing=cancelled",
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
+    });
+  });
+
+  test("uses yearly Stripe price for annual Team checkout", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=team&interval=year",
+      ),
+    );
+
+    expect(resolveTeamPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_team_year", quantity: 2 }],
+      metadata: { billingInterval: "year" },
+      subscription_data: { metadata: { billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
 
@@ -365,5 +605,20 @@ describe("billing checkout route", () => {
       "https://cmux.test/pricing?billing=invalid_plan",
     );
     expect(getUser).not.toHaveBeenCalled();
+  });
+
+  test("rejects unknown checkout intervals", async () => {
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=team&interval=yearly",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=invalid_plan",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 });

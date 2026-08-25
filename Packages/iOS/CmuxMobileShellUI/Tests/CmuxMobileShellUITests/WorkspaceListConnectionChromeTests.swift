@@ -58,11 +58,14 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func storeRecoveryFailureWithConnectedStatusShowsStatusLine() {
+    /// A stale recovery-failed flag never overrides a connected aggregate:
+    /// the visible list is healthy (for example through a secondary Mac), so
+    /// claiming Not Connected would be untruthful chrome.
+    @Test func storeRecoveryFailureWithConnectedStatusShowsNoChrome() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .connected
-        ) == .statusLine(.notConnected))
+        ) == .none)
     }
 
     @Test func initialConnectionLoadingShowsMacStatusRow() {
@@ -84,6 +87,22 @@ import Testing
             connectionRequiresReauth: true,
             connectionStatus: .reconnecting,
             isInitialConnectionLoading: true
+        ) == .recoveryBanner)
+    }
+
+    @Test func missingTailscaleAuthorizationShowsCompactStatusBeforeRestoreChrome() {
+        #expect(chrome(
+            connectionStatus: .reconnecting,
+            tailscalePairingRequired: true,
+            isInitialConnectionLoading: true
+        ) == .statusLine(.notConnected))
+    }
+
+    @Test func reauthOutranksMissingTailscaleAuthorization() {
+        #expect(chrome(
+            connectionRequiresReauth: true,
+            connectionStatus: .unavailable,
+            tailscalePairingRequired: true
         ) == .recoveryBanner)
     }
 
@@ -151,9 +170,13 @@ import Testing
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
-        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
+        #expect(!chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).showsMacUpdateHintIndicator)
     }
 
     @Test func statusLineAccessorExposesOnlyStatusLineCases() {
@@ -168,6 +191,29 @@ import Testing
             connectionStatus: .reconnecting,
             isInitialConnectionLoading: true
         ).statusLine == nil)
+        #expect(chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).statusLine == .notConnected)
+    }
+
+    @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {
+        var reconnectCount = 0
+        let blocked = WorkspaceDetailView.reconnectAction(
+            connectionRequiresReauth: true
+        ) {
+            reconnectCount += 1
+        }
+        #expect(blocked == nil)
+
+        let available = WorkspaceDetailView.reconnectAction(
+            connectionRequiresReauth: false
+        ) {
+            reconnectCount += 1
+        }
+        #expect(available != nil)
+        available?()
+        #expect(reconnectCount == 1)
     }
 
     private func chrome(
@@ -176,6 +222,7 @@ import Testing
         connectionRecoveryFailed: Bool = false,
         isRecoveringConnection: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false
     ) -> WorkspaceListConnectionChrome {
@@ -185,6 +232,7 @@ import Testing
             connectionRecoveryFailed: connectionRecoveryFailed,
             isRecoveringConnection: isRecoveringConnection,
             connectionStatus: connectionStatus,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

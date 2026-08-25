@@ -120,7 +120,120 @@ struct ShellStartupMatrixTests {
         expectEqual(environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"], "1")
     }
 
-    @Test(arguments: ["/bin/sh", "/bin/dash", "/bin/ksh", "/bin/tcsh", "/bin/csh", "/usr/local/bin/nu", "/usr/local/bin/pwsh"])
+    @Test
+    func nushellStartupReturnsManagedCommandEmbeddingBootstrapAndIntegration() throws {
+        let bundled = try makeBundledIntegrationDir(files: [
+            "nushell/cmux-nushell-bootstrap.nu": """
+            # cmux nushell bootstrap stub
+            def --env _cmux_refront_cli_shims [] { $env._CMUX_TEST = "1" }
+
+            _cmux_refront_cli_shims
+            """,
+            "nushell/cmux-nushell-integration.nu": "# cmux nushell integration stub\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        let integrationDir = bundled.integrationDir
+        let shell = "/opt/homebrew/bin/nu"
+        let originalEnvironment = ["CUSTOM": "1"]
+        var environment = originalEnvironment
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: shell,
+            integrationDir: integrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        let expectedPayload = "def --env _cmux_refront_cli_shims [] { $env._CMUX_TEST = \"1\" }; "
+            + "_cmux_refront_cli_shims; "
+            + "source \"\(integrationDir)/nushell/cmux-nushell-integration.nu\""
+        expectEqual(command, "'\(shell)' -l -e '\(expectedPayload)'")
+        // Nushell startup is command-only: no env redirection like ZDOTDIR or
+        // PROMPT_COMMAND.
+        expectEqual(environment, originalEnvironment)
+        expectTrue(protectedKeys.isEmpty)
+    }
+
+    @Test
+    func nushellStartupOmitsIntegrationSourceWhenIntegrationFileIsMissing() throws {
+        let bundled = try makeBundledIntegrationDir(files: [
+            "nushell/cmux-nushell-bootstrap.nu": "_cmux_stub_statement\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/usr/local/bin/nu",
+            integrationDir: bundled.integrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(command, "'/usr/local/bin/nu' -l -e '_cmux_stub_statement'")
+    }
+
+    @Test
+    func nushellManagedCommandQuotesShellPathWithSpaces() {
+        let command = TerminalSurface.managedNushellShellCommand(
+            shell: "/Applications/cmux DEV nush.app/Contents/nu",
+            startupPayload: "print 1"
+        )
+        expectEqual(command, "'/Applications/cmux DEV nush.app/Contents/nu' -l -e 'print 1'")
+    }
+
+    @Test
+    func nushellStartupPayloadStripsCommentsAndBlankLinesAndStaysSingleLine() {
+        let payload = TerminalSurface.nushellStartupPayload(
+            bootstrapContents: """
+            # comment
+
+            statement-one
+               # indented comment
+            statement-two
+            """,
+            integrationDir: "/nonexistent",
+            integrationFileIsReadable: { _ in false }
+        )
+        expectEqual(payload, "statement-one; statement-two")
+        expectFalse(payload.contains("\n"))
+    }
+
+    @Test
+    func nushellDoubleQuotedEscapesQuotesAndBackslashes() {
+        expectEqual(
+            TerminalSurface.nushellDoubleQuoted(#"/Apps/we"ird\dir"#),
+            #""/Apps/we\"ird\\dir""#
+        )
+    }
+
+    @Test
+    func shellDialectDetectsNushellFromLoginShellPath() {
+        expectEqual(TerminalStartupShellDialect.forShellPath("/opt/homebrew/bin/nu"), .nushell)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/usr/local/bin/nu"), .nushell)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/bin/zsh"), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/opt/homebrew/bin/nushell"), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath(nil), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath(""), .posix)
+    }
+
+    @Test
+    func typedShellCommandWrapsPosixForNushellOnly() {
+        let posix = "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'"
+        expectEqual(
+            TerminalStartupTypedShellCommand(dialect: .posix).typedInput(posixCommand: posix),
+            posix
+        )
+        expectEqual(
+            TerminalStartupTypedShellCommand(dialect: .nushell).typedInput(posixCommand: posix),
+            #"^/bin/sh -c "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'""#
+        )
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/dash", "/bin/ksh", "/bin/tcsh", "/bin/csh", "/usr/local/bin/pwsh"])
     func unsupportedLocalShellsKeepEnvironmentUnchanged(shell: String) {
         let originalEnvironment = ["CUSTOM": "1"]
         var environment = originalEnvironment

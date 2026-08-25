@@ -84,7 +84,7 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 91U;
+constexpr std::size_t kExpectedRawCommandCount = 103U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",
@@ -102,7 +102,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
     const auto commands = cmux::raw::command_metadata();
     const auto events = cmux::raw::event_metadata();
     CHECK_EQ(commands.size(), kExpectedRawCommandCount);
-    CHECK_EQ(events.size(), 44U);
+    CHECK_EQ(events.size(), 46U);
 
     std::set<std::string_view> command_names;
     bool checked_attach_fields = false;
@@ -294,34 +294,33 @@ TEST("generated optional nullable request fields preserve absent and null") {
     CHECK(explicit_null.value().find("fg")->is_null());
 }
 
-TEST("required nullable literal fields round trip null and their literal value") {
+TEST("terminal placement rejects legacy shapes and round trips typed lifecycle") {
     auto legacy = cmux::raw::Json::parse(
         R"({"surface":1,"terminal_id":null,"terminal_incarnation":null,"pane":2,"screen":3,"workspace":4,"key":"legacy","lifecycle":null,"terminal_revision":5,"replayed":false,"registry_id":"registry","generation":"boot"})");
     CHECK(legacy);
     auto legacy_placement =
         cmux::raw::decode_value<cmux::raw::TerminalPlacement>(legacy.value());
-    CHECK(legacy_placement);
-    CHECK(!legacy_placement.value().lifecycle.has_value());
-    auto legacy_round_trip = cmux::raw::encode_value(legacy_placement.value());
-    CHECK(legacy_round_trip);
-    CHECK(legacy_round_trip.value().find("lifecycle")->is_null());
+    CHECK(!legacy_placement);
+    CHECK_EQ(legacy_placement.error().code, cmux::raw::ErrorCode::decode);
 
     auto current = cmux::raw::Json::parse(
-        R"({"surface":1,"terminal_id":"terminal","terminal_incarnation":"incarnation","pane":2,"screen":3,"workspace":4,"key":"current","lifecycle":"running","terminal_revision":6,"replayed":true,"registry_id":"registry","generation":"boot"})");
+        R"({"already_exited":false,"exit":null,"surface":1,"terminal_id":"terminal","terminal_incarnation":"incarnation","pane":2,"screen":3,"workspace":4,"key":"current","lifecycle":"running","terminal_revision":6,"replayed":true,"registry_id":"registry","generation":"boot"})");
     CHECK(current);
     auto current_placement =
         cmux::raw::decode_value<cmux::raw::TerminalPlacement>(current.value());
     CHECK(current_placement);
     CHECK_EQ(
         current_placement.value().lifecycle,
-        std::optional<std::string>("running"));
+        cmux::raw::TerminalLifecycle::running);
     auto current_round_trip = cmux::raw::encode_value(current_placement.value());
     CHECK(current_round_trip);
+    CHECK(current_round_trip.value().find("exit")->is_null());
     CHECK_EQ(
         current_round_trip.value().find("lifecycle")->as_string().value(),
         std::string_view("running"));
 
-    current_placement.value().lifecycle = "exited";
+    current_placement.value().lifecycle =
+        static_cast<cmux::raw::TerminalLifecycle>(999);
     auto invalid = cmux::raw::encode_value(current_placement.value());
     CHECK(!invalid);
     CHECK_EQ(invalid.error().code, cmux::raw::ErrorCode::invalid_argument);

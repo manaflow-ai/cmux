@@ -19,7 +19,12 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// A persistent PTY session that no longer exists and must be respawned.
     case sessionNotFound = 253
 
-    /// A closed bridge whose persistent PTY session is still running.
+    /// A closed established bridge that must preserve its persistent PTY session for reattach.
+    ///
+    /// This covers both a session confirmed running and a post-close liveness
+    /// query made inconclusive by the tunnel replacement race. In either case,
+    /// retiring the session would destroy recoverable state; the next
+    /// `--require-existing` attach is the authoritative probe.
     case bridgeClosedSessionRunning = 254
 
     /// A transient transport or daemon failure that may succeed after reconnecting.
@@ -77,10 +82,11 @@ public enum SSHPTYAttachExitCode: Int32 {
         let retryWithoutReauthenticationStatus = retryableWithoutReauthentication.rawValue
         let sessionRunningStatus = bridgeClosedSessionRunning.rawValue
         let transientStatus = retryableTransient.rawValue
+        let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
 
         return [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; *) while [ \"${cmux_ssh_attach_reconnect_limit#0}\" != \"$cmux_ssh_attach_reconnect_limit\" ] && [ \"$cmux_ssh_attach_reconnect_limit\" != 0 ]; do cmux_ssh_attach_reconnect_limit=\"${cmux_ssh_attach_reconnect_limit#0}\"; done; case \"$cmux_ssh_attach_reconnect_limit\" in [1-9]|1[0-9]|20) ;; *) cmux_ssh_attach_reconnect_limit=20 ;; esac ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
@@ -98,9 +104,10 @@ public enum SSHPTYAttachExitCode: Int32 {
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; elif [ \"$cmux_ssh_attach_status\" -ne \(transientStatus) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
             "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
             "  cmux_ssh_attach_status=$?",
+            "  if [ \"$cmux_ssh_attach_status\" -ne 0 ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
             "  case \"$cmux_ssh_attach_status\" in",
             "    \(noProgressPolicy.status)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
             "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_no_progress_retry=0 ;;",
@@ -109,7 +116,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "    *) exit \"$cmux_ssh_attach_status\" ;;",
             "  esac",
             "  fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
@@ -121,21 +128,31 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
     /// general reconnect and foreground-authentication policy.
     ///
-    /// Status 252 is consumed until its health budget is exhausted. All other
-    /// statuses, including 251, 254, and 255, return unchanged to the enclosing
-    /// wrapper so its existing reconnect and reauthentication behavior remains
-    /// the single owner of those transitions.
+    /// Status 252 is consumed until its health budget is exhausted, with terminal
+    /// reporting modes reset before each reattach. All other statuses, including
+    /// 251, 254, and 255, return unchanged to the enclosing wrapper so its existing
+    /// reconnect and reauthentication behavior remains the single owner of those
+    /// transitions.
+    ///
+    /// The attach environment is exported on its own lines rather than as an
+    /// assignment prefix, because a prefix is only legal before a simple command
+    /// and callers legitimately pass compound commands.
     ///
     /// - Parameter command: The shell command that performs one attach attempt.
     /// - Returns: Shell source lines implementing the no-progress budget.
     public static func noProgressRetryLoopLines(command: String) -> [String] {
         let policy = noProgressShellPolicy()
+        let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
 
         return policy.configurationLines + [
             "cmux_ssh_attach_no_progress_retry=0",
             "while :; do",
-            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\"",
+            "  export CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
+            "  \(command)",
             "  cmux_ssh_attach_status=$?",
+            "  if [ \"$cmux_ssh_attach_status\" -eq \(policy.status) ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_status\" -ne \(policy.status) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1))",
             "  \(policy.limitReachedCommand)",

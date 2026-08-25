@@ -67,6 +67,8 @@ final class MobileAttachTicketStore {
         for ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
         target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved,
         now: Date = Date()
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
@@ -81,7 +83,8 @@ final class MobileAttachTicketStore {
         case nil:
             payload["attach_url"] = try attachURL(
                 for: disclosedTicket,
-                routeDisclosureMode: routeDisclosureMode
+                routeDisclosureMode: routeDisclosureMode,
+                pairingURLScheme: pairingURLScheme
             ).absoluteString
         case .ticketOnly:
             break
@@ -89,7 +92,8 @@ final class MobileAttachTicketStore {
             payload["attach_url"] = try attachURL(
                 for: disclosedTicket,
                 target: target,
-                routeDisclosureMode: routeDisclosureMode
+                routeDisclosureMode: routeDisclosureMode,
+                pairingURLScheme: pairingURLScheme
             ).absoluteString
         }
         // `expires_at` describes the minted attach token's lifetime (tickets
@@ -154,24 +158,30 @@ final class MobileAttachTicketStore {
 
     private func attachURL(
         for ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
-        // Frozen iOS builds predate either the compact short-key v1 payload or
-        // the bare-route v2 grammar. Give those clients the original full-key
-        // v1 ticket, restricted to Tailscale and stripped of its attach token.
-        // New/default pairing requests `.irohIdentityOnly`, so this branch
-        // never changes the EndpointID-only Iroh representation.
+        // Compatibility disclosure filters mixed snapshots down to the
+        // canonical Tailscale subsequence and emits the plain v2 grammar.
+        // The Mac pairing window requests this mode. The full-key v1 JSON
+        // this branch used to emit base64-encoded the Mac's device id,
+        // display name, and build metadata into a QR several versions denser
+        // (23 vs 8 at ECC M) for fields the phone recovers post-handshake
+        // from `mobile.host.status`; fielded clients have decoded v2 since
+        // #5872. Explicit Iroh attach targets still use the EndpointID-only
+        // representation below.
         if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
-           ticket.routes.contains(where: { $0.kind == .tailscale }) {
-            guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(ticket) else {
-                throw MobileAttachTicketStoreError.invalidAttachURL
-            }
+           let url = tailscaleCompatibilityAttachURL(
+               for: ticket,
+               pairingURLScheme: pairingURLScheme
+           ) {
             return url
         }
 
         if let pairingURL = CmxPairingQRCode().encode(
             ticket,
-            routeDisclosureMode: routeDisclosureMode
+            routeDisclosureMode: routeDisclosureMode,
+            pairingURLScheme: pairingURLScheme
         ), let url = URL(string: pairingURL) {
             return url
         }
@@ -188,8 +198,8 @@ final class MobileAttachTicketStore {
         // QR must open the matching iOS channel just like the v2 path in
         // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
         // phone a code the system camera routes to a dev build (or vice versa).
-        let rawURL = "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
-        guard let url = URL(string: rawURL) else {
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
@@ -198,7 +208,8 @@ final class MobileAttachTicketStore {
     private func attachURL(
         for ticket: CmxAttachTicket,
         target: MobileAttachTarget,
-        routeDisclosureMode _: CmxPairingRouteDisclosureMode
+        routeDisclosureMode _: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
         switch target {
         case .ticketOnly:
@@ -207,7 +218,8 @@ final class MobileAttachTicketStore {
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 return try compactAttachURL(
                     for: ticket,
-                    routeDisclosureMode: .irohIdentityOnly
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
                 )
             }
             guard ticket.routes.allSatisfy({
@@ -217,13 +229,15 @@ final class MobileAttachTicketStore {
             }
             return try compactAttachURL(
                 for: ticket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
                     ticket,
-                    routeDisclosureMode: .irohIdentityOnly
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
                 ),
                 let url = URL(string: pairingURL),
                 let components = URLComponents(
@@ -242,7 +256,8 @@ final class MobileAttachTicketStore {
             }),
             let pairingURL = CmxPairingQRCode().encode(
                 ticket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                pairingURLScheme: pairingURLScheme
             ),
             let url = URL(string: pairingURL),
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -256,7 +271,8 @@ final class MobileAttachTicketStore {
 
     private func compactAttachURL(
         for ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
         let coder = CmxAttachTicketCompactCoder()
         let data = try coder.encode(
@@ -264,8 +280,9 @@ final class MobileAttachTicketStore {
             routeDisclosureMode: routeDisclosureMode
         )
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(
-            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(
+            string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)"
         ),
         let decoded = try? coder.decode(data),
         decoded.routes == ticket.routes,
@@ -273,6 +290,50 @@ final class MobileAttachTicketStore {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
+    }
+
+    /// The minimal v2 Tailscale pairing URL for `ticket`, or `nil` when it
+    /// carries no dialable Tailscale route or the v2 grammar cannot express
+    /// it (workspace scope, a host needing escaping); callers fall back to
+    /// the compact v1 payload so every ticket still has an attach URL.
+    ///
+    /// The disclosed sub-ticket keeps only the account binding (`ub`) and
+    /// compatibility level (`pc`) the phone consults before dialing, drops
+    /// the attach token, and reindexes the Tailscale routes to the canonical
+    /// sequence the decoder resynthesizes, so mixed Iroh/loopback snapshots
+    /// stay expressible.
+    private func tailscaleCompatibilityAttachURL(
+        for ticket: CmxAttachTicket,
+        pairingURLScheme: CmxPairingURLScheme?
+    ) -> URL? {
+        guard let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(
+            from: ticket.routes
+        ), !routes.isEmpty else {
+            return nil
+        }
+        guard let compatibilityTicket = try? CmxAttachTicket(
+            version: ticket.version,
+            workspaceID: ticket.workspaceID,
+            terminalID: ticket.terminalID,
+            macDeviceID: ticket.macDeviceID,
+            macDisplayName: ticket.macDisplayName,
+            macUserEmail: nil,
+            macUserID: ticket.macUserID,
+            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+            macAppVersion: ticket.macAppVersion,
+            macAppBuild: ticket.macAppBuild,
+            routes: routes,
+            expiresAt: ticket.expiresAt,
+            authToken: nil
+        ),
+        let pairingURL = CmxPairingQRCode().encode(
+            compatibilityTicket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+            pairingURLScheme: pairingURLScheme
+        ) else {
+            return nil
+        }
+        return URL(string: pairingURL)
     }
 
     private static func hasOnlyIdentityOnlyIrohRoutes(_ routes: [CmxAttachRoute]) -> Bool {

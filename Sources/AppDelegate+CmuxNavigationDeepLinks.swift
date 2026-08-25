@@ -48,7 +48,7 @@ extension AppDelegate {
     func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
         let lookup = cmuxNavigationWorkspaceLookup()
         let resolver = CmuxNavigationTargetResolver(workspaces: lookup.descriptors)
-        guard let resolution = resolver.resolve(request.target) else {
+        guard let resolution = resolver.resolve(request) else {
             if shouldDeferNavigationURLRequestsForStartupRestore {
                 pendingStartupNavigationURLRequests.append(request)
 #if DEBUG

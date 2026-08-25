@@ -130,9 +130,54 @@ extension CmxIrohTrustBrokerClientTests {
             tokenSource: CmxIrohBrokerTokenSource(
                 credentialPair: { nil }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
         await #expect(throws: CmxIrohTrustBrokerClientError.missingAuthentication) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().isEmpty)
+    }
+
+    /// Cancellation is not a network failure: a cancelled caller must observe
+    /// `CancellationError`, or retry policies and cached-policy fallbacks keep
+    /// working on a cancelled task as though the broker were offline.
+    @Test
+    func cancelledTokenReadPropagatesCancellationNotConnectivity() async throws {
+        let transport = RecordingBrokerTransport(responses: [])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: try #require(URL(string: "https://cmux.example")),
+            tokenSource: CmxIrohBrokerTokenSource(
+                credentialPair: { throw CancellationError() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+        await #expect(throws: CancellationError.self) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().isEmpty)
+    }
+
+    /// A THROWING token source could not read a coherent pair right now (the
+    /// token store is owned by a launch/foreground revalidation, or an expired
+    /// access token's re-mint is in flight). That is transient, so it must
+    /// classify as `.connectivity` — which retry policies and cached-policy
+    /// fallbacks accept — not as terminal `.missingAuthentication`, which
+    /// failed every app-launch activation closed while a revalidation ran.
+    @Test
+    func throwingTokenSourceClassifiesAsConnectivityBeforeAnyNetworkRequest() async throws {
+        struct TransientTokenReadError: Error {}
+        let transport = RecordingBrokerTransport(responses: [])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: try #require(URL(string: "https://cmux.example")),
+            tokenSource: CmxIrohBrokerTokenSource(
+                credentialPair: { throw TransientTokenReadError() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
             _ = try await client.discover()
         }
         #expect(await transport.requests().isEmpty)
@@ -144,6 +189,7 @@ extension CmxIrohTrustBrokerClientTests {
             _ = try CmxIrohTrustBrokerClient(
                 baseURL: #require(URL(string: "http://cmux.example")),
                 tokenSource: Self.networkTokenSource,
+                clientNamespace: "legacy",
                 transport: RecordingBrokerTransport(responses: [])
             )
         }
@@ -190,6 +236,7 @@ extension CmxIrohTrustBrokerClientTests {
             let client = try CmxIrohTrustBrokerClient(
                 baseURL: try #require(URL(string: "https://cmux.example")),
                 tokenSource: Self.networkTokenSource,
+                clientNamespace: "legacy",
                 transport: CmxIrohURLSessionTransport(configuration: configuration),
                 requestTimeout: 0.1
             )
@@ -206,6 +253,7 @@ extension CmxIrohTrustBrokerClientTests {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.networkTokenSource,
+            clientNamespace: "legacy",
             transport: transport
         )
     }

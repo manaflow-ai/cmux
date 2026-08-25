@@ -12,7 +12,10 @@ final class BrowserAppSessionStoreRegistry {
         ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
     ] = [:]
     private var livePanels: [
-        ObjectIdentifier: BrowserAppSessionWeakReference<BrowserPanel>
+        ObjectIdentifier: (
+            panel: BrowserAppSessionWeakReference<BrowserPanel>,
+            storeID: ObjectIdentifier
+        )
     ] = [:]
 
     init(
@@ -46,10 +49,14 @@ final class BrowserAppSessionStoreRegistry {
 
     func register(_ panel: BrowserPanel) {
         pruneReleasedOwnership()
-        guard liveStores[ObjectIdentifier(panel.websiteDataStore)]?.value != nil else {
+        let storeID = ObjectIdentifier(panel.websiteDataStore)
+        guard liveStores[storeID]?.value != nil else {
             return
         }
-        livePanels[ObjectIdentifier(panel)] = BrowserAppSessionWeakReference(panel)
+        livePanels[ObjectIdentifier(panel)] = (
+            panel: BrowserAppSessionWeakReference(panel),
+            storeID: storeID
+        )
     }
 
     var hasOwnership: Bool {
@@ -59,8 +66,14 @@ final class BrowserAppSessionStoreRegistry {
 
     func panelsForCleanup() -> [BrowserPanel] {
         pruneReleasedOwnership()
-        return livePanels.values.compactMap(\.value).filter {
-            liveStores[ObjectIdentifier($0.websiteDataStore)]?.value != nil
+        return livePanels.values.compactMap { ownership in
+            guard let panel = ownership.panel.value,
+                  !panel.isClosingWebViewLifecycle,
+                  ObjectIdentifier(panel.websiteDataStore) == ownership.storeID,
+                  liveStores[ownership.storeID]?.value != nil else {
+                return nil
+            }
+            return panel
         }
     }
 
@@ -93,7 +106,10 @@ final class BrowserAppSessionStoreRegistry {
 
     private func pruneReleasedOwnership() {
         liveStores = liveStores.filter { $0.value.value != nil }
-        livePanels = livePanels.filter { $0.value.value != nil }
+        // Mutable panel state is only a read-time cleanup filter. Retain the
+        // association until the panel deallocates so a transient close or
+        // replacement cannot permanently lose authenticated-store ownership.
+        livePanels = livePanels.filter { $0.value.panel.value != nil }
     }
 
     private static func legacyDefaultsKeys(

@@ -19,7 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
 const (
@@ -122,12 +122,13 @@ type streamRoute struct {
 	mu               sync.Mutex
 	accepting        bool
 	terminated       bool
+	serverEnded      bool
 	queuedBytes      int
 	cancelParams     map[string]any
 	openDispatched   bool
 	openAcknowledged bool
 	cleanupStarted   bool
-	cancelItem       func(json.RawMessage) error
+	cancelItem       func(streamEnvelope) error
 	cancelSignal     chan struct{}
 	cancelEnd        *streamEnvelope
 	cancelErr        error
@@ -234,7 +235,7 @@ func (c *Client) Close(ctx context.Context) error {
 
 func (c *Client) do(
 	ctx context.Context,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	params map[string]any,
 	idempotencyKey string,
 	result any,
@@ -244,7 +245,7 @@ func (c *Client) do(
 
 func (c *Client) doTracked(
 	ctx context.Context,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	params map[string]any,
 	idempotencyKey string,
 	result any,
@@ -254,7 +255,7 @@ func (c *Client) doTracked(
 		return err
 	}
 	switch operation.Class {
-	case wirev1.Mutation:
+	case wirev2.Mutation:
 		if idempotencyKey == "" {
 			var err error
 			idempotencyKey, err = c.idempotencyKey()
@@ -272,17 +273,17 @@ func (c *Client) doTracked(
 	}
 	requestID := "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10)
 	request := map[string]any{
-		"protocol":  wirev1.Protocol,
+		"protocol":  wirev2.Protocol,
 		"type":      "request",
 		"id":        requestID,
 		"operation": operation.Name,
 		"params":    params,
 	}
 	if idempotencyKey != "" {
-		request[wirev1.FieldIdempotencyKey] = idempotencyKey
+		request[wirev2.FieldIdempotencyKey] = idempotencyKey
 	}
 	uncertain := func(err error) error {
-		if operation.Class != wirev1.Mutation {
+		if operation.Class != wirev2.Mutation {
 			return err
 		}
 		return &MutationTransportUncertainError{
@@ -378,14 +379,14 @@ func (c *Client) doTracked(
 	}
 }
 
-func isCancelableWait(operation wirev1.Operation) bool {
-	return operation == wirev1.TerminalWait ||
-		operation == wirev1.TerminalWaitExit
+func isCancelableWait(operation wirev2.Operation) bool {
+	return operation == wirev2.TerminalWait ||
+		operation == wirev2.TerminalWaitExit
 }
 
 func (c *Client) cleanupAbandonedRequest(
 	cleanup *abandonedRequestCleanup,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	targetID string,
 	targetWaiter chan pendingResponse,
 ) error {
@@ -409,7 +410,7 @@ func (c *Client) cleanupAbandonedRequest(
 }
 
 func (c *Client) runAbandonedRequestCleanup(
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	targetID string,
 	targetWaiter chan pendingResponse,
 	deadline time.Time,
@@ -420,7 +421,7 @@ func (c *Client) runAbandonedRequestCleanup(
 	case <-c.writer:
 	case <-timer.C:
 		return &TransportError{
-			Operation: wirev1.RequestCancel.Name,
+			Operation: wirev2.RequestCancel.Name,
 			Err:       context.DeadlineExceeded,
 		}
 	case <-c.done:
@@ -430,7 +431,7 @@ func (c *Client) runAbandonedRequestCleanup(
 
 	if c.framingUnsafe {
 		return &TransportError{
-			Operation: wirev1.RequestCancel.Name,
+			Operation: wirev2.RequestCancel.Name,
 			Err:       errors.New("connection framing is unsafe"),
 		}
 	}
@@ -451,16 +452,16 @@ func (c *Client) runAbandonedRequestCleanup(
 	defer c.removePending(cancelID, cancelWaiter)
 
 	request := map[string]any{
-		"protocol":  wirev1.Protocol,
+		"protocol":  wirev2.Protocol,
 		"type":      "request",
 		"id":        cancelID,
-		"operation": wirev1.RequestCancel.Name,
+		"operation": wirev2.RequestCancel.Name,
 		"params": map[string]any{
-			wirev1.FieldRequestID: targetID,
+			wirev2.FieldRequestID: targetID,
 		},
 	}
 	if err := c.writeFrameLocked(
-		wirev1.RequestCancel.Name,
+		wirev2.RequestCancel.Name,
 		request,
 		deadline,
 	); err != nil {
@@ -548,7 +549,7 @@ func decodeRequestCancelResponse(response pendingResponse) (bool, error) {
 }
 
 func validateAbandonedWaitResponse(
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	response pendingResponse,
 ) error {
 	if response.err != nil {
@@ -563,13 +564,13 @@ func validateAbandonedWaitResponse(
 		return nil
 	}
 	switch operation {
-	case wirev1.TerminalWait:
+	case wirev2.TerminalWait:
 		_, err := decodeValue[TerminalWaitResult](
 			response.envelope.Result,
 			"terminal wait result",
 		)
 		return err
-	case wirev1.TerminalWaitExit:
+	case wirev2.TerminalWaitExit:
 		_, err := decodeTerminalWaitExitResult(response.envelope.Result)
 		if err != nil {
 			return &ProtocolError{
@@ -592,7 +593,7 @@ func (c *Client) awaitPendingResponseUntil(
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return pendingResponse{}, &TransportError{
-			Operation: wirev1.RequestCancel.Name,
+			Operation: wirev2.RequestCancel.Name,
 			Err:       context.DeadlineExceeded,
 		}
 	}
@@ -608,7 +609,7 @@ func (c *Client) awaitPendingResponseUntil(
 		return response, nil
 	case <-timer.C:
 		return pendingResponse{}, &TransportError{
-			Operation: wirev1.RequestCancel.Name,
+			Operation: wirev2.RequestCancel.Name,
 			Err:       context.DeadlineExceeded,
 		}
 	case <-c.done:
@@ -838,7 +839,7 @@ func (c *Client) readLoop() {
 			c.fail(&ProtocolError{Message: "invalid JSON from server: " + err.Error()})
 			return
 		}
-		if header.Protocol != wirev1.Protocol {
+		if header.Protocol != wirev2.Protocol {
 			c.fail(&ProtocolError{Message: "unexpected protocol " + header.Protocol})
 			return
 		}
@@ -878,10 +879,10 @@ func decodeResponseEnvelope(raw json.RawMessage) (responseEnvelope, error) {
 			Message: "invalid response: " + err.Error(),
 		}
 	}
-	if wire.Protocol == nil || *wire.Protocol != wirev1.Protocol ||
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
 		wire.Type == nil || *wire.Type != "response" {
 		return responseEnvelope{}, &ProtocolError{
-			Message: "expected cmux.protocol/1 response envelope",
+			Message: "expected cmux.protocol/2 response envelope",
 		}
 	}
 	if wire.ID == nil || utf8.RuneCountInString(*wire.ID) < 1 ||
@@ -948,10 +949,10 @@ func decodeStreamItemEnvelope(raw json.RawMessage) (streamEnvelope, error) {
 			Message: "invalid stream_item: " + err.Error(),
 		}
 	}
-	if wire.Protocol == nil || *wire.Protocol != wirev1.Protocol ||
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
 		wire.Type == nil || *wire.Type != "stream_item" {
 		return streamEnvelope{}, &ProtocolError{
-			Message: "expected cmux.protocol/1 stream_item envelope",
+			Message: "expected cmux.protocol/2 stream_item envelope",
 		}
 	}
 	streamID, err := decodeRequiredStreamID(wire.StreamID)
@@ -999,10 +1000,10 @@ func decodeStreamEndEnvelope(raw json.RawMessage) (streamEnvelope, error) {
 			Message: "invalid stream_end: " + err.Error(),
 		}
 	}
-	if wire.Protocol == nil || *wire.Protocol != wirev1.Protocol ||
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
 		wire.Type == nil || *wire.Type != "stream_end" {
 		return streamEnvelope{}, &ProtocolError{
-			Message: "expected cmux.protocol/1 stream_end envelope",
+			Message: "expected cmux.protocol/2 stream_end envelope",
 		}
 	}
 	streamID, err := decodeRequiredStreamID(wire.StreamID)
@@ -1217,15 +1218,15 @@ func (c *Client) writeUntrackedStreamCancel(
 ) error {
 	if err := c.conn.SetWriteDeadline(deadline); err != nil {
 		return &TransportError{
-			Operation: wirev1.StreamCancel.Name,
+			Operation: wirev2.StreamCancel.Name,
 			Err:       err,
 		}
 	}
 	request := map[string]any{
-		"protocol":  wirev1.Protocol,
+		"protocol":  wirev2.Protocol,
 		"type":      "request",
 		"id":        "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10),
-		"operation": wirev1.StreamCancel.Name,
+		"operation": wirev2.StreamCancel.Name,
 		"params":    params,
 	}
 	encoded, err := json.Marshal(request)
@@ -1240,13 +1241,13 @@ func (c *Client) writeUntrackedStreamCancel(
 		encoded = encoded[count:]
 		if writeErr != nil {
 			return &TransportError{
-				Operation: wirev1.StreamCancel.Name,
+				Operation: wirev2.StreamCancel.Name,
 				Err:       writeErr,
 			}
 		}
 		if count == 0 {
 			return &TransportError{
-				Operation: wirev1.StreamCancel.Name,
+				Operation: wirev2.StreamCancel.Name,
 				Err:       io.ErrNoProgress,
 			}
 		}
@@ -1264,6 +1265,12 @@ func (r *streamRoute) markOpenAcknowledged() {
 	r.mu.Lock()
 	r.openAcknowledged = true
 	r.mu.Unlock()
+}
+
+func (r *streamRoute) endedByServer() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.serverEnded
 }
 
 func (r *streamRoute) failedOpenCancelParams() (map[string]any, bool) {
@@ -1297,7 +1304,7 @@ func (r *streamRoute) beginStreamCleanup() bool {
 }
 
 func (r *streamRoute) beginExplicitCancel(
-	validateItem func(json.RawMessage) error,
+	validateItem func(streamEnvelope) error,
 ) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1376,11 +1383,14 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 	if r.terminated {
 		return false
 	}
+	if message.envelope.Type == "stream_end" {
+		r.serverEnded = true
+	}
 	if r.cancelItem != nil {
 		if r.cancelEnd != nil {
 			var err error
 			if message.envelope.Type == "stream_item" {
-				err = r.cancelItem(message.envelope.Item)
+				err = r.cancelItem(message.envelope)
 			}
 			if err == nil {
 				err = &ProtocolError{
@@ -1396,7 +1406,7 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 		}
 		switch message.envelope.Type {
 		case "stream_item":
-			if err := r.cancelItem(message.envelope.Item); err != nil {
+			if err := r.cancelItem(message.envelope); err != nil {
 				r.cancelErr = err
 				r.accepting = false
 				r.terminated = true

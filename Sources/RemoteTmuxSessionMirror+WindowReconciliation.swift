@@ -46,10 +46,15 @@ extension RemoteTmuxSessionMirror {
             onPaneSurfaceProgress: { [weak self] paneId in
                 self?.handlePaneSeedSurfaceProgress(paneId: paneId)
             },
-            makePanel: { [weak workspace, weak connection] tmuxPaneId in
-                workspace?.makeRemoteTmuxPanePanel(onInput: { data in
-                    Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
-                })
+            makePanel: { [weak self, weak workspace] tmuxPaneId in
+                guard let self,
+                      let onInput = self.makePaneInputHandler(toPane: tmuxPaneId) else {
+                    return nil
+                }
+                return workspace?.makeRemoteTmuxPanePanel(
+                    onInput: onInput,
+                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+                )
             }
         )
         mirror.onClosePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in

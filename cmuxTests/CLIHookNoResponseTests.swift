@@ -220,6 +220,10 @@ struct CLIHookNoResponseTests {
         }
 
         let server = try Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
+        // Stay under the CLI's 1 MiB codex feed-hook stdin cap so the payload still
+        // reaches the socket, but far above what the non-reading peer will absorb
+        // (the fixture pins its receive buffer to 4 KiB) so the write stalls and has
+        // to be abandoned by the 0.05s write timeout.
         let largeToolInput = String(repeating: "x", count: 512 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}

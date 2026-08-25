@@ -15,7 +15,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "cmux-client"
+name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
@@ -29,7 +29,7 @@ dependencies = [
 name = "cmux-resource-conformance-rust"
 version = "0.0.0"
 dependencies = [
- "cmux-client",
+ "cmux-sdk",
  "serde",
  "serde_json",
 ]

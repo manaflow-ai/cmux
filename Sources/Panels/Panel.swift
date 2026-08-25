@@ -3,7 +3,7 @@ import Combine
 import AppKit
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
@@ -15,6 +15,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case notifications
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
@@ -44,6 +45,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
             return
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
@@ -114,6 +119,7 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
 

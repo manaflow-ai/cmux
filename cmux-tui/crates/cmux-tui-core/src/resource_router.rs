@@ -1,4 +1,4 @@
-//! Shared `cmux.protocol/1` request parsing and dispatch.
+//! Shared `cmux.protocol/2` request parsing and dispatch.
 //!
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
@@ -24,7 +24,46 @@ use crate::resource_api::{ResourceMachineRequest, operation_failed, public_sessi
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
+const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
+
+/// Resolve a live terminal path or an unscoped durable terminal receipt.
+/// Nested selectors keep normal topology containment, so a detached receipt
+/// cannot satisfy a stale workspace, screen, pane, or tab path.
+pub(crate) fn resolve_terminal_wait_exit_id(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Result<TerminalPublicId, ResourceError> {
+    match mux.resolve_resource_path(ResourceTarget::Terminal, selectors) {
+        Ok(path) => path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>")),
+        Err(error) => {
+            if selectors.workspace.is_some()
+                || selectors.screen.is_some()
+                || selectors.pane.is_some()
+                || selectors.tab.is_some()
+            {
+                return Err(error);
+            }
+            let Some(raw) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
+                return Err(error);
+            };
+            let session_selectors = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            match mux.has_durable_terminal_receipt(&terminal_id) {
+                Ok(true) => {}
+                Ok(false) => return Err(error),
+                Err(registry_error) => return Err(resource_operation_error(registry_error)),
+            }
+            Ok(terminal_id)
+        }
+    }
+}
 
 fn operation_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -605,6 +644,14 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
+        ResourceOperation::SessionJournalSubscribe
+            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
+        {
+            return Err(validation_error(
+                "journal cursor and start are mutually exclusive",
+                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+            ));
+        }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
                 && !(0.0 < ratio && ratio < 1.0)
@@ -928,6 +975,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalProcessGet
         | ResourceOperation::TerminalViewportScroll
         | ResourceOperation::TerminalMove
+        | ResourceOperation::TerminalProject
         | ResourceOperation::TerminalClose
         | ResourceOperation::BrowserNavigate
         | ResourceOperation::BrowserBack
@@ -949,6 +997,17 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionJournalSubscribe
+        | ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve
@@ -1352,10 +1411,10 @@ pub(super) fn mutation_result(
     revision: u64,
     replayed: bool,
 ) -> Result<Value, ResourceError> {
-    let snapshot = public_session_snapshot(mux)?;
+    let (_, generation) = mux.registry_identity();
     Ok(json!({
         "value": value,
-        "generation": snapshot["cursor"]["generation"],
+        "generation": generation,
         "revision": revision.to_string(),
         "replayed": replayed,
     }))
@@ -1424,6 +1483,14 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
+    {
+        return ResourceError::operation_failed(
+            "terminal.launch",
+            failure.message.clone(),
+            json!({"reason_code":failure.kind.reason_code()}),
+        );
+    }
     let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
@@ -1463,6 +1530,18 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
+
+    #[test]
+    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
+        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
+            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let error = resource_operation_error(anyhow::Error::new(failure));
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "terminal.launch");
+        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
         match descriptor["kind"].as_str().expect("fixture descriptor kind") {
@@ -1554,7 +1633,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 124);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1573,7 +1652,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 124);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1655,7 +1734,7 @@ mod tests {
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
         let mut envelope = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
             "operation": operation,

@@ -14,6 +14,11 @@ enum WorkspaceRemoteTerminalAuthority: Equatable, Sendable {
     case relayPort(Int)
     case persistentTransport(String)
 
+    var preservesRemotePTYAcrossAttachAttempts: Bool {
+        if case .persistentTransport = self { return true }
+        return false
+    }
+
     init?(configuration: WorkspaceRemoteConfiguration) {
         if configuration.preserveAfterTerminalExit {
             self = .persistentTransport(configuration.proxyBrokerTransportKey)
@@ -94,6 +99,10 @@ extension Workspace {
         if terminalLifecycleID != nil {
             endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
         }
+        let previousState = remoteTerminalSessionStatesBySurfaceId[surfaceId]
+        if previousState == nil || previousState?.terminalLifecycleID != terminalLifecycleID {
+            invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        }
         remoteTerminalSessionStatesBySurfaceId[surfaceId] = WorkspaceRemoteTerminalSessionState(
             phase: .launching,
             authority: authority,
@@ -113,6 +122,13 @@ extension Workspace {
             return false
         }
         endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
+        if remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID,
+           (activeRemoteTerminalSurfaceIds.contains(surfaceId)
+                ? remoteConfiguration
+                : transferredRemoteCleanupConfigurationsByPanelId[surfaceId])?
+                .preserveAfterTerminalExit != true {
+            invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        }
         remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
         markRemoteTerminalSessionLaunching(surfaceId: surfaceId)
         applyRemoteTerminalLaunchingPresentation()
@@ -358,6 +374,7 @@ extension Workspace {
         remoteConnectionState = .connected
         remoteConnectionDetail = nil
         clearProxyOnlyRemoteSidebarArtifacts()
+        clearRecoveredRemoteDaemonSidebarArtifacts()
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
     }
@@ -438,9 +455,18 @@ extension Workspace {
     }
 
     func clearRemoteTerminalSessionPhase(surfaceId: UUID) {
+        invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
         remoteTerminalSessionStatesBySurfaceId.removeValue(forKey: surfaceId)
         pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
         remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: surfaceId)
+    }
+
+    func clearActiveRemoteTerminalSessionPhases() {
+        for surfaceId in activeRemoteTerminalSurfaceIds {
+            clearRemoteTerminalSessionPhase(surfaceId: surfaceId)
+        }
+        activeRemoteTerminalSurfaceIds.removeAll()
     }
 
     func restoreRemoteTerminalSessionPhase(

@@ -202,15 +202,33 @@ struct RemoteTmuxMirrorTargetingTests {
             ],
             isError: false
         ))
-        for kind in connection.pendingCommandKindsForTesting {
-            guard case let .paneRects(windowId, _) = kind else { continue }
-            let paneId = windowId == 1 ? 0 : 5
-            let size = windowId == 1 ? "80 24" : "90 30"
-            connection.handleMessageForTesting(.commandResult(
-                commandNumber: 2,
-                lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
-                isError: false
-            ))
+        // Each window publishes only on its own paneRects reply, and those fetches
+        // can be enqueued incrementally (window @2's arrives after @1 resolves), so
+        // a single snapshot of pending kinds would leave the second window unpublished
+        // and the mirror would build only one tab. Drain every paneRects fetch.
+        // Replies consume the FIFO head (`pendingCommandKindsForTesting.first`), so
+        // drain strictly from the head: reply to a leading paneRects with ITS window's
+        // pane, and consume a leading incidental (.other). Iterating a stale snapshot
+        // instead could reply to the wrong queued command when an incidental precedes a
+        // fetch. Stop at the first correlated command so we never swallow its reply.
+        var rectsDrainGuard = 0
+        drain: while rectsDrainGuard < 16, let kind = connection.pendingCommandKindsForTesting.first {
+            rectsDrainGuard += 1
+            switch kind {
+            case let .paneRects(windowId, _):
+                let paneId = windowId == 1 ? 0 : 5
+                let size = windowId == 1 ? "80 24" : "90 30"
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2,
+                    lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                    isError: false
+                ))
+            case .other:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2, lines: [], isError: false))
+            default:
+                break drain
+            }
         }
 
         let controller = RemoteTmuxController()

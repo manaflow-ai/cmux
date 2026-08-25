@@ -3,6 +3,8 @@
 import posthog from "posthog-js";
 import type { DownloadPlatform } from "@/app/lib/download";
 
+export type BrowserDownloadPlatform = DownloadPlatform | "macos";
+
 /** Emits download intent telemetry before following an artifact link. */
 export function PlatformDownloadLink({
   href,
@@ -14,7 +16,7 @@ export function PlatformDownloadLink({
   children,
 }: {
   href: string;
-  platform: DownloadPlatform;
+  platform: BrowserDownloadPlatform;
   artifact: string;
   location: string;
   className?: string;

@@ -4,16 +4,14 @@ import os
 @testable import CMUXMobileCore
 
 @Suite struct DiagnosticLogTests {
+    private var englishLocale: Locale { Locale(identifier: "en") }
+
     private enum ClassifiedTestError: Error, DiagnosticFailureProviding {
         case denied
 
         var diagnosticFailureKind: DiagnosticFailureKind { .admissionDenied }
     }
 
-    /// Await the log's drain task until its ring reports `expected` events, so a
-    /// test can assert on a deterministic post-drain state without sleeping. The
-    /// drain task runs on the cooperative pool; `Task.yield()` lets it advance.
-    /// Bounded so a regression that never drains fails instead of hanging.
     /// Await the drain task processing at least `expected` total events, so a
     /// test can assert on a deterministic post-drain state without sleeping.
     /// ``DiagnosticLog/processedCount()`` only grows (eviction does not lower
@@ -31,6 +29,23 @@ import os
         )
     }
 
+    /// Await the observer itself instead of treating the ring's processed
+    /// count as a callback-delivery barrier. The store increments that count
+    /// before the drain task invokes the tap, so those are separate events.
+    private func waitForTappedEvents(
+        _ received: OSAllocatedUnfairLock<[DiagnosticEvent]>,
+        count expected: Int
+    ) async {
+        for _ in 0..<1_000_000 {
+            if received.withLock({ $0.count }) >= expected { return }
+            await Task.yield()
+        }
+        #expect(
+            received.withLock({ $0.count }) >= expected,
+            "diagnostic event tap did not reach the required barrier"
+        )
+    }
+
     /// Record one event and await it draining into the ring, so the next record
     /// never overflows the stream buffer. Draining each event before recording
     /// the next means what survives is governed only by the ring's eviction
@@ -45,33 +60,57 @@ import os
         await waitForProcessed(log, processedAfter)
     }
 
-    @Test func recordThenExportRoundTrips() async {
+    @Test func recordThenExportRoundTrips() async throws {
         let log = DiagnosticLog(
             capacity: 16,
             buildStamp: "cmux DEV test",
+            role: .mobileClient,
             anchorWallNanos: 1_700_000_000_000_000_000,
             anchorMonotonicNanos: 500
         )
-        log.record(DiagnosticEvent(code: .connect, tNanos: 1_000))
-        log.record(DiagnosticEvent(code: .pairOk, tNanos: 2_000, ms: 250))
-        log.record(DiagnosticEvent(code: .inputSeqBehind, tNanos: 3_000, surface: 7, a: 10, b: 20))
+        log.record(DiagnosticEvent(code: .connect, tNanos: 500))
+        log.record(DiagnosticEvent(code: .pairOk, tNanos: 250_000_500, ms: 250))
+        log.record(DiagnosticEvent(
+            code: .inputSeqBehind,
+            tNanos: 500_000_500,
+            surface: 7,
+            a: 10,
+            b: 20
+        ))
         await waitForProcessed(log, 3)
 
-        let blob = await log.export()
-        let text = String(decoding: blob, as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let report = await log.snapshot(
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+        let humanReadableExport = report.humanReadableExport(locale: englishLocale)
+        let text = try #require(String(bytes: humanReadableExport, encoding: .utf8))
+        #expect(report.compactExport() == report.humanReadableExport())
+        let inputSequenceLine = "2023-11-14 22:13:20.500 UTC | "
+            + "Terminal input acknowledgements fell behind "
+            + "(Surface: 7, Local sequence: 10, Remote sequence: 20)"
+        #expect(text == """
+        cmux Iroh and transport report
+        Report format: 2
+        Generated: 2023-11-14 22:13:21.000 UTC
+        Source: iOS client
+        Build: cmux DEV test
+        Event count: 3
 
-        // Header: version, anchors, count, build stamp.
-        #expect(lines[0].hasPrefix("cmuxdiag v1"))
-        #expect(lines[0].contains("anchorWallNs=1700000000000000000"))
-        #expect(lines[0].contains("anchorMonoNs=500"))
-        #expect(lines[0].contains("count=3"))
-        #expect(lines[0].contains("build=cmux DEV test"))
+        Timeline (oldest first)
+        2023-11-14 22:13:20.000 UTC | Connection attempt started
+        2023-11-14 22:13:20.250 UTC | Pairing succeeded (Duration: 250 ms)
+        \(inputSequenceLine)
 
-        // One compact row per event: tNanos,code,surface,ms,a,b,c (absent = empty).
-        #expect(lines[1] == "1000,1,,,,,")
-        #expect(lines[2] == "2000,2,,250,,,")
-        #expect(lines[3] == "3000,7,7,,10,20,")
+        """)
+
+        let liveData = await log.export()
+        let liveText = try #require(String(bytes: liveData, encoding: .utf8))
+        let currentConnectTitle = DiagnosticEventPresentation().describe(
+            DiagnosticEvent(code: .connect, tNanos: 0)
+        ).name
+        #expect(liveText.contains(currentConnectTitle))
+        #expect(!liveText.contains("anchorWallNs"))
+        #expect(!liveText.contains("500,1,,,,,"))
     }
 
     @Test func duplicateSelectedPathNotificationsDoNotExportFalseChanges() async {
@@ -131,17 +170,8 @@ import os
         }
         #expect(await log.count() == 3)
 
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let rows = text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .dropFirst()
-            .filter { !$0.isEmpty }
-            .map(String.init)
-        #expect(rows.count == 3)
         // Oldest (tNanos 0,1,2) evicted; newest (3,4,5) retained, in order.
-        #expect(rows[0].hasPrefix("3,"))
-        #expect(rows[1].hasPrefix("4,"))
-        #expect(rows[2].hasPrefix("5,"))
+        #expect(await log.snapshot().events.map(\.tNanos) == [3, 4, 5])
     }
 
     @Test func recordIsNonBlockingUnderBurst() async {
@@ -179,30 +209,79 @@ import os
         }
         #expect(await log.count() == capacity)
 
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let rows = text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .dropFirst()
-            .filter { !$0.isEmpty }
-            .map(String.init)
-        #expect(rows.count == capacity)
         // Newest `capacity` events are tNanos 9,10,11,12, in order.
-        #expect(rows[0].hasPrefix("9,"))
-        #expect(rows[1].hasPrefix("10,"))
-        #expect(rows[2].hasPrefix("11,"))
-        #expect(rows[3].hasPrefix("12,"))
+        #expect(await log.snapshot().events.map(\.tNanos) == [9, 10, 11, 12])
     }
 
-    @Test func exportOnEmptyLogHasHeaderOnly() async {
-        let log = DiagnosticLog(capacity: 8)
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        #expect(lines[0].hasPrefix("cmuxdiag v1"))
-        #expect(lines[0].contains("count=0"))
-        // No build stamp segment when empty default was used.
-        #expect(!lines[0].contains("build="))
-        // Nothing after the header but the trailing newline split.
-        #expect(lines.filter { !$0.isEmpty }.count == 1)
+    @Test func exportOnEmptyLogHasHeaderOnly() async throws {
+        let report = DiagnosticReport(
+            role: .unspecified,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: englishLocale),
+                encoding: .utf8
+            )
+        )
+        #expect(text == """
+        cmux Iroh and transport report
+        Report format: 2
+        Generated: 2023-11-14 22:13:21.000 UTC
+        Source: Unspecified runtime
+        Event count: 0
+
+        Timeline (oldest first)
+        No events recorded.
+
+        """)
+        #expect(!text.contains("anchorWallNs"))
+        #expect(!text.contains("anchorMonoNs"))
+    }
+
+    @Test func exportUsesReadableRelativeTimesWithoutAWallClockAnchor() throws {
+        let report = DiagnosticReport(
+            role: .macHost,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            events: [
+                DiagnosticEvent(code: .endpointStarting, tNanos: 5_000),
+                DiagnosticEvent(code: .endpointActive, tNanos: 250_005_000),
+            ]
+        )
+
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: englishLocale),
+                encoding: .utf8
+            )
+        )
+        #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
+        #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
+    }
+
+    @Test(.enabled(
+        if: LocalizationTestSupport().hasCompiledLocalization(for: Locale(identifier: "ja")),
+        "Command-line SwiftPM copies string catalogs without compiling locale resources"
+    ))
+    func exportUsesJapaneseCatalogCopy() async throws {
+        let report = DiagnosticReport(
+            role: .macHost,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            events: [
+                DiagnosticEvent(code: .reachabilityChanged, tNanos: 5_000, a: 0),
+            ]
+        )
+
+        let locale = Locale(identifier: "ja")
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: locale),
+                encoding: .utf8
+            )
+        )
+        #expect(text.contains("cmux Irohとトランスポートのレポート"))
+        #expect(text.contains("+0.000 秒 | ネットワーク到達性が変更されました（ネットワーク: オフライン）"))
+        #expect(await report.humanReadableText(locale: locale) == text)
     }
 
     @Test func transportDiagnosticCodesAreStableAndAppendOnly() {
@@ -235,7 +314,52 @@ import os
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
         #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
+        #expect(DiagnosticEventCode.browserStreamLifecycle.rawValue == 56)
+        #expect(DiagnosticEventCode.browserInputReplayed.rawValue == 57)
+        #expect(DiagnosticEventCode.browserEditableFocus.rawValue == 58)
+        #expect(DiagnosticEventCode.browserPanelCreateResolved.rawValue == 59)
+        #expect(DiagnosticEventCode.simulatorStreamLifecycle.rawValue == 60)
+        #expect(DiagnosticEventCode.simulatorFrameLifecycle.rawValue == 61)
+        #expect(DiagnosticEventCode.simulatorInputLifecycle.rawValue == 62)
+        #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
+        #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
+        #expect(DiagnosticEventCode.appFeatureAction.rawValue == 65)
+        #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
+        #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
+        #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func appEventCorrelationIsStableWithinProcessAndDoesNotRetainRawIdentifier() async {
+        let log = DiagnosticLog(capacity: 4)
+        let opaqueIdentifier = "workspace-sensitive-identifier"
+
+        log.recordAppEvent(.workspaceOpenStarted, correlationID: opaqueIdentifier)
+        log.recordAppEvent(.workspaceOpenSucceeded, correlationID: opaqueIdentifier)
+
+        await waitForProcessed(log, 2)
+        let report = await log.snapshot()
+        #expect(report.events.count == 2)
+        #expect(report.events[0].surface == report.events[1].surface)
+        #expect(report.events[0].surface != nil)
+        let encoded = try? JSONEncoder().encode(report)
+        let text = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        #expect(!text.contains(opaqueIdentifier))
+    }
+
+    @Test func typedAppEventDetailKeepsCategoricalValuesOutOfTheCountAPI() async {
+        let log = DiagnosticLog(capacity: 2)
+
+        log.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(.shortcutReordered)
+        )
+
+        await waitForProcessed(log, 1)
+        let report = await log.snapshot()
+        #expect(report.events.count == 1)
+        #expect(report.events[0].a == DiagnosticAppEventKind.terminalShortcutChanged.rawValue)
+        #expect(report.events[0].c == DiagnosticToolbarConfigurationAction.shortcutReordered.rawValue)
     }
 
     @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
@@ -272,6 +396,26 @@ import os
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
+        #expect(DiagnosticFailureKind.payloadTooLarge.rawValue == 26)
+        #expect(DiagnosticFailureKind.resourceLimitReached.rawValue == 27)
+        #expect(DiagnosticFailureKind.attachmentCountLimitReached.rawValue == 28)
+        #expect(DiagnosticFailureKind.attachmentAggregateSizeLimitReached.rawValue == 29)
+        #expect(DiagnosticFailureKind.localStateUnavailable.rawValue == 30)
+        #expect(DiagnosticAppEventKind.onboardingStageViewed.rawValue == 41)
+        #expect(DiagnosticAppEventKind.fileDiffCacheHit.rawValue == 352)
+        #expect(DiagnosticAppEventKind.photoPickerDismissed.rawValue == 459)
+        #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
+        #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
+        #expect(DiagnosticAppEventKind.irohSettingsOpened.rawValue == 610)
+        #expect(DiagnosticAppEventKind.verboseDiagnosticsShared.rawValue == 636)
+        #expect(DiagnosticAppEventKind.dictationStopTimedOut.rawValue == 659)
+        #expect(DiagnosticAppEventKind.pairedMacStoreWriteStarted.rawValue == 660)
+        #expect(DiagnosticSimulatorStreamLifecycle.stopFailed.rawValue == 12)
+        #expect(
+            Set(DiagnosticAppEventKind.allCases.map(\.rawValue)).count
+                == DiagnosticAppEventKind.allCases.count
+        )
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -288,7 +432,6 @@ import os
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
         #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
-
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)
         #expect(DiagnosticPathKind(.privateNetwork) == .privateNetwork)
@@ -441,6 +584,59 @@ import os
         }
     }
 
+    @Test func cancelledDialOutcomesDoNotCountAsFailures() {
+        let realFailure = DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 2,
+            b: DiagnosticFailureKind.protocolViolation.rawValue
+        )
+        let abandonedDial = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 3,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.cancelled.rawValue,
+            c: 7
+        )
+
+        let onlyAbandoned = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [abandonedDial]
+        )
+        #expect(onlyAbandoned.lastFailureEvent == nil)
+        #expect(onlyAbandoned.lastFailureKind == nil)
+        #expect(onlyAbandoned.lastFailureDate == nil)
+
+        let abandonedAfterRealFailure = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [realFailure, abandonedDial]
+        )
+        #expect(abandonedAfterRealFailure.lastFailureEvent == realFailure)
+        #expect(abandonedAfterRealFailure.lastFailureKind == .protocolViolation)
+    }
+
+    @Test func gatedDialRefusalsReportRouteGatedNotTimedOut() {
+        // A connect-registry gate refusal is instantaneous and never touched
+        // the network. It used to be classified as `.timedOut`, fabricating
+        // sub-30ms timeout failures that poisoned `lastFailureEvent`.
+        let gatedRefusal = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 2,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.routeGated.rawValue,
+            c: 7
+        )
+        let report = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [gatedRefusal]
+        )
+        #expect(report.lastFailureKind == .routeGated)
+        #expect(report.lastFailureKind != .timedOut)
+        #expect(report.lastFailureEvent == gatedRefusal)
+    }
+
     @Test func clearStartsFreshBoundedSessionAndResetsAnchors() async {
         let log = DiagnosticLog(
             capacity: 2,
@@ -527,7 +723,7 @@ import os
         )
 
         let data = try JSONEncoder().encode(report)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = try #require(String(bytes: data, encoding: .utf8))
         #expect(!text.contains("endpoint"))
         #expect(!text.contains("address"))
         #expect(!text.contains("relayURL"))
@@ -611,6 +807,7 @@ import os
         log.record(first)
         log.record(second)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 2)
 
         #expect(received.withLock { $0 } == [first, second])
     }
@@ -635,6 +832,7 @@ import os
         log.record(relay)
         log.record(repeatRelay)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
 
         #expect(received.withLock { $0 } == [relay])
     }
@@ -662,6 +860,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
         log.record(live)
         await waitForProcessed(log, burst + 1)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
     }
 
@@ -677,6 +876,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: 2)
         log.record(live)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
 
         log.setEventTap(nil)

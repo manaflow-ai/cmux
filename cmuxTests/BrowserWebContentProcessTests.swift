@@ -17,6 +17,149 @@ struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
     @Test
+    func authCallbackNavigationPolicyIsPureAndFailClosed() {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-dev-test://auth-callback?refresh_token=secret")!
+
+        switch policy.disposition(
+            for: callbackURL,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .deliverInApp:
+            break
+        case .block, .passThrough:
+            Issue.record("Trusted user-activated callback should be delivered in-process")
+        }
+
+        for rejectedContext in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            switch policy.disposition(
+                for: callbackURL,
+                targetFrameIsMainFrame: rejectedContext.0,
+                isLinkActivated: rejectedContext.1,
+                sourceOriginMatches: rejectedContext.2
+            ) {
+            case .block:
+                break
+            case .deliverInApp, .passThrough:
+                Issue.record("Auth callbacks that fail a trust check must be blocked")
+            }
+        }
+
+        switch policy.disposition(
+            for: URL(string: "https://cmux.test/app-pricing")!,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .passThrough:
+            break
+        case .block, .deliverInApp:
+            Issue.record("Ordinary web navigation should pass through")
+        }
+
+        #expect(BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(callbackURL))
+        #expect(
+            !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(
+                URL(string: "https://cmux.test/app-pricing")!
+            )
+        )
+    }
+
+    @Test
+    func authCallbackConsumptionTerminatesNavigationAndSurfacesDeliveryFailure() async {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-dev-test://auth-callback?refresh_token=secret")!
+        let sourcePageURL = URL(
+            string: "https://cmux.test/handler/after-sign-in?web_return_to=%2Fapp-pricing%3Fcmux_app%3D1"
+        )!
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
+
+        let completion = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(Bool, URL?), Never>) in
+            let consumed = policy.consume(
+                disposition: .deliverInApp,
+                callbackURL: callbackURL,
+                sourcePageURL: sourcePageURL,
+                cancelNavigation: { cancellationCount += 1 },
+                reportTerminalCancellation: { terminalCancellationReportCount += 1 },
+                deliver: { _ in false },
+                completion: { delivered, returnURL in
+                    continuation.resume(returning: (delivered, returnURL))
+                }
+            )
+            #expect(consumed)
+            #expect(cancellationCount == 1)
+            #expect(terminalCancellationReportCount == 1)
+        }
+
+        #expect(!completion.0)
+        #expect(completion.1?.absoluteString == "https://cmux.test/app-pricing?cmux_app=1")
+
+        let webView = WKWebView()
+        var presentedFailure = false
+        var preparedReturnURL: URL?
+        var loadedReturnURL: URL?
+        BrowserAuthCallbackNavigationPolicy.finishDelivery(
+            delivered: completion.0,
+            returnURL: completion.1,
+            in: webView,
+            prepareReturnRequest: { preparedReturnURL = $0.url },
+            presentAlert: { _, _, completion, _ in
+                presentedFailure = true
+                completion(.alertFirstButtonReturn)
+            },
+            loadRequest: { request, _ in loadedReturnURL = request.url }
+        )
+
+        #expect(presentedFailure)
+        #expect(preparedReturnURL == completion.1)
+        #expect(loadedReturnURL == completion.1)
+    }
+
+    @Test
+    func blockedAuthCallbackConsumptionStillTerminatesNavigation() {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
+
+        let consumed = policy.consume(
+            disposition: .block,
+            callbackURL: callbackURL,
+            sourcePageURL: nil,
+            cancelNavigation: { cancellationCount += 1 },
+            reportTerminalCancellation: { terminalCancellationReportCount += 1 },
+            deliver: { _ in
+                Issue.record("Blocked callbacks must never be delivered")
+                return false
+            },
+            completion: { _, _ in
+                Issue.record("Blocked callbacks must not complete delivery")
+            }
+        )
+
+        #expect(consumed)
+        #expect(cancellationCount == 1)
+        #expect(terminalCancellationReportCount == 1)
+    }
+
+    @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())
@@ -99,40 +242,7 @@ struct BrowserWebContentProcessTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let client = BrowserAppSessionRestoredSessionAuthClient()
-        let coordinator = AuthCoordinator(
-            client: client,
-            sessionCache: CMUXAuthSessionCache(
-                keyValueStore: defaults,
-                key: "auth-session"
-            ),
-            userCache: CMUXAuthIdentityStore(
-                keyValueStore: defaults,
-                key: "auth-user"
-            ),
-            teamSelection: CMUXAuthTeamSelectionStore(
-                keyValueStore: defaults,
-                key: "auth-team"
-            ),
-            anchor: AuthPresentationContextProvider(),
-            config: AuthConfig(
-                stack: CMUXAuthConfig(
-                    projectId: "project-a",
-                    publishableClientKey: "publishable-a"
-                ),
-                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
-                apiBaseURL: "http://127.0.0.1:1"
-            ),
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                environment: [
-                    "CMUX_UITEST_AUTH_FIXTURE": "1",
-                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
-                ],
-                includesDevAuth: true
-            )
-        )
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
         coordinator.start()
         let controller = BrowserAppSessionController(
             coordinator: coordinator,
@@ -146,6 +256,62 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(outcome.shouldRetry)
+    }
+
+    @Test
+    func browserAppSessionCleanupFailureRetainsOwnershipAndBoundsRetries() async throws {
+        let suiteName = "BrowserAppSessionFailedCleanupTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "http://127.0.0.1:1")!,
+            projectID: "project-a"
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "failed-cleanup-stores",
+            environment: environment
+        )
+        var websiteDataStore: WKWebsiteDataStore? = .nonPersistent()
+        registry.register(try #require(websiteDataStore))
+        var cleanupAttemptCount = 0
+        let controller = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: environment.webOrigin,
+            projectID: environment.projectID,
+            defaults: defaults,
+            storeRegistry: registry,
+            clearWebsiteDataStore: { _ in
+                cleanupAttemptCount += 1
+                return .timedOut
+            }
+        )
+
+        for _ in 0..<3 {
+            let outcome = await controller.request(
+                destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+            )
+            #expect(outcome.shouldRetry)
+        }
+
+        #expect(cleanupAttemptCount == 2)
+        #expect(registry.hasOwnership)
+
+        websiteDataStore = nil
+        #expect(!registry.hasOwnership)
+        _ = await controller.request(
+            destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+        )
+        let nextWebsiteDataStore = WKWebsiteDataStore.nonPersistent()
+        registry.register(nextWebsiteDataStore)
+
+        await controller.clearCmuxWebSession()
+
+        #expect(cleanupAttemptCount == 3)
+        #expect(registry.hasOwnership)
     }
 
     @Test
@@ -219,10 +385,90 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionRegistryDoesNotResetAClosingPanel() throws {
+        let suiteName = "BrowserAppSessionClosingPanelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "closing-panel-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        panel.close()
+
+        #expect(!registry.panelsForCleanup().contains { $0 === panel })
+        #expect(registry.storesForCleanup().contains { $0 === websiteDataStore })
+    }
+
+    @Test
+    func browserAppSessionRegistryRetainsAClosingPanelAssociation() throws {
+        let suiteName = "BrowserAppSessionClosingPanelAssociationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "closing-panel-association-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        panel.isClosingWebViewLifecycle = true
+        #expect(!registry.panelsForCleanup().contains { $0 === panel })
+        panel.isClosingWebViewLifecycle = false
+
+        #expect(registry.panelsForCleanup().contains { $0 === panel })
+    }
+
+    @Test
     func browserAppSessionCleanupCoversEveryWebsiteDataType() {
         #expect(
             BrowserAppSessionController.appSessionWebsiteDataTypes ==
                 WKWebsiteDataStore.allWebsiteDataTypes()
+        )
+    }
+
+    @Test
+    func browserAppSessionSignOutRevokesTheLivePanelStoreBeforeAsyncCleanup() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(panel.websiteDataStore !== websiteDataStore)
+        #expect(!panel.websiteDataStore.isPersistent)
+        #expect(
+            panel.webView.configuration.websiteDataStore ===
+                panel.websiteDataStore
         )
     }
 
@@ -313,7 +559,8 @@ struct BrowserWebContentProcessTests {
             openInSourcePane: { _, _ in
                 placements.append("source")
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)
@@ -347,12 +594,50 @@ struct BrowserWebContentProcessTests {
                 placements.append("source")
                 #expect(!store.isPersistent)
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)
         #expect(placements == ["preferred", "split", "source"])
         #expect(!openedSystemBrowser)
+    }
+
+    @Test
+    func appLinkRecoveryStopsPlacementWhenBrowserAvailabilityIsRevoked() {
+        var browserAvailable = true
+        let destinationURL = URL(
+            string: "https://cmux.test/dashboard/testflight"
+        )!
+        var placements: [String] = []
+        var systemBrowserOpenCount = 0
+
+        let opened = BrowserAppLinkPlacementPolicy(
+            openInSystemBrowser: { _ in
+                systemBrowserOpenCount += 1
+                return true
+            }
+        ).recover(
+            destinationURL,
+            openInPreferredPane: { _, _ in
+                placements.append("preferred")
+                browserAvailable = false
+                return false
+            },
+            openHorizontalSplit: { _, _ in
+                placements.append("split")
+                return false
+            },
+            openInSourcePane: { _, _ in
+                placements.append("source")
+                return false
+            },
+            isBrowserAvailable: { browserAvailable }
+        )
+
+        #expect(opened)
+        #expect(placements == ["preferred"])
+        #expect(systemBrowserOpenCount == 1)
     }
 
     @Test
@@ -706,34 +991,38 @@ struct BrowserWebContentProcessTests {
             baseURL: URL(string: "https://example.com/")!
         )
 
-        let result = try await webView.evaluateJavaScript(
+        // The bridge's navigator.credentials.get returns a promise, and
+        // evaluateJavaScript cannot serialize a promise (WKError 5). Call the body
+        // as an async function instead, in the page world that holds the override.
+        let result = try await webView.callAsyncJavaScript(
             """
-            (async () => {
-              const handlerVisible = !!(
-                window.webkit &&
-                window.webkit.messageHandlers &&
-                window.webkit.messageHandlers.cmuxWebAuthn &&
-                typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
-              );
-              const credential = await navigator.credentials.get({
-                publicKey: {
-                  challenge: new Uint8Array([1, 2, 3, 4]).buffer,
-                  rpId: "example.com",
-                  userVerification: "preferred"
-                }
-              });
-              return {
-                handlerVisible,
-                credentialId: credential && credential.id,
-                rawIDLength: credential && credential.rawId && credential.rawId.byteLength,
-                signatureLength:
-                  credential &&
-                  credential.response &&
-                  credential.response.signature &&
-                  credential.response.signature.byteLength
-              };
-            })()
-            """
+            const handlerVisible = !!(
+              window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers.cmuxWebAuthn &&
+              typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
+            );
+            const credential = await navigator.credentials.get({
+              publicKey: {
+                challenge: new Uint8Array([1, 2, 3, 4]).buffer,
+                rpId: "example.com",
+                userVerification: "preferred"
+              }
+            });
+            return {
+              handlerVisible,
+              credentialId: credential && credential.id,
+              rawIDLength: credential && credential.rawId && credential.rawId.byteLength,
+              signatureLength:
+                credential &&
+                credential.response &&
+                credential.response.signature &&
+                credential.response.signature.byteLength
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         ) as? [String: Any]
 
         #expect(result?["handlerVisible"] as? Bool == false)
@@ -956,6 +1245,30 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func appSessionSignOutClosesFloatingPopupsBeforeReplacingStore() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { panel.close() }
+        let authenticatedStore = panel.webView.configuration.websiteDataStore
+        let popupWebView = try #require(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        let popupWindow = try #require(popupWebView.window)
+        defer { popupWebView.window?.close() }
+
+        #expect(popupWebView.configuration.websiteDataStore === authenticatedStore)
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(!(panel.webView.configuration.websiteDataStore === authenticatedStore))
+        #expect(popupWebView.navigationDelegate == nil)
+        #expect(popupWebView.uiDelegate == nil)
+        #expect(!popupWindow.isVisible)
+    }
+
+    @Test
     func floatingPopupClosesWhenWebContentProcessTerminates() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }
@@ -971,8 +1284,50 @@ struct BrowserWebContentProcessTests {
 
         #expect(popupWebView.navigationDelegate == nil)
         #expect(popupWebView.uiDelegate == nil)
-        #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+        // Teardown closes the panel and unregisters the popup from its opener, but
+        // it never detaches the web view, and this test holds the panel alive
+        // (isReleasedWhenClosed is false), so popupWebView.window still points at
+        // the closed panel.
+        #expect(!panel.hiddenWebViewDiscardSnapshot.hasPopups)
+    }
+
+    private func makeRestoredSessionCoordinator(
+        defaults: UserDefaults
+    ) -> AuthCoordinator {
+        AuthCoordinator(
+            client: BrowserAppSessionRestoredSessionAuthClient(),
+            sessionCache: CMUXAuthSessionCache(
+                keyValueStore: defaults,
+                key: "auth-session"
+            ),
+            userCache: CMUXAuthIdentityStore(
+                keyValueStore: defaults,
+                key: "auth-user"
+            ),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: defaults,
+                key: "auth-team"
+            ),
+            anchor: AuthPresentationContextProvider(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(
+                    projectId: "project-a",
+                    publishableClientKey: "publishable-a"
+                ),
+                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
+                apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1",
+                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
+                ],
+                includesDevAuth: true
+            )
+        )
     }
 }
 

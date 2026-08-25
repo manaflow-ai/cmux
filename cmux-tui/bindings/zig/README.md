@@ -42,13 +42,14 @@ implicitly. Typed mutation results contain their concrete value, generation,
 revision, and replayed fields. Results never echo the request’s idempotency
 key. Creation results expose typed workspace, terminal, or browser paths.
 
-If a fully written mutation loses its response to a timeout or disconnect,
-the call returns `error.MutationTransportUncertain`. Inspect
+If a mutation loses its response to any transport failure after its complete
+JSON payload is written, the call returns
+`error.MutationTransportUncertain`. Inspect
 `client.lastMutationTransportUncertain()` or transfer ownership with
 `client.takeMutationTransportUncertain()`. The typed value contains the
-operation, transport cause, exact generated or supplied idempotency key, and
-recovery instruction. The SDK never retries automatically because the server
-may have committed the mutation.
+operation, categorized transport cause, exact generated or supplied
+idempotency key, and recovery instruction. The SDK never retries automatically
+because the server may have committed the mutation.
 
 The socket binds a client to its current machine and session. `Client.session`
 accepts ID, current, and name selectors. `Client.workspace(id)` includes
@@ -213,13 +214,16 @@ try renderer.connect(grant.endpoint(), grant.token().reveal());
 Grant data is available only through accessors. Formatting a grant or token
 prints `[REDACTED]`.
 
-Generated protocol-v10 compatibility APIs remain available only under the
+Generated protocol-v12 compatibility APIs remain available only under the
 explicit raw namespace:
 
 ```zig
 const protocol = cmux.raw.protocol;
 const RawClient = cmux.raw.Client;
 ```
+
+`raw.Options.timeout_ms` bounds Unix-socket establishment and each later raw
+transport read or write. `null` disables transport deadlines.
 
 Every returned owned snapshot, list, result, mutation result, stream item,
 stream, and renderer grant documents ownership through a `deinit` method.

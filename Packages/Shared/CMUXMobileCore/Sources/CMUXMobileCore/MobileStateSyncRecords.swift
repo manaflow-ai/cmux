@@ -35,6 +35,58 @@ public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Senda
 /// `mobile.workspace.list` payload (same snake_case wire names) plus an
 /// explicit `sort_index` so list order syncs without positional inference.
 public struct WorkspaceSyncRecord: MobileSyncRecord {
+    /// One surface row within a workspace.
+    public struct Surface: Codable, Equatable, Sendable {
+        /// Stable surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire string.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Whether the surface currently holds focus on the owning Mac.
+        public let isFocused: Bool
+        /// Backing file path for file-based surfaces, when reported.
+        public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
+
+        /// Creates a surface row from its wire fields.
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil,
+            isFocused: Bool = false
+        ) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.isFocused = isFocused
+            self.filePath = filePath
+            self.todo = todo
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            kind = try container.decode(String.self, forKey: .kind)
+            title = try container.decode(String.self, forKey: .title)
+            isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
+            filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+            todo = try container.decodeIfPresent(MobileTodoSnapshot.self, forKey: .todo)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind
+            case title
+            case isFocused = "is_focused"
+            case filePath = "file_path"
+            case todo
+        }
+    }
+
     /// One terminal row within a workspace.
     public struct Terminal: Codable, Equatable, Sendable {
         /// Stable terminal identifier.
@@ -104,6 +156,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// All surface rows belonging to this workspace, in spatial order.
+    /// `nil` when decoded from a Mac that predates surface inventory support.
+    public let surfaces: [Surface]?
+    /// Simulator panes belonging to this workspace, in spatial order.
+    public let simulators: [MobileSimulatorPanelDescriptor]
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -127,7 +184,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        surfaces: [Surface]? = nil,
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.windowID = windowID
@@ -145,6 +204,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
     }
 
     public init(from decoder: any Decoder) throws {
@@ -168,6 +229,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
+        surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+        simulators = try container.decodeIfPresent(
+            [MobileSimulatorPanelDescriptor].self,
+            forKey: .simulators
+        ) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -187,6 +253,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case surfaces
+        case simulators
     }
 }
 
@@ -203,6 +271,8 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// SF Symbol rendered by the corresponding group row on the Mac.
+    public let iconSymbol: String?
     /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
     /// Position in the Mac's presented section order.
@@ -219,6 +289,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        iconSymbol: String? = nil,
         anchorWorkspaceID: String,
         sortIndex: Int
     ) {
@@ -226,6 +297,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
         self.sortIndex = sortIndex
     }
@@ -235,6 +307,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case name
         case isCollapsed = "is_collapsed"
         case isPinned = "is_pinned"
+        case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
         case sortIndex = "sort_index"
     }

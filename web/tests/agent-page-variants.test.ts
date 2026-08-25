@@ -434,6 +434,24 @@ describe("agent page variants", () => {
     expect(header).not.toContain("/de/docs/vault");
   });
 
+  test("maps versioned changelog variants across locales", () => {
+    expect(resolveAgentPageVariant("/docs/changelog/0.64.22.md")).toEqual({
+      kind: "page",
+      format: "md",
+      requestedPath: "/docs/changelog/0.64.22.md",
+      canonicalPath: "/docs/changelog/0.64.22",
+    });
+    expect(resolveAgentPageVariant("/ja/docs/changelog/0.64.22.txt")).toEqual({
+      kind: "page",
+      format: "txt",
+      requestedPath: "/ja/docs/changelog/0.64.22.txt",
+      canonicalPath: "/ja/docs/changelog/0.64.22",
+    });
+    expect(
+      resolveAgentPageVariant("/docs/changelog/0.64.22/notes.md"),
+    ).toBeNull();
+  });
+
   test("supports Markdown and text variants for sitemap pages", () => {
     for (const entry of sitemap()) {
       const pathname = new URL(String(entry.url)).pathname || "/";

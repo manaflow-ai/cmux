@@ -1,18 +1,23 @@
-name: sdk publish crates
+name: sdk preflight crates
 
 on:
-  push:
-    tags:
-      - "mux-sdk-v*"
-      - "cmux-sdk-v*"
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: "SDK version to validate/publish, for example 0.1.0"
+        description: "SDK version to validate, for example 0.1.0"
         required: true
         type: string
 
 permissions: {}
+
+env:
+  RUST_TOOLCHAIN: "1.95.0"
 
 concurrency:
   group: sdk-publish-crates-${{ github.ref }}
@@ -29,6 +34,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Validate tag and package versions
         id: version
@@ -37,13 +43,15 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^(mux|cmux)-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match mux-sdk-vX.Y.Z or cmux-sdk-vX.Y.Z" >&2
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-sdk-vX.Y.Z" >&2
               exit 1
             }
-            version="$GITHUB_REF_NAME"
-            version="${version#mux-sdk-v}"
-            version="${version#cmux-sdk-v}"
+            version="${GITHUB_REF_NAME#cmux-sdk-v}"
+            [[ "$DISPATCH_VERSION" == "$version" ]] || {
+              echo "workflow_dispatch version $DISPATCH_VERSION does not match tag version $version" >&2
+              exit 1
+            }
           else
             version="$DISPATCH_VERSION"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -51,6 +59,8 @@ jobs:
               exit 1
             }
           fi
+          python3 cmux-tui/bindings/validate_release_version.py \
+            --version "$version"
           python3 - "$version" <<'PY'
           import json
           import pathlib
@@ -72,7 +82,9 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
-          python3 cmux-tui/bindings/check-versions.py --expected "$version"
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-rust:
@@ -97,17 +109,62 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install pinned Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: Test Rust SDK packages
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo test -p cmux-sdk -p cmux-sidebar --locked
+          cargo package -p cmux-sdk --locked
+          cargo package \
+            -p cmux-sidebar \
+            --locked \
+            --no-verify \
+            --config \
+              "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+
+          verify_root="$RUNNER_TEMP/cmux-rust-package-verify"
+          mkdir -p "$verify_root"
+          tar -xzf \
+            "target/package/cmux-sdk-$CMUX_SDK_VERSION.crate" \
+            -C "$verify_root"
+          tar -xzf \
+            "target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
+            -C "$verify_root"
+          cargo test \
+            --manifest-path \
+              "$verify_root/cmux-sidebar-$CMUX_SDK_VERSION/Cargo.toml" \
+            --config \
+              "patch.crates-io.cmux-sdk.path='$verify_root/cmux-sdk-$CMUX_SDK_VERSION'" \
+            --all-targets
+
+      - name: Upload validated cmux-sdk crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-rust-sdk-crate
+          path: cmux-tui/target/package/cmux-sdk-${{ needs.version.outputs.version }}.crate
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload validated cmux-sidebar crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-rust-sidebar-crate
+          path: cmux-tui/target/package/cmux-sidebar-${{ needs.version.outputs.version }}.crate
+          if-no-files-found: error
+          overwrite: true
 
       - name: Rust SDK conformance
         run: |
@@ -118,53 +175,3 @@ jobs:
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
             tee "$report"
           grep -Eq '^PASS +rust +live-creation-exit-restart-unix$' "$report"
-
-  publish:
-    needs:
-      - version
-      - bindings-e2e-rust
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: crates-io
-      url: https://crates.io/crates/cmux-client
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Authenticate cmux-client with crates.io trusted publishing
-        id: auth_client
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
-
-      - name: Publish cmux-client
-        working-directory: cmux-tui
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth_client.outputs.token }}
-        run: cargo publish -p cmux-client --locked
-
-      - name: Wait for cmux-client to reach the crates.io index
-        env:
-          CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          for _ in $(seq 1 30); do
-            if cargo info "cmux-client@$CMUX_SDK_VERSION" >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "cmux-client@$CMUX_SDK_VERSION did not reach the crates.io index" >&2
-          exit 1
-
-      - name: Authenticate cmux-sidebar with crates.io trusted publishing
-        id: auth_sidebar
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
-
-      - name: Publish cmux-sidebar
-        working-directory: cmux-tui
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth_sidebar.outputs.token }}
-        run: cargo publish -p cmux-sidebar --locked

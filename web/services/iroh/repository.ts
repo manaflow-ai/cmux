@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -30,6 +30,12 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
+import {
+  canIOSBindingForgetMac,
+  canIOSBindingUseMac,
+  canBindingRevokeStale,
+} from "./buildCompatibility";
+import type { IrohDiscoveryScope } from "./discoveryScope";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -78,6 +84,7 @@ export type IrohRepositoryShape = {
     readonly userId: string;
     readonly deviceUuid: string;
     readonly appInstanceId: string;
+    readonly clientNamespace?: string;
     readonly tag: string;
     readonly endpointId: string;
     readonly identityGeneration: number;
@@ -99,6 +106,9 @@ export type IrohRepositoryShape = {
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoveryPage: (input: {
     readonly userId: string;
+    readonly clientNamespace?: string;
+    readonly callerBindingId?: string;
+    readonly callerPlatform?: "mac" | "ios";
     readonly now: Date;
     readonly pageSize: number;
     readonly cursor?: IrohDiscoveryCursor;
@@ -108,10 +118,27 @@ export type IrohRepositoryShape = {
     readonly accountRevision: number;
     readonly nextCursor: IrohDiscoveryCursor | null;
   }, RepositoryError>;
+  readonly discoverySnapshot: (input: {
+    readonly userId: string;
+    readonly clientNamespace?: string;
+    readonly callerBindingId?: string;
+    readonly callerPlatform?: "mac" | "ios";
+    readonly now: Date;
+    readonly scope?: IrohDiscoveryScope;
+  }) => Effect.Effect<{
+    readonly bindings: IrohBindingRecord[];
+    readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
+  }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  /** Includes a soft-revoked row so an authenticated self-revocation retry can be idempotent. */
+  readonly findBindingForRevocationProof: (
+    userId: string,
+    bindingId: string,
+  ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
   readonly findActiveBindingByEndpoint: (
     userId: string,
     endpointId: string,
@@ -120,6 +147,9 @@ export type IrohRepositoryShape = {
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
+    readonly clientNamespace?: string;
+    readonly authorizedBindingId?: string;
+    readonly intent?: "self" | "forget_mac" | "revoke_stale";
     readonly now: Date;
   }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   readonly pruneExpiredState: (input: {
@@ -154,6 +184,7 @@ export type IrohRepositoryShape = {
   readonly reserveRelayIssuance: (input: {
     readonly userId: string;
     readonly bindingId: string;
+    readonly clientNamespace?: string;
     readonly now: Date;
   }) => Effect.Effect<{
     readonly issuanceId: string;
@@ -208,6 +239,10 @@ function makeLiveRepository(): IrohRepositoryShape {
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+            eq(
+              irohRegistrationChallenges.clientNamespace,
+              input.clientNamespace ?? "legacy",
+            ),
             eq(irohRegistrationChallenges.tag, input.tag),
           ))
           .orderBy(desc(irohRegistrationChallenges.createdAt))
@@ -221,6 +256,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             userId: input.userId,
             deviceUuid: input.deviceUuid,
             appInstanceId: input.appInstanceId,
+            clientNamespace: input.clientNamespace ?? "legacy",
             tag: input.tag,
             endpointId: input.endpointId,
             identityGeneration: input.identityGeneration,
@@ -254,7 +290,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.clientNamespace}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
         const [challenge] = await tx
           .select()
           .from(irohRegistrationChallenges)
@@ -269,23 +305,78 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (challenge.expiresAt <= input.now) throw new IrohForbiddenError({ code: "challenge_expired" });
         if (challenge.nonceHash !== input.nonceHash) throw new IrohForbiddenError({ code: "invalid_challenge_nonce" });
 
-        // The binding slot is keyed on (user, device, tag). A reinstall, a
+        // The binding slot is keyed on (user, client namespace, device, tag).
+        // A reinstall, a
         // sign-out/in, or a key rotation reuses the same slot and overwrites it
         // in place (newest authenticated registration wins), preserving the row
         // id so existing pair grants keep resolving. There is no generation gate:
         // a reinstall resets identity_generation to 1, and gating on it would
         // reintroduce the wedge that stranded a computer behind its own past self.
-        const [existingSlot] = await tx
+        let [existingSlot] = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.clientNamespace, input.payload.clientNamespace),
             eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
             eq(irohEndpointBindings.tag, input.payload.tag),
             isNull(irohEndpointBindings.revokedAt),
           ))
           .for("update")
           .limit(1);
+
+        // Older rows either predate app namespaces or identify a Mac by tag
+        // alone. The app's endpoint identity lives in its exact signed Keychain
+        // access group, so a registration that proves the same endpoint,
+        // device, tag, and platform can atomically adopt only its own row. A
+        // sibling bundle cannot read that endpoint secret and cannot claim it.
+        if (
+          !existingSlot
+          && input.payload.clientNamespace !== "legacy"
+        ) {
+          const adoptableNamespaces = input.payload.platform === "mac"
+              && input.payload.clientNamespace.startsWith("mac:")
+            ? ["legacy", `mac:${input.payload.tag}`]
+            : ["legacy"];
+          const [legacySlot] = await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.userId, input.userId),
+              inArray(
+                irohEndpointBindings.clientNamespace,
+                adoptableNamespaces,
+              ),
+              eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
+              eq(irohEndpointBindings.tag, input.payload.tag),
+              eq(irohEndpointBindings.endpointId, input.payload.endpointId),
+              eq(irohEndpointBindings.platform, input.payload.platform),
+              isNull(irohEndpointBindings.revokedAt),
+            ))
+            .for("update")
+            .limit(1);
+          if (legacySlot) {
+            const [adoptedSlot] = await tx
+              .update(irohEndpointBindings)
+              .set({
+                clientNamespace: input.payload.clientNamespace,
+                updatedAt: input.now,
+              })
+              .where(and(
+                eq(irohEndpointBindings.id, legacySlot.id),
+                inArray(
+                  irohEndpointBindings.clientNamespace,
+                  adoptableNamespaces,
+                ),
+                isNull(irohEndpointBindings.revokedAt),
+              ))
+              .returning();
+            if (!adoptedSlot) {
+              throw new Error("legacy binding adoption returned no row");
+            }
+            existingSlot = adoptedSlot;
+          }
+        }
 
         // Reject a stale challenge minted before the slot's current registration.
         // Challenges resolve under the slot advisory lock, so two registrations
@@ -397,6 +488,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             userId: input.userId,
             deviceUuid: input.payload.deviceId,
             appInstanceId: input.payload.appInstanceId,
+            clientNamespace: input.payload.clientNamespace,
             tag: input.payload.tag,
             platform: input.payload.platform,
             displayName: input.payload.displayName ?? null,
@@ -496,30 +588,178 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (input.cursor && input.cursor.generation !== state.generation) {
           throw new IrohConflictError({ code: "discovery_cursor_stale" });
         }
-        const rows = await tx
-          .select()
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-            input.cursor
-              ? gt(irohEndpointBindings.id, input.cursor.afterBindingId)
-              : undefined,
-          ))
-          .orderBy(asc(irohEndpointBindings.id))
-          .limit(input.pageSize + 1);
-        const bindings = rows.slice(0, input.pageSize);
+        const clientNamespace = input.clientNamespace ?? "legacy";
+        const [caller] = input.callerBindingId && input.callerPlatform
+          ? await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.id, input.callerBindingId),
+              eq(irohEndpointBindings.userId, input.userId),
+              eq(irohEndpointBindings.platform, input.callerPlatform),
+              eq(irohEndpointBindings.clientNamespace, clientNamespace),
+              isNull(irohEndpointBindings.revokedAt),
+            ))
+            .limit(1)
+          : [];
+        const visibleRows: IrohBindingRecord[] = [];
+        let scanAfter = input.cursor?.afterBindingId;
+        const scanPageSize = Math.max(input.pageSize + 1, 256);
+        while (visibleRows.length <= input.pageSize) {
+          const rows = await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.userId, input.userId),
+              isNull(irohEndpointBindings.revokedAt),
+              scanAfter
+                ? gt(irohEndpointBindings.id, scanAfter)
+                : undefined,
+            ))
+            .orderBy(asc(irohEndpointBindings.id))
+            .limit(scanPageSize);
+          for (const binding of rows) {
+            const visible = caller
+              ? binding.id === caller.id || (
+                caller.platform === "ios"
+                  ? canIOSBindingUseMac(caller, binding)
+                  : canIOSBindingUseMac(binding, caller)
+              )
+              : clientNamespace === "legacy"
+                || binding.clientNamespace === clientNamespace;
+            if (visible) visibleRows.push(binding);
+            if (visibleRows.length > input.pageSize) break;
+          }
+          if (visibleRows.length > input.pageSize || rows.length < scanPageSize) break;
+          scanAfter = rows.at(-1)?.id;
+          if (!scanAfter) break;
+        }
+        const bindings = visibleRows.slice(0, input.pageSize);
         const last = bindings.at(-1);
         return {
           bindings,
           lanDiscoveryGeneration: state.generation,
           accountRevision: state.revision,
-          nextCursor: rows.length > input.pageSize && last
+          nextCursor: visibleRows.length > input.pageSize && last
             ? {
               generation: state.generation,
               afterBindingId: last.id,
             }
             : null,
+        };
+      });
+    }),
+
+    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+      return await cloudDb().transaction(async (tx) => {
+        const clientNamespace = input.clientNamespace ?? "legacy";
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        // Registration, revocation, pruning, and this read share one account
+        // lock. The complete connectivity snapshot therefore observes one
+        // committed binding set and revision, even when public discovery spans
+        // several pages.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [existingState] = await tx
+          .select({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
+          })
+          .from(irohAccountSecurityStates)
+          .where(eq(irohAccountSecurityStates.userId, input.userId))
+          .limit(1);
+        const [insertedState] = existingState
+          ? []
+          : await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              routeRevision: 0,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .returning({
+              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+              revision: irohAccountSecurityStates.routeRevision,
+            });
+        const state = existingState ?? insertedState;
+        if (!state) throw new Error("account security state returned no row");
+        const visibility = input.callerBindingId && input.callerPlatform
+          ? or(
+            eq(irohEndpointBindings.id, input.callerBindingId),
+            eq(
+              irohEndpointBindings.platform,
+              input.callerPlatform === "mac" ? "ios" : "mac",
+            ),
+          )
+          : clientNamespace === "legacy"
+            ? undefined
+            : eq(irohEndpointBindings.clientNamespace, clientNamespace);
+        const bindings = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            visibility,
+            isNull(irohEndpointBindings.revokedAt),
+            input.scope
+              ? or(
+                and(
+                  eq(
+                    irohEndpointBindings.deviceUuid,
+                    input.scope.localBinding.deviceId,
+                  ),
+                  eq(
+                    irohEndpointBindings.appInstanceId,
+                    input.scope.localBinding.appInstanceId,
+                  ),
+                  eq(irohEndpointBindings.tag, input.scope.localBinding.tag),
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.localBinding.platform,
+                  ),
+                ),
+                and(
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.peerBindings.platform,
+                  ),
+                  input.scope.peerBindings.tags
+                    ? inArray(
+                      sql<string>`lower(${irohEndpointBindings.tag})`,
+                      [...input.scope.peerBindings.tags],
+                    )
+                    : undefined,
+                  input.scope.peerBindings.pairingEnabled === undefined
+                    ? undefined
+                    : eq(
+                      irohEndpointBindings.pairingEnabled,
+                      input.scope.peerBindings.pairingEnabled,
+                    ),
+                ),
+              )
+              : undefined,
+          ))
+          .orderBy(asc(irohEndpointBindings.id));
+        const visibleBindings = input.callerBindingId && input.callerPlatform
+          ? (() => {
+            const caller = bindings.find((binding) =>
+              binding.id === input.callerBindingId
+              && binding.platform === input.callerPlatform);
+            if (!caller) return [];
+            return bindings.filter((binding) =>
+              binding.id === caller.id
+              || (
+                caller.platform === "ios"
+                  ? canIOSBindingUseMac(caller, binding)
+                  : canIOSBindingUseMac(binding, caller)
+              ));
+          })()
+          : bindings;
+        return {
+          bindings: visibleBindings,
+          lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
         };
       });
     }),
@@ -538,6 +778,21 @@ function makeLiveRepository(): IrohRepositoryShape {
           ));
       });
     }),
+
+    findBindingForRevocationProof: (userId, bindingId) => repositoryEffect(
+      "find_binding_for_revocation_proof",
+      async () => {
+        const [binding] = await cloudDb()
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, userId),
+            eq(irohEndpointBindings.id, bindingId),
+          ))
+          .limit(1);
+        return binding ?? null;
+      },
+    ),
 
     findActiveBindingByEndpoint: (userId, endpointId) => repositoryEffect(
       "find_binding_by_endpoint",
@@ -560,7 +815,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const [binding] = await tx
-          .select({ revokedAt: irohEndpointBindings.revokedAt })
+          .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.id, input.bindingId),
@@ -568,16 +823,112 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
+        const unchangedRevision = async () =>
+          await currentRouteRevision(tx, input.userId, input.now);
         if (!binding) {
           return {
             revoked: false,
-            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+            accountRevision: await unchangedRevision(),
           };
+        }
+        if (input.authorizedBindingId) {
+          const [authorized] = await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.id, input.authorizedBindingId),
+              eq(irohEndpointBindings.userId, input.userId),
+            ))
+            .limit(1);
+          if (!authorized) {
+            return {
+              revoked: false,
+              accountRevision: await unchangedRevision(),
+            };
+          }
+          if (
+            authorized.revokedAt
+            && !(authorized.id === binding.id && binding.revokedAt)
+          ) {
+            return {
+              revoked: false,
+              accountRevision: await unchangedRevision(),
+            };
+          }
+          if (input.intent === "forget_mac") {
+            if (!canIOSBindingForgetMac(authorized, binding)) {
+              return {
+                revoked: false,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+            if (binding.revokedAt) {
+              return {
+                revoked: true,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+          } else if (input.intent === "revoke_stale") {
+            if (!canBindingRevokeStale(authorized, binding)) {
+              return {
+                revoked: false,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+            if (binding.revokedAt) {
+              return {
+                revoked: true,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+          } else {
+            const sameDurableSlot = authorized.deviceUuid === binding.deviceUuid
+              && authorized.tag === binding.tag
+              && authorized.platform === binding.platform
+              && (
+                authorized.clientNamespace === binding.clientNamespace
+                || binding.clientNamespace === "legacy"
+              );
+            if (
+              binding.revokedAt
+              && (authorized.id === binding.id || sameDurableSlot)
+            ) {
+              return {
+                revoked: true,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+            const sameOwnedSlot = sameDurableSlot
+              && authorized.appInstanceId === binding.appInstanceId;
+            if (authorized.id !== binding.id && !sameOwnedSlot) {
+              return {
+                revoked: false,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+          }
+        } else {
+          if (input.intent === "forget_mac") {
+            return {
+              revoked: false,
+              accountRevision: await unchangedRevision(),
+            };
+          }
+          // Legacy bindings predate request proofs and namespaces. Preserve the
+          // old account-authenticated self-revocation path so an upgraded app can
+          // drain a durable revocation queued by its previous version. A
+          // namespace-less request still cannot revoke a namespaced binding.
+          if (binding.clientNamespace !== "legacy") {
+            return {
+              revoked: false,
+              accountRevision: await unchangedRevision(),
+            };
+          }
         }
         if (binding.revokedAt) {
           return {
             revoked: true,
-            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+            accountRevision: await unchangedRevision(),
           };
         }
 
@@ -738,7 +1089,6 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
-
         if (
           binding.deviceUuid !== input.deviceId ||
           binding.endpointId !== input.endpointId ||
@@ -811,6 +1161,9 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+        if (binding.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+          throw new IrohNotFoundError({ resource: "binding" });
+        }
 
         await tx
           .update(irohEndpointBindings)
@@ -1389,19 +1742,6 @@ function isDomainError(error: unknown): error is
     tag === "IrohConflictError" || tag === "IrohQuotaExceededError";
 }
 
-function quotaFromOldest(
-  code: string,
-  oldest: Date,
-  windowSeconds: number,
-  now: Date,
-): IrohQuotaExceededError {
-  const retryAfterSeconds = Math.max(
-    1,
-    Math.ceil((oldest.getTime() + windowSeconds * 1_000 - now.getTime()) / 1_000),
-  );
-  return new IrohQuotaExceededError({ code, retryAfterSeconds });
-}
-
 function sanitizedDatabaseCause(cause: unknown): unknown {
   const candidate = databaseCause(cause);
   return {
@@ -1418,7 +1758,8 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   }
   // The slot advisory lock (pg_advisory_xact_lock on iroh:slot:user:device:tag)
   // serializes registrations for one slot, so the partial unique index on
-  // (user, device, tag) where revoked_at is null is unreachable in practice.
+  // (user, client namespace, device, tag) where revoked_at is null is
+  // unreachable in practice.
   // Map it defensively anyway: without this branch a slot race would fall
   // through to `return null` and leak a raw IrohDatabaseError as HTTP 500,
   // when the correct signal is a typed 409 telling the client a concurrent

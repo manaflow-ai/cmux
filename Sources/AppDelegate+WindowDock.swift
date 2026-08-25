@@ -10,9 +10,13 @@ extension AppDelegate.MainWindowContext {
 
     /// The Dock for this window, created on first access and retained until the
     /// context is unregistered. Session restore wins; otherwise global config seeds it.
-    func windowDockStore() -> DockSplitStore {
-        if let existing = windowDock { return existing }
+    func windowDockStore(notificationStore: TerminalNotificationStore?) -> DockSplitStore {
+        if let existing = windowDock {
+            existing.notificationStore = notificationStore
+            return existing
+        }
         let store = tabManager.makeWindowDockStore(windowId: windowId)
+        store.notificationStore = notificationStore
         windowDock = store
         workspaceTerminalFontSizeCoordinator.attachWindowDock(store)
         return store
@@ -24,6 +28,7 @@ extension AppDelegate.MainWindowContext {
 
     func restoreWindowDockSessionSnapshot(
         _ snapshot: SessionWindowSnapshot?,
+        notificationStore: TerminalNotificationStore?,
         excludingStableIdentities: Set<UUID> = []
     ) {
         let promptBatch = SurfaceResumeRunPromptBatch.shared
@@ -31,7 +36,7 @@ extension AppDelegate.MainWindowContext {
         defer { promptBatch.endRestorePass() }
 
         guard let dockSnapshot = snapshot?.dock, let tabManagerSnapshot = snapshot?.tabManager else { return }
-        windowDockStore().restoreSessionSnapshot(
+        windowDockStore(notificationStore: notificationStore).restoreSessionSnapshot(
             dockSnapshot,
             excludingStableIdentities: excludingStableIdentities,
             sourceWorkspaceResolver: { [tabManager] originalId in
@@ -85,7 +90,11 @@ extension AppDelegate {
         excludingStableIdentities: Set<UUID>
     ) {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?
-            .restoreWindowDockSessionSnapshot(snapshot, excludingStableIdentities: excludingStableIdentities)
+            .restoreWindowDockSessionSnapshot(
+                snapshot,
+                notificationStore: notificationStore,
+                excludingStableIdentities: excludingStableIdentities
+            )
     }
 
     /// Legacy Dock routing alias, kept for CLI compatibility with the retired
@@ -113,13 +122,13 @@ extension AppDelegate {
         guard let context = mainWindowContext(forWindowId: windowId) else {
             preconditionFailure("Window Dock requested for an unregistered main window")
         }
-        return context.windowDockStore()
+        return context.windowDockStore(notificationStore: notificationStore)
     }
 
     /// The Dock for a registered window-owner id, created on first access. `nil`
     /// means `windowId` is not a live window-Dock owner.
     func windowDockForRegisteredOwner(_ windowId: UUID) -> DockSplitStore? {
-        mainWindowContext(forWindowId: windowId)?.windowDockStore()
+        mainWindowContext(forWindowId: windowId)?.windowDockStore(notificationStore: notificationStore)
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -129,7 +138,7 @@ extension AppDelegate {
     /// quit. Only an existing store remains addressable during close races.
     func windowDock(for tabManager: TabManager) -> DockSplitStore? {
         if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            return context.windowDockStore()
+            return context.windowDockStore(notificationStore: notificationStore)
         }
         guard let windowId = windowId(for: tabManager) else { return nil }
         return existingWindowDock(forWindowId: windowId)
@@ -181,7 +190,11 @@ extension AppDelegate {
     @discardableResult
     func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
         guard let dock = windowDockContainingPanel(surfaceId) else { return false }
-        if dock.closePanel(surfaceId, force: force) {
+        if dock.closePanel(
+            surfaceId,
+            force: force,
+            recordsHistory: false
+        ) {
             notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
         }
         return true

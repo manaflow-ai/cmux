@@ -647,6 +647,8 @@ class InventoryContractTests(unittest.TestCase):
                 """\
 fn early_serializer() {
     let _ = json!({"event": "early-event"});
+    let _ = Message { event: "struct-event" };
+    write!(writer, "{{\\\"event\\\":\\\"manual-event\\\"}}");
 }
 
 fn tree_delta_json() {
@@ -667,7 +669,11 @@ impl TreeDeltaKind {
             )
 
             with patch.object(CHECKER, "TUI", tui):
-                self.assertIn("early-event", CHECKER.event_names())
+                self.assertTrue(
+                    {"early-event", "struct-event", "manual-event"}.issubset(
+                        CHECKER.event_names()
+                    )
+                )
 
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

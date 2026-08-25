@@ -72,6 +72,17 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         }
     }
 
+    init?(persistedRawValue rawValue: String, registration: CmuxVaultAgentRegistration?) {
+        guard let kind = RestorableAgentKind(rawValue: rawValue) else { return nil }
+        guard let registration,
+              registration.id == kind.rawValue,
+              !Self.allCases.contains(where: { $0.rawValue == kind.rawValue }) else {
+            self = kind
+            return
+        }
+        self = .custom(registration.id)
+    }
+
     var rawValue: String {
         switch self {
         case .claude: return "claude"
