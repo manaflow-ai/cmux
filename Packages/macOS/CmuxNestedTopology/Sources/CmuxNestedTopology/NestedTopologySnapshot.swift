@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Validated immutable provider-owned topology snapshot.
 ///
