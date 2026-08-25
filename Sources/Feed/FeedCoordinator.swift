@@ -793,17 +793,20 @@ extension FeedCoordinator {
         case .dock: statusIsPanelScoped = true
         case .workspace: statusIsPanelScoped = false
         }
-        let statusEntry = pendingAttentionStates.first { pendingTarget, state in
+        let existingState = pendingAttentionStates.first { pendingTarget, state in
             guard pendingTarget.statusKey == statusKey,
                   state.statusOwnerId == owner.id else { return false }
             return !statusIsPanelScoped || pendingTarget.panelId == panelId
-        }?.value.statusEntry ?? SidebarStatusEntry(
+        }?.value
+        let statusEntry = existingState?.statusEntry ?? SidebarStatusEntry(
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
             color: "#4C8DFF",
             timestamp: Date()
         )
+        let previousStatusEntry = existingState?.previousStatusEntry
+            ?? owner.statusEntry(key: statusKey, panelId: panelId)
         let fallbackWorkspace: Workspace? = switch owner {
         case .workspace(let workspace): workspace
         case .dock: nil
@@ -811,6 +814,7 @@ extension FeedCoordinator {
         pendingAttentionStates[target] = FeedPendingAttentionState(
             fallbackWorkspace: fallbackWorkspace,
             statusEntry: statusEntry,
+            previousStatusEntry: previousStatusEntry,
             statusOwnerId: owner.id,
             statusIsPanelScoped: statusIsPanelScoped,
             processExitMonitorKey: nil
@@ -1292,19 +1296,22 @@ extension FeedCoordinator {
         case .workspace:
             statusIsPanelScoped = false
         }
-        let statusEntry = pendingAttentionStates.first { pendingTarget, state in
+        let existingState = pendingAttentionStates.first { pendingTarget, state in
             guard pendingTarget.statusKey == statusKey,
                   state.statusOwnerId == owner.id else {
                 return false
             }
             return !statusIsPanelScoped || pendingTarget.panelId == panelId
-        }?.value.statusEntry ?? SidebarStatusEntry(
+        }?.value
+        let statusEntry = existingState?.statusEntry ?? SidebarStatusEntry(
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
             color: "#4C8DFF",
             timestamp: Date()
         )
+        let previousStatusEntry = existingState?.previousStatusEntry
+            ?? owner.statusEntry(key: statusKey, panelId: panelId)
         let fallbackWorkspace: Workspace? = switch owner {
             case .workspace(let workspace): workspace
             case .dock: nil
@@ -1312,6 +1319,7 @@ extension FeedCoordinator {
         pendingAttentionStates[target] = FeedPendingAttentionState(
             fallbackWorkspace: fallbackWorkspace,
             statusEntry: statusEntry,
+            previousStatusEntry: previousStatusEntry,
             statusOwnerId: owner.id,
             statusIsPanelScoped: statusIsPanelScoped,
             processExitMonitorKey: nil
@@ -1463,19 +1471,39 @@ extension FeedCoordinator {
             ) != .needsInput else {
                 return
             }
-            owner.clearStatusEntry(
-                key: target.statusKey,
-                panelId: target.panelId
-            )
+            if processExitGeneration == nil,
+               let previousStatusEntry = pendingState.previousStatusEntry {
+                owner.setStatusEntry(
+                    previousStatusEntry,
+                    key: target.statusKey,
+                    panelId: target.panelId
+                )
+            } else {
+                owner.clearStatusEntry(
+                    key: target.statusKey,
+                    panelId: target.panelId
+                )
+            }
         } else if let fallbackWorkspace,
                   fallbackWorkspace.agentLifecycleStatesByPanelId[
                     target.panelId
                   ]?[target.statusKey] != .needsInput {
-            ControlSidebarPanelOwner.workspace(fallbackWorkspace)
-                .clearStatusEntry(
+            let workspaceOwner = ControlSidebarPanelOwner.workspace(
+                fallbackWorkspace
+            )
+            if processExitGeneration == nil,
+               let previousStatusEntry = pendingState.previousStatusEntry {
+                workspaceOwner.setStatusEntry(
+                    previousStatusEntry,
                     key: target.statusKey,
                     panelId: target.panelId
                 )
+            } else {
+                workspaceOwner.clearStatusEntry(
+                    key: target.statusKey,
+                    panelId: target.panelId
+                )
+            }
         }
     }
 

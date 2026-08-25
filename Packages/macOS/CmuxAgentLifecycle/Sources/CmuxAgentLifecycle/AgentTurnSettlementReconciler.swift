@@ -21,6 +21,12 @@ public nonisolated struct AgentTurnSettlementReconciler: Sendable {
         if evidence.processLiveness == .exited {
             return .terminateWithoutCompletion
         }
+        // A missing or unverifiable process generation cannot prove that the
+        // boundary came from the live owner. Keep the turn conservative until
+        // a later hook supplies reliable live/exited evidence.
+        if evidence.processLiveness == .unknown {
+            return .keepRunning
+        }
         if evidence.activeBackgroundWorkCount > 0 {
             return .keepRunning
         }
