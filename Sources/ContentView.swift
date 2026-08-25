@@ -3031,6 +3031,17 @@ struct ContentView: View {
             tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
         })
 
+        view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
+            for: .browserPortalDidBecomePresentable
+        )) { notification in
+            guard tabManager.workspaceSwitchCoordinator.isMeasuringSwitch,
+                  let webView = notification.object as? WKWebView,
+                  BrowserWindowPortalRegistry.isPresented(webView) else {
+                return
+            }
+            tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didBecomeKeyNotification,
             object: observedWindow

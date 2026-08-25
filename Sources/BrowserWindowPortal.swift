@@ -3717,6 +3717,10 @@ final class WindowBrowserPortal: NSObject {
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
+            NotificationCenter.default.post(
+                name: .browserPortalDidBecomePresentable,
+                object: webView
+            )
             refreshReasons.append("reveal")
         }
         if recoveredFromTransientGeometry {

@@ -100,8 +100,17 @@ struct BrowserWindowPortalRegistryNotificationTests {
         ) { _ in
             notificationCount += 1
         }
+        var presentabilityCount = 0
+        let presentabilityObserver = NotificationCenter.default.addObserver(
+            forName: .browserPortalDidBecomePresentable,
+            object: webView,
+            queue: nil
+        ) { _ in
+            presentabilityCount += 1
+        }
         defer {
             NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(presentabilityObserver)
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
 
@@ -109,6 +118,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
         #expect(notificationCount == 1)
+        #expect(presentabilityCount >= 1)
         #expect(BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)

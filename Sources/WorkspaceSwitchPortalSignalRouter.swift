@@ -17,6 +17,7 @@ final class WorkspaceSwitchPortalSignalRouter {
             .terminalSurfaceHostedViewDidMoveToWindow,
             .terminalPortalDidBecomePresentable,
             .browserPortalRegistryDidChange,
+            .browserPortalDidBecomePresentable,
         ]
         globalObservers = names.map { name in
             notificationCenter.addObserver(

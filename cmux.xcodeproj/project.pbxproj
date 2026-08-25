@@ -2781,6 +2781,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */; };
 		F90070010000000000000001 /* WorkspaceSurfaceOwnershipTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90070010000000000000002 /* WorkspaceSurfaceOwnershipTarget.swift */; };
 		7F245BA846D24B61944ED2CD /* WorkspaceSwitchActiveTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075FE2249C36416D9712FADD /* WorkspaceSwitchActiveTransaction.swift */; };
+		D92310080000000000000001 /* WorkspaceSwitchBrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310080000000000000002 /* WorkspaceSwitchBrowserTests.swift */; };
 		E8343F3749F643A6A152C7D7 /* WorkspaceSwitchContentKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E71C4BDB96436184B07803 /* WorkspaceSwitchContentKind.swift */; };
 		794842D712E04EF6A98A3244 /* WorkspaceSwitchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F9218CC05134C6A9253EFED /* WorkspaceSwitchCoordinator.swift */; };
 		0C42BCB86C8645B3AF6389C4 /* WorkspaceSwitchCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836C60F98574AF29387590E /* WorkspaceSwitchCoordinatorTests.swift */; };
@@ -5601,6 +5602,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceIdentifierClipboardText.swift; sourceTree = "<group>"; };
 		F90070010000000000000002 /* WorkspaceSurfaceOwnershipTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceOwnershipTarget.swift; sourceTree = "<group>"; };
 		075FE2249C36416D9712FADD /* WorkspaceSwitchActiveTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchActiveTransaction.swift; sourceTree = "<group>"; };
+		D92310080000000000000002 /* WorkspaceSwitchBrowserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchBrowserTests.swift; sourceTree = "<group>"; };
 		10E71C4BDB96436184B07803 /* WorkspaceSwitchContentKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchContentKind.swift; sourceTree = "<group>"; };
 		9F9218CC05134C6A9253EFED /* WorkspaceSwitchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchCoordinator.swift; sourceTree = "<group>"; };
 		B836C60F98574AF29387590E /* WorkspaceSwitchCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -8119,6 +8121,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D92310040000000000000002 /* WorkspaceHandoffRetirementGateTests.swift */,
 				D92310050000000000000002 /* WorkspaceSwitchRendererProtectionTests.swift */,
 				D92310070000000000000002 /* WorkspaceSwitchPortalSignalRouterTests.swift */,
+				D92310080000000000000002 /* WorkspaceSwitchBrowserTests.swift */,
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
 				9869000B0000000000000002 /* BrowserOpenTabSuggestionHostTests.swift */,
@@ -11892,6 +11895,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */,
 				F6120000A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift in Sources */,
 				FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
+				D92310080000000000000001 /* WorkspaceSwitchBrowserTests.swift in Sources */,
 				0C42BCB86C8645B3AF6389C4 /* WorkspaceSwitchCoordinatorTests.swift in Sources */,
 				10E2CA6DC2994B2FAB8857EB /* WorkspaceSwitchFrameObservationTests.swift in Sources */,
 				D92310070000000000000001 /* WorkspaceSwitchPortalSignalRouterTests.swift in Sources */,

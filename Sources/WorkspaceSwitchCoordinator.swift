@@ -4,6 +4,7 @@ import WebKit
 
 extension Notification.Name {
     static let terminalPortalDidBecomePresentable = Notification.Name("cmux.terminalPortalDidBecomePresentable")
+    static let browserPortalDidBecomePresentable = Notification.Name("cmux.browserPortalDidBecomePresentable")
 }
 
 /// Records one window's selection, presentation, and input-readiness intervals.
@@ -240,8 +241,8 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func noteBrowserInteractionReady(workspaceID: UUID, webView: WKWebView) {
-        guard active?.targetWebViewID == ObjectIdentifier(webView) else { return }
+    func noteBrowserInteractionReady(workspaceID: UUID, webView _: WKWebView) {
+        guard active?.targetWorkspaceID == workspaceID else { return }
         noteInteractionReady(workspaceID: workspaceID)
     }
 
