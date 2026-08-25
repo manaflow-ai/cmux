@@ -47,6 +47,22 @@ extension CMUXCLI {
         return formatted
     }
 
+    func formatAimedWorkspaceInspectionIDs(
+        _ object: Any,
+        mode: CLIIDFormat,
+        preserveStableIDs: Bool
+    ) -> Any {
+        let preservingIDKinds: Set<String> = preserveStableIDs ? ["workspace"] : []
+        guard let payload = object as? [String: Any] else {
+            return formatIDs(object, mode: mode, preservingIDKinds: preservingIDKinds)
+        }
+        return formatAimedWorkspacePayload(
+            payload,
+            mode: mode,
+            preservingIDKinds: preservingIDKinds
+        )
+    }
+
     /// Serializes a response which already carries its ordinary workspace
     /// identity without applying an ID-format projection (for example,
     /// `read-screen` preserves the full response shape).

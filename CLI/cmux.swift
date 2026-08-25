@@ -8597,15 +8597,7 @@ struct CMUXCLI {
         mode: CLIIDFormat,
         preserveStableIDs: Bool
     ) -> Any {
-        let preservingIDKinds: Set<String> = preserveStableIDs ? ["workspace"] : []
-        guard let payload = object as? [String: Any] else {
-            return formatIDs(object, mode: mode, preservingIDKinds: preservingIDKinds)
-        }
-        return formatAimedWorkspacePayload(
-            payload,
-            mode: mode,
-            preservingIDKinds: preservingIDKinds
-        )
+        formatAimedWorkspaceInspectionIDs(object, mode: mode, preserveStableIDs: preserveStableIDs)
     }
 
     func intFromAny(_ value: Any?) -> Int? {
