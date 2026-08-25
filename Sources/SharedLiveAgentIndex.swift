@@ -1047,9 +1047,15 @@ final class SharedLiveAgentIndex {
     ) async -> [UUID: Set<UUID>] {
         let previousFingerprint = liveAgentProcessFingerprint
         let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
+        let loaded = await Task.detached(priority: .utility) {
+            let result = indexLoader()
+            let changeSet = RestorableAgentSessionIndexChangeSet(
+                previous: previousFingerprint,
+                current: result.liveAgentProcessFingerprint
+            )
+            return (result, changeSet)
         }.value
+        let result = loaded.0
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
             return [:]
@@ -1061,10 +1067,7 @@ final class SharedLiveAgentIndex {
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint {
-            changedPanelIdsByWorkspaceId = RestorableAgentSessionIndexChangeSet(
-                previous: previousFingerprint,
-                current: result.liveAgentProcessFingerprint
-            ).panelIdsByWorkspaceId
+            changedPanelIdsByWorkspaceId = loaded.1.panelIdsByWorkspaceId
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
