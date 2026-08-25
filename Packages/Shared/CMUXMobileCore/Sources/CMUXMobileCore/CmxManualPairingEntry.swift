@@ -5,8 +5,9 @@ import Foundation
 /// (the "Copy IP" / "Copy Port" buttons next to the QR code).
 ///
 /// Selection mirrors the QR's trust rules and the phone's manual-entry needs:
-/// only routes a phone can actually dial qualify (loopback never does, by the
-/// shared ``CmxLoopbackHost`` classifier), Tailscale routes are preferred, and
+/// only routes the manual host flow can actually dial qualify (loopback and
+/// raw LAN never do, by the shared ``CmxLoopbackHost`` classifier and the
+/// encrypted-LAN transport boundary), Tailscale routes are preferred, and
 /// among them a numeric IP literal beats a MagicDNS name because a typed IP
 /// works even when the phone's DNS is not pointed at the tailnet. Ties fall
 /// back to the Mac's own route priority order.
@@ -29,7 +30,7 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
     /// is phone-dialable (no non-loopback `host:port` route at all).
     public static func best(in routes: [CmxAttachRoute]) -> CmxManualPairingEntry? {
         let candidates = routes
-            .filter { !CmxLoopbackHost().matches($0) }
+            .filter { $0.kind != .lan && !CmxLoopbackHost().matches($0) }
             .compactMap { route -> (route: CmxAttachRoute, entry: CmxManualPairingEntry)? in
                 guard case let .hostPort(host, port) = route.endpoint else {
                     return nil

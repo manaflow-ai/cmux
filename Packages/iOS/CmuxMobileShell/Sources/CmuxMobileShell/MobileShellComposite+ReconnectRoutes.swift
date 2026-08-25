@@ -119,17 +119,23 @@ extension MobileShellComposite {
     func captureTransportModeErrorIfNeeded(
         routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
-        macDisplayName: String?
+        macDisplayName: String?,
+        transportMode: CmxTransportMode? = nil
     ) {
-        guard selectedTransportMode.isPinned else { return }
+        let mode = transportMode ?? selectedTransportMode
+        guard mode.isPinned else {
+            lastTransportModeError = nil
+            return
+        }
         let supported = routes.filter {
             supportedKinds.isEmpty || supportedKinds.contains($0.kind)
         }
         do {
-            _ = try CmxTransportModePolicy(selectedTransportMode).routes(
+            _ = try CmxTransportModePolicy(mode).routes(
                 from: supported,
                 macDisplayName: macDisplayName
             )
+            lastTransportModeError = nil
         } catch let error as CmxTransportModeError {
             lastTransportModeError = error
         } catch {
@@ -619,7 +625,6 @@ extension MobileShellComposite {
         func containsDialableRoute(_ routes: [CmxAttachRoute]) -> Bool {
             routes.contains { route in
                 route.kind == .iroh
-                    || route.kind == .lan
                     || route.kind == .debugLoopback
                     || Self.legacyTailscaleAuthorizationEvidence(
                         for: route,
@@ -744,6 +749,9 @@ extension MobileShellComposite {
     /// loopback as either a tail fallback or the sole route would dial the
     /// phone's own `127.0.0.1`, never the saved Mac. Explicit mock/simulator
     /// harnesses pass `false` and retain loopback for their in-process host.
+    /// Raw `.lan` routes are excluded at this host/port boundary because LAN
+    /// Only uses the encrypted Iroh route and the plaintext factory rejects
+    /// direct LAN sockets.
     static func reconnectHostPortRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -768,6 +776,7 @@ extension MobileShellComposite {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
                     continue
                 }
+                guard route.kind != .lan else { continue }
                 guard predicate(route),
                       case let .hostPort(host, port) = route.endpoint else {
                     continue

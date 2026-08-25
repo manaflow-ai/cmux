@@ -2936,7 +2936,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
                 || localRoutes.contains { $0.kind == .debugLoopback }
-                || localRoutes.contains { $0.kind == .lan }
                 || localRoutes.contains { route in
                     Self.legacyTailscaleAuthorizationEvidence(
                         for: route,
@@ -3933,7 +3932,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let localHasIroh = candidateRoutes.contains { $0.kind == .iroh }
         let localCanConnectSecurely = localHasIroh
             || candidateRoutes.contains { $0.kind == .debugLoopback }
-            || candidateRoutes.contains { $0.kind == .lan }
             || candidateRoutes.contains { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -4836,7 +4834,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticket: CmxAttachTicket
         let route: CmxAttachRoute
         let legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence?
-        if firstRoute.kind == .iroh || firstRoute.kind == .lan {
+        if firstRoute.kind == .iroh {
             do {
                 ticket = try Self.storedMacTicket(
                     name: mac.displayName ?? mac.macDeviceID,

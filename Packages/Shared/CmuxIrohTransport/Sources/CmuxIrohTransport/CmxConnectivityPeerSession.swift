@@ -205,13 +205,18 @@ actor CmxConnectivityPeerSession {
                 )
             }
 
-            let revision = lifecycleRevision
             let pending: PendingConnection
             if let pendingConnection,
                Self.sameTransportPolicy(pendingConnection.request, request) {
                 pending = pendingConnection
             } else {
                 if pendingConnection != nil {
+                    // A different transport policy supersedes the pending
+                    // dial. Advance the generation before cancellation so a
+                    // non-cooperative FFI dial that completes later cannot
+                    // pass its waiter revision check and install stale
+                    // credentials or path constraints.
+                    lifecycleRevision &+= 1
                     retirePendingConnection()
                 }
                 connectionGeneration &+= 1
@@ -231,6 +236,10 @@ actor CmxConnectivityPeerSession {
                 pendingConnection = pending
                 publishSnapshot()
             }
+            // Capture the revision after any pending-policy replacement above.
+            // The new dial is authoritative for this generation; using the
+            // pre-replacement value would reject the replacement itself.
+            let revision = lifecycleRevision
 
             let connected: any CmxConnectivitySession
             do {

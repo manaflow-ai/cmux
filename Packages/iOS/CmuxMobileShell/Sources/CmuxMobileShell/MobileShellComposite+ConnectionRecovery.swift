@@ -744,6 +744,7 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
         // Direct and Tailscale Only ride the Iroh lane below: identity-checked
         // and encrypted, with transport admission as the single auth
         // authority. The method's addresses (user-enabled Direct entries, or
@@ -760,9 +761,14 @@ extension MobileShellComposite {
             knownPairing: knownPairing
         ) ?? (resolvedMethod == .direct ? [] : nil)
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
+            captureTransportModeErrorIfNeeded(
+                routes: [],
+                supportedKinds: supportedKinds,
+                macDisplayName: name,
+                transportMode: resolvedMethod.transportMode
+            )
             return .failed(.unsupportedRoute)
         }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
         var pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
@@ -780,7 +786,15 @@ extension MobileShellComposite {
             // lane: the allowlist constrains the Iroh dial exclusively.
             pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
         }
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard let firstRoute = pinnedRoutes.first else {
+            captureTransportModeErrorIfNeeded(
+                routes: [],
+                supportedKinds: supportedKinds,
+                macDisplayName: name,
+                transportMode: resolvedMethod.transportMode
+            )
+            return .failed(.unsupportedRoute)
+        }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
@@ -792,7 +806,6 @@ extension MobileShellComposite {
             ) != nil
         }
         if firstRoute.kind == .iroh
-            || firstRoute.kind == .lan
             || hasAuthorizedLegacyTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(

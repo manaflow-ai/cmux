@@ -38,6 +38,34 @@ extension MobileShellComposite {
             ?? .automatic
     }
 
+    /// Returns whether a live foreground session should be replaced when the
+    /// app-wide default changes. An explicit per-Computer override owns that
+    /// pairing's policy and therefore makes a global default change irrelevant.
+    func shouldRecoverForegroundForDefaultMethodChange(
+        liveTransportMode: CmxTransportMode?,
+        newDefaultTransportMode: CmxTransportMode,
+        hasExplicitPairingOverride: Bool
+    ) -> Bool {
+        guard !hasExplicitPairingOverride,
+              let liveTransportMode else {
+            return false
+        }
+        return liveTransportMode != newDefaultTransportMode
+    }
+
+    private var foregroundHasExplicitConnectionMethodOverride: Bool {
+        guard let macDeviceID = foregroundMacDeviceID ?? activeTicket?.macDeviceID,
+              !macDeviceID.isEmpty else {
+            return false
+        }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        return pairedMacsForIdentityMatching.contains { pairing in
+            cmxCanonicalDeviceID(pairing.macDeviceID) == canonicalDeviceID
+                && pairing.instanceTag == activeMacInstanceTag
+                && pairing.storedConnectionMethod != nil
+        }
+    }
+
     /// Persist the per-Computer connection method and, when the change affects
     /// the foreground Mac, replace the live connection so the new method takes
     /// effect immediately instead of on the next dial.
@@ -152,12 +180,13 @@ extension MobileShellComposite {
         }
     }
 
-    /// Zero-touch discovery yields Iroh candidates only. It is pointless when
-    /// the app default is pinned to LAN/Tailscale and every stored pairing is
-    /// pinned too; an Auto, iroh-only, or Direct pairing keeps discovery alive.
+    /// Zero-touch discovery yields Iroh candidates only. Tailscale-only mode
+    /// intentionally disables it because Iroh is outside that policy. LAN-only
+    /// still needs an Iroh identity as its encrypted bootstrap, so discovery
+    /// remains available for a first pairing or a stale route set.
     var zeroTouchIrohDiscoveryDisabled: Bool {
         guard let defaultMethod = connectionMethodStore?.method,
-              defaultMethod == .tailscale || defaultMethod == .lan else {
+              defaultMethod == .tailscale else {
             return false
         }
         return pairedMacs.allSatisfy {
@@ -178,7 +207,13 @@ extension MobileShellComposite {
                 guard let self, !Task.isCancelled else { return }
                 guard method != observedMethod else { continue }
                 observedMethod = method
-                self.recoverMobileConnection(trigger: .connectionMethodChanged)
+                if self.shouldRecoverForegroundForDefaultMethodChange(
+                    liveTransportMode: self.remoteClient?.transportMode,
+                    newDefaultTransportMode: method.transportMode,
+                    hasExplicitPairingOverride: self.foregroundHasExplicitConnectionMethodOverride
+                ) {
+                    self.recoverMobileConnection(trigger: .connectionMethodChanged)
+                }
                 // Pairings without an override inherit this shared default.
                 // Reconcile warm secondary clients immediately so their
                 // immutable transport requests do not outlive the setting.
