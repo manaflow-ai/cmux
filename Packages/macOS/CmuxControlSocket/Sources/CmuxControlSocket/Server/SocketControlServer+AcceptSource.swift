@@ -152,7 +152,10 @@ extension SocketControlServer {
     /// re-fire on a hot errno; those re-fires return here without counting
     /// or emitting, matching the legacy cadence where the source was already
     /// suspended by this point.
-    private nonisolated func handleAcceptFailure(
+    // Internal for the package's deterministic state-machine coverage. The
+    // test drives this same recovery decision after binding a real listener;
+    // it does not bypass path ownership or connection authentication.
+    nonisolated func handleAcceptFailure(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32
