@@ -247,10 +247,12 @@ extension TerminalSurface {
                 )
             surfaceCallbackContext = callbackContext
         }
-        surfaceView.prepareForRuntimeSurfaceCreation(
+        let runtimeGeneration = surfaceView.prepareForRuntimeSurfaceCreation(
             runtimeLifetimeId: callbackContext
                 .takeUnretainedValue().runtimeLifetimeId
         )
+        callbackContext.takeUnretainedValue()
+            .installPointerIngressGeneration(runtimeGeneration)
         surface = runtimeSurface
         _ = callbackContext.takeUnretainedValue()
             .bindRuntimeClipboardSurface(

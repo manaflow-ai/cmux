@@ -2949,13 +2949,15 @@ class GhosttyApp {
     private func enqueueTerminalPointerStyleEvent(
         _ event: GhosttyPointerStyleIngressEvent,
         runtimeLifetimeId: UUID,
+        runtimeGeneration: UInt64,
         surfaceView: GhosttyNSView,
         surfaceId: UUID
     ) {
         surfaceView.pointerStyleIngress?.submit(.init(
             event: event,
             surfaceId: surfaceId,
-            runtimeLifetimeId: runtimeLifetimeId
+            runtimeLifetimeId: runtimeLifetimeId,
+            runtimeGeneration: runtimeGeneration
         ))
     }
 
@@ -3103,6 +3105,7 @@ class GhosttyApp {
                 enqueueTerminalPointerStyleEvent(
                     .runtimeReset,
                     runtimeLifetimeId: callbackContext.runtimeLifetimeId,
+                    runtimeGeneration: callbackContext.runtimeGeneration,
                     surfaceView: surfaceView,
                     surfaceId: actionSurfaceId
                 )
@@ -3227,6 +3230,7 @@ class GhosttyApp {
             enqueueTerminalPointerStyleEvent(
                 .shape(shape),
                 runtimeLifetimeId: callbackContext.runtimeLifetimeId,
+                runtimeGeneration: callbackContext.runtimeGeneration,
                 surfaceView: surfaceView,
                 surfaceId: actionSurfaceId
             )
@@ -3240,6 +3244,7 @@ class GhosttyApp {
                 enqueueTerminalPointerStyleEvent(
                     .linkHover(action.action.mouse_over_link.len > 0),
                     runtimeLifetimeId: callbackContext.runtimeLifetimeId,
+                    runtimeGeneration: callbackContext.runtimeGeneration,
                     surfaceView: surfaceView,
                     surfaceId: actionSurfaceId
                 )
@@ -3678,29 +3683,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pointerStyleRuntimeLifetimeId: UUID?
     private var suppressGhosttyPointerUntilFreshShape = false
     private var pointerStyleFocusGeneration: UInt64 = 0
+    private var pointerStyleRefreshFocusGeneration: UInt64?
 
     /// Replays the current pointer position once after focus returns so a
     /// stationary OSC 8 link can restore its hover cursor without waiting for
     /// another mouse-move event.
     private func reconcileGhosttyPointerStyleAfterFocus() -> Bool {
         guard suppressGhosttyPointerUntilFreshShape,
-              terminalPointerStyle.focused else {
+              terminalPointerStyle.focused,
+              pointerStyleRefreshFocusGeneration != pointerStyleFocusGeneration,
+              let surface else {
             return false
         }
-        suppressGhosttyPointerUntilFreshShape = false
-        guard let surface else { return true }
-        guard let point = preferredPointerPoint() else { return true }
+        pointerStyleRefreshFocusGeneration = pointerStyleFocusGeneration
         let modifierFlags = NSEvent.modifierFlags
+        let hoverMods = hoverModsFromFlags(
+            modifierFlags,
+            suppressCommandPathHover: shouldSuppressCommandPathHover(
+                for: modifierFlags
+            )
+        )
+        // Force Ghostty to leave its cached cell before replaying the actual
+        // pointer position. A stationary pointer otherwise may be treated as
+        // a duplicate and produce no fresh shape/link callback.
+        ghostty_surface_mouse_pos(surface, -1, -1, hoverMods)
+        guard let point = preferredPointerPoint() else { return true }
         ghostty_surface_mouse_pos(
             surface,
             point.x,
             bounds.height - point.y,
-            hoverModsFromFlags(
-                modifierFlags,
-                suppressCommandPathHover: shouldSuppressCommandPathHover(
-                    for: modifierFlags
-                )
-            )
+            hoverMods
         )
         return true
     }
@@ -3722,6 +3734,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             didGainFocus = focused && didChangeFocus
             if didChangeFocus {
                 pointerStyleFocusGeneration &+= 1
+                pointerStyleRefreshFocusGeneration = nil
             }
             if !focused, terminalPointerStyle.ghosttyLinkHoverActive {
                 suppressGhosttyPointerUntilFreshShape = true
@@ -3731,6 +3744,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
+           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
+            suppressGhosttyPointerUntilFreshShape = false
+        }
+        if case .ghosttyLinkHoverChanged(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
             suppressGhosttyPointerUntilFreshShape = false
         }
@@ -4758,14 +4775,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {
+    @discardableResult
+    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) -> UInt64 {
         pointerStyleRuntimeLifetimeId = runtimeLifetimeId
         suppressGhosttyPointerUntilFreshShape = false
-        pointerStyleIngress?.activate(
+        pointerStyleRefreshFocusGeneration = nil
+        let runtimeGeneration = pointerStyleIngress?.activate(
             runtimeLifetimeId: runtimeLifetimeId,
             surfaceId: terminalSurface?.id ?? UUID()
-        )
+        ) ?? 0
         applyTerminalPointerStyle(.runtimeActivated(runtimeLifetimeId))
+        return runtimeGeneration
     }
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
