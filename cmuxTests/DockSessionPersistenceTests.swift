@@ -619,6 +619,61 @@ struct DockSessionPersistenceTests {
             bindingIndex.bindingForStablePanel(workspaceId: firstOwnerID, panelId: panelID)?
                 .checkpointId == firstSessionID
         )
+
+        let newestOwnerID = UUID()
+        let newestSessionID = UUID().uuidString
+        try writeCodexHookStore(
+            directory: hookStateDirectory,
+            sessions: [
+                firstSessionID: codexHookRecord(
+                    sessionID: firstSessionID,
+                    workspaceID: firstOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+                secondSessionID: codexHookRecord(
+                    sessionID: secondSessionID,
+                    workspaceID: secondOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+                newestSessionID: codexHookRecord(
+                    sessionID: newestSessionID,
+                    workspaceID: newestOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 300
+                ),
+            ]
+        )
+        let newestAgentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        #expect(newestAgentIndex.entry(panelId: panelID)?.snapshot.sessionId == newestSessionID)
+        let newestBindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            .init(workspaceId: firstOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: firstSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+            .init(workspaceId: secondOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: secondSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+            .init(workspaceId: newestOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: newestSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 300
+            ),
+        ])
+        #expect(newestBindingIndex.binding(panelId: panelID)?.checkpointId == newestSessionID)
     }
 
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")
