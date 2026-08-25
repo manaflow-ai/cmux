@@ -40848,8 +40848,7 @@ mod tests {
 
     #[test]
     fn workspace_sidebar_preview_commits_when_pane_is_clicked() {
-        let mux =
-            Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
+        let mux = Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
         let workspace_tree = Session::Local(mux.clone()).tree();
@@ -40885,10 +40884,8 @@ mod tests {
             .expect("previewed pane area");
         assert!(area.content.width > 2 && area.content.height > 2);
 
-        let click = (
-            area.content.x + area.content.width / 2,
-            area.content.y + area.content.height / 2,
-        );
+        let click =
+            (area.content.x + area.content.width / 2, area.content.y + area.content.height / 2);
         app.handle_left_down(click.0, click.1, KeyModifiers::NONE).unwrap();
 
         assert_eq!(app.workspace_preview, None);
