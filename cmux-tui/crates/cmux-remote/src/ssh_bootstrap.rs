@@ -726,7 +726,7 @@ mod tests {
         assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
         assert!(command.contains("cat >&3"));
         assert!(command.contains("chmod 755 -- ~/.local/bin/.cmux-upload-test/payload"));
-        assert!(!command.contains("cat >"));
+        assert!(!command.contains("cat > ~/.local/bin"));
     }
 
     #[test]
