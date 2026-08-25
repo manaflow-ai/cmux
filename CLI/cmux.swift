@@ -403,6 +403,13 @@ final class ClaudeHookSessionStore {
                 record.autoNameTitleReconciliationAttemptCount = nil
                 record.autoNameTitleReconciliationEpochLineCount = nil
             }
+            if isTranscriptReconciliation,
+               record.autoNameTitleReconciliationEpochLineCount == nil {
+                // Ordinary transcript-shrink reconciliation has no explicit
+                // compact hook, so persist its first compacted progress marker
+                // just like the durable Claude compact path.
+                record.autoNameTitleReconciliationEpochLineCount = transcriptLineCount
+            }
             let observationGeneration: String?
             switch decision {
             case .proceed where allowNewTitleGeneration, .reseedBaseline:
