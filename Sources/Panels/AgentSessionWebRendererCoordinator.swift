@@ -727,11 +727,13 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             return
         }
 
-        _ = location.workspace.newBrowserSurface(
-            inPane: paneId,
-            url: url,
-            focus: true
-        )
+        _ = location.workspace.withNewTabZoomPolicy(inPane: paneId) {
+            location.workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: true
+            )
+        }
     }
 
     private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {

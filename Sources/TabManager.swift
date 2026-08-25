@@ -3934,12 +3934,12 @@ class TabManager: ObservableObject {
         initialInput: String? = nil
     ) -> TerminalPanel? {
         guard let focusedPaneId = workspace.bonsplitController.focusedPaneId else { return nil }
-        return workspace.withNewTabZoomPolicy(inPane: focusedPaneId) {
-            workspace.newTerminalSurfaceInFocusedPane(
+        return workspace.withNewTerminalTabZoomPolicy(inPane: focusedPaneId) {
+            workspace.newTerminalSurfaceInFocusedPaneOutcome(
                 focus: true,
                 initialInput: initialInput
             )
-        }
+        }.panel
     }
 
     // MARK: - Split Creation

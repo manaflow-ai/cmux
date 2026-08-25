@@ -41,7 +41,9 @@ extension Workspace: TerminalLinkOpenContainer {
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+            return withNewTabZoomPolicy(inPane: targetPane) {
+                newBrowserSurface(inPane: targetPane, url: url, focus: true)
+            } != nil
         }
         return newBrowserSplit(
             from: target.containerPanelID,
