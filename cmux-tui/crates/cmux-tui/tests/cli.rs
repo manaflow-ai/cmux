@@ -4060,8 +4060,7 @@ impl PipeIoRelay {
     }
 
     fn send_resize(&mut self, cols: u16, rows: u16) {
-        let line =
-            format!("{}\n", serde_json::json!({ "resize": { "cols": cols, "rows": rows } }));
+        let line = format!("{}\n", serde_json::json!({ "resize": { "cols": cols, "rows": rows } }));
         self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
     }
 

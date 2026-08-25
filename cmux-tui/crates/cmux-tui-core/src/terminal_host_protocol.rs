@@ -792,7 +792,7 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{Arc, Mutex, mpsc};
 
     /// Test-only stand-in for a direct pipe reader. The bounded queue models
     /// the byte pump, while the mutex is the single parser owner.
