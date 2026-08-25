@@ -1,4 +1,5 @@
 import CmuxArtifacts
+import Foundation
 import SwiftUI
 
 /// Immutable project-file tree/search row.
@@ -40,7 +41,19 @@ struct ArtifactSidebarRowView: View {
         .contextMenu {
             contextMenu
         }
-        .draggable(snapshot.fileURL)
+        .onDrag {
+            guard let projectRoot = snapshot.projectRoot,
+                  let validatedURL = ArtifactSidebarFileAccess().validatedFileURL(
+                      for: snapshot.fileURL,
+                      artifactRoot: projectRoot.appendingPathComponent(
+                          ".cmux",
+                          isDirectory: true
+                      )
+                  ) else {
+                return NSItemProvider()
+            }
+            return NSItemProvider(object: validatedURL as NSURL)
+        }
         .accessibilityIdentifier("ArtifactSidebarRow.\(snapshot.id)")
     }
 

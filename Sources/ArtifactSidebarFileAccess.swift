@@ -8,7 +8,10 @@ struct ArtifactSidebarFileAccess {
     /// Keeps the descriptor that passed artifact-root validation alive while a
     /// preview or diff reader consumes the file. `/dev/fd` refers to this
     /// descriptor, so replacing the original pathname cannot redirect reads.
-    final class OpenedFile {
+    /// Descriptor-backed state is safe to pass between tasks: URLs are
+    /// immutable values and every read operation duplicates the private file
+    /// descriptor before seeking, so callers never share a mutable offset.
+    final class OpenedFile: @unchecked Sendable {
         let sourceURL: URL
         let artifactRoot: URL
         private let descriptor: Int32
@@ -88,7 +91,9 @@ struct ArtifactSidebarFileAccess {
                   Int64(data.count) <= maximumBytes else {
                 return nil
             }
-            guard let temporaryDirectory = privatePreviewDirectory() else {
+            guard let temporaryDirectory = privatePreviewDirectory(
+                reservingBytes: Int64(data.count)
+            ) else {
                 return nil
             }
             let temporaryURL = temporaryDirectory
@@ -117,7 +122,15 @@ struct ArtifactSidebarFileAccess {
             }
         }
 
-        private static func privatePreviewDirectory() -> URL? {
+        private static func privatePreviewDirectory(
+            reservingBytes: Int64
+        ) -> URL? {
+            let maximumFileCount = 256
+            let maximumByteCount: Int64 = 256 * 1024 * 1024
+            guard reservingBytes >= 0,
+                  reservingBytes <= maximumByteCount else {
+                return nil
+            }
             let directory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-artifact-previews", isDirectory: true)
             if mkdir(directory.path, S_IRWXU) != 0, errno != EEXIST {
@@ -131,6 +144,37 @@ struct ArtifactSidebarFileAccess {
                 return nil
             }
             reclaimStalePreviewFiles(in: directory)
+            guard let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            ) else {
+                return nil
+            }
+            let directoryPath = directory.standardizedFileURL.path
+            var activeCount = 0
+            var activeBytes: Int64 = 0
+            for case let entry as URL in enumerator {
+                guard entry.deletingLastPathComponent().standardizedFileURL.path == directoryPath,
+                      entry.lastPathComponent.hasPrefix("cmux-artifact-") else {
+                    continue
+                }
+                var entryStatus = stat()
+                guard lstat(entry.path, &entryStatus) == 0,
+                      (entryStatus.st_mode & S_IFMT) == S_IFREG,
+                      entryStatus.st_size >= 0 else {
+                    continue
+                }
+                activeCount += 1
+                let size = Int64(entryStatus.st_size)
+                activeBytes = activeBytes > maximumByteCount - size
+                    ? maximumByteCount
+                    : activeBytes + size
+            }
+            guard activeCount < maximumFileCount,
+                  activeBytes <= maximumByteCount - reservingBytes else {
+                return nil
+            }
             return directory
         }
 
@@ -228,6 +272,20 @@ struct ArtifactSidebarFileAccess {
     /// the resolved project artifact root.
     func validatedFileURL(for sourceURL: URL, artifactRoot: URL) -> URL? {
         openedFile(for: sourceURL, artifactRoot: artifactRoot)?.sourceURL
+    }
+
+    /// Performs descriptor validation off the main actor for virtualized rows
+    /// and refresh tasks.
+    func openedFileAsync(
+        for sourceURL: URL,
+        artifactRoot: URL
+    ) async -> OpenedFile? {
+        await Task.detached(priority: .utility) {
+            ArtifactSidebarFileAccess().openedFile(
+                for: sourceURL,
+                artifactRoot: artifactRoot
+            )
+        }.value
     }
 
     /// Returns a descriptor-validated regular-file or directory URL for Finder.

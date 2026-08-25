@@ -1133,6 +1133,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 return
             }
             self.artifactReadCopyURL = temporaryURL
+            self.previewRevisionState.increment()
             _ = self.prepareContentForPreviewMode()
         }
     }

@@ -145,6 +145,7 @@ extension LocalArtifactRepository: NoteStoring {
     @discardableResult
     public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
+        try validateStoreForReading(paths: paths)
         let resolver = noteResolver
         let expectedFilesystemRootPath = ArtifactPathResolver(fileManager: fileManager)
             .canonicalPath(paths.filesystemRoot)

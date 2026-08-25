@@ -53,17 +53,14 @@ struct ArtifactSidebarThumbnailView: View {
         guard kind == .image || kind == .video else {
             return
         }
-        let openedFile: ArtifactSidebarFileAccess.OpenedFile?
         let temporaryURL: URL?
         if let artifactRoot {
-            openedFile = nil
             temporaryURL = await ArtifactSidebarFileAccess().makeTemporaryPreviewURLAsync(
                 for: fileURL,
                 artifactRoot: artifactRoot
             )
             guard let temporaryURL else { return }
         } else {
-            openedFile = nil
             temporaryURL = nil
         }
         defer {
@@ -72,7 +69,7 @@ struct ArtifactSidebarThumbnailView: View {
             }
         }
         let request = QLThumbnailGenerator.Request(
-            fileAt: temporaryURL ?? openedFile?.sourceURL ?? fileURL,
+            fileAt: temporaryURL ?? fileURL,
             size: CGSize(width: 48, height: 48),
             scale: NSScreen.main?.backingScaleFactor ?? 2,
             representationTypes: [.thumbnail, .icon]
