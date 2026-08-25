@@ -12,64 +12,6 @@ import Testing
 @testable import cmux
 #endif
 
-extension TabManager {
-    /// Test-fixture convenience that keeps production callers on the optional,
-    /// nontrapping workspace-acquisition boundary.
-    @discardableResult
-    func addWorkspace(
-        id: UUID? = nil,
-        title: String? = nil,
-        titleSource: Workspace.CustomTitleSource = .user,
-        workingDirectory: String? = nil,
-        initialSurface: NewWorkspaceInitialSurface = .terminal,
-        initialTerminalCommand: String? = nil,
-        initialTerminalInput: String? = nil,
-        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        initialTerminalEnvironment: [String: String] = [:],
-        initialBrowserURL: URL? = nil,
-        initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
-        workspaceEnvironment: [String: String] = [:],
-        inheritWorkingDirectory: Bool = true,
-        select: Bool = true,
-        eagerLoadTerminal: Bool = false,
-        placementOverride: WorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true,
-        autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        applyCreationTitleAsCustomTitle: Bool = true,
-        allowTextBoxFocusDefault: Bool = true
-    ) -> Workspace {
-        guard let workspace = addWorkspaceIfActive(
-            id: id,
-            title: title,
-            titleSource: titleSource,
-            workingDirectory: workingDirectory,
-            initialSurface: initialSurface,
-            initialTerminalCommand: initialTerminalCommand,
-            initialTerminalInput: initialTerminalInput,
-            initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-            initialTerminalEnvironment: initialTerminalEnvironment,
-            initialBrowserURL: initialBrowserURL,
-            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceEnvironment: workspaceEnvironment,
-            inheritWorkingDirectory: inheritWorkingDirectory,
-            select: select,
-            eagerLoadTerminal: eagerLoadTerminal,
-            placementOverride: placementOverride,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
-            autoRefreshMetadata: autoRefreshMetadata,
-            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
-        ) else {
-            preconditionFailure("Test fixture cannot create a workspace on a finalized manager")
-        }
-        return workspace
-    }
-}
-
 extension Workspace {
     /// Test-fixture convenience for active workspaces whose Dock is expected to
     /// be available. Lifecycle tests that exercise retirement use `dockSplit`

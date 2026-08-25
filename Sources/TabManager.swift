@@ -1531,6 +1531,68 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Legacy nonoptional workspace-creation compatibility API.
+    ///
+    /// New callers should use ``addWorkspaceIfActive(...)`` and handle a
+    /// finalized manager explicitly. This spelling remains for existing
+    /// synchronous callers whose contract requires an active window manager;
+    /// violating that contract is a programmer error and traps rather than
+    /// manufacturing a workspace owned by a closed window.
+    @available(*, deprecated, message: "Use addWorkspaceIfActive(...) for lifecycle-safe creation")
+    @discardableResult
+    func addWorkspace(
+        id: UUID? = nil,
+        title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
+        workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialTerminalEnvironment: [String: String] = [:],
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
+        select: Bool = true,
+        eagerLoadTerminal: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        autoRefreshMetadata: Bool = true,
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        applyCreationTitleAsCustomTitle: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
+    ) -> Workspace {
+        guard let workspace = addWorkspaceIfActive(
+            id: id,
+            title: title,
+            titleSource: titleSource,
+            workingDirectory: overrideWorkingDirectory,
+            initialSurface: initialSurface,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
+            initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            workspaceEnvironment: workspaceEnvironment,
+            inheritWorkingDirectory: inheritWorkingDirectory,
+            select: select,
+            eagerLoadTerminal: eagerLoadTerminal,
+            placementOverride: placementOverride,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            autoRefreshMetadata: autoRefreshMetadata,
+            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+        ) else {
+            preconditionFailure("Legacy addWorkspace requires an active window manager")
+        }
+        return workspace
+    }
+
     /// Restores the startup invariant when the workspace collection is empty.
     @discardableResult
     func recoverEmptyWorkspaceAfterStartupIfNeeded() -> Bool {
