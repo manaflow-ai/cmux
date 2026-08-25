@@ -485,6 +485,7 @@ final class SharedLiveAgentIndex {
         currentWorkspaceIDByPanelID: [UUID: UUID],
         force: Bool = false
     ) {
+        guard sidebarProcessMonitoringEnabled else { return }
         ensureWatchingHookStoreDirectory()
         guard let cachedIndex = index else {
             scheduleRefreshIfStale()
@@ -662,6 +663,7 @@ final class SharedLiveAgentIndex {
         panelIDs: Set<UUID>,
         workspaceIDByPanelID: [UUID: UUID] = [:]
     ) {
+        guard sidebarProcessMonitoringEnabled else { return }
         guard let index else { return }
         for panelID in panelIDs {
             guard let workspaceID = workspaceIDByPanelID[panelID],
@@ -683,7 +685,7 @@ final class SharedLiveAgentIndex {
         panelID: UUID? = nil,
         workspaceID: UUID? = nil
     ) {
-        guard pid > 0 else { return }
+        guard sidebarProcessMonitoringEnabled, pid > 0 else { return }
         if let panelID {
             sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
             if let workspaceID {

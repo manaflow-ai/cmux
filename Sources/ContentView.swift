@@ -11720,6 +11720,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onDisappear {
+            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
             workspaceSnapshotRefreshCoalescer.cancel()
         }
     }
