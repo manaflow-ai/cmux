@@ -115,7 +115,7 @@ ALLOWANCES = (
         "function-local, single-shot UI-test deadline",
     ),
     Allowance(
-        "Sources/Panels/MarkdownRemoteImageLoader.swift",
+        "Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/MarkdownViewer/MarkdownRemoteImageLoader.swift",
         "timeoutWorkItem",
         "DispatchWorkItem?",
         "member:MarkdownPinnedRemoteImageLoader",
