@@ -41,9 +41,13 @@ function doneEvents() {
   return events.filter((evt) => evt.kind === "done");
 }
 
+function currentStatus(): SessionStatus {
+  return sess.status;
+}
+
 send({ type: "agent_start" });
 send({ type: "agent_end", willRetry: true });
-if (sess.status !== "running") throw new Error(`retrying Pi run should remain running, got ${sess.status}`);
+if (currentStatus() !== "running") throw new Error(`retrying Pi run should remain running, got ${currentStatus()}`);
 if (doneEvents().length !== 0) throw new Error("agent_end with a retry should not finalize the turn");
 if (piNextSendTypeForTest(sess) !== "steer") throw new Error("message before settlement should steer the active turn");
 if ((piAdapter as any).attributionMode(sess) !== "current-turn") {
@@ -52,11 +56,11 @@ if ((piAdapter as any).attributionMode(sess) !== "current-turn") {
 
 send({ type: "agent_start" });
 send({ type: "agent_end", willRetry: false });
-if (sess.status !== "running") throw new Error(`unsettled Pi run should remain running, got ${sess.status}`);
+if (currentStatus() !== "running") throw new Error(`unsettled Pi run should remain running, got ${currentStatus()}`);
 if (doneEvents().length !== 0) throw new Error("agent_end before settlement should not emit done");
 
 send({ type: "agent_settled" });
-if (sess.status !== "idle") throw new Error(`settled Pi run should become idle, got ${sess.status}`);
+if (currentStatus() !== "idle") throw new Error(`settled Pi run should become idle, got ${currentStatus()}`);
 const done = doneEvents();
 if (done.length !== 1) throw new Error(`settlement should emit exactly one done, got ${JSON.stringify(events)}`);
 if ((done[0] as AgentEvent & { generation?: number }).generation !== 7) {
