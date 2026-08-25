@@ -19,6 +19,20 @@ import struct CmuxSettings.AccountCatalogSection
 import struct CmuxSettings.AppCatalogSection
 import struct CmuxSettings.FileRouteSettingsStore
 
+private extension NSView {
+    func firstDescendantOrSelf(matching predicate: (NSView) -> Bool) -> NSView? {
+        if predicate(self) {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.firstDescendantOrSelf(matching: predicate) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -799,23 +813,6 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
             return nil
         }
-    }
-
-    private static func firstSubview(
-        in view: NSView,
-        matching predicate: (NSView) -> Bool
-    ) -> NSView? {
-        if predicate(view) {
-            return view
-        }
-
-        for subview in view.subviews {
-            if let match = firstSubview(in: subview, matching: predicate) {
-                return match
-            }
-        }
-
-        return nil
     }
 
     private static func firstCapturableTitlebarPoint(
@@ -1906,8 +1903,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         window.displayIfNeeded()
         hostingView.layoutSubtreeIfNeeded()
 
-        guard let dragHandle = Self.firstSubview(
-            in: hostingView,
+        guard let dragHandle = hostingView.firstDescendantOrSelf(
             matching: { $0.identifier == WindowDragHandleView.viewIdentifier }
         ) else {
             XCTFail("Expected right-sidebar mode bar to install a titlebar drag handle")
@@ -1942,6 +1938,85 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         XCTAssertEqual(window.zoomCallCount, 1)
         XCTAssertEqual(window.miniaturizeCallCount, 0)
+    }
+}
+
+@MainActor
+@Suite("Explicit window drag regions")
+struct ExplicitWindowDragRegionTests {
+    @Test func explicitRegionOwnsLeftMouseDownOverItsInteractiveBackground() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let interactiveBackground = NSButton(frame: container.bounds)
+        container.addSubview(interactiveBackground)
+
+        let point = NSPoint(x: 110, y: 40)
+        #expect(
+            !windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown
+            ),
+            "Titlebar drag handles should continue yielding to interactive sibling content."
+        )
+        #expect(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                yieldsToSiblingHits: false
+            ),
+            "An explicit blank-area drag region should own left mouse-down even when its SwiftUI background is interactive."
+        )
+    }
+
+    @Test func explicitRegionCanPreserveItsExistingDoubleClickAction() throws {
+        _ = NSApplication.shared
+        var doubleClickCount = 0
+        let rootView = WindowDragHandleView(
+            yieldsToSiblingHits: false,
+            onDoubleClick: { doubleClickCount += 1 }
+        )
+        .frame(width: 220, height: 80)
+
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 220, height: 80)
+        let window = NSWindow(
+            contentRect: hostingView.bounds,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        let dragHandle = try #require(hostingView.firstDescendantOrSelf(
+            matching: { $0.identifier == WindowDragHandleView.viewIdentifier }
+        ))
+        let pointInWindow = dragHandle.convert(
+            NSPoint(x: dragHandle.bounds.midX, y: dragHandle.bounds.midY),
+            to: nil
+        )
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 2,
+            pressure: 1
+        ))
+
+        NSApp.sendEvent(event)
+
+        #expect(doubleClickCount == 1)
     }
 }
 
