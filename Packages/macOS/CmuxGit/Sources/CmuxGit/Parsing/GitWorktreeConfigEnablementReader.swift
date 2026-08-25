@@ -21,6 +21,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         var enabled = false
         var objectFormatSHA256 = false
         var failed = false
+        let reftableSentinel = isReftableSentinel(repository: repository)
         for rootURL in rootURLs {
             process(
                 at: rootURL,
@@ -30,6 +31,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 remainingByteCount: &remainingByteCount,
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
+                reftableSentinel: reftableSentinel,
                 failed: &failed
             )
             if failed { return false }
@@ -47,6 +49,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         var enabled = false
         var objectFormatSHA256 = false
         var failed = false
+        let reftableSentinel = isReftableSentinel(repository: repository)
         for rootURL in rootURLs {
             process(
                 at: rootURL,
@@ -56,6 +59,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 remainingByteCount: &remainingByteCount,
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
+                reftableSentinel: reftableSentinel,
                 failed: &failed
             )
             if failed { return false }
@@ -71,6 +75,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         remainingByteCount: inout Int,
         enabled: inout Bool,
         objectFormatSHA256: inout Bool,
+        reftableSentinel: Bool,
         failed: inout Bool
     ) {
         let configURL = rawURL.standardizedFileURL
@@ -107,6 +112,11 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                             repository: repository,
                             configURL: configURL
                         )
+                        if !includeSection,
+                           reftableSentinel,
+                           condition.lowercased().hasPrefix("onbranch:") {
+                            includeSection = true
+                        }
                     } else {
                         includeSection = false
                     }
@@ -146,10 +156,23 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                     remainingByteCount: &remainingByteCount,
                     enabled: &enabled,
                     objectFormatSHA256: &objectFormatSHA256,
+                    reftableSentinel: reftableSentinel,
                     failed: &failed
                 )
                 if failed { return }
             }
         }
+    }
+
+    private func isReftableSentinel(repository: ResolvedGitRepository) -> Bool {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard case .contents(let contents, consumedByteCount: _) = reader.read(
+            at: headURL,
+            maximumByteCount: SystemGitReferenceReader.maximumSymbolicReferenceByteCount
+        ) else {
+            return false
+        }
+        return contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            == "ref: refs/heads/.invalid"
     }
 }

@@ -62,8 +62,8 @@ actor CmxConnectivityPeerSession {
     private var pendingConnection: PendingConnection?
     private var retiredDialDrains: [UUID: Task<Void, Never>] = [:]
     // Timed-out drains remain owned by a bounded cleanup set until their
-    // wrapper observes the canceled dial. This prevents repeated wedges from
-    // accumulating unowned tasks while allowing replacement dialing.
+    // wrapper observes the canceled dial. New dialing pauses at the cap so
+    // repeated wedges cannot accumulate unowned tasks.
     private var retiredDialCleanupTasks: [UUID: Task<Void, Never>] = [:]
     private var retiredDialWaiters: [
         UUID: CheckedContinuation<Void, Never>
@@ -206,6 +206,10 @@ actor CmxConnectivityPeerSession {
             if let pendingConnection {
                 pending = pendingConnection
             } else {
+                guard retiredDialCleanupTasks.count + retiredDialDrains.count
+                    < Self.maximumRetiredDialCleanupCount else {
+                    throw CmxConnectivityEngineError.superseded
+                }
                 connectionGeneration &+= 1
                 failure = .none
                 let buildSession = buildSession
@@ -606,20 +610,18 @@ actor CmxConnectivityPeerSession {
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard !Task.isCancelled,
-              retiredDialWaiterGenerations[id] == retiredDialGeneration else {
+        guard !Task.isCancelled, retiredDialWaiterGenerations[id] != nil else {
             return
         }
+        // A newer retirement may have arrived while this waiter was asleep.
+        // Apply the one-shot timeout to the current drain set instead of
+        // abandoning the continuation with the stale generation.
+        retiredDialWaiterGenerations[id] = retiredDialGeneration
         let timedOutDrains = retiredDialDrains
         retiredDialDrains.removeAll()
         for (drainID, drain) in timedOutDrains {
             drain.cancel()
             retiredDialCleanupTasks[drainID] = drain
-        }
-        while retiredDialCleanupTasks.count > Self.maximumRetiredDialCleanupCount {
-            guard let oldestID = retiredDialCleanupTasks.keys.first else { break }
-            retiredDialCleanupTasks[oldestID]?.cancel()
-            retiredDialCleanupTasks.removeValue(forKey: oldestID)
         }
         let waiters = retiredDialWaiters.values
         let registeredWaiterIDs = Set(retiredDialWaiters.keys)

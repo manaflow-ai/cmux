@@ -47,13 +47,16 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            paths.append(contentsOf: GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path))
-            paths.append(repository.gitDirectory)
-            paths.append(repository.commonDirectory)
+            paths = GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path)
+                + [repository.gitDirectory, repository.commonDirectory]
+                + paths
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
-        return paths.filter { seen.insert($0).inserted }
+        return Array(
+            paths.filter { seen.insert($0).inserted }
+                .prefix(Self.maximumIncludedFileCount)
+        )
     }
 
     /// Returns the configured reference backend discovered during one bounded pass.
