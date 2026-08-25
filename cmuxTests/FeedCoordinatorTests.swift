@@ -730,8 +730,12 @@ struct FeedCoordinatorTests {
         let requestId = "phone-needs-input-request"
         let workspaceId = UUID()
         let surfaceId = UUID()
-        let phoneForwarder = RecordingFeedPhonePushForwarder()
-        let notificationCenter = AllowingFeedNotificationCenter()
+        let (phoneForwarder, notificationCenter) = await MainActor.run {
+            (
+                RecordingFeedPhonePushForwarder(),
+                AllowingFeedNotificationCenter()
+            )
+        }
 
         defer {
             Self.resetFeedCoordinatorTestHooks()
@@ -997,7 +1001,7 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
 @MainActor
 private final class RecordingFeedPhonePushForwarder: FeedPhonePushForwarding {
     var requests: [FeedPhonePushRequest] = []
-    let forwarded = DispatchSemaphore(value: 0)
+    nonisolated let forwarded = DispatchSemaphore(value: 0)
 
     func forward(_ request: FeedPhonePushRequest) -> PhonePushForwardAdmission {
         requests.append(request)
