@@ -206,7 +206,7 @@ struct cmuxApp: App {
                 ) ?? tabManager
             },
             mainMenuProvider: { NSApp.mainMenu },
-            actions: HistoryMenuCoordinator.Actions(
+            actions: HistoryMenuActions(
                 reopenMostRecentlyClosedWorkspace: { manager in
                     AppDelegate.shared?.reopenMostRecentlyClosedWorkspace(preferredTabManager: manager) == true
                 },
