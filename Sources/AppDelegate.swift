@@ -4433,10 +4433,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = snapshotBuildResult.snapshot else {
             let preserveManualRestoreBackup =
                 preserveManualRestoreBackupOnMissingPrimary ||
-                snapshotBuildResult.removedCrashDiagnosticState
+                snapshotBuildResult.didRemoveCrashDiagnosticData
             persistSessionSnapshot(
                 nil,
-                removeWhenEmpty: removeWhenEmpty || snapshotBuildResult.removedCrashDiagnosticState,
+                removeWhenEmpty: removeWhenEmpty || snapshotBuildResult.didRemoveCrashDiagnosticData,
                 persistedGeometryData: nil,
                 synchronously: writeSynchronously,
                 preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackup
@@ -4919,7 +4919,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
-    ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
+    ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
         let preflightRoutes = orderedSessionRouteSnapshots(
             restorableAgentIndex: suppliedRestorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
@@ -4933,7 +4933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             : preflightRoutes
         var windows: [SessionWindowSnapshot] = []
-        var removedCrashDiagnosticState = false
+        var didRemoveCrashDiagnosticData = false
         let createdAt = Date().timeIntervalSince1970
         for route in routes {
             let windowSnapshot: SessionWindowSnapshot
@@ -4958,7 +4958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     windows: [windowSnapshot]
                 )
             )
-            removedCrashDiagnosticState = removedCrashDiagnosticState || pruned.removedAny
+            didRemoveCrashDiagnosticData = didRemoveCrashDiagnosticData || pruned.removedAny
             guard let prunedWindow = pruned.snapshot?.windows.first else {
                 if case .frozen(let windowId, _) = route {
                     mainWindowLifecycleCoordinator.removeFrozenOrphanRoute(
@@ -4973,13 +4973,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard !windows.isEmpty else { return (nil, removedCrashDiagnosticState) }
+        guard !windows.isEmpty else { return (nil, didRemoveCrashDiagnosticData) }
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: createdAt,
             windows: windows
         )
-        return (snapshot, removedCrashDiagnosticState)
+        return (snapshot, didRemoveCrashDiagnosticData)
     }
 
     func sessionWindowSnapshot(
@@ -5137,14 +5137,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.window = window
             tabManager.windowId = existing.windowId
             existing.window = window
-            let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
+            let effectiveFileExplorer = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
             }
             existing.keyboardFocusCoordinator.update(
                 window: window,
                 tabManager: tabManager,
-                fileExplorerState: resolvedFileExplorerState
+                fileExplorerState: effectiveFileExplorer
             )
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
@@ -5174,14 +5174,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.window = window
             tabManager.windowId = windowId
             existing.window = window
-            let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
+            let effectiveFileExplorer = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
             }
             existing.keyboardFocusCoordinator.update(
                 window: window,
                 tabManager: tabManager,
-                fileExplorerState: resolvedFileExplorerState
+                fileExplorerState: effectiveFileExplorer
             )
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
@@ -5217,14 +5217,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.window = window
             tabManager.windowId = context.windowId
             context.window = window
-            let resolvedFileExplorerState = fileExplorerState ?? context.fileExplorerState
+            let effectiveFileExplorer = fileExplorerState ?? context.fileExplorerState
             if let fileExplorerState {
                 context.fileExplorerState = fileExplorerState
             }
             context.keyboardFocusCoordinator.update(
                 window: window,
                 tabManager: tabManager,
-                fileExplorerState: resolvedFileExplorerState
+                fileExplorerState: effectiveFileExplorer
             )
             if let cmuxConfigStore {
                 context.cmuxConfigStore = cmuxConfigStore
