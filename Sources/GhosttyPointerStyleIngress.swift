@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxFoundation
 import Foundation
 
 /// Coalesces runtime pointer callbacks before they cross onto the main actor.
@@ -9,6 +10,7 @@ import Foundation
 /// drain is pending for a view; stale runtime IDs are rejected before enqueue.
 actor GhosttyPointerStyleIngress {
     private weak var surfaceView: GhosttyNSView?
+    nonisolated private let focusGeneration = AtomicUInt64Generation()
     private var state = GhosttyPointerStyleIngressPendingState(
         activeRuntimeLifetimeId: nil
     )
@@ -36,25 +38,57 @@ actor GhosttyPointerStyleIngress {
 
     /// Registers a native runtime before Ghostty can emit its first action.
     nonisolated func activate(runtimeLifetimeId: UUID, surfaceId: UUID) {
-        submit(.init(
-            event: .activate,
-            surfaceId: surfaceId,
-            runtimeLifetimeId: runtimeLifetimeId
-        ))
+        Task { await self.activateIsolated(runtimeLifetimeId: runtimeLifetimeId) }
     }
 
     /// Retires a runtime; `nil` unconditionally retires the currently active one.
     nonisolated func retire(runtimeLifetimeId: UUID?, surfaceId: UUID) {
-        submit(.init(
-            event: .retire(runtimeLifetimeId),
-            surfaceId: surfaceId,
-            runtimeLifetimeId: runtimeLifetimeId ?? UUID()
-        ))
+        Task {
+            await self.retireIsolated(runtimeLifetimeId: runtimeLifetimeId)
+        }
+    }
+
+    /// Advances the focus epoch so queued transient hover events cannot be
+    /// replayed after a focus transition.
+    nonisolated func focusChanged() {
+        _ = focusGeneration.advanceRelaxed()
     }
 
     /// Captures one callback without waiting for the main actor.
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
+        var request = request
+        request.focusGeneration = focusGeneration.loadRelaxed()
         continuation.yield(request)
+    }
+
+    private func activateIsolated(runtimeLifetimeId: UUID) {
+        if state.activeRuntimeLifetimeId != runtimeLifetimeId {
+            state.activeRuntimeLifetimeId = runtimeLifetimeId
+            state.byRuntime.removeAll(keepingCapacity: true)
+        }
+        state.retiredRuntimeLifetimeIds.remove(runtimeLifetimeId)
+    }
+
+    private func retireIsolated(runtimeLifetimeId: UUID?) {
+        let retiredID: UUID
+        if let runtimeLifetimeId {
+            guard state.activeRuntimeLifetimeId == runtimeLifetimeId else {
+                return
+            }
+            retiredID = runtimeLifetimeId
+        } else {
+            guard let activeRuntimeLifetimeId = state.activeRuntimeLifetimeId else {
+                return
+            }
+            retiredID = activeRuntimeLifetimeId
+        }
+        state.activeRuntimeLifetimeId = nil
+        state.retiredRuntimeLifetimeIds.insert(retiredID)
+        if state.retiredRuntimeLifetimeIds.count > 8,
+           let oldest = state.retiredRuntimeLifetimeIds.first {
+            state.retiredRuntimeLifetimeIds.remove(oldest)
+        }
+        state.byRuntime.removeValue(forKey: retiredID)
     }
 
     private func receive(_ incoming: GhosttyPointerStyleIngressRequest) {
@@ -92,10 +126,15 @@ actor GhosttyPointerStyleIngress {
             return
 
         case .runtimeReset, .runtimeEnded, .shape, .linkHover:
-            guard state.activeRuntimeLifetimeId == request.runtimeLifetimeId,
-                  !state.retiredRuntimeLifetimeIds.contains(
-                      request.runtimeLifetimeId
-                  ) else {
+            guard !state.retiredRuntimeLifetimeIds.contains(
+                request.runtimeLifetimeId
+            ) else {
+                return
+            }
+            if state.activeRuntimeLifetimeId == nil {
+                state.activeRuntimeLifetimeId = request.runtimeLifetimeId
+            }
+            guard state.activeRuntimeLifetimeId == request.runtimeLifetimeId else {
                 return
             }
         }
@@ -149,6 +188,10 @@ actor GhosttyPointerStyleIngress {
                 if let linkHover = runtime.latestLinkHover { requests.append(linkHover) }
 
                 for request in requests {
+                    if case .linkHover = request.event,
+                       request.focusGeneration != focusGeneration.loadRelaxed() {
+                        continue
+                    }
                     guard let terminalSurface = surfaceView.terminalSurface,
                           terminalSurface.id == request.surfaceId,
                           terminalSurface.isActiveRuntimeLifetime(
