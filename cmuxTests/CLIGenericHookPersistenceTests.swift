@@ -835,6 +835,80 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCursorHookInstallIsIdempotentAndPreservesUserEntries() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let cursorDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        let hookURL = cursorDirectory.appendingPathComponent("hooks.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: cursorDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userBeforeCommand = "/usr/local/bin/user-before-shell-hook"
+        let userAfterCommand = "/usr/local/bin/user-after-shell-hook"
+        let userCustomCommand = "/usr/local/bin/user-custom-hook"
+        let existing: [String: Any] = [
+            "version": 1,
+            "userSetting": "preserve-me",
+            "hooks": [
+                "beforeShellExecution": [
+                    ["command": userBeforeCommand],
+                    ["command": "cmux hooks feed --source cursor --event beforeShellExecution"],
+                ],
+                "afterShellExecution": [
+                    ["command": userAfterCommand],
+                ],
+                "userCustomEvent": [
+                    ["command": userCustomCommand],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        XCTAssertEqual(json["userSetting"] as? String, "preserve-me")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let beforeEntries = try XCTUnwrap(hooks["beforeShellExecution"] as? [[String: Any]])
+        let beforeCommands = beforeEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(beforeCommands.filter { $0 == userBeforeCommand }.count, 1)
+        XCTAssertEqual(
+            beforeCommands.filter { $0.contains("hooks cursor shell-exec") }.count,
+            1,
+            "Expected one cmux Cursor approval hook after repeated setup, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks feed --source cursor") },
+            "Expected setup to replace the stale Cursor Feed bridge, saw \(beforeCommands)"
+        )
+
+        let afterEntries = try XCTUnwrap(hooks["afterShellExecution"] as? [[String: Any]])
+        let afterCommands = afterEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(afterCommands.filter { $0 == userAfterCommand }.count, 1)
+        XCTAssertEqual(afterCommands.filter { $0.contains("hooks cursor shell-done") }.count, 1)
+
+        let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
+        XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a

@@ -148,7 +148,7 @@ extension CMUXCLI {
         "agent-response": .stop,
         "approval-response": .approvalResponse,
         "shell-exec": .promptSubmit,
-        "shell-done": .noop,
+        "shell-done": .approvalResponse,
         "session-end": .sessionEnd,
         "session-finalize": .sessionFinalize,
     ]

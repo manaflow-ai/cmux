@@ -189,6 +189,17 @@ enum AgentHookNotificationClassifier {
 enum AgentHookNotificationPolicy {
     static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity"]
 
+    /// Cursor invokes `beforeShellExecution` before its native permission
+    /// evaluator and does not include that evaluator's decision in the hook
+    /// payload. Its protocol does expose whether the command is sandboxed, so
+    /// only an explicit unsandboxed value opts into the native approval prompt;
+    /// missing or malformed values remain telemetry-only.
+    static func shouldRequestCursorNativeApproval(payload: [String: Any]?) -> Bool {
+        payload?["sandbox"] as? Bool == false
+    }
+
+    static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#
+
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic
     /// "Tool permission requested" Notification for every tool step, even in
     /// auto-approve mode where nothing awaits the user; those repeats dedupe by
