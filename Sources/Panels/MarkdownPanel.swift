@@ -271,7 +271,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         switch displayMode {
         case .text:
-            return .snapshot(NativeTextSurfaceSelectionReader().read(
+            return .snapshot(await NativeTextSurfaceSelectionReader().read(
                 textView: textView,
                 kind: .markdown,
                 filePath: filePath

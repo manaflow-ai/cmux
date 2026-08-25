@@ -43,7 +43,7 @@ struct SurfaceSelectionTests {
         ) == nil)
     }
 
-    @Test func nativeSelectionMapsUTF16RangesToOneBasedSourceLines() throws {
+    @Test func nativeSelectionMapsUTF16RangesToOneBasedSourceLines() async throws {
         let cases: [(source: String, selected: String, start: Int, end: Int)] = [
             ("alpha\nbeta\ngamma", "beta", 2, 2),
             ("alpha\r\nbeta\r\ngamma", "beta\r\ngamma", 2, 3),
@@ -56,7 +56,7 @@ struct SurfaceSelectionTests {
             let selectedRange = (testCase.source as NSString).range(of: testCase.selected)
             textView.setSelectedRange(selectedRange)
 
-            let snapshot = NativeTextSurfaceSelectionReader().read(
+            let snapshot = await NativeTextSurfaceSelectionReader().read(
                 textView: textView,
                 kind: .filePreview,
                 filePath: "/tmp/../tmp/example.swift"
@@ -365,6 +365,28 @@ struct SurfaceSelectionTests {
             contentWorld: .page
         )
         #expect(preparedMutationSelection as? String == "before selected browser words")
+
+        let unrelatedMutationObserved = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const observer = new MutationObserver(() => {
+                observer.disconnect();
+                resolve(true);
+              });
+              observer.observe(document.body, { childList: true, subtree: true });
+              const status = document.createElement('span');
+              status.textContent = 'unrelated page status';
+              document.body.appendChild(status);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(unrelatedMutationObserved as? Bool == true)
+        let retainedAfterUnrelatedMutation = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(retainedAfterUnrelatedMutation.hasSelection)
+        #expect(retainedAfterUnrelatedMutation.text == "before selected browser words")
 
         let mutationObserved = try await panel.webView.callAsyncJavaScript(
             """

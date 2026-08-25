@@ -19,10 +19,11 @@ nonisolated struct WebSurfaceSelectionReader {
 
       const empty = () => ({ has_selection: false, text: '' });
       const unreadable = () => ({ has_selection: false, text: '', blocks_fallback: true });
-      const selected = (text, sourceDocument = null) => ({
+      const selected = (text, sourceDocument = null, metadata = {}) => ({
         has_selection: true,
         text: String(text || ''),
-        source_document: sourceDocument
+        source_document: sourceDocument,
+        ...metadata
       });
       const deepestActiveElement = (targetDocument) => {
         let active = targetDocument.activeElement;
@@ -60,7 +61,12 @@ nonisolated struct WebSurfaceSelectionReader {
               active.selectionEnd > active.selectionStart) {
             return selected(
               String(active.value || '').slice(active.selectionStart, active.selectionEnd),
-              targetDocument
+              targetDocument,
+              {
+                selection_control: active,
+                selection_start: active.selectionStart,
+                selection_end: active.selectionEnd
+              }
             );
           }
           return empty();
@@ -68,7 +74,13 @@ nonisolated struct WebSurfaceSelectionReader {
 
         const selection = targetWindow.getSelection();
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-          return selected(selection.toString(), targetDocument);
+          try {
+            return selected(selection.toString(), targetDocument, {
+              selection_range: selection.getRangeAt(0).cloneRange()
+            });
+          } catch (_) {
+            return unreadable();
+          }
         }
         return empty();
       };
@@ -81,27 +93,31 @@ nonisolated struct WebSurfaceSelectionReader {
           return null;
         }
       };
-      const selectionObservers = new WeakMap();
-      let armSelectionObserver = (_) => {};
-      let disarmSelectionObserver = (_) => {};
       let retainedSelection = empty();
       let retainedDocument = null;
       let retainedLocation = null;
+      let retainedRange = null;
+      let retainedControl = null;
+      let retainedControlStart = null;
+      let retainedControlEnd = null;
       const clear = (sourceDocument = null) => {
         if (sourceDocument && retainedDocument !== sourceDocument) return;
-        if (retainedDocument) disarmSelectionObserver(retainedDocument);
         retainedSelection = empty();
         retainedDocument = null;
         retainedLocation = null;
+        retainedRange = null;
+        retainedControl = null;
+        retainedControlStart = null;
+        retainedControlEnd = null;
       };
       const retain = (live) => {
-        if (retainedDocument && retainedDocument !== live.source_document) {
-          disarmSelectionObserver(retainedDocument);
-        }
         retainedSelection = selected(live.text);
         retainedDocument = live.source_document || null;
         retainedLocation = locationForDocument(retainedDocument);
-        if (retainedDocument) armSelectionObserver(retainedDocument);
+        retainedRange = live.selection_range || null;
+        retainedControl = live.selection_control || null;
+        retainedControlStart = live.selection_start ?? null;
+        retainedControlEnd = live.selection_end ?? null;
       };
       const capture = (targetWindow, clearWhenEmpty = false) => {
         const live = readLiveSelection(targetWindow);
@@ -116,7 +132,34 @@ nonisolated struct WebSurfaceSelectionReader {
       // Socket reads are observers. Re-querying WebKit here would create a
       // second mutation path that can erase the event-owned snapshot after
       // native focus moves to a neighboring surface.
+      const retainedContentStillValid = () => {
+        if (retainedRange) {
+          try {
+            if (retainedRange.startContainer?.isConnected === false ||
+                retainedRange.endContainer?.isConnected === false) {
+              return false;
+            }
+            return retainedRange.toString() === retainedSelection.text;
+          } catch (_) {
+            return false;
+          }
+        }
+        if (retainedControl) {
+          try {
+            if (retainedControl.isConnected === false) return false;
+            const start = Number(retainedControlStart);
+            const end = Number(retainedControlEnd);
+            return String(retainedControl.value || '').slice(start, end) === retainedSelection.text;
+          } catch (_) {
+            return false;
+          }
+        }
+        return true;
+      };
       const read = () => {
+        if (retainedDocument && !retainedContentStillValid()) {
+          clear(retainedDocument);
+        }
         if (retainedDocument && retainedLocation !== null) {
           const currentLocation = locationForDocument(retainedDocument);
           if (currentLocation !== null && currentLocation !== retainedLocation) {
@@ -162,28 +205,6 @@ nonisolated struct WebSurfaceSelectionReader {
           for (const frame of frames) installFrame(frame);
         } catch (_) {}
       };
-      armSelectionObserver = (targetDocument) => {
-        if (!targetDocument || selectionObservers.has(targetDocument)) return;
-        const observer = new MutationObserver(() => {
-          observer.disconnect();
-          selectionObservers.delete(targetDocument);
-          if (retainedDocument === targetDocument) {
-            clear(targetDocument);
-          } else {
-            clearIfDetachedFrame();
-          }
-        });
-        observer.observe(targetDocument, {
-          childList: true,
-          characterData: true,
-          subtree: true
-        });
-        selectionObservers.set(targetDocument, observer);
-      };
-      disarmSelectionObserver = (targetDocument) => {
-        selectionObservers.get(targetDocument)?.disconnect();
-        selectionObservers.delete(targetDocument);
-      };
       installDocument = (targetDocument) => {
         if (!targetDocument || trackedDocuments.has(targetDocument)) return;
         trackedDocuments.add(targetDocument);
@@ -227,9 +248,9 @@ nonisolated struct WebSurfaceSelectionReader {
           captureDocument();
         }, { once: true });
         scanFrames(targetDocument);
-        // This observer only discovers newly inserted frames. Content
-        // invalidation is armed lazily by `retain`, so ordinary pages do not
-        // pay for a whole-document character-data observer between reads.
+        // This observer only discovers newly inserted frames and detects a
+        // detached selected iframe. Selection content is revalidated lazily
+        // by `read`, so unrelated page mutations stay observable.
         const observer = new MutationObserver((records) => {
           if (records.length > 0) clearIfDetachedFrame();
           for (const record of records) {
@@ -246,7 +267,6 @@ nonisolated struct WebSurfaceSelectionReader {
           } else {
             clear(targetDocument);
           }
-          disarmSelectionObserver(targetDocument);
           documentObservers.get(targetDocument)?.disconnect();
           documentObservers.delete(targetDocument);
         }, true);

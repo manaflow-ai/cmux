@@ -8,7 +8,7 @@ nonisolated struct NativeTextSurfaceSelectionReader {
         textView: NSTextView?,
         kind: PanelType,
         filePath: String
-    ) -> SurfaceSelectionSnapshot {
+    ) async -> SurfaceSelectionSnapshot {
         let normalizedPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
         guard let textView else {
             return .none(kind: kind, filePath: normalizedPath)
@@ -23,18 +23,44 @@ nonisolated struct NativeTextSurfaceSelectionReader {
             return .none(kind: kind, filePath: normalizedPath)
         }
 
-        let startLine = lineNumber(atUTF16Offset: selectedRange.location, in: source)
-        let lastSelectedOffset = NSMaxRange(selectedRange) - 1
-        let endLine = lineNumber(atUTF16Offset: lastSelectedOffset, in: source)
+        return await Self.makeSnapshot(
+            source: source as String,
+            selectedLocation: selectedRange.location,
+            selectedLength: selectedRange.length,
+            selectedText: source.substring(with: selectedRange),
+            kind: kind,
+            filePath: normalizedPath
+        )
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated static func makeSnapshot(
+        source: String,
+        selectedLocation: Int,
+        selectedLength: Int,
+        selectedText: String,
+        kind: PanelType,
+        filePath: String
+    ) async -> SurfaceSelectionSnapshot {
+        let source = source as NSString
+        let startLine = lineNumber(atUTF16Offset: selectedLocation, in: source)
+        let endLine = lineNumber(
+            atUTF16Offset: selectedLocation + selectedLength - 1,
+            in: source
+        )
         return .selected(
             kind: kind,
-            text: source.substring(with: selectedRange),
-            filePath: normalizedPath,
+            text: selectedText,
+            filePath: filePath,
             lineRange: SurfaceSelectionLineRange(start: startLine, end: endLine)
         )
     }
 
-    private func lineNumber(atUTF16Offset offset: Int, in source: NSString) -> Int {
+    private nonisolated static func lineNumber(atUTF16Offset offset: Int, in source: NSString) -> Int {
         guard offset > 0 else { return 1 }
 
         var lineNumber = 1

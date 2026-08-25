@@ -79,15 +79,18 @@ extension TerminalController {
         // UUID selectors are self-contained. Refresh the registry only when a
         // caller supplied an opaque ref that needs resolving; a focused or
         // UUID-routed read should not sweep the entire app topology first.
-        let hasOpaqueSelector = selectorKeys.contains { key in
+        let hasUnresolvedOpaqueSelector = selectorKeys.contains { key in
             guard v2HasNonNullParam(params, key),
                   let raw = params[key] as? String else {
                 return false
             }
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !trimmed.isEmpty && UUID(uuidString: trimmed) == nil
+            guard !trimmed.isEmpty, UUID(uuidString: trimmed) == nil else {
+                return false
+            }
+            return v2MainSync { v2ResolveHandleRef(trimmed) } == nil
         }
-        if hasOpaqueSelector {
+        if hasUnresolvedOpaqueSelector {
             v2RefreshKnownRefs()
         }
         if let invalidSelector = selectorKeys.first(where: {

@@ -109,6 +109,10 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "surface.read_selection" {
+            return await socketSurfaceSelectionResponseAsync(request)
+        }
+
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
@@ -183,6 +187,57 @@ extension TerminalController {
         }
 
         return socketWorkerV2Response(handling: request)
+    }
+
+    private enum SurfaceSelectionAsyncError: Error {
+        case timeout
+    }
+
+    /// Runs the live selection read without parking the cooperative executor.
+    /// Synchronous in-process callers keep the legacy adapter, but socket
+    /// connections race the read against a cancellable request deadline.
+    private nonisolated func socketSurfaceSelectionResponseAsync(
+        _ request: ControlRequest
+    ) async -> String {
+        do {
+            return try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    let result = await self.v2SurfaceReadSelection(params: request.params)
+                    return self.v2Result(id: request.id?.foundationObject, result)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(5))
+                    throw SurfaceSelectionAsyncError.timeout
+                }
+                defer { group.cancelAll() }
+                guard let response = try await group.next() else {
+                    return self.v2Error(
+                        id: request.id?.foundationObject,
+                        code: "request_error",
+                        message: "Request failed before returning a result"
+                    )
+                }
+                return response
+            }
+        } catch is SurfaceSelectionAsyncError {
+            return v2Error(
+                id: request.id?.foundationObject,
+                code: "timeout",
+                message: "Request timed out after 5 seconds"
+            )
+        } catch is CancellationError {
+            return v2Error(
+                id: request.id?.foundationObject,
+                code: "timeout",
+                message: "Request timed out after 5 seconds"
+            )
+        } catch {
+            return v2Error(
+                id: request.id?.foundationObject,
+                code: "request_error",
+                message: "Request failed before returning a result"
+            )
+        }
     }
 
     private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {

@@ -1076,7 +1076,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         guard previewMode == .text else { return .unsupported }
-        return .snapshot(NativeTextSurfaceSelectionReader().read(
+        return .snapshot(await NativeTextSurfaceSelectionReader().read(
             textView: textView,
             kind: .filePreview,
             filePath: filePath
