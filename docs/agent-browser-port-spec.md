@@ -44,6 +44,13 @@ Required response fields for agent workflows:
 4. `focused.surface_id`
 5. `caller` validation result when caller context is supplied
 
+Caller context is selector-scoped. An unflagged `identify` resolves the calling
+terminal when possible; an explicit `--workspace` or `--surface` replaces that
+ambient caller selector. A workspace-only selector intentionally validates the
+workspace and leaves the caller's surface, tab, and pane fields `null`—it must not
+borrow the focused surface. Supply `--surface` whenever an agent needs a specific
+surface identity.
+
 Recommended extension for browser workflows:
 1. `focused.surface_type`
 2. `focused.browser.url`
