@@ -59,7 +59,7 @@ public struct CmxPairingCode: Equatable, Sendable {
     public var instanceLabels: [String: String] {
         [
             Self.codeLabelKey: code,
-            Self.expiresAtLabelKey: Self.iso8601.string(from: expiresAt),
+            Self.expiresAtLabelKey: pairingCodeISO8601Formatter().string(from: expiresAt),
         ]
     }
 
@@ -77,7 +77,7 @@ public struct CmxPairingCode: Equatable, Sendable {
             let code = labels[codeLabelKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
             !code.isEmpty,
             let rawExpiry = labels[expiresAtLabelKey],
-            let expiresAt = parseISO8601(rawExpiry),
+            let expiresAt = parsePairingCodeISO8601(rawExpiry),
             expiresAt > now
         else { return nil }
         return CmxPairingCode(code: code, expiresAt: expiresAt)
@@ -92,25 +92,26 @@ public struct CmxPairingCode: Equatable, Sendable {
         return digits.count == 6 ? digits : nil
     }
 
-    /// Encoder for the expiry label; fractional seconds match the registry's
-    /// own `toISOString()` timestamps.
-    private static var iso8601: ISO8601DateFormatter {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }
+}
 
-    /// Lenient ISO 8601 parse (fractional and whole-second forms). Formatters
-    /// are created per call so the type stays `Sendable`-clean; this runs only
-    /// on label reads, never in a hot path.
-    private static func parseISO8601(_ raw: String) -> Date? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: trimmed) { return date }
-        let whole = ISO8601DateFormatter()
-        whole.formatOptions = [.withInternetDateTime]
-        return whole.date(from: trimmed)
-    }
+/// Encoder for the expiry label; fractional seconds match the registry's own
+/// `toISOString()` timestamps.
+private func pairingCodeISO8601Formatter() -> ISO8601DateFormatter {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}
+
+/// Lenient ISO 8601 parse (fractional and whole-second forms). Formatters are
+/// created per call so the surrounding value remains `Sendable`-clean; this
+/// runs only on label reads, never in a hot path.
+private func parsePairingCodeISO8601(_ raw: String) -> Date? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: trimmed) { return date }
+    let whole = ISO8601DateFormatter()
+    whole.formatOptions = [.withInternetDateTime]
+    return whole.date(from: trimmed)
 }
