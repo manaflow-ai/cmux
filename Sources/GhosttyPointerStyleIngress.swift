@@ -97,6 +97,9 @@ actor GhosttyPointerStyleIngress {
 
     /// Captures one callback without waiting for the main actor.
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
+        guard request.runtimeGeneration == runtimeGeneration.loadRelaxed() else {
+            return
+        }
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
         request.sequence = submissionSequence.advanceRelaxed()
