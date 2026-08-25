@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 extension Workspace {
+    private static let feedAttentionLifecyclePrefix = "cmux.feed.attention:"
+
     /// Builds the sidebar aggregate from cmux-owned runtime maps and the
     /// restart-safe cached hook index. No title/file-mtime fallback is used.
     func sidebarWorkspaceAgentActivity() -> SidebarWorkspaceAgentActivity {
@@ -35,7 +37,10 @@ extension Workspace {
             let indexEntry = liveIndex?.sidebarEntry(workspaceId: id, panelId: panelID)
             var lifecycleByStatus: [String: AgentHibernationLifecycleState] = [:]
             for (key, state) in runtimeStates {
-                guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { continue }
+                guard !AgentHibernationLifecycleStatusKeys.isManualKey(key),
+                      !key.hasPrefix(Self.feedAttentionLifecyclePrefix) else {
+                    continue
+                }
                 let canonicalStatusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(
                     agentStatusKey(forAgentPIDKey: key)
                 )

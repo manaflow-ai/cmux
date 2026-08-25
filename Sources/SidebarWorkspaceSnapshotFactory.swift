@@ -86,9 +86,7 @@ struct SidebarWorkspaceSnapshotFactory {
         let metadataEntries: [SidebarStatusEntry] = if detailVisibility.showsMetadata {
             showsAgentActivity
                 ? agentActivity.correctedStatusEntries(workspace.sidebarStatusEntriesInDisplayOrder())
-                : workspace.sidebarStatusEntriesInDisplayOrder().filter {
-                    !AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains($0.key)
-                }
+                : workspace.sidebarStatusEntriesInDisplayOrder()
         } else {
             []
         }
