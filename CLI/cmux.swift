@@ -226,7 +226,7 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
-    private static let maxAutoNameTitleReconciliationAttempts = 3
+    private static let maxAutoNameTitleReconciliationAttempts = 4
 
     private let statePath: String
     private let fileManager: FileManager
@@ -305,6 +305,10 @@ final class ClaudeHookSessionStore {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
         var observationGeneration: String?
+        /// True when a transcript-shrink reconciliation has exhausted its
+        /// bounded retry budget. Callers should suppress both socket replay
+        /// and a fresh summarizer pass for this hook.
+        var reconciliationExhausted: Bool = false
     }
 
     /// Atomically evaluates the auto-naming throttle and records the in-flight
@@ -327,7 +331,8 @@ final class ClaudeHookSessionStore {
             return AutoNamingBeginOutcome(
                 decision: .skipShortTranscript,
                 lastTitle: nil,
-                observationGeneration: nil
+                observationGeneration: nil,
+                reconciliationExhausted: false
             )
         }
         return try withLockedState { state in
@@ -354,6 +359,23 @@ final class ClaudeHookSessionStore {
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
+            let isTranscriptReconciliation: Bool
+            if case .reseedBaseline = decision {
+                isTranscriptReconciliation = true
+            } else {
+                isTranscriptReconciliation = false
+            }
+            if isTranscriptReconciliation,
+               record.autoNameTitleReconciliationGeneration == nil,
+               max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+                    >= Self.maxAutoNameTitleReconciliationAttempts {
+                return AutoNamingBeginOutcome(
+                    decision: decision,
+                    lastTitle: snapshot.lastTitle,
+                    observationGeneration: nil,
+                    reconciliationExhausted: true
+                )
+            }
             let observationGeneration: String?
             switch decision {
             case .proceed where allowNewTitleGeneration, .reseedBaseline:
@@ -362,6 +384,12 @@ final class ClaudeHookSessionStore {
                     record: &record
                 )
                 record.autoNameInFlightAt = now.timeIntervalSince1970
+                if isTranscriptReconciliation {
+                    record.autoNameTitleReconciliationAttemptCount = max(
+                        0,
+                        record.autoNameTitleReconciliationAttemptCount ?? 0
+                    ) + 1
+                }
             case .skipInFlight:
                 observationGeneration = nil
                 recordUnclaimedAutoNamingObservation(
@@ -377,12 +405,17 @@ final class ClaudeHookSessionStore {
                     record: &record
                 )
             }
+            if !isTranscriptReconciliation,
+               record.autoNameTitleReconciliationGeneration == nil {
+                record.autoNameTitleReconciliationAttemptCount = nil
+            }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
             return AutoNamingBeginOutcome(
                 decision: decision,
                 lastTitle: snapshot.lastTitle,
-                observationGeneration: observationGeneration
+                observationGeneration: observationGeneration,
+                reconciliationExhausted: false
             )
         }
     }
@@ -620,6 +653,11 @@ final class ClaudeHookSessionStore {
                 if clearPendingOnConfirmation,
                    claimedReconciliationGeneration != nil {
                     record.autoNameTitleReconciliationGeneration = nil
+                    record.autoNameTitleReconciliationAttemptCount = nil
+                } else if claimedReconciliationGeneration == nil {
+                    // Ordinary transcript-shrink reconciliation has no
+                    // durable generation, but a confirmed apply still resets
+                    // its bounded retry budget for the next shrink.
                     record.autoNameTitleReconciliationAttemptCount = nil
                 }
             } else {
@@ -25072,6 +25110,13 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let canUseCompactFallback = isCompactSessionStart && compactSession != nil
+            guard resolvedTarget.isAuthoritative || canUseCompactFallback else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.non-authoritative-target")
+                printClaudeHookAck()
+                return
+            }
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
@@ -25110,7 +25155,9 @@ struct CMUXCLI {
             // while its recorded pane is temporarily absent. That surface is
             // only a delivery guess: retain the persisted identity above, but
             // never promote or register visible state on the borrowed pane.
-            let canMutateVisibleTarget = !isCompactSessionStart || resolvedSurface.isAuthoritative
+            // Non-compact fallbacks were rejected before this point.
+            let canMutateVisibleTarget = resolvedSurface.isAuthoritative
+            let canPersistSessionIdentity = resolvedSurface.isAuthoritative || canUseCompactFallback
             // Compact is a continuation of the same session, never a new
             // active boundary. In particular, do not let a delayed compact
             // event use a stopped-session replacement slot to resurrect an
@@ -25130,7 +25177,9 @@ struct CMUXCLI {
                 sessionRecordWorkspaceId = compactSession.workspaceId
                 sessionRecordSurfaceId = compactSession.surfaceId
             }
-            if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
+            if let sessionId = parsedInput.sessionId,
+               !isForkSessionLaunch,
+               canPersistSessionIdentity {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.

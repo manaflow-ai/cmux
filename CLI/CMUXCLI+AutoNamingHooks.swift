@@ -38,6 +38,11 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.stale")
             return
         }
+        let currentSession = (try? sessionStore.lookup(sessionId: sessionId)) ?? mappedSession
+        if workspaceUserOwned, !hasReplayableAutoNamingState(currentSession) {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned-no-replay")
+            return
+        }
 
         let transcriptSnapshot: (lines: [String], lineCount: Int)? = {
             guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
@@ -238,6 +243,11 @@ extension CMUXCLI {
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
+            return
+        }
+        let currentSession = try? sessionStore.lookup(sessionId: sessionId)
+        if workspaceUserOwned, !hasReplayableAutoNamingState(currentSession) {
+            telemetry.breadcrumb("codex-hook.auto-name.user-owned-no-replay")
             return
         }
         let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
