@@ -12,13 +12,46 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
-formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
-`9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `c1d6d8769`, the head of the
+renderer-state recovery branch. It hardens the cursor and preedit read paths
+against partially built rows, forces a complete rebuild after an interrupted
+`RenderState` update, and resets the periodic terminal-state cleanup counter.
+The pin includes the prior fork changes below, including tokened iOS render
+disposition at `3da10da73`, VT formatter cursor restoration at `f76c132e5`,
+VT stream-boundary visibility at `9513174f2`, and Hangul canonical font
+resolution at `3fbdd078d`, plus the fractional pixel-scroll renderer changes
+at `39ade10b6` and `5045df3f2`.
+
+### Renderer state recovery after interrupted updates
+
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/10037
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/208
+- Commits:
+  - `0ce0157de` (test: reproduce incomplete render state row)
+  - `c1d6d8769` (fix: recover incomplete renderer state updates)
+- GhosttyKit artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c1d6d8769e013fcb9d253b000889bc7d7a4196bf-crashsubdir-cmux-crash-sentry-off-v1
+  - `GhosttyKit.xcframework.tar.gz` SHA-256:
+    `0ae4eda6f8237253a5ec8b6c483f8143b642a8da427a701efe2fef1ed594c947`
+- Files:
+  - `src/terminal/render.zig`
+  - `src/renderer/generic.zig`
+- Summary:
+  - Tracks an update as incomplete until every viewport row has been
+    accounted for. Allocation failures and short page iterations leave the
+    marker set, so the next update forces a full rebuild instead of trusting
+    partially initialized cell buffers.
+  - Bounds cursor row/cell and preedit-row accesses, skipping cursor styling
+    for one frame when a row is unavailable rather than dereferencing an empty
+    slice in ReleaseFast.
+  - Resets the periodic terminal-state frame counter after teardown so a
+    long-lived surface does not rebuild on every subsequent frame.
+- Conflict note:
+  - Preserve the incomplete-update marker and the bounds checks when merging
+    upstream RenderState changes. Do not move the recovery branch under an
+    `assert`; ReleaseFast can optimize that branch away.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
