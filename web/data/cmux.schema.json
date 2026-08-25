@@ -2041,6 +2041,7 @@
         {
           "type": "object",
           "required": ["pane"],
+          "not": { "required": ["direction"] },
           "properties": {
             "pane": { "$ref": "#/$defs/cmuxPaneDefinition" }
           }
@@ -2048,6 +2049,7 @@
         {
           "type": "object",
           "required": ["direction", "children"],
+          "not": { "required": ["pane"] },
           "properties": {
             "direction": {
               "type": "string",
