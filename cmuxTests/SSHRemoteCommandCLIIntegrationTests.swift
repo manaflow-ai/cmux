@@ -134,7 +134,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
         }
 
         let run = try Self.runRemoteCommandMockedSSH(arguments: [
-            "-t",
+            "-tq",
             "docker", "exec", "-it",
             "-w", "/workspaces/demo",
             "vsc-demo", "/bin/bash",
@@ -179,7 +179,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
         let sshArguments = try String(contentsOf: sshArgumentsLog, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
-        let ttyIndex = try #require(sshArguments.firstIndex(of: "-t"))
+        let ttyIndex = try #require(sshArguments.firstIndex(of: "-tq"))
         let destinationIndex = try #require(sshArguments.firstIndex(of: "example.test"))
         #expect(
             ttyIndex < destinationIndex,
