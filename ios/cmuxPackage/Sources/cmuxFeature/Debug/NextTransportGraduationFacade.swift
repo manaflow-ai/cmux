@@ -13,6 +13,18 @@ private let graduationLog = Logger(
     category: "next-transport-graduation"
 )
 
+/// Stable short id correlating one live object across facade log lines.
+func nextTransportObjectID(_ object: AnyObject) -> String {
+    String(UInt(bitPattern: ObjectIdentifier(object).hashValue) & 0xFFFF_FFFF, radix: 16)
+}
+
+/// Elapsed whole milliseconds since `start`, for facade log lines.
+func nextTransportElapsedMs(since start: ContinuousClock.Instant) -> Int64 {
+    let elapsed = start.duration(to: ContinuousClock.now)
+    return Int64(elapsed.components.seconds) * 1_000
+        + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+}
+
 /// Thrown for requests to a next-transport Mac while its session is down:
 /// the app fails and reconnects rather than silently degrading to legacy.
 struct NextTransportUnavailableError: Error {}
@@ -74,6 +86,8 @@ final class NextTransportGraduationFacade {
     }
 
     func setEnabled(_ enabled: Bool) {
+        graduationLog.notice(
+            "facade setEnabled=\(enabled, privacy: .public) (was \(self.isEnabled, privacy: .public))")
         UserDefaults.standard.set(enabled, forKey: Self.routeTrafficDefaultsKey)
     }
 
@@ -92,13 +106,17 @@ final class NextTransportGraduationFacade {
     }
 
     private func setRouting(_ value: MacRouting, macID: String) {
+        let previous = routing(macID: macID)
         if value == .unknown {
             UserDefaults.standard.removeObject(forKey: Self.routingKeyPrefix + macID)
         } else {
             UserDefaults.standard.set(value.rawValue, forKey: Self.routingKeyPrefix + macID)
         }
         graduationLog.notice(
-            "routing \(macID, privacy: .public) -> \(value.rawValue, privacy: .public)")
+            """
+            routing \(macID, privacy: .public) -> \(value.rawValue, privacy: .public) \
+            (was \(previous.rawValue, privacy: .public))
+            """)
     }
 
     /// Lab-shaped access: a synchronous snapshot of the owner's state.
@@ -112,17 +130,53 @@ final class NextTransportGraduationFacade {
     func admittedConnection(
         for request: CmxByteTransportRequest
     ) async -> IrohPeerConnection? {
-        guard isEnabled, let macID = request.expectedPeerDeviceID else { return nil }
-        guard routing(macID: macID) == .next else { return nil }
-        guard let client = ensureClient(macID: macID) else { return nil }
+        guard isEnabled, let macID = request.expectedPeerDeviceID else {
+            graduationLog.notice(
+                """
+                admittedConnection nil: \
+                \(self.isEnabled ? "request carries no expected Mac device id" : "kill switch off", privacy: .public)
+                """)
+            return nil
+        }
+        let macRouting = routing(macID: macID)
+        guard macRouting == .next else {
+            graduationLog.notice(
+                """
+                admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
+                routing=\(macRouting.rawValue, privacy: .public) (not next)
+                """)
+            return nil
+        }
+        guard let client = ensureClient(macID: macID) else {
+            graduationLog.notice(
+                """
+                admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
+                no dial client (no stored bootstrap)
+                """)
+            return nil
+        }
         if client.state.contains("denied") {
             graduationLog.notice(
                 "credentials for \(macID, privacy: .public) denied; re-credentialing over legacy")
-            invalidateBootstrap(macID: macID)
+            invalidateBootstrap(macID: macID, cause: "admission denied (state=\(client.state))")
             return nil
         }
-        guard let connection = await client.admittedConnection() else { return nil }
-        guard await !connection.isClosed else { return nil }
+        guard let connection = await client.admittedConnection() else {
+            graduationLog.notice(
+                """
+                admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
+                owner not ready (state=\(client.state, privacy: .public))
+                """)
+            return nil
+        }
+        guard await !connection.isClosed else {
+            graduationLog.notice(
+                """
+                admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
+                owner holds a closed corpse conn=\(nextTransportObjectID(connection), privacy: .public)
+                """)
+            return nil
+        }
         return connection
     }
 
@@ -133,23 +187,58 @@ final class NextTransportGraduationFacade {
         return routing(macID: macID) == .next
     }
 
+    /// Which path served one composition request kind (bridged / legacy /
+    /// fail-hard throw), logged ONCE per outcome change per (Mac, kind) so
+    /// steady-state traffic doesn't repeat itself but every flip is on record.
+    private var lastServedPathOutcome: [String: String] = [:]
+
+    func noteServedPath(kind: String, macID: String?, outcome: String) {
+        let mac = macID.map { String($0.prefix(8)) } ?? "-"
+        let key = "\(mac)|\(kind)"
+        let previous = lastServedPathOutcome[key]
+        guard previous != outcome else { return }
+        lastServedPathOutcome[key] = outcome
+        graduationLog.notice(
+            """
+            served \(kind, privacy: .public) mac=\(mac, privacy: .public) \
+            via \(outcome, privacy: .public) (was \(previous ?? "unrecorded", privacy: .public))
+            """)
+    }
+
     /// Boots (once) the per-Mac dial client from stored credentials. The
     /// owner autonomously maintains the session from then on.
     @discardableResult
     private func ensureClient(macID: String) -> NextTransportDialClient? {
         if let existing = clients[macID] { return existing }
         guard let bootstrap = storedBootstrap(macID: macID) else {
+            graduationLog.notice(
+                """
+                ensureClient mac=\(String(macID.prefix(8)), privacy: .public): \
+                no stored bootstrap; routing falls back to unknown
+                """)
             setRouting(.unknown, macID: macID)
             return nil
         }
         let client = NextTransportDialClient()
         client.configure(ticketJSON: bootstrap.ticket, grantJSON: bootstrap.grant)
         clients[macID] = client
+        graduationLog.notice(
+            """
+            ensureClient mac=\(String(macID.prefix(8)), privacy: .public): dial client BOOTED \
+            from stored bootstrap; owner connect triggered \
+            (clients=\(self.clients.count, privacy: .public))
+            """)
         Task { await client.connect() }
         return client
     }
 
-    private func invalidateBootstrap(macID: String) {
+    private func invalidateBootstrap(macID: String, cause: String) {
+        graduationLog.notice(
+            """
+            bootstrap INVALIDATED mac=\(String(macID.prefix(8)), privacy: .public) \
+            cause=\(cause, privacy: .public); dial client discarded, routing -> unknown, \
+            legacy will re-credential
+            """)
         UserDefaults.standard.removeObject(forKey: Self.bootstrapKeyPrefix + macID)
         let client = clients.removeValue(forKey: macID)
         Task { await client?.disconnect() }
@@ -164,6 +253,11 @@ final class NextTransportGraduationFacade {
         if let existing = acceptors[key] { return existing }
         let fresh = await BridgeLaneAcceptor.attached(to: connection, acceptsServerEvents: true)
         acceptors[key] = fresh
+        graduationLog.notice(
+            """
+            server-event acceptor created conn=\(nextTransportObjectID(connection), privacy: .public) \
+            (acceptors=\(self.acceptors.count, privacy: .public))
+            """)
         return fresh
     }
 
@@ -186,11 +280,33 @@ final class NextTransportGraduationFacade {
     private func probeBootstrap(client: MobileCoreRPCClient, macID: String) async {
         guard isEnabled, routing(macID: macID) != .legacy,
             !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID)
-        else { return }
+        else {
+            let reason: String
+            if !isEnabled {
+                reason = "kill switch off"
+            } else if routing(macID: macID) == .legacy {
+                reason = "routing already legacy (sticky verdict)"
+            } else if bootstrapsInFlight.contains(macID) {
+                reason = "bootstrap already in flight"
+            } else {
+                reason = "already probed this run"
+            }
+            graduationLog.notice(
+                """
+                probe skip mac=\(String(macID.prefix(8)), privacy: .public): \
+                \(reason, privacy: .public)
+                """)
+            return
+        }
         if storedBootstrap(macID: macID) != nil {
             // Stored credentials ARE a capability verdict (upgrade path):
             // adopt them; if the Mac re-minted its signer since, the denial
             // cycle drops them and re-probes automatically.
+            graduationLog.notice(
+                """
+                probe mac=\(String(macID.prefix(8)), privacy: .public): stored bootstrap \
+                adopted as capability verdict (upgrade path); routing -> next
+                """)
             setRouting(.next, macID: macID)
             ensureClient(macID: macID)
             return
@@ -198,7 +314,14 @@ final class NextTransportGraduationFacade {
         probedThisRun.insert(macID)
         bootstrapsInFlight.insert(macID)
         defer { bootstrapsInFlight.remove(macID) }
+        let probeStart = ContinuousClock.now
         let identity = bootstrapIdentity()
+        graduationLog.notice(
+            """
+            probe begin mac=\(String(macID.prefix(8)), privacy: .public) \
+            device=\(String(identity.deviceID.prefix(8)), privacy: .public) \
+            app=\(identity.appIdentity, privacy: .public)
+            """)
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.next_transport.pair",
@@ -216,14 +339,21 @@ final class NextTransportGraduationFacade {
                 let ticket = object["ticket"] as? String,
                 let grant = object["grant"] as? String
             else {
-                graduationLog.notice(
-                    "bootstrap \(macID, privacy: .public): malformed pair response")
+                graduationLog.error(
+                    """
+                    bootstrap \(macID, privacy: .public): malformed pair response \
+                    elapsedMs=\(nextTransportElapsedMs(since: probeStart), privacy: .public)
+                    """)
                 return
             }
             storeBootstrap(macID: macID, ticket: ticket, grant: grant)
             setRouting(.next, macID: macID)
             ensureClient(macID: macID)
-            graduationLog.notice("bootstrap \(macID, privacy: .public): ticket + grant stored")
+            graduationLog.notice(
+                """
+                bootstrap \(macID, privacy: .public): ticket + grant stored \
+                elapsedMs=\(nextTransportElapsedMs(since: probeStart), privacy: .public)
+                """)
         } catch {
             // Probe verdicts are the ONLY capability signal. method_not_found
             // = the Mac build has no next transport: legacy is CORRECT,
@@ -233,10 +363,18 @@ final class NextTransportGraduationFacade {
             if description.contains("method_not_found") {
                 setRouting(.legacy, macID: macID)
                 graduationLog.notice(
-                    "bootstrap \(macID, privacy: .public): Mac build has no next transport; legacy sticky")
+                    """
+                    bootstrap \(macID, privacy: .public): Mac build has no next transport; \
+                    legacy sticky \
+                    elapsedMs=\(nextTransportElapsedMs(since: probeStart), privacy: .public)
+                    """)
             } else {
                 graduationLog.notice(
-                    "bootstrap \(macID, privacy: .public): probe inconclusive (\(description, privacy: .public)); will retry")
+                    """
+                    bootstrap \(macID, privacy: .public): probe inconclusive \
+                    (\(description, privacy: .public)); will retry \
+                    elapsedMs=\(nextTransportElapsedMs(since: probeStart), privacy: .public)
+                    """)
             }
         }
     }
@@ -252,9 +390,22 @@ final class NextTransportGraduationFacade {
 
     private func storeBootstrap(macID: String, ticket: String, grant: String) {
         let bootstrap = Bootstrap(ticket: ticket, grant: grant)
-        guard let data = try? JSONEncoder().encode(bootstrap) else { return }
+        guard let data = try? JSONEncoder().encode(bootstrap) else {
+            graduationLog.error(
+                """
+                storeBootstrap FAILED mac=\(String(macID.prefix(8)), privacy: .public): \
+                bootstrap did not encode
+                """)
+            return
+        }
         UserDefaults.standard.set(data, forKey: Self.bootstrapKeyPrefix + macID)
         clients[macID] = nil
+        graduationLog.notice(
+            """
+            bootstrap persisted mac=\(String(macID.prefix(8)), privacy: .public) \
+            ticketBytes=\(ticket.utf8.count, privacy: .public) \
+            grantBytes=\(grant.utf8.count, privacy: .public); stale client (if any) dropped
+            """)
     }
 
     private func storedBootstrap(macID: String) -> Bootstrap? {

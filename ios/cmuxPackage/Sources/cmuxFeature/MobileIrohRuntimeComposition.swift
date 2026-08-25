@@ -18,6 +18,35 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+#if DEBUG
+/// Graduation composition-hook diagnostics: which path (bridged / legacy /
+/// fail-hard throw) served each request kind, and the bridged server-events
+/// pump lifecycle. Shares the facade's category so one log filter shows the
+/// whole phone-side graduation story.
+nonisolated private let nextTransportCompositionLog = Logger(
+    subsystem: "dev.cmux.ios",
+    category: "next-transport-graduation"
+)
+
+/// Compact lane-kind name for graduation hook log lines.
+nonisolated private func nextTransportLaneKindName(_ lane: CmxIrohLane) -> String {
+    switch lane {
+    case .control: return "control"
+    case .serverEvents: return "server-events"
+    case .terminal: return "terminal"
+    case .artifact: return "artifact"
+    case .simulatorStream: return "simulator-stream"
+    }
+}
+
+/// 8-char Mac id prefix for graduation hook log lines.
+nonisolated private func nextTransportMacPrefix(
+    _ request: CmxByteTransportRequest
+) -> String {
+    request.expectedPeerDeviceID.map { String($0.prefix(8)) } ?? "-"
+}
+#endif
+
 /// Resume-once guard for the forget deadline race: whichever racer claims
 /// first owns the continuation, and the loser's late completion is discarded.
 private actor MobileIrohForgetRaceGate {
@@ -723,11 +752,23 @@ public final class MobileIrohRuntimeComposition:
         if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
             for: request)
         {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: "control", macID: request.expectedPeerDeviceID, outcome: "bridged")
             return try await BridgeLaneDialer.openControlTransport(on: connection)
         }
         if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: "control", macID: request.expectedPeerDeviceID,
+                outcome: "fail-hard-throw")
+            nextTransportCompositionLog.error(
+                """
+                fail-hard: control lane=control mac=\(nextTransportMacPrefix(request), privacy: .public) \
+                requires bridge but session is down; throwing NextTransportUnavailableError
+                """)
             throw NextTransportUnavailableError()
         }
+        NextTransportGraduationFacade.shared.noteServedPath(
+            kind: "control", macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
@@ -749,12 +790,28 @@ public final class MobileIrohRuntimeComposition:
         if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
             for: request)
         {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: nextTransportLaneKindName(lane),
+                macID: request.expectedPeerDeviceID, outcome: "bridged")
             return try await BridgeLaneDialer.openLane(
                 on: connection, lane: lane, priority: priority)
         }
         if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: nextTransportLaneKindName(lane),
+                macID: request.expectedPeerDeviceID, outcome: "fail-hard-throw")
+            nextTransportCompositionLog.error(
+                """
+                fail-hard: openBidirectionalLane \
+                lane=\(nextTransportLaneKindName(lane), privacy: .public) \
+                mac=\(nextTransportMacPrefix(request), privacy: .public) \
+                requires bridge but session is down; throwing NextTransportUnavailableError
+                """)
             throw NextTransportUnavailableError()
         }
+        NextTransportGraduationFacade.shared.noteServedPath(
+            kind: nextTransportLaneKindName(lane),
+            macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
@@ -834,30 +891,90 @@ public final class MobileIrohRuntimeComposition:
         if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
             for: request)
         {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: "server-events", macID: request.expectedPeerDeviceID,
+                outcome: "bridged")
             let acceptor = await NextTransportGraduationFacade.shared.acceptor(for: connection)
             let (_, stream) = try await acceptor.acceptServerEventStream()
+            let macPrefix = nextTransportMacPrefix(request)
+            let connID = nextTransportObjectID(connection)
             return AsyncThrowingStream { continuation in
                 let pump = Task {
+                    let pumpStart = ContinuousClock.now
+                    var chunks = 0
+                    var bytes = 0
+                    nextTransportCompositionLog.notice(
+                        """
+                        server-events pump start mac=\(macPrefix, privacy: .public) \
+                        conn=\(connID, privacy: .public)
+                        """)
                     do {
                         while let chunk = try await stream.receiveStream.receive(
                             maximumByteCount: 1 << 16)
                         {
+                            chunks += 1
+                            bytes += chunk.count
+                            if chunks % 100 == 0 {
+                                nextTransportCompositionLog.notice(
+                                    """
+                                    server-events pump mac=\(macPrefix, privacy: .public) \
+                                    conn=\(connID, privacy: .public) \
+                                    chunks=\(chunks, privacy: .public) \
+                                    bytes=\(bytes, privacy: .public) \
+                                    elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                                    """)
+                            }
                             continuation.yield(chunk)
                         }
+                        nextTransportCompositionLog.notice(
+                            """
+                            server-events pump finished (clean EOF) \
+                            mac=\(macPrefix, privacy: .public) \
+                            conn=\(connID, privacy: .public) \
+                            chunks=\(chunks, privacy: .public) \
+                            bytes=\(bytes, privacy: .public) \
+                            elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                            """)
                         continuation.finish()
                     } catch {
+                        nextTransportCompositionLog.error(
+                            """
+                            server-events pump threw mac=\(macPrefix, privacy: .public) \
+                            conn=\(connID, privacy: .public) \
+                            cause=\(String(describing: error), privacy: .public) \
+                            chunks=\(chunks, privacy: .public) \
+                            bytes=\(bytes, privacy: .public) \
+                            elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                            """)
                         continuation.finish(throwing: error)
                     }
                 }
-                continuation.onTermination = { _ in
+                continuation.onTermination = { reason in
+                    nextTransportCompositionLog.notice(
+                        """
+                        server-events pump terminated mac=\(macPrefix, privacy: .public) \
+                        conn=\(connID, privacy: .public) \
+                        reason=\(String(describing: reason), privacy: .public)
+                        """)
                     pump.cancel()
                     Task { await stream.receiveStream.stop(errorCode: 0) }
                 }
             }
         }
         if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            NextTransportGraduationFacade.shared.noteServedPath(
+                kind: "server-events", macID: request.expectedPeerDeviceID,
+                outcome: "fail-hard-throw")
+            nextTransportCompositionLog.error(
+                """
+                fail-hard: serverEventByteStream \
+                mac=\(nextTransportMacPrefix(request), privacy: .public) \
+                requires bridge but session is down; throwing NextTransportUnavailableError
+                """)
             throw NextTransportUnavailableError()
         }
+        NextTransportGraduationFacade.shared.noteServedPath(
+            kind: "server-events", macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)

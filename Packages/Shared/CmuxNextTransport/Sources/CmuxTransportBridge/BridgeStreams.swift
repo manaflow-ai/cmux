@@ -92,6 +92,13 @@ public actor BridgeByteTransport: CmxByteTransport {
     }
 
     public func close() async {
+        if BridgeDebugLog.enabled {
+            BridgeDebugLog.lanes.notice(
+                """
+                byte transport \(BridgeDebugLog.id(self), privacy: .public) close \
+                (finish send + stop receive code=0)
+                """)
+        }
         try? await stream.finishSend()
         await stream.stopReceiving(errorCode: 0)
     }

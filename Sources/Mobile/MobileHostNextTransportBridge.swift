@@ -37,12 +37,29 @@ enum MobileHostNextTransportBridge {
         grant: PairingGrant,
         deviceKey: Data
     ) async {
+        let bridgeStart = ContinuousClock.now
+        let connID = String(UInt(bitPattern: ObjectIdentifier(connection).hashValue) & 0xFFFF_FFFF, radix: 16)
+        let devicePrefix = String(grant.deviceID.prefix(8))
+        mobileHostNextTransportLog.notice(
+            """
+            bridge assembly begin conn=\(connID, privacy: .public) \
+            device=\(devicePrefix, privacy: .public) \
+            app=\(grant.appIdentity, privacy: .public) \
+            grantID=\(grant.grantID, privacy: .public)
+            """)
         guard let peer = synthesizedPeer(grant: grant, deviceKey: deviceKey) else {
-            mobileHostNextTransportLog.error("bridge: unusable device key; closing")
+            mobileHostNextTransportLog.error(
+                """
+                bridge: unusable device key; closing conn=\(connID, privacy: .public) \
+                device=\(devicePrefix, privacy: .public) \
+                key=\(deviceKey.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+                """)
             await connection.closeAll(reason: nil)
             return
         }
         let acceptor = await BridgeLaneAcceptor.attached(to: connection)
+        mobileHostNextTransportLog.notice(
+            "bridge: lane acceptor attached conn=\(connID, privacy: .public)")
         let routable = NextTransportRoutableSession(peer: peer, acceptor: acceptor)
         let eventWriter = MobileHostIrohServerEventWriter(
             openStream: {
@@ -56,19 +73,43 @@ enum MobileHostNextTransportBridge {
             session: routable,
             artifactHandler: MobileHostIrohArtifactLaneHandler(registry: artifactTransfers),
             simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler())
+        mobileHostNextTransportLog.notice(
+            """
+            bridge: event writer + lane router assembled conn=\(connID, privacy: .public) \
+            device=\(devicePrefix, privacy: .public)
+            """)
         let isCurrent: @Sendable () async -> Bool = {
             let enabled = await MainActor.run {
                 MobileHostNextTransportRuntime.shared.isEnabled
             }
-            guard enabled else { return false }
+            guard enabled else {
+                mobileHostNextTransportLog.notice(
+                    """
+                    bridge: isCurrent=false (runtime disabled) \
+                    conn=\(connID, privacy: .public)
+                    """)
+                return false
+            }
             return await !connection.isClosed
         }
         let supervisor = CmxIrohAdmittedConnectionSupervisor(
             runControl: {
                 guard let control = try? await acceptor.nextControlStream() else {
+                    mobileHostNextTransportLog.notice(
+                        """
+                        bridge: control stream never arrived (connection closed) \
+                        conn=\(connID, privacy: .public) \
+                        device=\(devicePrefix, privacy: .public)
+                        """)
                     return CmxIrohAdmittedConnectionExit(
                         lifecycle: .remoteClosed, failure: .none)
                 }
+                mobileHostNextTransportLog.notice(
+                    """
+                    bridge: control stream accepted; starting RPC service \
+                    conn=\(connID, privacy: .public) \
+                    device=\(devicePrefix, privacy: .public)
+                    """)
                 return await MobileHostService.acceptTransport(
                     BridgeByteTransport(stream: control),
                     authorization: .irohAdmission(peer),
@@ -81,17 +122,36 @@ enum MobileHostNextTransportBridge {
                 await laneRouter.run(isCurrent: isCurrent)
             },
             closeConnection: {
+                mobileHostNextTransportLog.notice(
+                    """
+                    bridge: supervisor closing connection conn=\(connID, privacy: .public) \
+                    device=\(devicePrefix, privacy: .public)
+                    """)
                 await connection.closeAll(reason: nil)
             },
             stopApplicationLanes: {
+                mobileHostNextTransportLog.notice(
+                    """
+                    bridge: stopping application lanes conn=\(connID, privacy: .public) \
+                    device=\(devicePrefix, privacy: .public)
+                    """)
                 await laneRouter.stop()
                 await acceptor.finish()
             })
-        mobileHostNextTransportLog.info(
-            "bridge: serving device \(grant.deviceID, privacy: .public) over next transport")
+        mobileHostNextTransportLog.notice(
+            """
+            bridge: serving device \(grant.deviceID, privacy: .public) over next transport \
+            conn=\(connID, privacy: .public); supervisor starting
+            """)
         let exit = await supervisor.run()
-        mobileHostNextTransportLog.info(
-            "bridge: session ended lifecycle=\(exit.lifecycle.rawValue, privacy: .public)")
+        mobileHostNextTransportLog.notice(
+            """
+            bridge: session ended conn=\(connID, privacy: .public) \
+            device=\(devicePrefix, privacy: .public) \
+            lifecycle=\(exit.lifecycle.rawValue, privacy: .public) \
+            failure=\(String(describing: exit.failure), privacy: .public) \
+            elapsedMs=\(mobileHostNextTransportElapsedMs(since: bridgeStart), privacy: .public)
+            """)
     }
 }
 

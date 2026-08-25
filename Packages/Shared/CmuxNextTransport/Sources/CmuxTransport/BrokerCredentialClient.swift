@@ -176,13 +176,40 @@ public struct BrokerCredentialClient: Sendable {
         try await URLSession.shared.data(for: request)
     }
 
+    /// Compact mode name for diagnostics.
+    private var authenticationModeName: String {
+        switch authentication {
+        case .password: return "password"
+        case .session: return "session"
+        }
+    }
+
     /// Full mint: returns one credential per fleet relay; `preferredUrl`
     /// (the rendezvous relay from the ticket) is first when present.
     public func mint(preferredUrl: String?) async throws -> [Credential] {
         let endpointId = identity.publicKeyData.map { String(format: "%02x", $0) }.joined()
+        let mintStart = ContinuousClock.now
+        if TransportDebugLog.enabled {
+            TransportDebugLog.broker.notice(
+                """
+                broker mint begin mode=\(self.authenticationModeName, privacy: .public) \
+                device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                endpoint=\(TransportDebugLog.prefix(endpointId), privacy: .public) \
+                base=\(self.baseUrl, privacy: .public) \
+                preferred=\(preferredUrl ?? "none", privacy: .public)
+                """)
+        }
 
         // 1. Authenticate: password sign-in, or the app's live session pair.
         let authed = try await authenticatedHeaders()
+        if TransportDebugLog.enabled {
+            TransportDebugLog.broker.notice(
+                """
+                broker mint authenticated mode=\(self.authenticationModeName, privacy: .public) \
+                device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                elapsedMs=\(TransportDebugLog.ms(since: mintStart), privacy: .public)
+                """)
+        }
 
         // 2. Registration payload; hash OUR exact bytes.
         let payload: JSONValue = .object([
@@ -239,6 +266,13 @@ public struct BrokerCredentialClient: Sendable {
             guard case .http(_, _, let body) = error,
                 body.contains("endpoint_already_bound")
             else { throw error }
+            if TransportDebugLog.enabled {
+                TransportDebugLog.broker.notice(
+                    """
+                    broker register: endpoint already bound (treated as success) \
+                    endpoint=\(TransportDebugLog.prefix(endpointId), privacy: .public)
+                    """)
+            }
         }
 
         // 6. Short-token issuance (register may bootstrap one directly).
@@ -272,11 +306,36 @@ public struct BrokerCredentialClient: Sendable {
                 }
             }
         }
-        guard !credentials.isEmpty else { throw BrokerError.shape("no credentials issued") }
+        guard !credentials.isEmpty else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.broker.error(
+                    """
+                    broker mint FAILED mode=\(self.authenticationModeName, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                    cause=no-credentials-issued \
+                    elapsedMs=\(TransportDebugLog.ms(since: mintStart), privacy: .public)
+                    """)
+            }
+            throw BrokerError.shape("no credentials issued")
+        }
         if let preferredUrl, let index = credentials.firstIndex(
             where: { $0.relayUrl == preferredUrl })
         {
             credentials.swapAt(0, index)
+        }
+        if TransportDebugLog.enabled {
+            let first = credentials[0]
+            TransportDebugLog.broker.notice(
+                """
+                broker mint SUCCESS mode=\(self.authenticationModeName, privacy: .public) \
+                device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                relays=\(credentials.count, privacy: .public) \
+                first=\(first.relayUrl, privacy: .public) \
+                expiresAt=\(first.expiresAt.map(String.init) ?? "unset", privacy: .public) \
+                tokenExp=\(IrohSubstrate.tokenExpiry(first.token).map(String.init) ?? "unparsed", privacy: .public) \
+                tokenBoundToUs=\(IrohSubstrate.tokenEndpointId(first.token) == self.identity.publicKeyData, privacy: .public) \
+                elapsedMs=\(TransportDebugLog.ms(since: mintStart), privacy: .public)
+                """)
         }
         return credentials
     }
@@ -301,7 +360,17 @@ public struct BrokerCredentialClient: Sendable {
             else { throw BrokerError.shape("sign-in tokens") }
             return Self.authedHeaders(access: access, refresh: refresh)
         case .session(let tokens):
-            guard let pair = try await tokens() else { throw BrokerError.notSignedIn }
+            guard let pair = try await tokens() else {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.broker.error(
+                        """
+                        broker auth FAILED mode=session \
+                        device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                        cause=not-signed-in (failing closed, no mint)
+                        """)
+                }
+                throw BrokerError.notSignedIn
+            }
             return Self.authedHeaders(
                 access: pair.accessToken, refresh: pair.refreshToken)
         }
@@ -329,7 +398,24 @@ public struct BrokerCredentialClient: Sendable {
         let (data, response) = try await transport(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.broker.error(
+                    """
+                    broker step FAILED step=\(step, privacy: .public) \
+                    status=\(status, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
+                    bodyPrefix=\(String((String(data: data, encoding: .utf8) ?? "").prefix(120)), privacy: .public)
+                    """)
+            }
             throw BrokerError.http(step, status, String(data: data, encoding: .utf8) ?? "")
+        }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.broker.notice(
+                """
+                broker step ok step=\(step, privacy: .public) \
+                status=\(status, privacy: .public) \
+                device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public)
+                """)
         }
         return (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue ?? [:]
     }

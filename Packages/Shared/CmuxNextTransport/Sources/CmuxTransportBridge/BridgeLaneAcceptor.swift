@@ -46,6 +46,14 @@ public actor BridgeLaneAcceptor {
         acceptsServerEvents: Bool = false
     ) async -> BridgeLaneAcceptor {
         let acceptor = BridgeLaneAcceptor(acceptsServerEvents: acceptsServerEvents)
+        if BridgeDebugLog.enabled {
+            BridgeDebugLog.lanes.notice(
+                """
+                acceptor \(BridgeDebugLog.id(acceptor), privacy: .public) attached \
+                conn=\(BridgeDebugLog.id(connection), privacy: .public) \
+                acceptsServerEvents=\(acceptsServerEvents, privacy: .public)
+                """)
+        }
         await connection.onRawStream { preamble, stream in
             await acceptor.ingest(preamble: preamble, stream: stream)
         }
@@ -55,7 +63,15 @@ public actor BridgeLaneAcceptor {
 
     private func watchClose(of connection: IrohPeerConnection) {
         closeWatcher = Task { [weak self] in
-            _ = await connection.termination()
+            let termination = await connection.termination()
+            if BridgeDebugLog.enabled, let self {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) finishing: \
+                    conn=\(BridgeDebugLog.id(connection), privacy: .public) terminated \
+                    code=\(termination?.code ?? "unparsed", privacy: .public)
+                    """)
+            }
             await self?.finish()
         }
     }
@@ -63,16 +79,39 @@ public actor BridgeLaneAcceptor {
     /// Routes one inbound raw stream by its preamble.
     public func ingest(preamble: String, stream: RawByteStream) async {
         if closed {
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest DROPPED \
+                    (acceptor closed) preamble=\(preamble, privacy: .public)
+                    """)
+            }
             await stream.resetSend(errorCode: 1)
             await stream.stopReceiving(errorCode: 1)
             return
         }
         guard let lane = try? BridgeLaneDescriptor.lane(fromPreamble: preamble) else {
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.error(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest REJECTED \
+                    reason=invalid-descriptor preamble=\(preamble, privacy: .public)
+                    """)
+            }
             await reject(stream)
             return
         }
         switch lane {
         case .control:
+            let hadWaiter = !controlWaiters.isEmpty
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest lane=control \
+                    delivery=\(hadWaiter ? "waiter" : "queued", privacy: .public) \
+                    queued=\(self.pendingControl.count + (hadWaiter ? 0 : 1), privacy: .public)
+                    """)
+            }
             if let waiter = controlWaiters.first {
                 controlWaiters.removeFirst()
                 waiter.resume(returning: stream)
@@ -83,8 +122,25 @@ public actor BridgeLaneAcceptor {
             guard acceptsServerEvents else {
                 // Server events are host-opened; on the host side a
                 // peer-opened one is a protocol violation.
+                if BridgeDebugLog.enabled {
+                    BridgeDebugLog.lanes.error(
+                        """
+                        acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest REJECTED \
+                        reason=peer-opened-server-events (protocol violation on host side) \
+                        preamble=\(preamble, privacy: .public)
+                        """)
+                }
                 await reject(stream)
                 return
+            }
+            let hadWaiter = !serverEventWaiters.isEmpty
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest lane=server-events \
+                    delivery=\(hadWaiter ? "waiter" : "queued", privacy: .public) \
+                    queued=\(self.pendingServerEvents.count + (hadWaiter ? 0 : 1), privacy: .public)
+                    """)
             }
             let event = (lane, CmxIrohBidirectionalStream(bridging: stream))
             if let waiter = serverEventWaiters.first {
@@ -94,6 +150,14 @@ public actor BridgeLaneAcceptor {
                 pendingServerEvents.append(event)
             }
         case .terminal, .artifact, .simulatorStream:
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) ingest app lane \
+                    preamble=\(preamble, privacy: .public) \
+                    delivery=\(self.appWaiters.isEmpty ? "queued" : "waiter", privacy: .public)
+                    """)
+            }
             deliver(.lane(lane, CmxIrohBidirectionalStream(bridging: stream)))
         }
     }
@@ -105,7 +169,16 @@ public actor BridgeLaneAcceptor {
         if !pendingServerEvents.isEmpty {
             return pendingServerEvents.removeFirst()
         }
-        guard !closed else { throw BridgeAcceptError.connectionClosed }
+        guard !closed else {
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) \
+                    acceptServerEventStream -> connectionClosed
+                    """)
+            }
+            throw BridgeAcceptError.connectionClosed
+        }
         return try await withCheckedThrowingContinuation { continuation in
             serverEventWaiters.append(continuation)
         }
@@ -137,7 +210,16 @@ public actor BridgeLaneAcceptor {
         if !pendingControl.isEmpty {
             return pendingControl.removeFirst()
         }
-        guard !closed else { throw BridgeAcceptError.connectionClosed }
+        guard !closed else {
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.notice(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) \
+                    nextControlStream -> connectionClosed
+                    """)
+            }
+            throw BridgeAcceptError.connectionClosed
+        }
         return try await withCheckedThrowingContinuation { continuation in
             controlWaiters.append(continuation)
         }
@@ -151,7 +233,16 @@ public actor BridgeLaneAcceptor {
         if !appQueue.isEmpty {
             event = appQueue.removeFirst()
         } else {
-            guard !closed else { throw BridgeAcceptError.connectionClosed }
+            guard !closed else {
+                if BridgeDebugLog.enabled {
+                    BridgeDebugLog.lanes.notice(
+                        """
+                        acceptor \(BridgeDebugLog.id(self), privacy: .public) \
+                        acceptBidirectionalLane -> connectionClosed
+                        """)
+                }
+                throw BridgeAcceptError.connectionClosed
+            }
             event = try await withCheckedThrowingContinuation { continuation in
                 appWaiters.append(continuation)
             }
@@ -160,6 +251,13 @@ public actor BridgeLaneAcceptor {
         case .lane(let lane, let stream):
             return (lane: lane, stream: stream)
         case .rejected:
+            if BridgeDebugLog.enabled {
+                BridgeDebugLog.lanes.error(
+                    """
+                    acceptor \(BridgeDebugLog.id(self), privacy: .public) \
+                    acceptBidirectionalLane -> applicationLaneRejected (session continues)
+                    """)
+            }
             throw CmxIrohServerSessionError.applicationLaneRejected
         }
     }
@@ -169,6 +267,18 @@ public actor BridgeLaneAcceptor {
     public func finish() {
         guard !closed else { return }
         closed = true
+        if BridgeDebugLog.enabled {
+            BridgeDebugLog.lanes.notice(
+                """
+                acceptor \(BridgeDebugLog.id(self), privacy: .public) finish: \
+                appWaiters=\(self.appWaiters.count, privacy: .public) \
+                ctlWaiters=\(self.controlWaiters.count, privacy: .public) \
+                sevWaiters=\(self.serverEventWaiters.count, privacy: .public) \
+                droppedApp=\(self.appQueue.count, privacy: .public) \
+                droppedCtl=\(self.pendingControl.count, privacy: .public) \
+                droppedSev=\(self.pendingServerEvents.count, privacy: .public)
+                """)
+        }
         closeWatcher?.cancel()
         closeWatcher = nil
         for waiter in appWaiters { waiter.resume(throwing: BridgeAcceptError.connectionClosed) }

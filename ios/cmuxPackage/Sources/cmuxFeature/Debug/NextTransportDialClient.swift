@@ -184,15 +184,29 @@ public final class NextTransportDialClient {
             // it in place once minting succeeds.
             var relays: [IrohSubstrate.RelayAccess] = []
             if let broker {
+                let mintStart = ContinuousClock.now
                 do {
                     let credentials = try await broker.mint(preferredUrl: hostRelayURL)
                     relays = credentials.map {
                         IrohSubstrate.RelayAccess(url: $0.relayUrl, authToken: $0.token)
                     }
                     appliedRelayToken = credentials.first?.token
-                    log("self-minted \(credentials.count) relay credentials")
+                    let expiry = credentials.first.flatMap {
+                        IrohSubstrate.tokenExpiry($0.token)
+                    }
+                    log(
+                        """
+                        self-minted \(credentials.count) relay credentials in \
+                        \(nextTransportElapsedMs(since: mintStart))ms \
+                        (first \(credentials.first?.relayUrl ?? "none"), \
+                        tokenExp \(expiry.map(String.init) ?? "unparsed"))
+                        """)
                 } catch {
-                    log("relay mint failed; continuing LAN-only: \(error)")
+                    log(
+                        """
+                        relay mint failed after \(nextTransportElapsedMs(since: mintStart))ms; \
+                        continuing LAN-only: \(error)
+                        """)
                 }
             }
             do {
@@ -209,8 +223,12 @@ public final class NextTransportDialClient {
         let identity = identity
         let dial: @Sendable () async throws -> ConnectAttemptResult = { [weak self] in
             guard let self else { throw TransportError.pipeClosed }
+            let dialStart = ContinuousClock.now
             let (key, addrs, relayURL, grant) = await self.dialInputs()
-            guard let key, let grant else { throw TransportError.pipeClosed }
+            guard let key, let grant else {
+                await self.log("dial aborted: ticket/grant no longer configured")
+                throw TransportError.pipeClosed
+            }
             await self.rotateRelayCredentialIfStale()
             let addr = EndpointAddr(
                 id: try EndpointId.fromBytes(bytes: key), relayUrl: relayURL, addresses: addrs)
@@ -222,15 +240,19 @@ public final class NextTransportDialClient {
                         connection: conn, identity: identity, grant: grant)
                     {
                     case .admitted(let sessionID):
-                        await self.log("admitted as \(sessionID)")
+                        await self.log(
+                            "admitted as \(sessionID) in \(nextTransportElapsedMs(since: dialStart))ms")
                         return .admitted(conn, sessionID: sessionID)
                     case .denied(let code):
-                        await self.log("denied: \(code.rawValue)")
+                        await self.log(
+                            "denied: \(code.rawValue) after \(nextTransportElapsedMs(since: dialStart))ms")
                         return .denied(code)
                     }
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(15))
+                    await self.log(
+                        "dial TIMEOUT after \(nextTransportElapsedMs(since: dialStart))ms")
                     throw TransportError.dialTimeout
                 }
                 guard let first = try await group.next() else { throw TransportError.dialTimeout }
@@ -313,6 +335,7 @@ public final class NextTransportDialClient {
 
     private func renewSelfMintedCredentials() async {
         guard let broker, let endpoint else { return }
+        let renewStart = ContinuousClock.now
         do {
             let fresh = try await broker.mint(preferredUrl: hostRelayURL)
             for credential in fresh {
@@ -320,9 +343,19 @@ public final class NextTransportDialClient {
                     config: RelayConfig(url: credential.relayUrl, authToken: credential.token))
             }
             appliedRelayToken = fresh.first?.token ?? appliedRelayToken
-            log("self-minted relay credentials rotated zero-gap")
+            let expiry = fresh.first.flatMap { IrohSubstrate.tokenExpiry($0.token) }
+            log(
+                """
+                self-minted relay credentials rotated zero-gap (\(fresh.count) relays, \
+                tokenExp \(expiry.map(String.init) ?? "unparsed"), \
+                \(nextTransportElapsedMs(since: renewStart))ms)
+                """)
         } catch {
-            log("credential renewal failed: \(error)")
+            log(
+                """
+                credential renewal failed after \
+                \(nextTransportElapsedMs(since: renewStart))ms: \(error)
+                """)
         }
     }
 

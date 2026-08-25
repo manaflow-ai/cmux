@@ -11,6 +11,13 @@ let mobileHostNextTransportLog = Logger(
     category: "mobile-host-next-transport"
 )
 
+/// Elapsed whole milliseconds since `start`, for diagnostics lines.
+func mobileHostNextTransportElapsedMs(since start: ContinuousClock.Instant) -> Int64 {
+    let elapsed = start.duration(to: ContinuousClock.now)
+    return Int64(elapsed.components.seconds) * 1_000
+        + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+}
+
 /// Graduation P4 slice 2: the cmux-lite-proven transport running as a
 /// PARALLEL host inside the real Mac app — its own iroh endpoint, its own
 /// ALPN (`cmux/peer/1`), its own relay registration with zero-gap
@@ -56,12 +63,17 @@ final class MobileHostNextTransportRuntime {
     }
 
     func setEnabled(_ enabled: Bool) {
+        mobileHostNextTransportLog.notice(
+            "host runtime setEnabled=\(enabled, privacy: .public) (was \(self.isEnabled, privacy: .public))")
         UserDefaults.standard.set(enabled, forKey: Self.debugDefaultsKey)
         Task { enabled ? await start() : await stop() }
     }
 
     func startIfEnabled() {
-        guard isEnabled else { return }
+        guard isEnabled else {
+            mobileHostNextTransportLog.notice("host runtime startIfEnabled: disabled; not starting")
+            return
+        }
         Task { await start() }
     }
 
@@ -69,7 +81,16 @@ final class MobileHostNextTransportRuntime {
     /// shape the lab's hostd emits. Published through the debug socket
     /// (next_transport_ticket) so tooling can hand it to the phone.
     var ticketJSON: String? {
-        guard let endpoint, let signer else { return nil }
+        guard let endpoint, let signer else {
+            mobileHostNextTransportLog.notice(
+                """
+                ticket mint refused: host not running \
+                (endpoint=\(self.endpoint != nil, privacy: .public) \
+                signer=\(self.signer != nil, privacy: .public) \
+                state=\(self.state, privacy: .public))
+                """)
+            return nil
+        }
         // Real LAN addresses first: bound sockets report the wildcard
         // (0.0.0.0:port), which after a loopback rewrite only a dialer ON
         // this Mac (the simulator lab) can reach. A phone on the same
@@ -97,15 +118,30 @@ final class MobileHostNextTransportRuntime {
         ]
         if let relayURL { ticket["relay"] = .string(relayURL) }
         guard let data = try? JSONEncoder().encode(JSONValue.object(ticket)) else {
+            mobileHostNextTransportLog.error("ticket mint failed: ticket JSON did not encode")
             return nil
         }
+        mobileHostNextTransportLog.notice(
+            """
+            ticket minted endpoint=\(String(self.endpointID?.prefix(8) ?? "?"), privacy: .public) \
+            addrs=\(addrs.joined(separator: ","), privacy: .public) \
+            relay=\(self.relayURL ?? "none", privacy: .public)
+            """)
         return String(data: data, encoding: .utf8)
     }
 
     /// Mint a grant for a dialing device (dev flow: the embedded signer
     /// stands in for the pairing broker, exactly as in the lab's hostd).
     func mintGrant(deviceID: String, devicePublicKey: Data, appIdentity: String) -> String? {
-        guard let signer else { return nil }
+        guard let signer else {
+            mobileHostNextTransportLog.notice(
+                """
+                grant mint refused: no signer (host not running) \
+                device=\(String(deviceID.prefix(8)), privacy: .public) \
+                state=\(self.state, privacy: .public)
+                """)
+            return nil
+        }
         guard
             let grant = try? signer.mint(
                 accountID: "acct-dev", deviceID: deviceID,
@@ -113,13 +149,33 @@ final class MobileHostNextTransportRuntime {
                 grantID: "g-dev-\(UUID().uuidString.prefix(8))",
                 issuedAt: Int64(Date().timeIntervalSince1970)),
             let data = try? JSONEncoder().encode(JSONValue.object(["grant": grant.payloadValue]))
-        else { return nil }
+        else {
+            mobileHostNextTransportLog.error(
+                """
+                grant mint FAILED device=\(String(deviceID.prefix(8)), privacy: .public) \
+                app=\(appIdentity, privacy: .public)
+                """)
+            return nil
+        }
+        mobileHostNextTransportLog.notice(
+            """
+            grant minted device=\(String(deviceID.prefix(8)), privacy: .public) \
+            app=\(appIdentity, privacy: .public) \
+            grantID=\(grant.grantID, privacy: .public) \
+            key=\(devicePublicKey.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+            """)
         return String(data: data, encoding: .utf8)
     }
 
     private func start() async {
-        guard endpoint == nil else { return }
+        guard endpoint == nil else {
+            mobileHostNextTransportLog.notice(
+                "host start skipped: already running state=\(self.state, privacy: .public)")
+            return
+        }
+        let startClock = ContinuousClock.now
         state = "starting"
+        mobileHostNextTransportLog.notice("host start begin state=starting")
         do {
             // Identity: stable per install, separate from the legacy
             // transport's identity (parallel hosts, parallel keys).
@@ -133,10 +189,21 @@ final class MobileHostNextTransportRuntime {
                 let keyData = Data(base64Encoded: stored)
             {
                 signer = GrantSigner(privateKeyData: keyData)
+                mobileHostNextTransportLog.notice(
+                    """
+                    host signer LOADED (persisted; prior phone grants stay valid) \
+                    signerKey=\(signer.publicKeyData.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+                    """)
             } else {
                 signer = GrantSigner()
                 UserDefaults.standard.set(
                     signer.privateKeyData.base64EncodedString(), forKey: signerKeyKey)
+                mobileHostNextTransportLog.notice(
+                    """
+                    host signer CREATED (fresh; any previously minted phone grants \
+                    are now invalid) \
+                    signerKey=\(signer.publicKeyData.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+                    """)
             }
             self.signer = signer
             let host = TransportHost(
@@ -147,13 +214,25 @@ final class MobileHostNextTransportRuntime {
             // phone proved in the lab; relay catalog, rendezvous-first.
             let client = Self.brokerClient(identity: identity)
             credentialClient = client
+            mobileHostNextTransportLog.notice(
+                """
+                host broker client \(client == nil ? "ABSENT (no dogfood credentials; direct-only)" : "ready", privacy: .public) \
+                device=\(String(identity.deviceID.prefix(8)), privacy: .public)
+                """)
             var relays: [IrohSubstrate.RelayAccess] = []
             if let client {
+                let mintStart = ContinuousClock.now
                 let credentials = try await client.mint(preferredUrl: nil)
                 relays = credentials.map {
                     IrohSubstrate.RelayAccess(url: $0.relayUrl, authToken: $0.token)
                 }
                 relayURL = credentials.first?.relayUrl
+                mobileHostNextTransportLog.notice(
+                    """
+                    host relay credentials minted count=\(credentials.count, privacy: .public) \
+                    first=\(self.relayURL ?? "none", privacy: .public) \
+                    elapsedMs=\(mobileHostNextTransportElapsedMs(since: mintStart), privacy: .public)
+                    """)
             }
             let endpoint = try await (relays.isEmpty
                 ? IrohSubstrate.endpoint(identity: identity, minimalLoopback: false)
@@ -161,25 +240,54 @@ final class MobileHostNextTransportRuntime {
             if !relays.isEmpty { await endpoint.online() }
             self.endpoint = endpoint
             endpointID = endpoint.id().toBytes().map { String(format: "%02x", $0) }.joined()
+            mobileHostNextTransportLog.notice(
+                """
+                host endpoint bound id=\(String(self.endpointID?.prefix(8) ?? "?"), privacy: .public) \
+                relays=\(relays.count, privacy: .public) \
+                sockets=\(endpoint.boundSockets().joined(separator: ","), privacy: .public)
+                """)
 
             acceptTask = Task { [weak self] in
+                var accepted = 0
                 while let connection = try? await IrohSubstrate.acceptOne(endpoint: endpoint) {
                     guard let self else { return }
+                    accepted += 1
+                    let acceptedCount = accepted
                     let now = Int64(Date().timeIntervalSince1970)
+                    mobileHostNextTransportLog.notice(
+                        """
+                        host accept-loop connection #\(acceptedCount, privacy: .public) \
+                        serving now=\(now, privacy: .public)
+                        """)
                     await host.serve(connection: connection, now: now)
                     await MainActor.run { self.admissions = self.admissions &+ 1 }
                     // Router slice: an admitted connection gets the full
                     // legacy application service (control RPC, lane router,
                     // server events) bridged over its raw streams.
                     if let admitted = await host.activeSession(for: connection) {
+                        mobileHostNextTransportLog.notice(
+                            """
+                            host accept-loop connection #\(acceptedCount, privacy: .public) \
+                            ADMITTED session=\(admitted.id, privacy: .public) \
+                            device=\(String(admitted.grant.deviceID.prefix(8)), privacy: .public); \
+                            starting bridge
+                            """)
                         Task {
                             await MobileHostNextTransportBridge.run(
                                 connection: connection,
                                 grant: admitted.grant,
                                 deviceKey: admitted.deviceKey)
                         }
+                    } else {
+                        mobileHostNextTransportLog.notice(
+                            """
+                            host accept-loop connection #\(acceptedCount, privacy: .public) \
+                            NOT admitted (denied or closed during serve); no bridge
+                            """)
                     }
                 }
+                mobileHostNextTransportLog.notice(
+                    "host accept-loop exit (endpoint closed or accept failed)")
             }
             renewTask = Task { [weak self] in
                 // Zero-gap rotation on the token's own cadence (refreshAfter
@@ -194,7 +302,12 @@ final class MobileHostNextTransportRuntime {
                                 config: RelayConfig(
                                     url: credential.relayUrl, authToken: credential.token))
                         }
-                        mobileHostNextTransportLog.info("relay credentials rotated zero-gap")
+                        mobileHostNextTransportLog.notice(
+                            """
+                            host relay credentials rotated zero-gap \
+                            count=\(fresh.count, privacy: .public) \
+                            first=\(fresh.first?.relayUrl ?? "none", privacy: .public)
+                            """)
                     } catch {
                         mobileHostNextTransportLog.error(
                             "credential rotation failed: \(String(describing: error))")
@@ -203,12 +316,19 @@ final class MobileHostNextTransportRuntime {
             }
             state = relays.isEmpty ? "ready (direct only)" : "ready (relay)"
             publishPresenceRoute()
-            mobileHostNextTransportLog.info(
-                "next-transport host up: \(self.endpointID ?? "?", privacy: .public)")
+            mobileHostNextTransportLog.notice(
+                """
+                next-transport host up: \(self.endpointID ?? "?", privacy: .public) \
+                state=\(self.state, privacy: .public) \
+                elapsedMs=\(mobileHostNextTransportElapsedMs(since: startClock), privacy: .public)
+                """)
         } catch {
             state = "failed: \(error)"
             mobileHostNextTransportLog.error(
-                "next-transport start failed: \(String(describing: error))")
+                """
+                next-transport start failed: \(String(describing: error), privacy: .public) \
+                elapsedMs=\(mobileHostNextTransportElapsedMs(since: startClock), privacy: .public)
+                """)
         }
     }
 
@@ -219,7 +339,11 @@ final class MobileHostNextTransportRuntime {
     /// old clients drop the unknown kind at their failable-decode boundaries
     /// and no legacy selection/dial path treats it as a candidate.
     private func publishPresenceRoute() {
-        guard let endpointID else { return }
+        guard let endpointID else {
+            mobileHostNextTransportLog.notice(
+                "presence route publish skipped: no endpoint id")
+            return
+        }
         do {
             let route = try CmxAttachRoute(
                 id: CmxAttachTransportKind.nextTransport.rawValue,
@@ -233,6 +357,11 @@ final class MobileHostNextTransportRuntime {
                 priority: 30
             )
             MobileHostService.shared.updateNextTransportRoute(route)
+            mobileHostNextTransportLog.notice(
+                """
+                presence route PUBLISHED endpoint=\(String(endpointID.prefix(8)), privacy: .public) \
+                relay=\(self.relayURL ?? "none", privacy: .public) priority=30
+                """)
         } catch {
             mobileHostNextTransportLog.error(
                 "next-transport presence route rejected: \(String(describing: error))")
@@ -240,9 +369,15 @@ final class MobileHostNextTransportRuntime {
     }
 
     private func stop() async {
+        mobileHostNextTransportLog.notice(
+            """
+            host stop begin state=\(self.state, privacy: .public) \
+            endpoint=\(String(self.endpointID?.prefix(8) ?? "none"), privacy: .public)
+            """)
         acceptTask?.cancel()
         renewTask?.cancel()
         MobileHostService.shared.updateNextTransportRoute(nil)
+        mobileHostNextTransportLog.notice("presence route CLEARED")
         try? await endpoint?.close()
         endpoint = nil
         host = nil
@@ -251,6 +386,7 @@ final class MobileHostNextTransportRuntime {
         endpointID = nil
         relayURL = nil
         state = "off"
+        mobileHostNextTransportLog.notice("host stop done state=off")
     }
 
     private static func loadOrCreateIdentity() -> PeerIdentity {
@@ -261,6 +397,8 @@ final class MobileHostNextTransportRuntime {
             let key = Data(base64Encoded: keyB64),
             let deviceID = defaults.string(forKey: idKey)
         {
+            mobileHostNextTransportLog.notice(
+                "host identity LOADED device=\(String(deviceID.prefix(8)), privacy: .public)")
             return PeerIdentity(
                 appIdentity: "dev.cmux.next.host", deviceID: deviceID, privateKeyData: key)
         }
@@ -268,6 +406,8 @@ final class MobileHostNextTransportRuntime {
             appIdentity: "dev.cmux.next.host", deviceID: UUID().uuidString.lowercased())
         defaults.set(fresh.privateKeyData.base64EncodedString(), forKey: keyKey)
         defaults.set(fresh.deviceID, forKey: idKey)
+        mobileHostNextTransportLog.notice(
+            "host identity CREATED device=\(String(fresh.deviceID.prefix(8)), privacy: .public)")
         return fresh
     }
 

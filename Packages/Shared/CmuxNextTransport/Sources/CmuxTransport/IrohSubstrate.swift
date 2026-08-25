@@ -23,7 +23,17 @@ public enum IrohSubstrate {
         if minimalLoopback {
             try builder.bindAddr(addr: "127.0.0.1:0")
         }
-        return try await builder.bind()
+        let endpoint = try await builder.bind()
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                endpoint bound id=\(TransportDebugLog.hex8(endpoint.id().toBytes()), privacy: .public) \
+                device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                relays=0 loopback=\(minimalLoopback, privacy: .public) \
+                sockets=\(endpoint.boundSockets().count, privacy: .public)
+                """)
+        }
+        return endpoint
     }
 
     /// One authenticated relay (contract 9.1): our fleet requires an
@@ -60,7 +70,18 @@ public enum IrohSubstrate {
                     url: relay.url, quicPort: relay.quicPort, authToken: relay.authToken))
         }
         builder.relayMode(mode: RelayMode.custom(map: map))
-        return try await builder.bind()
+        let endpoint = try await builder.bind()
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                endpoint bound id=\(TransportDebugLog.hex8(endpoint.id().toBytes()), privacy: .public) \
+                device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                relays=\(relays.count, privacy: .public) \
+                relayUrls=\(relays.map(\.url).joined(separator: ","), privacy: .public) \
+                sockets=\(endpoint.boundSockets().count, privacy: .public)
+                """)
+        }
+        return endpoint
     }
 
     /// The endpoint key a fleet token is bound to (its JWT `endpoint_id`
@@ -119,20 +140,76 @@ public enum IrohSubstrate {
     public static func dial(
         endpoint: Endpoint, to addr: EndpointAddr
     ) async throws -> IrohPeerConnection {
-        let connection = try await endpoint.connect(addr: addr, alpn: alpn)
+        let dialStart = ContinuousClock.now
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                substrate dial begin target=\(TransportDebugLog.hex8(addr.id().toBytes()), privacy: .public) \
+                addrs=\(addr.directAddresses().count, privacy: .public) \
+                relay=\(addr.relayUrl() ?? "none", privacy: .public)
+                """)
+        }
+        let connection: Connection
+        do {
+            connection = try await endpoint.connect(addr: addr, alpn: alpn)
+        } catch {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    substrate dial FAILED target=\(TransportDebugLog.hex8(addr.id().toBytes()), privacy: .public) \
+                    error=\(String(describing: error), privacy: .public) \
+                    elapsedMs=\(TransportDebugLog.ms(since: dialStart), privacy: .public)
+                    """)
+            }
+            throw error
+        }
         let peer = IrohPeerConnection(connection: connection, role: .dialer)
         await peer.start()
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                substrate dial connected conn=\(TransportDebugLog.id(peer), privacy: .public) \
+                remote=\(TransportDebugLog.hex8(connection.remoteId().toBytes()), privacy: .public) \
+                elapsedMs=\(TransportDebugLog.ms(since: dialStart), privacy: .public)
+                """)
+        }
         return peer
     }
 
     /// Pull and complete the next incoming connection. Returns nil once the
     /// endpoint is closed.
     public static func acceptOne(endpoint: Endpoint) async throws -> IrohPeerConnection? {
-        guard let incoming = await endpoint.acceptNext() else { return nil }
-        let accepting = try await incoming.accept()
-        let connection = try await accepting.connect()
+        guard let incoming = await endpoint.acceptNext() else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice("substrate acceptOne: endpoint closed (nil incoming)")
+            }
+            return nil
+        }
+        let acceptStart = ContinuousClock.now
+        let connection: Connection
+        do {
+            let accepting = try await incoming.accept()
+            connection = try await accepting.connect()
+        } catch {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    substrate acceptOne FAILED error=\(String(describing: error), privacy: .public) \
+                    elapsedMs=\(TransportDebugLog.ms(since: acceptStart), privacy: .public)
+                    """)
+            }
+            throw error
+        }
         let peer = IrohPeerConnection(connection: connection, role: .acceptor)
         await peer.start()
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                substrate accepted conn=\(TransportDebugLog.id(peer), privacy: .public) \
+                remote=\(TransportDebugLog.hex8(connection.remoteId().toBytes()), privacy: .public) \
+                elapsedMs=\(TransportDebugLog.ms(since: acceptStart), privacy: .public)
+                """)
+        }
         return peer
     }
 }
@@ -175,6 +252,14 @@ public actor IrohPeerConnection: PeerConnection {
     /// bridge). A dialer that never receives one just parks on acceptBi.
     public func start() {
         guard acceptLoop == nil else { return }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) start \
+                role=\(String(describing: self.role), privacy: .public) \
+                remote=\(TransportDebugLog.hex8(self.remoteKey), privacy: .public)
+                """)
+        }
         acceptLoop = Task { await self.runAcceptLoop() }
     }
 
@@ -192,6 +277,13 @@ public actor IrohPeerConnection: PeerConnection {
     public func onRawStream(
         _ handler: @escaping @Sendable (String, RawByteStream) async -> Void
     ) {
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) raw-stream handler \
+                registered pendingFlushed=\(self.pendingRawStreams.count, privacy: .public)
+                """)
+        }
         rawStreamHandler = handler
         for (preamble, stream) in pendingRawStreams {
             Task { await handler(preamble, stream) }
@@ -203,17 +295,54 @@ public actor IrohPeerConnection: PeerConnection {
     /// frame carries the preamble; every byte after it is unframed and owned
     /// by the caller (identical wire shape to the legacy transport's lanes).
     public func openRawStream(preamble: String) async throws -> RawByteStream {
-        guard !closedFlag else { throw TransportError.pipeClosed }
-        let stream = try await connection.openBi()
-        let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
-        try await channel.sendFrame(
-            Frame(type: Self.rawOpenType, payload: ["preamble": .string(preamble)]))
-        return RawByteStream(send: stream.send(), recv: stream.recv(), buffered: Data())
+        guard !closedFlag else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) openRawStream REFUSED \
+                    (connection closed) preamble=\(preamble, privacy: .public)
+                    """)
+            }
+            throw TransportError.pipeClosed
+        }
+        do {
+            let stream = try await connection.openBi()
+            let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
+            try await channel.sendFrame(
+                Frame(type: Self.rawOpenType, payload: ["preamble": .string(preamble)]))
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) raw stream opened \
+                    preamble=\(preamble, privacy: .public)
+                    """)
+            }
+            return RawByteStream(send: stream.send(), recv: stream.recv(), buffered: Data())
+        } catch {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) openRawStream FAILED \
+                    preamble=\(preamble, privacy: .public) \
+                    error=\(String(describing: error), privacy: .public)
+                    """)
+            }
+            throw error
+        }
     }
 
     public func lane(_ name: String) async -> any TransportLane {
         if let existing = lanes[name] { return existing }
-        if closedFlag { return DeadLane(name: name) }
+        if closedFlag {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) lane \
+                    name=\(name, privacy: .public) -> dead lane (connection closed)
+                    """)
+            }
+            return DeadLane(name: name)
+        }
         switch role {
         case .dialer:
             do {
@@ -226,8 +355,23 @@ public actor IrohPeerConnection: PeerConnection {
                     Frame(type: Self.laneOpenType, payload: ["name": .string(name)]))
                 let lane = IrohLane(name: name, channel: channel)
                 lanes[name] = lane
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.notice(
+                        """
+                        conn \(TransportDebugLog.id(self), privacy: .public) lane opened \
+                        (dialer) name=\(name, privacy: .public)
+                        """)
+                }
                 return lane
             } catch {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.error(
+                        """
+                        conn \(TransportDebugLog.id(self), privacy: .public) lane open FAILED \
+                        (dialer) name=\(name, privacy: .public) \
+                        error=\(String(describing: error), privacy: .public) -> dead lane
+                        """)
+                }
                 return DeadLane(name: name)
             }
         case .acceptor:
@@ -235,8 +379,23 @@ public actor IrohPeerConnection: PeerConnection {
                 if let existing = lanes[name] {
                     continuation.resume(returning: existing)
                 } else if closedFlag {
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.notice(
+                            """
+                            conn \(TransportDebugLog.id(self), privacy: .public) lane \
+                            name=\(name, privacy: .public) -> dead lane (closed while waiting)
+                            """)
+                    }
                     continuation.resume(returning: DeadLane(name: name))
                 } else {
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.notice(
+                            """
+                            conn \(TransportDebugLog.id(self), privacy: .public) lane wait \
+                            (acceptor) name=\(name, privacy: .public) \
+                            waiters=\((self.laneWaiters[name]?.count ?? 0) + 1, privacy: .public)
+                            """)
+                    }
                     laneWaiters[name, default: []].append(continuation)
                 }
             }
@@ -248,9 +407,29 @@ public actor IrohPeerConnection: PeerConnection {
     /// protocol delivers and retransmits during shutdown; stream frames that
     /// lose the race are irrelevant because termination() carries the cause.
     public func closeAll(reason: ConnectionTermination?) async {
-        guard !closedFlag else { return }
+        guard !closedFlag else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) closeAll ignored \
+                    (already closed) reason=\(reason?.code ?? "nil", privacy: .public)
+                    """)
+            }
+            return
+        }
         closedFlag = true
         localTermination = reason
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) closeAll initiator=local \
+                reason=\(reason?.code ?? "nil", privacy: .public) \
+                role=\(String(describing: self.role), privacy: .public) \
+                remote=\(TransportDebugLog.hex8(self.remoteKey), privacy: .public) \
+                openLanes=\(self.lanes.count, privacy: .public) \
+                laneWaiters=\(self.laneWaiters.values.reduce(0) { $0 + $1.count }, privacy: .public)
+                """)
+        }
         acceptLoop?.cancel()
         for lane in lanes.values {
             await lane.finishSend()
@@ -282,12 +461,34 @@ public actor IrohPeerConnection: PeerConnection {
         if let reason = connection.closeReason() {
             rendered = reason
         } else if closedFlag {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) termination: local close \
+                    with no reason recorded -> nil
+                    """)
+            }
             return nil
         } else {
             rendered = await connection.closed()
         }
         for code in Self.knownTerminationCodes where rendered.contains(code) {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) termination parsed \
+                    code=\(code, privacy: .public) \
+                    rendered=\(rendered, privacy: .public)
+                    """)
+            }
             return ConnectionTermination(code: code)
+        }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) termination UNPARSED \
+                rendered=\(rendered, privacy: .public) -> nil
+                """)
         }
         return nil
     }
@@ -297,7 +498,16 @@ public actor IrohPeerConnection: PeerConnection {
             do {
                 let stream = try await connection.acceptBi()
                 let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
-                guard let open = await channel.receiveFrame() else { continue }
+                guard let open = await channel.receiveFrame() else {
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.notice(
+                            """
+                            conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                            inbound stream EOF before open frame; skipped
+                            """)
+                    }
+                    continue
+                }
                 // Raw application streams (graduation bridge): after the one
                 // handshake frame the stream is unframed bytes, handed whole
                 // to the registered owner. Decoder leftovers are re-injected
@@ -307,6 +517,15 @@ public actor IrohPeerConnection: PeerConnection {
                     let raw = RawByteStream(
                         send: stream.send(), recv: stream.recv(),
                         buffered: await channel.drainBufferedBytes())
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.notice(
+                            """
+                            conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                            inbound raw stream preamble=\(preamble, privacy: .public) \
+                            delivery=\(self.rawStreamHandler != nil ? "handler" : "pending", privacy: .public) \
+                            remainderBytes=\(raw.handshakeRemainder.count, privacy: .public)
+                            """)
+                    }
                     if let handler = rawStreamHandler {
                         Task { await handler(preamble, raw) }
                     } else {
@@ -316,16 +535,43 @@ public actor IrohPeerConnection: PeerConnection {
                 }
                 guard open.type == Self.laneOpenType,
                     let name = open.payload["name"]?.stringValue
-                else { continue }
+                else {
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.error(
+                            """
+                            conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                            inbound stream with unexpected open frame \
+                            type=\(open.type, privacy: .public); skipped
+                            """)
+                    }
+                    continue
+                }
                 let lane = IrohLane(name: name, channel: channel)
                 lanes[name] = lane
-                for waiter in laneWaiters.removeValue(forKey: name) ?? [] {
+                let resumed = laneWaiters.removeValue(forKey: name) ?? []
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.notice(
+                        """
+                        conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                        inbound lane name=\(name, privacy: .public) \
+                        waitersResumed=\(resumed.count, privacy: .public)
+                        """)
+                }
+                for waiter in resumed {
                     waiter.resume(returning: lane)
                 }
             } catch {
                 // Connection died (or closed): every waiter gets a dead lane
                 // that EOFs immediately; in-flight lane bytes die with the
                 // session (contract 5.4).
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.notice(
+                        """
+                        conn \(TransportDebugLog.id(self), privacy: .public) accept-loop exit \
+                        cause=\(String(describing: error), privacy: .public) \
+                        remote=\(TransportDebugLog.hex8(self.remoteKey), privacy: .public)
+                        """)
+                }
                 closedFlag = true
                 resumeAllWaitersClosed()
                 return
@@ -334,6 +580,14 @@ public actor IrohPeerConnection: PeerConnection {
     }
 
     private func resumeAllWaitersClosed() {
+        if TransportDebugLog.enabled, !laneWaiters.isEmpty {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) resuming lane waiters as \
+                dead lanes lanes=\(self.laneWaiters.keys.joined(separator: ","), privacy: .public) \
+                count=\(self.laneWaiters.values.reduce(0) { $0 + $1.count }, privacy: .public)
+                """)
+        }
         for (name, waiters) in laneWaiters {
             for waiter in waiters {
                 waiter.resume(returning: DeadLane(name: name))

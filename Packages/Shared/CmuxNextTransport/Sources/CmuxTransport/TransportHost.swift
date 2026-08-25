@@ -68,12 +68,20 @@ public actor TransportHost {
     }
 
     public func revokeGrant(id: String) {
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                "host grant revoked id=\(TransportDebugLog.prefix(id), privacy: .public)")
+        }
         revokedGrantIDs.insert(id)
     }
 
     /// Fault injection (harness spec 1.2): deny every admission with a fixed
     /// code until cleared.
     public func setAdmissionOverride(_ code: DenialCode?) {
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                "host admission override set code=\(code?.rawValue ?? "cleared", privacy: .public)")
+        }
         admissionOverride = code
     }
 
@@ -82,6 +90,15 @@ public actor TransportHost {
     public func killSession(deviceID: String, appIdentity: String) async -> Bool {
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
         guard let session = sessions.removeValue(forKey: key) else { return false }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                """
+                host killSession session=\(session.id, privacy: .public) \
+                device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                app=\(appIdentity, privacy: .public) \
+                code=\(CloseReason.faultInjected.code, privacy: .public)
+                """)
+        }
         await session.connection.closeAll(
             reason: ConnectionTermination(code: CloseReason.faultInjected.code))
         counters.closesByCode[CloseReason.faultInjected.code, default: 0] += 1
@@ -108,6 +125,23 @@ public actor TransportHost {
             self.sessions.removeValue(forKey: key)
             counters.closesByCode["connection-lost", default: 0] += 1
             reaped += 1
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.notice(
+                    """
+                    host reaped zombie session=\(session.id, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                    app=\(key.appIdentity, privacy: .public) \
+                    conn=\(TransportDebugLog.id(session.connection), privacy: .public) \
+                    code=connection-lost
+                    """)
+            }
+        }
+        if TransportDebugLog.enabled, reaped > 0 {
+            TransportDebugLog.host.notice(
+                """
+                host reap complete reaped=\(reaped, privacy: .public) \
+                liveSessions=\(self.sessions.count, privacy: .public)
+                """)
         }
         return reaped
     }
@@ -120,17 +154,52 @@ public actor TransportHost {
     /// Single-phase admission on the first control frame (contract 3.2).
     public func serve(connection: any PeerConnection, now: Int64) async {
         currentTime = now
+        let serveStart = ContinuousClock.now
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                """
+                host serve begin conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                now=\(now, privacy: .public) \
+                liveSessions=\(self.sessions.count, privacy: .public)
+                """)
+        }
         let control = await connection.lane(Self.controlLaneName)
         guard let hello = await control.receive(), hello.type == FrameTypes.hello else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host hello parse failed conn=\(TransportDebugLog.id(connection), privacy: .public): \
+                    no frame or wrong type
+                    """)
+            }
             await deny(.malformedHello, connection: connection)
             return
         }
         if let override = admissionOverride {
-            await deny(override, connection: connection)
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.notice(
+                    """
+                    host admission override firing conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    code=\(override.rawValue, privacy: .public)
+                    """)
+            }
+            await deny(
+                override, connection: connection,
+                deviceID: hello.payload["deviceId"]?.stringValue)
             return
         }
         guard hello.payload["protocol"]?.stringValue == CmuxPeerProtocol.identifier else {
-            await deny(.protocolMismatch, connection: connection)
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host protocol mismatch conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    presented=\(hello.payload["protocol"]?.stringValue ?? "nil", privacy: .public) \
+                    expected=\(CmuxPeerProtocol.identifier, privacy: .public)
+                    """)
+            }
+            await deny(
+                .protocolMismatch, connection: connection,
+                deviceID: hello.payload["deviceId"]?.stringValue)
             return
         }
         guard
@@ -139,7 +208,19 @@ public actor TransportHost {
             let appIdentity = hello.payload["app"]?.stringValue,
             let grant = PairingGrant(payloadValue: hello.payload["grant"])
         else {
-            await deny(.malformedHello, connection: connection)
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host hello missing fields conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    key=\(hello.payload["key"]?.dataValue != nil, privacy: .public) \
+                    deviceId=\(hello.payload["deviceId"]?.stringValue != nil, privacy: .public) \
+                    app=\(hello.payload["app"]?.stringValue != nil, privacy: .public) \
+                    grant=\(PairingGrant(payloadValue: hello.payload["grant"]) != nil, privacy: .public)
+                    """)
+            }
+            await deny(
+                .malformedHello, connection: connection,
+                deviceID: hello.payload["deviceId"]?.stringValue)
             return
         }
 
@@ -149,7 +230,16 @@ public actor TransportHost {
         // authenticated key, never the claimed one.
         let substrateKey = await connection.authenticatedRemoteKey
         if let substrateKey, substrateKey != helloKey {
-            await deny(.keyMismatch, connection: connection)
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host key mismatch conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    substrateKey=\(TransportDebugLog.hex8(substrateKey), privacy: .public) \
+                    helloKey=\(TransportDebugLog.hex8(helloKey), privacy: .public)
+                    """)
+            }
+            await deny(.keyMismatch, connection: connection, deviceID: deviceID)
             return
         }
         let presentedKey = substrateKey ?? helloKey
@@ -159,7 +249,18 @@ public actor TransportHost {
             presentedByApp: appIdentity, revokedGrantIDs: revokedGrantIDs, now: now)
         switch decision {
         case .deny(let code):
-            await deny(code, connection: connection)
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host grant verification denied conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    code=\(code.rawValue, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    app=\(appIdentity, privacy: .public) \
+                    grantID=\(TransportDebugLog.prefix(grant.grantID), privacy: .public) \
+                    grantExp=\(grant.expiresAt.map(String.init) ?? "none", privacy: .public)
+                    """)
+            }
+            await deny(code, connection: connection, deviceID: deviceID)
 
         case .admit:
             // Supersession (contract 4.5): a new connection from the same
@@ -167,7 +268,9 @@ public actor TransportHost {
             // A dead process's session must never block re-admission; the
             // field logs showed an ~85s lockout doing exactly that.
             let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
+            var supersededSessionID: String?
             if let old = sessions.removeValue(forKey: key) {
+                supersededSessionID = old.id
                 await old.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.superseded.code))
                 counters.closesByCode[CloseReason.superseded.code, default: 0] += 1
@@ -178,8 +281,40 @@ public actor TransportHost {
                 grant: grant)
             sessions[key] = session
             counters.admissions += 1
+            if TransportDebugLog.enabled {
+                if let supersededSessionID {
+                    TransportDebugLog.host.notice(
+                        """
+                        host supersession device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                        app=\(appIdentity, privacy: .public) \
+                        oldSession=\(supersededSessionID, privacy: .public) -> \
+                        newSession=\(session.id, privacy: .public)
+                        """)
+                }
+                TransportDebugLog.host.notice(
+                    """
+                    host ADMITTED session=\(session.id, privacy: .public) \
+                    conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    app=\(appIdentity, privacy: .public) \
+                    key=\(TransportDebugLog.hex8(presentedKey), privacy: .public) \
+                    grantID=\(TransportDebugLog.prefix(grant.grantID), privacy: .public) \
+                    grantExp=\(grant.expiresAt.map(String.init) ?? "none", privacy: .public) \
+                    admissions=\(self.counters.admissions, privacy: .public) \
+                    elapsedMs=\(TransportDebugLog.ms(since: serveStart), privacy: .public)
+                    """)
+            }
             try? await control.send(Frame.admit(sessionID: session.id))
             if let credential = pendingRelayCredentials[key] {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host replaying pending relay credential on admission \
+                        session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                        url=\(credential.url, privacy: .public)
+                        """)
+                }
                 try? await control.send(
                     Frame.relayCredential(url: credential.url, token: credential.token))
             }
@@ -203,11 +338,30 @@ public actor TransportHost {
         for (key, session) in sessions {
             guard let expiresAt = session.grant.expiresAt else { continue }
             if now >= expiresAt + expiryGraceSeconds {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host grant expiry close session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        code=\(CloseReason.grantExpired.code, privacy: .public) \
+                        exp=\(expiresAt, privacy: .public) now=\(now, privacy: .public) \
+                        graceSeconds=\(self.expiryGraceSeconds, privacy: .public)
+                        """)
+                }
                 sessions.removeValue(forKey: key)
                 await session.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.grantExpired.code))
                 counters.closesByCode[CloseReason.grantExpired.code, default: 0] += 1
             } else if now >= expiresAt - expiryWarningSeconds, !session.warnedExpiring {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host grant expiry WARNING session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        exp=\(expiresAt, privacy: .public) now=\(now, privacy: .public) \
+                        warningSeconds=\(self.expiryWarningSeconds, privacy: .public)
+                        """)
+                }
                 sessions[key]?.warnedExpiring = true
                 let control = await session.connection.lane(Self.controlLaneName)
                 try? await control.send(Frame.grantExpiring(expiresAt: expiresAt))
@@ -231,12 +385,42 @@ public actor TransportHost {
         _ = await reapClosedSessions()  // never claim delivery to a zombie
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
         pendingRelayCredentials[key] = (url: url, token: token)
-        guard let session = sessions[key] else { return false }
+        guard let session = sessions[key] else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.notice(
+                    """
+                    host relay credential stored (no live session) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    app=\(appIdentity, privacy: .public) \
+                    url=\(url, privacy: .public) \
+                    tokenExp=\(IrohSubstrate.tokenExpiry(token).map(String.init) ?? "unparsed", privacy: .public)
+                    """)
+            }
+            return false
+        }
         let control = await session.connection.lane(Self.controlLaneName)
         do {
             try await control.send(Frame.relayCredential(url: url, token: token))
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.notice(
+                    """
+                    host relay credential PUSHED session=\(session.id, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    url=\(url, privacy: .public) \
+                    tokenExp=\(IrohSubstrate.tokenExpiry(token).map(String.init) ?? "unparsed", privacy: .public)
+                    """)
+            }
             return true
         } catch {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host relay credential push FAILED session=\(session.id, privacy: .public) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    url=\(url, privacy: .public) \
+                    error=\(String(describing: error), privacy: .public)
+                    """)
+            }
             return false
         }
     }
@@ -244,8 +428,19 @@ public actor TransportHost {
     /// One channel, no timing dependence (contract 3.3 v7): the code rides in
     /// the connection termination itself, which the substrate delivers as
     /// part of closing. There is no deny frame to race against the close.
-    private func deny(_ code: DenialCode, connection: any PeerConnection) async {
+    private func deny(
+        _ code: DenialCode, connection: any PeerConnection, deviceID: String? = nil
+    ) async {
         counters.denialsByCode[code.rawValue, default: 0] += 1
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.error(
+                """
+                host DENIED conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                code=\(code.rawValue, privacy: .public) \
+                device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                denialsForCode=\(self.counters.denialsByCode[code.rawValue] ?? 0, privacy: .public)
+                """)
+        }
         await connection.closeAll(reason: ConnectionTermination(code: code.rawValue))
     }
 
@@ -259,17 +454,60 @@ public actor TransportHost {
             if let session = sessions[key], session.connection === connection {
                 sessions.removeValue(forKey: key)
                 counters.closesByCode["connection-lost", default: 0] += 1
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host control service ended session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                        code=connection-lost \
+                        liveSessions=\(self.sessions.count, privacy: .public)
+                        """)
+                }
+            } else if TransportDebugLog.enabled {
+                TransportDebugLog.host.notice(
+                    """
+                    host control service ended for superseded conn \
+                    device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                    conn=\(TransportDebugLog.id(connection), privacy: .public)
+                    """)
             }
         }
         let control = await connection.lane(Self.controlLaneName)
         for await frame in control.frames {
-            guard frame.type == FrameTypes.grantUpdate else { continue }
+            guard frame.type == FrameTypes.grantUpdate else {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host ctl frame ignored type=\(frame.type, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        conn=\(TransportDebugLog.id(connection), privacy: .public)
+                        """)
+                }
+                continue
+            }
             // Ignore frames from a superseded session's connection.
             guard let session = sessions[key], session.connection === connection else {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host grant renewal from superseded conn ignored \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        conn=\(TransportDebugLog.id(connection), privacy: .public)
+                        """)
+                }
                 return
             }
             guard let renewed = PairingGrant(payloadValue: frame.payload["grant"]) else {
                 counters.grantRenewalRejections += 1
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.error(
+                        """
+                        host grant renewal MALFORMED session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        rejections=\(self.counters.grantRenewalRejections, privacy: .public)
+                        """)
+                }
                 try? await control.send(Frame.grantAck(accepted: false, code: .malformedHello))
                 continue
             }
@@ -282,11 +520,32 @@ public actor TransportHost {
                 sessions[key]?.grant = renewed
                 sessions[key]?.warnedExpiring = false
                 counters.grantRenewals += 1
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host grant renewal ACCEPTED session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        grantID=\(TransportDebugLog.prefix(renewed.grantID), privacy: .public) \
+                        newExp=\(renewed.expiresAt.map(String.init) ?? "none", privacy: .public) \
+                        renewals=\(self.counters.grantRenewals, privacy: .public)
+                        """)
+                }
                 try? await control.send(Frame.grantAck(accepted: true))
             case .deny(let code):
                 // The session is NOT closed: the old grant still governs
                 // until its grace window lapses (3.6d).
                 counters.grantRenewalRejections += 1
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.error(
+                        """
+                        host grant renewal REJECTED session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        code=\(code.rawValue, privacy: .public) \
+                        grantID=\(TransportDebugLog.prefix(renewed.grantID), privacy: .public) \
+                        rejections=\(self.counters.grantRenewalRejections, privacy: .public) \
+                        (session stays open under old grant)
+                        """)
+                }
                 try? await control.send(Frame.grantAck(accepted: false, code: code))
             }
         }
@@ -308,6 +567,14 @@ public actor TransportHost {
         let lane = await connection.lane(Self.chatLaneName)
         guard let session = sessions[key], session.connection === connection else { return }
         chatEndpoints[key] = ChatEndpoint(owner: ObjectIdentifier(connection), lane: lane)
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                """
+                host chat service registered session=\(session.id, privacy: .public) \
+                device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                endpoints=\(self.chatEndpoints.count, privacy: .public)
+                """)
+        }
         for await frame in lane.frames {
             guard frame.type == FrameTypes.chatMessage || frame.type == FrameTypes.chatTyping
             else { continue }
@@ -320,6 +587,14 @@ public actor TransportHost {
         if chatEndpoints[key]?.owner == ObjectIdentifier(connection) {
             chatEndpoints.removeValue(forKey: key)
         }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                """
+                host chat service ended device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                endpoints=\(self.chatEndpoints.count, privacy: .public)
+                """)
+        }
     }
 
     private func runEchoService(connection: any PeerConnection) async {
@@ -329,8 +604,22 @@ public actor TransportHost {
             do {
                 try await echo.send(frame)
             } catch {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.error(
+                        """
+                        host echo service send FAILED \
+                        conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                        error=\(String(describing: error), privacy: .public)
+                        """)
+                }
                 return
             }
+        }
+        if TransportDebugLog.enabled {
+            TransportDebugLog.host.notice(
+                """
+                host echo service ended conn=\(TransportDebugLog.id(connection), privacy: .public)
+                """)
         }
     }
 }
@@ -345,7 +634,17 @@ public struct TransportClient: Sendable {
     public static func connect(
         connection: any PeerConnection, identity: PeerIdentity, grant: PairingGrant
     ) async throws -> ConnectOutcome {
+        let connectStart = ContinuousClock.now
         let control = await connection.lane("ctl")
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                client hello send conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                app=\(identity.appIdentity, privacy: .public) \
+                grantID=\(TransportDebugLog.prefix(grant.grantID), privacy: .public)
+                """)
+        }
         try await control.send(Frame.hello(identity: identity, grant: grant))
         guard let reply = await control.receive() else {
             // No admit frame: a denial. The reason arrives in the connection
@@ -354,13 +653,50 @@ public struct TransportClient: Sendable {
             if let termination = await connection.termination(),
                 let code = DenialCode(rawValue: termination.code)
             {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.error(
+                        """
+                        client connect DENIED conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                        device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                        code=\(code.rawValue, privacy: .public) \
+                        elapsedMs=\(TransportDebugLog.ms(since: connectStart), privacy: .public)
+                        """)
+                }
                 return .denied(code)
+            }
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    client connect FAILED conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                    cause=connection-closed-before-reply (no parsable termination) \
+                    elapsedMs=\(TransportDebugLog.ms(since: connectStart), privacy: .public)
+                    """)
             }
             throw TransportError.connectionClosedBeforeReply
         }
         guard reply.type == FrameTypes.admit else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    client connect FAILED conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                    device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                    cause=unexpected-frame type=\(reply.type, privacy: .public) \
+                    elapsedMs=\(TransportDebugLog.ms(since: connectStart), privacy: .public)
+                    """)
+            }
             throw TransportError.unexpectedFrame(reply.type)
         }
-        return .admitted(sessionID: reply.payload["session"]?.stringValue ?? "")
+        let sessionID = reply.payload["session"]?.stringValue ?? ""
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                client connect ADMITTED conn=\(TransportDebugLog.id(connection), privacy: .public) \
+                device=\(TransportDebugLog.prefix(identity.deviceID), privacy: .public) \
+                session=\(TransportDebugLog.prefix(sessionID), privacy: .public) \
+                elapsedMs=\(TransportDebugLog.ms(since: connectStart), privacy: .public)
+                """)
+        }
+        return .admitted(sessionID: sessionID)
     }
 }
