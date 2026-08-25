@@ -10222,6 +10222,9 @@ class TerminalController {
             "name": cookie.name,
             "value": cookie.value,
             "domain": cookie.domain,
+            // Foundation represents host-only cookies without a leading dot;
+            // retain that distinction so state/load does not widen their scope.
+            "hostOnly": !cookie.domain.hasPrefix("."),
             "path": cookie.path,
             "secure": cookie.isSecure,
             "httpOnly": cookie.isHTTPOnly,
@@ -10277,7 +10280,8 @@ class TerminalController {
         } else {
             originURL = fallbackURL
         }
-        let domain = raw["domain"] as? String
+        let hostOnly = v2Bool(raw, "hostOnly") == true
+        let domain = hostOnly ? nil : raw["domain"] as? String
         let path = (raw["path"] as? String) ?? "/"
         let secure = v2Bool(raw, "secure") ?? false
         let expires: Date?

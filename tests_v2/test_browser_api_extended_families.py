@@ -296,6 +296,7 @@ def main() -> int:
             )
             _must(http_only_row is not None, f"Expected HttpOnly cookie in cookies.get: {got_http_only}")
             _must(bool(http_only_row.get("httpOnly")) is True, f"Expected httpOnly=true in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("hostOnly")) is True, f"Expected hostOnly=true in cookies.get: {got_http_only}")
             document_cookie = c._call(
                 "browser.eval",
                 {"surface_id": sid, "script": "document.cookie"},
@@ -372,11 +373,34 @@ def main() -> int:
 
             state_path = tempfile.NamedTemporaryFile(delete=False, prefix="cmux-state-", suffix=".json").name
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "yes"})
+            state_cookie_name = "cmux_state_host_only"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": state_cookie_name,
+                    "value": "state-secret",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
             c._call("browser.state.save", {"surface_id": sid, "path": state_path})
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "no"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": state_cookie_name})
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
+            restored_state_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": state_cookie_name}
+            ) or {}
+            restored_state_rows = restored_state_cookie.get("cookies") or []
+            restored_state_row = next(
+                (row for row in restored_state_rows if str(row.get("name")) == state_cookie_name),
+                None,
+            )
+            _must(restored_state_row is not None, f"Expected state.load to restore cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("hostOnly")) is True, f"Expected restored hostOnly cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("httpOnly")) is True, f"Expected restored HttpOnly cookie: {restored_state_cookie}")
             try:
                 os.unlink(state_path)
             except Exception:

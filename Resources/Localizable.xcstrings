@@ -35027,6 +35027,23 @@
         }
       }
     },
+    "cli.browser.cookies.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies <get|set|clear> [--http-only] [...]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies <get|set|clear> [--http-only] [...]"
+          }
+        }
+      }
+    },
     "cli.browser.designMode.disabled": {
       "extractionState": "manual",
       "localizations": {

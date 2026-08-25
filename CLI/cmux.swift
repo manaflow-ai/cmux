@@ -15460,6 +15460,9 @@ struct CMUXCLI {
             if hasFlag(cookieArgs, name: "--secure") {
                 params["secure"] = true
             }
+            if hasFlag(cookieArgs, name: "--http-only") {
+                params["httpOnly"] = true
+            }
             if hasFlag(cookieArgs, name: "--all") {
                 params["all"] = true
             }
@@ -37069,7 +37072,7 @@ export default CMUXSessionRestore;
           browser profiles <list|add|rename|clear|delete> [...]
           browser profiles clear <profile|--all> [--force]
           browser import [...]
-          browser cookies <get|set|clear> [...]
+          \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
           browser storage <local|session> <get|set|clear> [...]
           browser tab <new|list|switch|close|<index>> [...]
           browser console <list|clear>
