@@ -306,6 +306,7 @@ _NETWORK_VERB = re.compile(
   | \bXMLHttpRequest\b
   | \.open\s*\(                                  # xhr.open(method, url)
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
+  | \burllib3.*\.request\s*\(
   | \burllib\b
   | \burlopen\s*\(
   | \bhttpx\.(?:Client|AsyncClient)\s*\(
