@@ -198,15 +198,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard !owners.contains(owner) else { return }
         owners.append(owner)
         dispatchedTaskOwnersByTargetWorkspace[targetWorkspaceID] = owners
-        dispatchedTaskOwnerRecency.removeAll { $0 == targetWorkspaceID }
-        dispatchedTaskOwnerRecency.append(targetWorkspaceID)
-        guard dispatchedTaskOwnerRecency.count > maxTrackedDispatchTargets else { return }
-        let overflow = dispatchedTaskOwnerRecency.count - maxTrackedDispatchTargets
-        for old in dispatchedTaskOwnerRecency.prefix(overflow) {
-            dispatchedTaskOwnersByTargetWorkspace.removeValue(forKey: old)
-            dispatchTargetRecoveryScans.remove(old)
-        }
-        dispatchedTaskOwnerRecency.removeFirst(overflow)
+        touchDispatchTarget(targetWorkspaceID)
     }
 
     @MainActor
@@ -216,7 +208,9 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     func markDispatchTargetRecoveryScan(_ targetWorkspaceID: UUID) -> Bool {
-        dispatchTargetRecoveryScans.insert(targetWorkspaceID).inserted
+        guard dispatchTargetRecoveryScans.insert(targetWorkspaceID).inserted else { return false }
+        touchDispatchTarget(targetWorkspaceID)
+        return true
     }
 
     @MainActor
@@ -227,6 +221,19 @@ final class FeedCoordinator: @unchecked Sendable {
             todoRecoveryRecency.removeFirst(todoRecoveryRecency.count - maxTrackedTodoWorkstreams)
         }
         return true
+    }
+
+    @MainActor
+    private func touchDispatchTarget(_ targetWorkspaceID: UUID) {
+        dispatchedTaskOwnerRecency.removeAll { $0 == targetWorkspaceID }
+        dispatchedTaskOwnerRecency.append(targetWorkspaceID)
+        guard dispatchedTaskOwnerRecency.count > maxTrackedDispatchTargets else { return }
+        let overflow = dispatchedTaskOwnerRecency.count - maxTrackedDispatchTargets
+        for old in dispatchedTaskOwnerRecency.prefix(overflow) {
+            dispatchedTaskOwnersByTargetWorkspace.removeValue(forKey: old)
+            dispatchTargetRecoveryScans.remove(old)
+        }
+        dispatchedTaskOwnerRecency.removeFirst(overflow)
     }
 
     struct DispatchedTaskOwner: Sendable, Equatable {

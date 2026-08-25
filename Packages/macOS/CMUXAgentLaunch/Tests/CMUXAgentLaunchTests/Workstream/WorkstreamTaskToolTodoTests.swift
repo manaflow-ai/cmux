@@ -103,6 +103,27 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .inProgress)
     }
 
+    @Test("A pre-tool snapshot cannot authorize completion")
+    func preToolSnapshotIsNotAuthoritative() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"work","status":"completed"}]}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"work","status":"completed"}]}"#,
+            response: #"{"error":"denied"}"#,
+            isError: true
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+    }
+
     @Test("Unrelated tools remain tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)
@@ -169,5 +190,123 @@ struct WorkstreamTaskToolTodoTests {
         ))
         #expect(latestTodos(store)?.first?.content == "inspect")
         #expect(latestTodos(store)?.first?.state == .completed)
+    }
+
+    @Test("TaskGet preserves other tasks and does not establish completeness")
+    func taskGetDoesNotReplaceTaskList() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"pending work"}"#,
+            response: #"{"task":{"id":"1","subject":"pending work"}}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"finished work"}"#,
+            response: #"{"task":{"id":"2","subject":"finished work"}}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskGet",
+            input: #"{"taskId":"2"}"#,
+            response: #"{"task":{"id":"2","subject":"finished work","status":"completed"}}"#
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
+        #expect(latestTodos(store)?.map(\.state) == [.pending, .completed])
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+    }
+
+    @Test("A partial task discovery invalidates an older whole-list snapshot")
+    func partialTaskDiscoveryInvalidatesCompleteness() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"known","status":"completed"}]}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskGet",
+            input: #"{"taskId":"2"}"#,
+            response: #"{"task":{"id":"2","subject":"discovered","status":"completed"}}"#
+        ))
+
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+        #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
+    }
+
+    @Test("A known TaskGet preserves whole-list completeness")
+    func knownTaskGetPreservesCompleteness() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"known","status":"completed"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskGet",
+            input: #"{"taskId":"1"}"#,
+            response: #"{"task":{"id":"1","subject":"known","status":"completed"}}"#
+        ))
+
+        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+    }
+
+    @Test("A pre-tool delta keeps completion authority disabled")
+    func preToolDeltaInvalidatesCompleteness() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"known","status":"completed"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#,
+            response: #"{"task":{"id":"1","status":"completed"}}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+    }
+
+    @Test("A response-less TaskGet cannot authorize completion")
+    func responseLessTaskGetIsRejected() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"known","status":"completed"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskGet",
+            input: #"{"taskId":"1"}"#
+        ))
+
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
     }
 }

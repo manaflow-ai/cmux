@@ -482,7 +482,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         let workspaces = app.allWorkspacesForAgentTodoRetirement
         let workspacesByID = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let items = workspaces.flatMap { workspace -> [ControlWorkspaceTaskQueueItem] in
-            let windowID = app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager)
+            let windowID = app.tabManagerFor(tabId: workspace.id).flatMap { app.windowId(for: $0) }
             return workspace.todoState.checklist.compactMap { item in
                 guard statusRaw == nil || item.state.rawValue == statusRaw else { return nil }
                 let projected = queueItem(
@@ -517,18 +517,21 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             return .notDispatchable
         }
         guard item.boundWorkspaceID == nil else { return .notDispatchable }
+        guard let sourceManager = app.tabManagerFor(tabId: source.id) ?? tabManager else {
+            return .tabManagerUnavailable
+        }
         var params: [String: Any] = [
             "focus": false,
             "initial_command": target.agentCommand,
             "working_directory": target.workingDirectory ?? source.currentDirectory,
             "eager_load_terminal": false,
         ]
-        if let sourceWindowID = app.windowId(for: app.tabManagerFor(tabId: source.id) ?? tabManager) {
+        if let sourceWindowID = app.windowId(for: sourceManager) {
             params["window_id"] = sourceWindowID.uuidString
         }
         guard case .ok(let rawResult) = v2WorkspaceCreate(
             params: params,
-            tabManager: app.tabManagerFor(tabId: source.id) ?? tabManager
+            tabManager: sourceManager
         ), let result = rawResult as? [String: Any],
               let createdRaw = result["workspace_id"] as? String,
               let createdID = UUID(uuidString: createdRaw) else {
@@ -546,7 +549,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             targetWorkspaceID: createdID
         )
         WorkspaceTodoFeature.markUsed()
-        let owner = app.tabManagerFor(tabId: source.id) ?? tabManager
+        let owner = sourceManager
         return .created(
             item: queueItem(
                 source.todoState.checklist.first(where: { $0.id == itemID }) ?? item,
@@ -575,6 +578,9 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         let displayedWorkspace = item.boundWorkspaceID.flatMap { boundID in
             app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
         } ?? workspace
+        guard let workspaceManager = app.tabManagerFor(tabId: workspace.id) ?? tabManager else {
+            return .tabManagerUnavailable
+        }
         _ = WorkspaceTodoActions.openTodoPane(for: displayedWorkspace, focus: false)
         NotificationCenter.default.post(
             name: .workspaceTaskQueueRevealRequested,
@@ -585,7 +591,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             item: queueItem(
                 item,
                 workspace: workspace,
-                windowID: app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager),
+                windowID: app.windowId(for: workspaceManager),
                 boundWorkspace: item.boundWorkspaceID.flatMap { boundID in
                     app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
                 }
@@ -616,6 +622,9 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         } else {
             target = nil
         }
+        guard let workspaceManager = app.tabManagerFor(tabId: workspace.id) ?? tabManager else {
+            return .tabManagerUnavailable
+        }
         guard workspace.setChecklistItemDispatchTarget(id: itemID, target: target) else {
             return .notFound
         }
@@ -624,7 +633,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             item: queueItem(
                 workspace.todoState.checklist.first(where: { $0.id == itemID }) ?? item,
                 workspace: workspace,
-                windowID: app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager),
+                windowID: app.windowId(for: workspaceManager),
                 boundWorkspace: item.boundWorkspaceID.flatMap { boundID in
                     app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
                 }

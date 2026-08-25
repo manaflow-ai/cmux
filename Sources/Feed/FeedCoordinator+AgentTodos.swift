@@ -12,14 +12,14 @@ extension FeedCoordinator {
             || event.toolName.flatMap(WorkstreamTaskTool.init(rawValue:)) != nil
         guard isTaskEvent,
               let store,
-              store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty,
-              markTodoRecoveryAttempt(event.sessionId) else {
+              store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty else {
             return
         }
         // An accumulator can be empty after restart while persisted rows still
         // carry exact workstream/task ownership. Seed from every live workspace
         // before applying a status-only delta.
         let candidates = AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? []
+        guard !candidates.isEmpty, markTodoRecoveryAttempt(event.sessionId) else { return }
         var restored: [WorkstreamTaskTodo] = []
         var seen = Set<String>()
         for workspace in candidates {
@@ -45,7 +45,8 @@ extension FeedCoordinator {
               let workspace = resolveTodoWorkspace(for: event) else { return }
         reconcileDispatchedItems(
             in: workspace,
-            tasks: todos
+            tasks: todos,
+            workstreamId: item.workstreamId
         )
         retireAgentTodos(for: item.workstreamId, excluding: workspace.id)
         let existingAgentItems = workspace.todoState.checklist.reduce(into: [WorkspaceAgentTaskRef: WorkspaceChecklistItem]()) { result, checklistItem in
@@ -103,9 +104,13 @@ extension FeedCoordinator {
     @MainActor
     private func reconcileDispatchedItems(
         in agentWorkspace: Workspace,
-        tasks: [WorkstreamTaskTodo]
+        tasks: [WorkstreamTaskTodo],
+        workstreamId: String
     ) {
-        guard let app = AppDelegate.shared else { return }
+        guard let app = AppDelegate.shared,
+              FeedCoordinator.shared.store?.isTaskListComplete(forWorkstream: workstreamId) ?? false else {
+            return
+        }
         guard !tasks.isEmpty, tasks.allSatisfy({ $0.state == .completed }) else { return }
         if dispatchedTaskOwners(for: agentWorkspace.id).isEmpty,
            markDispatchTargetRecoveryScan(agentWorkspace.id) {

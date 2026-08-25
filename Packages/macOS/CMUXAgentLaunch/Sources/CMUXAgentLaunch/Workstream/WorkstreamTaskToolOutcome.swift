@@ -7,4 +7,9 @@ enum WorkstreamTaskToolOutcome: Equatable {
     /// The complete task list after the mutation, including an empty list when
     /// the agent deleted its final task.
     case list([WorkstreamTaskTodo])
+
+    var producedList: Bool {
+        if case .list = self { return true }
+        return false
+    }
 }

@@ -20,14 +20,24 @@ struct WorkstreamTaskToolTodos: Sendable {
     private var provisionalIDsInOrder: [String] = []
     private var nextProvisionalID = 0
     private var completedCreateRequestIDs: [String] = []
+    private(set) var hasEvictedTodos = false
+    private(set) var hasCompleteTaskList = false
+
+    var isComplete: Bool { hasCompleteTaskList && !hasEvictedTodos }
 
     var ownedIds: Set<String> { ownedIdSet }
     var ownedIDList: [String] { ownedIDsInOrder }
     var isEmpty: Bool { todos.isEmpty && ownedIdSet.isEmpty }
 
+    mutating func invalidateCompleteness() {
+        hasCompleteTaskList = false
+    }
+
     /// Seeds the accumulator from persisted agent rows after an app restart.
     mutating func seed(with restored: [WorkstreamTaskTodo]) {
         todos = restored
+        hasEvictedTodos = true
+        hasCompleteTaskList = false
         for todo in restored {
             claim(todo.id)
             if todo.id.hasPrefix("pending-"),
@@ -45,18 +55,20 @@ struct WorkstreamTaskToolTodos: Sendable {
     mutating func applyPre(
         tool: WorkstreamTaskTool,
         inputJSON: String?,
-        requestID: String? = nil
+        requestID: String? = nil,
+        establishesCompleteness: Bool = false
     ) -> WorkstreamTaskToolOutcome {
         if tool == .taskCreate,
            let requestID,
            completedCreateRequestIDs.contains(requestID) {
             return .ignored
         }
+        hasCompleteTaskList = false
         let input = object(from: inputJSON)
         switch tool {
         case .todoWrite:
             guard let parsed = Self.snapshot(from: inputJSON) else { return .ignored }
-            replace(with: parsed)
+            replace(with: parsed, establishesCompleteness: establishesCompleteness)
             return .list(todos)
         case .taskCreate:
             guard let content = content(in: input) else { return .ignored }
@@ -68,9 +80,11 @@ struct WorkstreamTaskToolTodos: Sendable {
         case .taskUpdate:
             guard let id = taskID(in: input) else { return .ignored }
             return applyUpdate(id: id, input: input, response: nil)
-        case .taskGet, .taskList:
+        case .taskGet:
+            return .ignored
+        case .taskList:
             guard let parsed = Self.snapshot(from: inputJSON) else { return .ignored }
-            replace(with: parsed)
+            replace(with: parsed, establishesCompleteness: establishesCompleteness)
             return .list(todos)
         }
     }
@@ -104,7 +118,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         switch tool {
         case .todoWrite:
             guard let parsed = Self.snapshot(from: inputJSON) else { return .ignored }
-            replace(with: parsed)
+            replace(with: parsed, establishesCompleteness: true)
             return .list(todos)
         case .taskCreate:
             guard let authoritativeID = taskID(in: result),
@@ -124,10 +138,24 @@ struct WorkstreamTaskToolTodos: Sendable {
         case .taskUpdate:
             guard let id = taskID(in: input) ?? taskID(in: result) else { return .ignored }
             return applyUpdate(id: id, input: input, response: result)
-        case .taskGet, .taskList:
+        case .taskGet:
+            let rawStatus = result.flatMap { $0["status"] as? String }
+            guard let result,
+                  let requestedID = taskID(in: input),
+                  let resultID = taskID(in: result),
+                  requestedID == resultID,
+                  state(in: result) != nil
+                    || content(in: result) != nil
+                    || rawStatus == "deleted"
+                    || rawStatus == "removed" else {
+                hasCompleteTaskList = false
+                return .ignored
+            }
+            return applyUpdate(id: resultID, input: input, response: result)
+        case .taskList:
             let snapshotJSON = responseJSON ?? inputJSON
             guard let parsed = Self.snapshot(from: snapshotJSON) else { return .ignored }
-            replace(with: parsed)
+            replace(with: parsed, establishesCompleteness: true)
             return .list(todos)
         }
     }
@@ -141,7 +169,10 @@ struct WorkstreamTaskToolTodos: Sendable {
         let rawStatus = (input?["status"] as? String) ?? (input?["state"] as? String)
             ?? (response?["status"] as? String) ?? (response?["state"] as? String)
         if rawStatus == "deleted" || rawStatus == "removed" {
-            guard todos.contains(where: { $0.id == resolvedID }) else { return .ignored }
+            guard todos.contains(where: { $0.id == resolvedID }) else {
+                hasCompleteTaskList = false
+                return .ignored
+            }
             todos.removeAll { $0.id == resolvedID }
             claim(resolvedID)
             return .list(todos)
@@ -178,15 +209,24 @@ struct WorkstreamTaskToolTodos: Sendable {
 
         // A resumed session can send an update before cmux saw its create. Do
         // not claim an id unless the payload also gives us display text.
-        guard let title = content(in: response) ?? content(in: input) else { return .ignored }
+        guard let title = content(in: response) ?? content(in: input) else {
+            hasCompleteTaskList = false
+            return .ignored
+        }
+        hasCompleteTaskList = false
         claim(resolvedID)
         upsert(WorkstreamTaskTodo(id: resolvedID, content: title, state: nextState ?? .pending))
         trim()
         return .list(todos)
     }
 
-    private mutating func replace(with parsed: [WorkstreamTaskTodo]) {
+    private mutating func replace(
+        with parsed: [WorkstreamTaskTodo],
+        establishesCompleteness: Bool
+    ) {
         todos = parsed
+        hasCompleteTaskList = establishesCompleteness
+        hasEvictedTodos = false
         for todo in parsed { claim(todo.id) }
         trim()
     }
@@ -210,6 +250,7 @@ struct WorkstreamTaskToolTodos: Sendable {
 
     private mutating func trim() {
         if todos.count > Self.maxRetainedTodos {
+            hasEvictedTodos = true
             todos.removeFirst(todos.count - Self.maxRetainedTodos)
         }
         let activeIDs = Set(todos.map(\.id))
@@ -347,15 +388,18 @@ struct WorkstreamTaskToolTodos: Sendable {
             return nil
         }
         var occurrences: [String: Int] = [:]
-        return values.compactMap { value in
+        var parsed: [WorkstreamTaskTodo] = []
+        parsed.reserveCapacity(values.count)
+        for value in values {
             guard let dictionary = value as? [String: Any],
                   let text = content(in: dictionary) else { return nil }
             let base = taskID(in: dictionary) ?? ("content-" + text)
             let count = (occurrences[base] ?? 0) + 1
             occurrences[base] = count
             let id = count == 1 ? base : base + "-" + String(count)
-            return WorkstreamTaskTodo(id: id, content: text, state: state(in: dictionary) ?? .pending)
+            parsed.append(WorkstreamTaskTodo(id: id, content: text, state: state(in: dictionary) ?? .pending))
         }
+        return parsed
     }
 }
 

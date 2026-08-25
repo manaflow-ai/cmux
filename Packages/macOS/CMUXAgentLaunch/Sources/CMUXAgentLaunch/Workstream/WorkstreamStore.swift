@@ -51,6 +51,7 @@ public final class WorkstreamStore {
     /// bounded and is only a transport projection; workspace checklists stay
     /// authoritative in the app's `WorkspaceTodoState`.
     private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+    private var taskToolListCompletenessByWorkstream: [String: Bool] = [:]
     private var taskToolWorkstreamsByRecency: [String] = []
     private static let maxTrackedTaskToolWorkstreams = 64
 
@@ -165,8 +166,16 @@ public final class WorkstreamStore {
         var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
         accumulator.seed(with: todos)
         taskToolTodosByWorkstream[workstreamId] = accumulator
+        taskToolListCompletenessByWorkstream[workstreamId] = false
         touchTaskToolWorkstream(workstreamId)
         trimTaskToolWorkstreams()
+    }
+
+    /// Whether the current accumulated task list is complete enough to drive
+    /// an automatic dispatched-task completion. A capped accumulator is only
+    /// a suffix and must fail closed.
+    public func isTaskListComplete(forWorkstream workstreamId: String) -> Bool {
+        taskToolListCompletenessByWorkstream[workstreamId] ?? false
     }
 
     // MARK: - Actions
@@ -355,7 +364,16 @@ public final class WorkstreamStore {
                         requestID: event.requestId
                     )
                 }
+                if !outcome.producedList || (event.isError ?? false) {
+                    accumulator.invalidateCompleteness()
+                }
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
+                taskToolListCompletenessByWorkstream[event.sessionId] =
+                    event.toolResponseJSON != nil
+                    && !(event.isError ?? false)
+                    && outcome.producedList
+                    ? accumulator.isComplete
+                    : false
                 touchTaskToolWorkstream(event.sessionId)
                 trimTaskToolWorkstreams()
                 if case .list(let todos) = outcome {
@@ -374,7 +392,14 @@ public final class WorkstreamStore {
                     isError: event.isError ?? false,
                     requestID: event.requestId
                 )
+                if !outcome.producedList || (event.isError ?? false) {
+                    accumulator.invalidateCompleteness()
+                }
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
+                taskToolListCompletenessByWorkstream[event.sessionId] =
+                    !(event.isError ?? false) && outcome.producedList
+                    ? accumulator.isComplete
+                    : false
                 touchTaskToolWorkstream(event.sessionId)
                 trimTaskToolWorkstreams()
                 if case .list(let todos) = outcome {
@@ -416,9 +441,17 @@ public final class WorkstreamStore {
             let outcome = accumulator.applyPre(
                 tool: .todoWrite,
                 inputJSON: event.toolInputJSON,
-                requestID: event.requestId
+                requestID: event.requestId,
+                establishesCompleteness: true
             )
+            if !outcome.producedList || (event.isError ?? false) {
+                accumulator.invalidateCompleteness()
+            }
             taskToolTodosByWorkstream[event.sessionId] = accumulator
+            taskToolListCompletenessByWorkstream[event.sessionId] =
+                !(event.isError ?? false) && outcome.producedList
+                ? accumulator.isComplete
+                : false
             touchTaskToolWorkstream(event.sessionId)
             trimTaskToolWorkstreams()
             if case .list(let todos) = outcome {
@@ -447,6 +480,7 @@ public final class WorkstreamStore {
         let overflow = taskToolWorkstreamsByRecency.count - Self.maxTrackedTaskToolWorkstreams
         for workstreamId in taskToolWorkstreamsByRecency.prefix(overflow) {
             taskToolTodosByWorkstream.removeValue(forKey: workstreamId)
+            taskToolListCompletenessByWorkstream.removeValue(forKey: workstreamId)
         }
         taskToolWorkstreamsByRecency.removeFirst(overflow)
     }
