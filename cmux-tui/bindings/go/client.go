@@ -821,8 +821,11 @@ func (c *Client) write(
 			}
 		}
 		written = written || count > 0
+		encoded = encoded[count:]
+		if len(encoded) == 0 && onDispatched != nil {
+			onDispatched()
+		}
 		if err != nil {
-			encoded = encoded[count:]
 			return written, len(encoded) == 0, &TransportError{
 				Operation: operation,
 				Err:       err,
@@ -833,10 +836,6 @@ func (c *Client) write(
 				Operation: operation,
 				Err:       io.ErrNoProgress,
 			}
-		}
-		encoded = encoded[count:]
-		if len(encoded) == 0 && onDispatched != nil {
-			onDispatched()
 		}
 	}
 	return true, true, nil
