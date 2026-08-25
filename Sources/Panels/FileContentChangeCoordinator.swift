@@ -34,12 +34,15 @@ final class FileContentChangeCoordinator {
         /// retargeted while a panel opened through the real path remains valid.
         var lastObservedStates: [String: FilePreviewFileState] = [:]
         var watches: [String: WatchRegistration] = [:]
+        var lookupPathsByWatchedPath: [String: Set<String>] = [:]
+        var indexedLookupPaths: Set<String> = []
         var observers: [UUID: ChangeHandler] = [:]
     }
 
     private let makeFileWatcher: FileWatcherFactory
     private var entriesByPath: [String: Entry] = [:]
     private var observationsByID: [UUID: Observation] = [:]
+    private var entryKeysByLookupPath: [String: Set<String>] = [:]
 
     init(
         makeFileWatcher: @escaping FileWatcherFactory = { path in
@@ -81,6 +84,7 @@ final class FileContentChangeCoordinator {
             )
         }
         entry.observers[observationID] = onChange
+        refreshLookupIndex(for: canonicalPath, in: &entry)
         entriesByPath[canonicalPath] = entry
         observationsByID[observationID] = (
             canonicalPath: canonicalPath,
@@ -107,10 +111,14 @@ final class FileContentChangeCoordinator {
         }
         entry.observers.removeValue(forKey: observationID)
         guard !entry.observers.isEmpty else {
-            entriesByPath.removeValue(forKey: observation.canonicalPath)
             for registration in entry.watches.values {
                 registration.task?.cancel()
             }
+            entry.watches.removeAll()
+            entry.lastObservedStates.removeAll()
+            entry.lookupPathsByWatchedPath.removeAll()
+            refreshLookupIndex(for: observation.canonicalPath, in: &entry)
+            entriesByPath.removeValue(forKey: observation.canonicalPath)
             return
         }
 
@@ -131,7 +139,9 @@ final class FileContentChangeCoordinator {
                 registration.task?.cancel()
             }
             entry.lastObservedStates.removeValue(forKey: watchPath)
+            entry.lookupPathsByWatchedPath.removeValue(forKey: watchPath)
         }
+        refreshLookupIndex(for: observation.canonicalPath, in: &entry)
         entriesByPath[observation.canonicalPath] = entry
     }
 
@@ -144,17 +154,10 @@ final class FileContentChangeCoordinator {
     ) {
         let canonicalPath = Self.canonicalPath(path)
         let watchedPath = Self.standardizedPath(path)
-        let matchingEntryKeys = entriesByPath.compactMap { entryKey, entry in
-            guard entryKey == canonicalPath
-                || entry.lastObservedStates[watchedPath] != nil
-                || entry.lastObservedStates[canonicalPath] != nil
-                || entry.lastObservedStates.keys.contains(where: {
-                    Self.canonicalPath($0) == canonicalPath
-                }) else {
-                return nil
-            }
-            return entryKey
-        }
+        let matchingEntryKeys = Set(
+            (entryKeysByLookupPath[watchedPath] ?? [])
+                .union(entryKeysByLookupPath[canonicalPath] ?? [])
+        )
         for entryKey in matchingEntryKeys {
             guard var entry = entriesByPath[entryKey] else { continue }
             for watchPath in Array(entry.lastObservedStates.keys) {
@@ -241,6 +244,7 @@ final class FileContentChangeCoordinator {
     ) {
         guard entry.watches[watchedPath] == nil else { return }
         entry.lastObservedStates[watchedPath] = .capture(path: watchedPath)
+        entry.lookupPathsByWatchedPath[watchedPath] = [watchedPath, canonicalPath]
         entry.watches[watchedPath] = makeWatchRegistration(
             for: watchedPath,
             canonicalPath: canonicalPath
@@ -276,7 +280,18 @@ final class FileContentChangeCoordinator {
             return false
         }
         let nextState = FilePreviewFileState.capture(path: watchedPath)
-        guard nextState != lastObservedState else { return false }
+        let nextLookupPaths: Set<String> = [
+            watchedPath,
+            Self.canonicalPath(watchedPath)
+        ]
+        if entry.lookupPathsByWatchedPath[watchedPath] != nextLookupPaths {
+            entry.lookupPathsByWatchedPath[watchedPath] = nextLookupPaths
+            refreshLookupIndex(for: canonicalPath, in: &entry)
+        }
+        guard nextState != lastObservedState else {
+            entriesByPath[canonicalPath] = entry
+            return false
+        }
         entry.lastObservedStates[watchedPath] = nextState
         let handlers = Array(entry.observers.values)
         entriesByPath[canonicalPath] = entry
@@ -284,6 +299,29 @@ final class FileContentChangeCoordinator {
             handler()
         }
         return true
+    }
+
+    private func refreshLookupIndex(
+        for entryKey: String,
+        in entry: inout Entry
+    ) {
+        for lookupPath in entry.indexedLookupPaths {
+            guard var entryKeys = entryKeysByLookupPath[lookupPath] else { continue }
+            entryKeys.remove(entryKey)
+            if entryKeys.isEmpty {
+                entryKeysByLookupPath.removeValue(forKey: lookupPath)
+            } else {
+                entryKeysByLookupPath[lookupPath] = entryKeys
+            }
+        }
+
+        let nextLookupPaths = Set(
+            entry.lookupPathsByWatchedPath.values.flatMap { $0 }
+        )
+        for lookupPath in nextLookupPaths {
+            entryKeysByLookupPath[lookupPath, default: []].insert(entryKey)
+        }
+        entry.indexedLookupPaths = nextLookupPaths
     }
 
     private static func canonicalPath(_ path: String) -> String {

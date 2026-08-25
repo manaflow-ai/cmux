@@ -124,7 +124,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.fileContentChangeCoordinator =
             fileContentChangeCoordinator ?? FileContentChangeCoordinator()
 
-        _ = loadFileContent()
+        // Initial disk hydration must not overwrite edits made while a large
+        // file is loading; explicit reload/revert paths retain the destructive
+        // default through `loadTextContent(replacingDirtyContent:)`.
+        _ = loadFileContent(replacingDirtyContent: false)
         startWatchingForFileChanges()
         observeTypographyDefaults()
     }
