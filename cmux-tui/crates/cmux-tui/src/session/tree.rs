@@ -1,7 +1,7 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use cmux_tui_core::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,

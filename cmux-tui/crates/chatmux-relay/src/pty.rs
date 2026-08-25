@@ -975,8 +975,13 @@ impl Inner {
             let control = control.clone();
             let gate = Arc::clone(&gate);
             Arc::new(move |chunk: Bytes| {
-                let _guard = gate.lock().expect("attachment gate");
-                inner.emit_output(&pty_id, generation, &chunk, &context, &control);
+                let kill = {
+                    let _guard = gate.lock().expect("attachment gate");
+                    inner.emit_output(&pty_id, generation, &chunk, &context, &control)
+                };
+                if let Some(control) = kill {
+                    control.kill();
+                }
             }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
@@ -986,8 +991,13 @@ impl Inner {
             let control = control.clone();
             let gate = Arc::clone(&gate);
             Arc::new(move |code: i64| {
-                let _guard = gate.lock().expect("attachment gate");
-                inner.emit_exit(&pty_id, generation, code, &context, &control);
+                let kill = {
+                    let _guard = gate.lock().expect("attachment gate");
+                    inner.emit_raw_exit(&pty_id, generation, code, &context, &control)
+                };
+                if let Some(control) = kill {
+                    control.kill();
+                }
             }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (generation, gate, on_data, on_exit)
@@ -1000,18 +1010,18 @@ impl Inner {
         chunk: &Bytes,
         context: &FrameContext,
         control: &Weak<dyn PtyControl>,
-    ) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        let Some(control) = control.upgrade() else { return };
+    ) -> Option<Arc<dyn PtyControl>> {
+        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return None };
+        let Some(control) = control.upgrade() else { return None };
         if !self.attachment_is_current(pty_id, generation, &control)
             || self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
         {
-            return;
+            return None;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
         if chunk.is_empty() {
-            return;
+            return None;
         }
         let buffered = (auth.buffered_amount)();
         // Admit the complete frame before sending it. The socket may accept a
@@ -1019,7 +1029,6 @@ impl Inner {
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
             if self.remove_attachment_if_current(pty_id, generation, &control) {
-                control.kill();
                 send_pty_error(
                     context,
                     pty_id,
@@ -1029,8 +1038,9 @@ impl Inner {
                         self.output_cap,
                     ),
                 );
+                return Some(control);
             }
-            return;
+            return None;
         }
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
@@ -1038,6 +1048,7 @@ impl Inner {
             "ptyId": pty_id,
             "dataB64": BASE64.encode(chunk),
         }));
+        None
     }
 
     fn emit_raw_exit(
@@ -1048,25 +1059,26 @@ impl Inner {
         code: i64,
         context: &FrameContext,
         control: &Weak<dyn PtyControl>,
-    ) {
+    ) -> Option<Arc<dyn PtyControl>> {
         if !stream.overflowed() {
             self.emit_exit(pty_id, generation, code, context, control);
-            return;
+            return None;
         }
-        let Some(control) = control.upgrade() else { return };
+        let Some(control) = control.upgrade() else { return None };
         // A stale overflow callback must not send an error after a replacement
         // attachment has taken the same pty ID. The generation check and
         // removal are one operation; only the owner of the current entry may
         // kill it or report overflow.
         if self.remove_attachment_if_current(pty_id, generation, &control) {
-            control.kill();
             send_pty_error(
                 context,
                 pty_id,
                 operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
                 "pty output backlog overflowed; reattach to continue receiving output",
             );
+            return Some(control);
         }
+        None
     }
 
     fn emit_exit(
@@ -1106,20 +1118,27 @@ impl Inner {
         // Serialize overflow teardown with output and exit callbacks. This
         // keeps a callback that already passed its identity check from
         // sending after the overflow error removes the attachment.
-        let _guard = gate.lock().expect("attachment gate");
-        let Some(control) = control.upgrade() else { return };
-        if self.remove_attachment_if_current(pty_id, generation, &control) {
+        let kill = {
+            let _guard = gate.lock().expect("attachment gate");
+            let Some(control) = control.upgrade() else { return };
+            if self.remove_attachment_if_current(pty_id, generation, &control) {
+                // Overflow is a terminal viewer failure. `pty_error` is the
+                // protocol's close signal and tells the client to reattach;
+                // do not emit a second `pty_exit` for the removed attachment.
+                // The operational code is downgraded for pre-v7 Workers.
+                send_pty_error(
+                    context,
+                    pty_id,
+                    operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
+                    "pty viewer delivery queue overflowed; reattach to continue receiving output",
+                );
+                Some(control)
+            } else {
+                None
+            }
+        };
+        if let Some(control) = kill {
             control.kill();
-            // Overflow is a terminal viewer failure. `pty_error` is the
-            // protocol's close signal and tells the client to reattach; do
-            // not emit a second `pty_exit` for the removed attachment. The
-            // operational code is downgraded for pre-v7 Workers.
-            send_pty_error(
-                context,
-                pty_id,
-                operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
-                "pty viewer delivery queue overflowed; reattach to continue receiving output",
-            );
         }
     }
 
@@ -2206,15 +2225,20 @@ impl Inner {
         let stream_for_exit = Arc::clone(&stream);
         let gate_for_exit = Arc::clone(&gate);
         let on_exit: ExitSink = Arc::new(move |code| {
-            let _guard = gate_for_exit.lock().expect("attachment gate");
-            relay.emit_raw_exit(
-                &pty_id_for_exit,
-                generation,
-                &stream_for_exit,
-                code,
-                &context_for_exit,
-                &control_identity,
-            );
+            let kill = {
+                let _guard = gate_for_exit.lock().expect("attachment gate");
+                relay.emit_raw_exit(
+                    &pty_id_for_exit,
+                    generation,
+                    &stream_for_exit,
+                    code,
+                    &context_for_exit,
+                    &control_identity,
+                )
+            };
+            if let Some(control) = kill {
+                control.kill();
+            }
         });
         let start_stream = Arc::clone(&stream);
         Ok(Some(Opened {

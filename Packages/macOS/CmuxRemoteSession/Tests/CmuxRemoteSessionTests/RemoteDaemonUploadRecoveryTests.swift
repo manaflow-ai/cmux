@@ -210,7 +210,9 @@ extension RemoteDaemonUploadTests {
         #expect(uploadRequest.arguments.last?.contains("kill") == true)
         #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
         #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
-        #expect(cleanupRequest.arguments.last?.contains("kill -0") == true)
+        // Recovery is age-based. It must not probe or signal the marker PID,
+        // because a reused PID could belong to an unrelated live process.
+        #expect(cleanupRequest.arguments.last?.contains("kill -0") == false)
         #expect(cleanupRequest.arguments.last?.contains("kill \"$cmux_current_pid\"") == false)
         #expect(cleanupRequest.arguments.last?.contains("rm -f -- \(remotePath).tmp-*") == false)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
@@ -285,8 +287,6 @@ extension RemoteDaemonUploadTests {
         #expect(!fileManager.fileExists(atPath: pidPath))
         writer.terminate()
         writer.waitUntilExit()
-        try Self.ageFile(atPath: pidPath)
-        try Self.ageFile(atPath: temporaryPath)
         #expect(!writer.isRunning)
 
         let staleCleanup = Process()
