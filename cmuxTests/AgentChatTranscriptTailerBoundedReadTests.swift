@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import Foundation
 import Testing
 
@@ -103,5 +104,164 @@ struct AgentChatTranscriptTailerBoundedReadTests {
             "message": ["role": "user", "content": content],
         ])
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+@Suite("Agent chat transcript tailer ownership")
+@MainActor
+struct AgentChatTranscriptTailerOwnershipTests {
+    @Test("Automatic-capture tailers are capped with least-recently-used eviction")
+    func automaticCaptureTailersAreCappedAndEvictedByRecency() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeArtifactCaptureService()
+        let expectedCap = 32
+        let total = expectedCap + 1
+
+        try makeTranscript(at: root, index: 0)
+        noteSession(index: 0, root: root, service: service)
+        try makeTranscript(at: root, index: 1)
+        noteSession(index: 1, root: root, service: service)
+
+        // Touch the first session after the second one was created. The second
+        // session should therefore be the first artifact-only tailer evicted.
+        if let first = service.registry.record(sessionID: sessionID(index: 0)) {
+            service.ensureTailerForEagerObservation(for: first)
+        }
+        for index in 2..<total {
+            try makeTranscript(at: root, index: index)
+            noteSession(index: index, root: root, service: service)
+        }
+
+        #expect(service.tailers.count == expectedCap)
+        #expect(service.tailers[sessionID(index: 0)] != nil)
+        #expect(service.tailers[sessionID(index: 1)] == nil)
+
+        await stopRemainingTailers(in: service)
+    }
+
+    @Test("Subscriber-owned tailers survive the artifact-only cap and setting disable")
+    func subscriberTailersAreNotEvictedOrReleasedWithCapture() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var hasSubscribers = true
+        var captureEnabled = true
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { hasSubscribers },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { captureEnabled }
+        )
+
+        try makeTranscript(at: root, index: 0)
+        noteSession(index: 0, root: root, service: service)
+        hasSubscribers = false
+        for index in 1...32 {
+            try makeTranscript(at: root, index: index)
+            noteSession(index: index, root: root, service: service)
+        }
+
+        #expect(service.tailers[sessionID(index: 0)] != nil)
+
+        captureEnabled = false
+        service.reconcileAutomaticArtifactCaptureAvailability()
+
+        #expect(service.tailers.count == 1)
+        #expect(service.tailers[sessionID(index: 0)] != nil)
+
+        await stopRemainingTailers(in: service)
+    }
+
+    @Test("Ending a session removes its tailer ownership")
+    func endingSessionReleasesTailer() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = try makeTranscript(at: root, index: 0)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true }
+        )
+        let session = WorkstreamEvent(
+            sessionId: sessionID(index: 0),
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: .now
+        )
+        service.noteHookEvent(session)
+        #expect(service.tailers[sessionID(index: 0)] != nil)
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: session.sessionId,
+            hookEventName: .sessionEnd,
+            source: session.source,
+            workspaceId: session.workspaceId,
+            surfaceId: session.surfaceId,
+            transcriptPath: session.transcriptPath,
+            cwd: session.cwd,
+            ppid: nil,
+            receivedAt: .now
+        ))
+
+        #expect(service.tailers[sessionID(index: 0)] == nil)
+        await stopRemainingTailers(in: service)
+    }
+
+    private func makeArtifactCaptureService() -> AgentChatTranscriptService {
+        AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { true }
+        )
+    }
+
+    private func noteSession(
+        index: Int,
+        root: URL,
+        service: AgentChatTranscriptService
+    ) {
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID(index: index),
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: root.appendingPathComponent("session-(index).jsonl").path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: TimeInterval(index + 1))
+        ))
+    }
+
+    private func makeTranscript(at root: URL, index: Int) throws -> URL {
+        let transcript = root.appendingPathComponent("session-(index).jsonl")
+        try Data().write(to: transcript)
+        return transcript
+    }
+
+    private func sessionID(index: Int) -> String {
+        "tailer-session-(index)"
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tailers-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func stopRemainingTailers(in service: AgentChatTranscriptService) async {
+        for tailer in service.tailers.values {
+            await tailer.stop()
+        }
     }
 }

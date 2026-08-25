@@ -61,6 +61,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.captureAuthorization == nil)
     }
 
+    @Test("Claude output without an error flag does not authorize a mutation")
+    func unflaggedClaudeSuccessTextIsReference() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "unflagged-success", "name": "Write",
+            "input": ["file_path": "/tmp/unflagged-success.md", "content": "draft"],
+        ]])
+        let result = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "unflagged-success",
+            "content": "saved",
+        ]])
+
+        let parsed = ClaudeTranscriptParser().parse(
+            lines: [invocation, result],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(parsed).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/unflagged-success.md"))
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     @Test("Failed Codex apply_patch remains a read-only reference")
     func failedCodexPatchIsReference() throws {
         let call = codexLine(type: "response_item", payload: [
