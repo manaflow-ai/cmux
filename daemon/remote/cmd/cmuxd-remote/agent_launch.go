@@ -323,10 +323,14 @@ func writeShimIfChanged(path string, content string) error {
 		tempFile.Close()
 		return err
 	}
-	if err := tempFile.Close(); err != nil {
+	// Set the final executable mode while the descriptor is still open. This
+	// prevents a close-to-chmod window in which another same-UID process could
+	// observe or replace the temporary file.
+	if err := tempFile.Chmod(0755); err != nil {
+		tempFile.Close()
 		return err
 	}
-	if err := os.Chmod(tempPath, 0755); err != nil {
+	if err := tempFile.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
@@ -336,8 +340,11 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// A predictable shared /tmp directory would let another same-UID process
+	// tamper with the module before Node loads it. Retain this randomized,
+	// private directory through the returned path for the launch lifetime.
+	dir, err := os.MkdirTemp(os.TempDir(), "cmux-claude-node-options-")
+	if err != nil {
 		return "", err
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
