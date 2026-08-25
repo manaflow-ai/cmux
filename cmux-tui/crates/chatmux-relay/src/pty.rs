@@ -3379,20 +3379,38 @@ impl Drop for TerminalSizingLease {
 /// safe; successful setup transfers ownership to `ControlTerminalControl`.
 struct ControlCleanupGuard {
     control: Option<Arc<dyn ControlHandle>>,
+    /// Shared-sizing setup can enqueue a FIFO close before open returns. Keep
+    /// the lease in this guard until setup transfers ownership to the proxy so
+    /// cancellation never calls `control.end()` ahead of that queue barrier.
+    sizing: Option<Arc<TerminalSizingLease>>,
 }
 
 impl ControlCleanupGuard {
     fn new(control: Arc<dyn ControlHandle>) -> Self {
-        Self { control: Some(control) }
+        Self { control: Some(control), sizing: None }
+    }
+
+    fn set_sizing(&mut self, sizing: Arc<TerminalSizingLease>) {
+        self.sizing = Some(sizing);
     }
 
     fn disarm(&mut self) {
         self.control = None;
+        self.sizing = None;
     }
 }
 
 impl Drop for ControlCleanupGuard {
     fn drop(&mut self) {
+        // If the sizing lease ever joined (or is in the middle of joining),
+        // its coordinator owns teardown. This remains true when an event
+        // callback already released it, so a cancelled open cannot race a
+        // queued FIFO close with a direct control end.
+        let sizing_owned = self.sizing.take().is_some_and(|sizing| sizing.leave());
+        if sizing_owned {
+            self.control.take();
+            return;
+        }
         if let Some(control) = self.control.take() {
             control.end();
         }
@@ -5266,6 +5284,9 @@ impl Inner {
                 surface_id,
             )
         });
+        if let Some(sizing) = &sizing {
+            control_cleanup.set_sizing(Arc::clone(sizing));
+        }
         let stream = Arc::new(TerminalStream::new());
         let event_stream = Arc::clone(&stream);
         let event_sizing = sizing.clone();
@@ -7893,6 +7914,36 @@ mod tests {
 
         assert!(endpoint_weak.upgrade().is_none(), "released lease retained endpoint");
         assert!(lease_weak.upgrade().is_none(), "control callback retained released lease");
+    }
+
+    #[tokio::test]
+    async fn setup_cleanup_guard_waits_for_queued_sizing_close() {
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-guard-close.sock"),
+            surface_id: 42,
+        };
+        let control = SizingControl::new(12, &[]);
+        control.block_end();
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let lease = TerminalSizingLease::new(&coordinator, key.clone(), 1, 42);
+        lease
+            .join(control_handle.clone(), SizingGrid { cols: 80, rows: 24 })
+            .expect("sizing join")
+            .await
+            .expect("sizing worker");
+
+        let mut guard = ControlCleanupGuard::new(control_handle);
+        guard.set_sizing(Arc::clone(&lease));
+        assert!(lease.leave(), "joined lease must queue its close");
+        control.wait_for_end_started().await;
+
+        // The setup guard is released while the coordinator's end barrier is
+        // still waiting. It must not call control.end() directly.
+        drop(guard);
+        assert!(!control.ended(), "cleanup bypassed the queued sizing close");
+        control.release_end();
+        control.wait_for_end().await;
     }
 
     #[test]
