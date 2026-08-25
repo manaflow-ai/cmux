@@ -225,6 +225,8 @@ public struct GitMetadataService: Sendable {
         let output: String?
         if traversalResult.isComplete {
             output = traversalResult.output
+        } else if traversalResult.isUnsafe {
+            output = nil
         } else {
             output = await gitRemoteVFallback(repository: repository)
         }

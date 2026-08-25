@@ -268,7 +268,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         return GitConfigRemoteTraversalResult(
             output: lines.isEmpty ? nil : lines.joined(),
-            isComplete: !budget.didExhaustBudget
+            isComplete: !budget.didExhaustBudget,
+            isUnsafe: budget.didEncounterUnsafeFile
         )
     }
 

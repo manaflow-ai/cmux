@@ -4,4 +4,5 @@ import Foundation
 nonisolated struct GitConfigRemoteTraversalResult: Sendable {
     let output: String?
     let isComplete: Bool
+    let isUnsafe: Bool
 }

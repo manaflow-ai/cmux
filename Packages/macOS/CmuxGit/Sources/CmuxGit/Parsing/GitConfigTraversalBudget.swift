@@ -7,6 +7,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     var remainingFileCount: Int
     var remainingByteCount: Int
     var didEncounterOversizedFile = false
+    var didEncounterUnsafeFile = false
     var didExhaustBudget = false
     let reader: GitConfigFileReader
     let maximumFileByteCount: Int
@@ -53,6 +54,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
         case .missing:
             return nil
         case .unavailable(let byteCount):
+            didEncounterUnsafeFile = true
             didExhaustBudget = true
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return nil
