@@ -4285,7 +4285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var hasher = Hasher()
         let routes = orderedSessionRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            includeScrollback: false
         )
         let routeProjection = MainWindowRouteAutosaveProjection(
             orderedWindowIds: routes.map(\.windowId),
@@ -4894,14 +4895,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let preflightRoutes = orderedSessionRouteSnapshots(
             restorableAgentIndex: suppliedRestorableAgentIndex,
-            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+            includeScrollback: includeScrollback
         )
         guard !preflightRoutes.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
         let routes = suppliedRestorableAgentIndex == nil
             ? orderedSessionRouteSnapshots(
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+                includeScrollback: includeScrollback
             )
             : preflightRoutes
         var windows: [SessionWindowSnapshot] = []

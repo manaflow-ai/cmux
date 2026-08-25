@@ -99,6 +99,18 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
     }
 
+    /// Indicates whether a windowless route is within the bounded frozen set.
+    func shouldFreezeWindowlessRoute(windowId: UUID) -> Bool {
+        guard orphanedRoute(windowId: windowId)?.window == nil else { return false }
+        let availableSlots = max(
+            0,
+            SessionPersistencePolicy.maxWindowsPerSnapshot - registeredContexts.count
+        )
+        return orphanedRoutes()
+            .prefix(availableSlots)
+            .contains { $0.windowId == windowId }
+    }
+
     var registeredContexts: [AppDelegate.MainWindowContext] {
         Array(registeredContextsByLookupKey.values)
     }

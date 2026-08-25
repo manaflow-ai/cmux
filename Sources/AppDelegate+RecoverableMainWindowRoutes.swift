@@ -118,8 +118,10 @@ extension AppDelegate {
         _ routes: [RecoverableMainWindowRoute],
         windowsByWindowId: [UUID: NSWindow],
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        includeScrollback: Bool
     ) -> [RecoverableMainWindowRoute] {
+        guard includeScrollback else { return routes }
         var updatedRoutes: [RecoverableMainWindowRoute] = []
         for route in routes {
             guard route.frozenWindowSnapshot == nil else {
@@ -153,7 +155,8 @@ extension AppDelegate {
     private func freezeWindowlessRecoverableMainWindowRoute(
         _ route: RecoverableMainWindowRoute,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        includeScrollback: Bool = true
     ) -> RecoverableMainWindowRoute? {
         guard route.frozenWindowSnapshot == nil else { return route }
         guard route.window == nil,
@@ -167,7 +170,7 @@ extension AppDelegate {
 
         let frozenWindowSnapshot = sessionWindowSnapshot(
             for: liveRoute,
-            includeScrollback: true,
+            includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex,
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
@@ -215,7 +218,10 @@ extension AppDelegate {
                       windowId: route.windowId
                   ) === route,
                   route.window == nil,
-                  self.windowForMainWindowId(route.windowId) == nil else {
+                  self.windowForMainWindowId(route.windowId) == nil,
+                  self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
+                      windowId: route.windowId
+                  ) else {
                 return
             }
             defer {
@@ -343,24 +349,38 @@ extension AppDelegate {
     /// this projection even after AppKit has lost the `NSWindow`; only an
     /// explicit close moves it to the non-persisted closing phase.
     ///
-    /// This is not always a pure read. Once a complete agent index is available,
-    /// it freezes windowless orphans into bounded value snapshots, replaces
-    /// their lifecycle records, tears down their panels, and releases their
-    /// remote connections before returning. A cold-cache projection keeps the
-    /// live orphan intact until the asynchronous refresh or snapshot builder
-    /// supplies that index.
+    /// This is not always a pure read. Full-scrollback snapshots freeze a bounded
+    /// set of windowless orphans into value snapshots, replace their lifecycle
+    /// records, tear down their panels, and release their remote connections
+    /// before returning. Lightweight fingerprint/autosave projections keep the
+    /// live orphan intact. A cold-cache projection also keeps it live until the
+    /// asynchronous refresh or snapshot builder supplies a complete index.
     private func mainWindowPersistenceRouteSnapshots(
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        includeScrollback: Bool
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
-        let orphanedRoutes = freezeWindowlessRecoverableMainWindowRoutes(
-            mainWindowLifecycleCoordinator.orphanedRoutes(),
-            windowsByWindowId: windowsByWindowId,
-            restorableAgentIndex: suppliedRestorableAgentIndex
-                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        let registeredRouteCount = mainWindowLifecycleCoordinator.registeredContexts.count
+        let maximumRecoverableRoutes = max(
+            0,
+            SessionPersistencePolicy.maxWindowsPerSnapshot - registeredRouteCount
         )
+        let candidateOrphanedRoutes = mainWindowLifecycleCoordinator
+            .orphanedRoutes()
+            .prefix(maximumRecoverableRoutes)
+        let restorableAgentIndexForFreeze = includeScrollback
+            ? suppliedRestorableAgentIndex
+                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            : nil
+        _ = freezeWindowlessRecoverableMainWindowRoutes(
+            Array(candidateOrphanedRoutes),
+            windowsByWindowId: windowsByWindowId,
+            restorableAgentIndex: restorableAgentIndexForFreeze,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            includeScrollback: includeScrollback
+        )
+        let orphanedRoutes = mainWindowLifecycleCoordinator.orphanedRoutes()
         var seenWindowIds: Set<UUID> = []
         var snapshots: [MainWindowPersistenceRouteSnapshot] = []
         for context in mainWindowLifecycleCoordinator.registeredContexts {
@@ -388,11 +408,13 @@ extension AppDelegate {
     /// produce a restorable window.
     func orderedSessionRouteSnapshots(
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        includeScrollback: Bool = true
     ) -> [MainWindowPersistenceRouteSnapshot] {
         mainWindowPersistenceRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            includeScrollback: includeScrollback
         )
             .filter(\.isEligibleForSessionPersistence)
             .sorted { lhs, rhs in
