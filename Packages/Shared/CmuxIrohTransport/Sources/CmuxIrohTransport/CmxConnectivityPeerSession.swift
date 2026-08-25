@@ -763,8 +763,9 @@ actor CmxConnectivityPeerSession {
         // ownership policy cannot be preempted by the path observer.
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
-        guard path == .unavailable
-            || await activeConnection.session.pathIsAllowed(path) else {
+        let pathIsAllowed = path == .unavailable
+            || await activeConnection.session.pathIsAllowed(path)
+        guard pathIsAllowed else {
             // This owner is shared by foreground and secondary clients. Enforce
             // the session's source-qualified captured policy here so a
             // migration cannot bypass the foreground UI observer and keep
