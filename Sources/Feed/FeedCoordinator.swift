@@ -34,6 +34,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
     @MainActor private var todoWorkspaceRecency: [String] = []
     @MainActor private let maxTrackedTodoWorkstreams = 128
+    @MainActor private var todoRecoveryEpochByWorkstream: [String: UInt64] = [:]
     @MainActor private var todoRecoveryRecency: [String] = []
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
     @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
@@ -184,6 +185,7 @@ final class FeedCoordinator: @unchecked Sendable {
     private func forgetTodoWorkspace(for workstreamId: String) {
         lastTodoWorkspaceByWorkstream.removeValue(forKey: workstreamId)
         todoWorkspaceRecency.removeAll { $0 == workstreamId }
+        todoRecoveryEpochByWorkstream.removeValue(forKey: workstreamId)
         todoRecoveryRecency.removeAll { $0 == workstreamId }
     }
 
@@ -214,11 +216,20 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    func markTodoRecoveryAttempt(_ workstreamId: String) -> Bool {
-        guard !todoRecoveryRecency.contains(workstreamId) else { return false }
+    func markTodoRecoveryAttempt(
+        _ workstreamId: String,
+        recoveryEpoch: UInt64
+    ) -> Bool {
+        guard todoRecoveryEpochByWorkstream[workstreamId] != recoveryEpoch else { return false }
+        todoRecoveryEpochByWorkstream[workstreamId] = recoveryEpoch
+        todoRecoveryRecency.removeAll { $0 == workstreamId }
         todoRecoveryRecency.append(workstreamId)
         if todoRecoveryRecency.count > maxTrackedTodoWorkstreams {
-            todoRecoveryRecency.removeFirst(todoRecoveryRecency.count - maxTrackedTodoWorkstreams)
+            let overflow = todoRecoveryRecency.count - maxTrackedTodoWorkstreams
+            for old in todoRecoveryRecency.prefix(overflow) {
+                todoRecoveryEpochByWorkstream.removeValue(forKey: old)
+            }
+            todoRecoveryRecency.removeFirst(overflow)
         }
         return true
     }

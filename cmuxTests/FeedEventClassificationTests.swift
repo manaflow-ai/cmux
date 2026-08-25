@@ -100,6 +100,12 @@ struct FeedEventClassificationTests {
         }
     }
 
+    @Test func claudeTaskFailureUsesPostToolTelemetryShape() {
+        let classification = classify("claude", "PostToolUseFailure", tool: "TaskCreate")
+        #expect(classification.name == "PostToolUse")
+        #expect(classification.actionable == false)
+    }
+
     // MARK: Explicit approval-capable agents
 
     /// Gemini has a verified PreToolUse decision contract and explicitly

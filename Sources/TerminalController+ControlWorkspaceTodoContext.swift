@@ -516,7 +516,15 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
               !target.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .notDispatchable
         }
-        guard item.boundWorkspaceID == nil else { return .notDispatchable }
+        if let boundWorkspaceID = item.boundWorkspaceID {
+            let boundWorkspaceIsLive = app.allWorkspacesForAgentTodoRetirement.contains {
+                $0.id == boundWorkspaceID
+            }
+            if boundWorkspaceIsLive {
+                return .notDispatchable
+            }
+            guard source.clearChecklistItemBinding(id: itemID) else { return .notFound }
+        }
         guard let sourceManager = app.tabManagerFor(tabId: source.id) ?? tabManager else {
             return .tabManagerUnavailable
         }

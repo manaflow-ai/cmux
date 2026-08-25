@@ -1221,7 +1221,12 @@ HOOKS_JSON='{"__cmux":{"managed":"claude-hooks","version":1},"preferredNotifChan
 # still work through the provisional PreToolUse compatibility path.
 CMUX_TASK_HOOKS_WITH_POST="$(CMUX_TASK_HOOKS_JSON="$HOOKS_JSON" CMUX_TASK_COMMAND='"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' node -e 'const value=JSON.parse(process.env.CMUX_TASK_HOOKS_JSON); const hook={matcher:"TaskCreate|TaskUpdate|TaskGet|TaskList",hooks:[{type:"command",command:process.env.CMUX_TASK_COMMAND,timeout:10,async:true}]}; value.hooks.PostToolUse=[hook,...(value.hooks.PostToolUse||[])]; process.stdout.write(JSON.stringify(value));' 2>/dev/null)" || true
 if [[ -n "$CMUX_TASK_HOOKS_WITH_POST" ]]; then
-    HOOKS_JSON="$CMUX_TASK_HOOKS_WITH_POST"
+    CMUX_TASK_HOOKS_WITH_FAILURE="$(CMUX_TASK_HOOKS_JSON="$CMUX_TASK_HOOKS_WITH_POST" CMUX_TASK_COMMAND='"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' node -e 'const value=JSON.parse(process.env.CMUX_TASK_HOOKS_JSON); const hook={matcher:"TaskCreate|TaskUpdate|TaskGet|TaskList",hooks:[{type:"command",command:process.env.CMUX_TASK_COMMAND,timeout:10,async:true}]}; value.hooks.PostToolUseFailure=[hook,...(value.hooks.PostToolUseFailure||[])]; process.stdout.write(JSON.stringify(value));' 2>/dev/null)" || true
+    if [[ -n "$CMUX_TASK_HOOKS_WITH_FAILURE" ]]; then
+        HOOKS_JSON="$CMUX_TASK_HOOKS_WITH_FAILURE"
+    else
+        HOOKS_JSON="$CMUX_TASK_HOOKS_WITH_POST"
+    fi
 fi
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.

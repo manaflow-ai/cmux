@@ -145,6 +145,25 @@ extension Workspace {
         return true
     }
 
+    /// Releases a checklist item whose dispatched workspace is no longer live.
+    /// The dispatch target is retained so the item can be sent again.
+    @discardableResult
+    func clearChecklistItemBinding(
+        id: UUID,
+        at date: Date = Date()
+    ) -> Bool {
+        guard let index = todoState.checklist.firstIndex(where: { $0.id == id }),
+              todoState.checklist[index].boundWorkspaceID != nil else { return false }
+        todoState.checklist[index].boundWorkspaceID = nil
+        todoState.checklist[index].boundAgent = nil
+        if todoState.checklist[index].state == .inProgress {
+            todoState.checklist[index].state = .pending
+        }
+        todoState.checklist[index].lastActivityAt = date
+        postTaskQueueChange()
+        return true
+    }
+
     /// Sets or clears a task's dispatch target through the shared workspace
     /// mutation owner.
     @discardableResult

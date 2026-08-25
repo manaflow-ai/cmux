@@ -262,6 +262,10 @@ struct FeedEventClassifier {
             "PermissionRequest": .approvalRequest,
             "PreToolUse": .toolStart,
             "PostToolUse": .toolEnd,
+            // Claude emits this hook instead of PostToolUse when a tool fails;
+            // the wire bridge keeps the same completion shape and marks it as
+            // an error so task accumulators can roll back provisional rows.
+            "PostToolUseFailure": .toolEnd,
             "PreCompact": .preCompact,
             "PostCompact": .postCompact,
             "UserPromptSubmit": .promptSubmit,

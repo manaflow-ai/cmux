@@ -53,6 +53,8 @@ public final class WorkstreamStore {
     private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
     private var taskToolListCompletenessByWorkstream: [String: Bool] = [:]
     private var taskToolWorkstreamsByRecency: [String] = []
+    /// Monotonic recovery epoch; increments whenever a task accumulator is evicted.
+    public private(set) var taskToolRecoveryEpoch: UInt64 = 0
     private static let maxTrackedTaskToolWorkstreams = 64
 
     /// Creates a store for Feed workstream items.
@@ -478,6 +480,7 @@ public final class WorkstreamStore {
     private func trimTaskToolWorkstreams() {
         guard taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams else { return }
         let overflow = taskToolWorkstreamsByRecency.count - Self.maxTrackedTaskToolWorkstreams
+        taskToolRecoveryEpoch &+= 1
         for workstreamId in taskToolWorkstreamsByRecency.prefix(overflow) {
             taskToolTodosByWorkstream.removeValue(forKey: workstreamId)
             taskToolListCompletenessByWorkstream.removeValue(forKey: workstreamId)

@@ -548,7 +548,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -597,6 +597,27 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
                 for h in push_hooks
             ),
             f"PushNotification bridge should asynchronously call hooks claude push-notification, got {push_hooks}",
+            failures,
+        )
+
+    failure_groups = hooks.get("PostToolUseFailure", [])
+    task_failure_groups = [
+        group for group in failure_groups if group.get("matcher") == "TaskCreate|TaskUpdate|TaskGet|TaskList"
+    ]
+    expect(
+        task_failure_groups,
+        f"PostToolUseFailure should install a task rollback bridge, got {failure_groups}",
+        failures,
+    )
+    if task_failure_groups:
+        failure_hooks = task_failure_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+                and h.get("async") is True
+                for h in failure_hooks
+            ),
+            f"Task failure bridge should asynchronously call hooks feed, got {failure_hooks}",
             failures,
         )
 
@@ -693,7 +714,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,
