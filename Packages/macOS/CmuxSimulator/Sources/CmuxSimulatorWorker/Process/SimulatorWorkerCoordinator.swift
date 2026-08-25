@@ -98,6 +98,11 @@ final class SimulatorWorkerCoordinator {
         }
     }
 
+    func publishCurrentFrameAfterInput(if succeeded: Bool = true) {
+        guard succeeded else { return }
+        _ = framebuffer?.publishCurrentFrame()
+    }
+
     /// Applies one command after every preceding command in the pipe.
     /// - Returns: `false` when the worker should exit cleanly.
     func handle(_ message: SimulatorWorkerInbound) async -> Bool {
@@ -124,6 +129,7 @@ final class SimulatorWorkerCoordinator {
                 }
                 break
             }
+            publishCurrentFrameAfterInput()
             switch event.phase {
             case .began:
                 gestureStart = event.primary
@@ -150,6 +156,7 @@ final class SimulatorWorkerCoordinator {
                 reportUnavailable(action: "key", detail: "Keyboard injection is unavailable.")
                 break
             }
+            publishCurrentFrameAfterInput()
         case .keySequence(let events):
             let succeeded = await hid?.sendPacedKeySequence(events) == true
             if !succeeded {
@@ -158,6 +165,7 @@ final class SimulatorWorkerCoordinator {
                     detail: "The paced keyboard chord could not be delivered."
                 )
             }
+            publishCurrentFrameAfterInput(if: succeeded)
             emitAction("key_sequence", summary: "events:\(events.count)", succeeded: succeeded)
         case .scrollWheel(let event):
             guard let scrollWheel else {
@@ -182,6 +190,7 @@ final class SimulatorWorkerCoordinator {
                 summary: "characters:\(sequence.characterCount)",
                 succeeded: succeeded
             )
+            publishCurrentFrameAfterInput(if: succeeded)
             send(.textInput(requestID: requestIdentifier, succeeded: succeeded))
         case .interactiveAction(let requestIdentifier, let action):
             let succeeded = await performInteractiveAction(action)
@@ -195,6 +204,7 @@ final class SimulatorWorkerCoordinator {
                 )
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction("button", summary: button.rawValue, succeeded: true)
         case .hidButton(let event):
             guard hid?.send(event) == true else {
@@ -204,6 +214,7 @@ final class SimulatorWorkerCoordinator {
                 )
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction(
                 "button",
                 summary: String(
@@ -229,6 +240,7 @@ final class SimulatorWorkerCoordinator {
                 )
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction("digital_crown", summary: String(delta), succeeded: true)
         case .toggleSoftwareKeyboard:
             guard hid?.toggleSoftwareKeyboard() == true else {
@@ -238,6 +250,7 @@ final class SimulatorWorkerCoordinator {
                 )
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction("software_keyboard", summary: "toggle", succeeded: true)
         case .setHIDCapture(let mode):
             let succeeded = hidCapture.setMode(mode, device: attachedDevice)
@@ -253,6 +266,7 @@ final class SimulatorWorkerCoordinator {
                 reportUnavailable(action: "memory_warning", detail: "Memory warnings are unavailable.")
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction("memory_warning", summary: "simulate", succeeded: true)
         case .coreAnimationDiagnostic(let diagnostic, let enabled):
             guard hid?.setCoreAnimationDiagnostic(diagnostic, enabled: enabled) == true else {
@@ -262,6 +276,7 @@ final class SimulatorWorkerCoordinator {
                 )
                 break
             }
+            publishCurrentFrameAfterInput()
             emitAction(
                 "core_animation_diagnostic",
                 summary: "\(diagnostic.rawValue):\(enabled)",

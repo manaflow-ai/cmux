@@ -204,6 +204,17 @@ final class MobileStateSyncHost {
                 isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
             )
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [MobileSimulatorPanelDescriptor]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = controller.mobileSimulatorPanels(in: workspace).map { panel in
+                MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id)
+            }
+        } else {
+            simulators = []
+        }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
@@ -226,7 +237,9 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace),
+            simulators: simulators
         )
     }
 

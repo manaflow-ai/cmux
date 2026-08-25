@@ -1,5 +1,8 @@
 import { env } from "../../../env";
-import { hasActiveCoderouterSubscription } from "../../../../services/billing/pro";
+import {
+  CODEROUTER_FREE_ACCOUNT_LIMIT,
+  coderouterEntitlement,
+} from "../../../../services/coderouter/entitlement";
 import {
   authenticateRouteToken,
   issueRouteToken,
@@ -13,19 +16,17 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type SessionDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly hasActiveEntitlement: typeof hasActiveCoderouterSubscription;
+  readonly entitlement: typeof coderouterEntitlement;
   readonly issueToken: typeof issueRouteToken;
   readonly hostedProRequired: () => boolean;
 };
 
 const defaultDependencies: SessionDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
-  hasActiveEntitlement: hasActiveCoderouterSubscription,
+  entitlement: coderouterEntitlement,
   issueToken: issueRouteToken,
   hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
 };
@@ -40,13 +41,21 @@ export function makeCoderouterSessionGetHandler(
   return async function GET(request: Request): Promise<Response> {
     const authorization = request.headers.get("authorization")?.trim() ?? "";
     const token = /^Bearer[ \t]+(.+)$/i.exec(authorization)?.[1]?.trim();
-    if (!token || !(await authenticate(token))) {
+    const identity = token ? await authenticate(token) : null;
+    if (!identity) {
       addCoderouterBreadcrumb(
         "auth",
         "Route session validation rejected",
         {},
         "warning",
       );
+      captureCoderouterEvent({
+        event: "coderouter_auth_rejected",
+        properties: {
+          surface: "session_validation",
+          reason: token ? "invalid_route_token" : "missing_route_token",
+        },
+      });
       return Response.json(
         {
           error: "unauthorized",
@@ -71,19 +80,22 @@ export function makeCoderouterSessionPostHandler(
     const resolved = await dependencies.resolveContext(request, "use");
     if (!resolved.ok) return resolved.response;
     const userId = resolved.value.user.id;
+    let entitlementBasis = "ungated";
     if (dependencies.hostedProRequired()) {
       try {
-        if (
-          !(await dependencies.hasActiveEntitlement(
-            userId,
-            resolved.value.team.teamId,
-          ))
-        ) {
+        const entitlement = await dependencies.entitlement(
+          userId,
+          resolved.value.team.teamId,
+        );
+        entitlementBasis = entitlement.basis;
+        if (!entitlement.allowed) {
           return Response.json(
             {
               error: "pro_required",
               message:
-                "Hosted coderouter requires cmux Pro or Team. Upgrade or connect a self-hosted server.",
+                `Free hosted coderouter covers up to ${CODEROUTER_FREE_ACCOUNT_LIMIT} connected accounts; ` +
+                `this team has ${entitlement.accountCount}. ` +
+                "Upgrade to cmux Pro or Team, remove accounts, or connect a self-hosted server.",
               retryable: false,
             },
             {
@@ -138,7 +150,10 @@ export function makeCoderouterSessionPostHandler(
       event: "coderouter_route_session_issued",
       userId,
       teamId: resolved.value.team.teamId,
-      properties: { hosted_pro_required: dependencies.hostedProRequired() },
+      properties: {
+        hosted_pro_required: dependencies.hostedProRequired(),
+        entitlement_basis: entitlementBasis,
+      },
     });
     addCoderouterBreadcrumb("session", "Route session issued");
     return Response.json(
