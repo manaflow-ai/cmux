@@ -9680,6 +9680,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func retireFromOwningTabManager() {
         guard !isRetiredFromOwningTabManager else { return }
         isRetiredFromOwningTabManager = true
+        // Workspace retirement is the shared ownership boundary used by
+        // window-close, stale-registration, and rejected-window cleanup. A
+        // remote-tmux mirror retains its control connection independently of
+        // this weak workspace reference, so detach it before panel teardown
+        // can make the workspace identity disappear.
+        AppDelegate.shared?.remoteTmuxController
+            .detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
         if let sharedLiveAgentIndexObserver {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
             self.sharedLiveAgentIndexObserver = nil
