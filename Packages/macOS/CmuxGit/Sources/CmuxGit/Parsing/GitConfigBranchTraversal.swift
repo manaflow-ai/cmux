@@ -57,93 +57,101 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         encounteredOversizedFile: Bool,
         isComplete: Bool
     ) {
-        var urls: [URL] = []
-        var storageName: String?
-        var storagePaths: [String] = []
-        var pendingURLs = GitMetadataService.gitRootConfigURLs(repository: repository)
-        var seenConfigPaths: Set<String> = []
-        var budget = GitConfigTraversalBudget(
+        var state = GitConfigTraversalState(budget: GitConfigTraversalBudget(
             remainingPathCount: Self.maximumIncludedFileCount,
             remainingFileCount: Self.maximumIncludedFileCount,
             remainingByteCount: Self.maximumTotalConfigByteCount,
             reader: configReader,
             maximumFileByteCount: maximumFileByteCount
-        )
-        var encounteredOversizedFile = false
-
-        while !pendingURLs.isEmpty {
-            let configURL = pendingURLs.removeFirst().standardizedFileURL
-            guard seenConfigPaths.insert(configURL.path).inserted else { continue }
-            guard budget.reservePath() else { break }
-            urls.append(configURL)
-            guard let config = budget.read(at: configURL) else {
-                encounteredOversizedFile = encounteredOversizedFile || budget.didEncounterOversizedFile
-                continue
-            }
-            let storage = referenceStorageInfo(fromConfig: config, configURL: configURL)
-            storageName = storage.name ?? storageName
-            storagePaths.append(contentsOf: storage.paths)
-            pendingURLs.append(contentsOf: includedConfigURLs(
-                fromConfig: config,
-                configURL: configURL,
-                maximumCount: budget.remainingPathCount
-            ))
+        ))
+        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
+            processConfig(at: configURL, state: &state)
         }
         return (
-            urls,
-            storageName,
-            storagePaths,
-            encounteredOversizedFile || budget.didEncounterOversizedFile,
-            !budget.didExhaustBudget
+            state.configURLs,
+            state.referenceStorageName,
+            state.referenceStoragePaths,
+            state.budget.didEncounterOversizedFile,
+            !state.budget.didExhaustBudget
         )
     }
 
-    private func referenceStorageInfo(
-        fromConfig config: String,
-        configURL: URL
-    ) -> (name: String?, paths: [String]) {
-        var name: String?
-        var paths: [String] = []
+    private func processConfig(
+        at rawURL: URL,
+        state: inout GitConfigTraversalState
+    ) {
+        let configURL = rawURL.standardizedFileURL
+        guard state.seenConfigPaths.insert(configURL.path).inserted,
+              state.budget.reservePath() else { return }
+        state.configURLs.append(configURL)
+        guard let config = state.budget.read(at: configURL) else { return }
+
         var inExtensionsSection = false
+        var currentSectionAllowsIncludePath = false
         for rawLine in config.components(separatedBy: .newlines) {
             let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 inExtensionsSection = line.lowercased() == "[extensions]"
+                currentSectionAllowsIncludePath = includeCondition(
+                    fromSectionHeader: line,
+                    configURL: configURL
+                )
                 continue
             }
-            guard inExtensionsSection else { continue }
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
-            guard parts.count == 2, parts[0].lowercased() == "refstorage" else { continue }
-            let value = GitMetadataService.gitConfigUnquotedValue(parts[1])
-            guard let separator = value.firstIndex(of: ":") else {
-                name = value.lowercased()
-                continue
+            if inExtensionsSection,
+               parts.count == 2,
+               parts[0].lowercased() == "refstorage" {
+                recordReferenceStorage(
+                    GitMetadataService.gitConfigUnquotedValue(parts[1]),
+                    configURL: configURL,
+                    state: &state
+                )
             }
-            name = String(value[..<separator]).lowercased()
-            var payload = String(value[value.index(after: separator)...])
-            while payload.hasPrefix("/") && !payload.hasPrefix("//") {
-                payload.removeFirst()
-            }
-            if payload.hasPrefix("//") {
-                payload = String(payload.drop(while: { $0 == "/" }))
-                payload = "/" + payload
-            }
-            guard !payload.isEmpty else { continue }
-            let path = if payload.hasPrefix("/") {
-                URL(fileURLWithPath: payload).standardizedFileURL.path
-            } else {
-                URL(fileURLWithPath: repository.gitDirectory)
-                    .appendingPathComponent(payload)
-                    .standardizedFileURL.path
-            }
-            if isSafeReferenceStoragePath(path) {
-                paths.append(path)
+            if currentSectionAllowsIncludePath,
+               parts.count == 2,
+               parts[0].lowercased() == "path",
+               let includeURL = GitMetadataService.gitConfigIncludeURL(
+                   fromPathValue: parts[1],
+                   relativeTo: configURL
+               ) {
+                processConfig(at: includeURL, state: &state)
             }
         }
-        return (name, paths)
+    }
+
+    private func recordReferenceStorage(
+        _ value: String,
+        configURL: URL,
+        state: inout GitConfigTraversalState
+    ) {
+        guard let separator = value.firstIndex(of: ":") else {
+            state.referenceStorageName = value.lowercased()
+            return
+        }
+        state.referenceStorageName = String(value[..<separator]).lowercased()
+        var payload = String(value[value.index(after: separator)...])
+        while payload.hasPrefix("/") && !payload.hasPrefix("//") {
+            payload.removeFirst()
+        }
+        if payload.hasPrefix("//") {
+            payload = String(payload.drop(while: { $0 == "/" }))
+            payload = "/" + payload
+        }
+        guard !payload.isEmpty else { return }
+        let path = if payload.hasPrefix("/") {
+            URL(fileURLWithPath: payload).standardizedFileURL.path
+        } else {
+            URL(fileURLWithPath: repository.gitDirectory)
+                .appendingPathComponent(payload)
+                .standardizedFileURL.path
+        }
+        if isSafeReferenceStoragePath(path) {
+            state.referenceStoragePaths.append(path)
+        }
     }
 
     private func isSafeReferenceStoragePath(_ path: String) -> Bool {
@@ -235,41 +243,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 budget: &budget
             )
         }
-    }
-
-    private func includedConfigURLs(
-        fromConfig config: String,
-        configURL: URL,
-        maximumCount: Int
-    ) -> [URL] {
-        var urls: [URL] = []
-        var currentSectionAllowsPath = false
-        for rawLine in config.components(separatedBy: .newlines) {
-            let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
-                .trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") && line.hasSuffix("]") {
-                currentSectionAllowsPath = includeCondition(
-                    fromSectionHeader: line,
-                    configURL: configURL
-                )
-                continue
-            }
-            guard currentSectionAllowsPath else { continue }
-            let parts = line.split(separator: "=", maxSplits: 1).map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            guard parts.count == 2,
-                  parts[0].lowercased() == "path",
-                  let includeURL = GitMetadataService.gitConfigIncludeURL(
-                      fromPathValue: parts[1],
-                      relativeTo: configURL
-                  ) else {
-                continue
-            }
-            guard urls.count < maximumCount else { break }
-            urls.append(includeURL)
-        }
-        return urls
     }
 
     private func includeCondition(fromSectionHeader header: String, configURL: URL) -> Bool {
