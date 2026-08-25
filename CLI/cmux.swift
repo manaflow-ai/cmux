@@ -33335,6 +33335,22 @@ export default CMUXSessionRestore;
                     }
                     return findCodexTranscriptPath(sessionId: sessionId, env: env)
                 }()
+                let autoNamingFallbackLineCount: Int? = {
+                    guard autoNameProbe["workspace_user_owned"] as? Bool == true,
+                          let autoNamingTranscriptPath,
+                          let source = autoNamingSource(for: def) else {
+                        return nil
+                    }
+                    switch source {
+                    case .codexRollout, .grokHistory:
+                        return readRecentTextFileLines(
+                            path: autoNamingTranscriptPath,
+                            maxBytes: 512 * 1024
+                        )?.count
+                    case .hookMessageCache:
+                        return nil
+                    }
+                }()
                 let autoNamingProgress: Int? = autoNameProbe["workspace_user_owned"] as? Bool == true
                     ? autoNamingProgressMetric(
                         for: def,
@@ -33342,7 +33358,8 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         transcriptPath: autoNamingTranscriptPath,
                         cwd: cwd,
-                        env: env
+                        env: env,
+                        fallbackLineCount: autoNamingFallbackLineCount
                     )
                     : nil
                 if shouldSpawnDetachedAgentAutoName(

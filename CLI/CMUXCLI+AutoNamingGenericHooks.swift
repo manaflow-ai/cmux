@@ -72,7 +72,8 @@ extension CMUXCLI {
         sessionId: String,
         transcriptPath: String?,
         cwd: String?,
-        env: [String: String]
+        env: [String: String],
+        fallbackLineCount: Int? = nil
     ) -> Int? {
         guard let source = autoNamingSource(for: def) else { return nil }
         switch source {
@@ -86,7 +87,7 @@ extension CMUXCLI {
             guard let path = normalizedHookValue(transcriptPath),
                   FileManager.default.fileExists(atPath: NSString(string: path).expandingTildeInPath)
             else { return nil }
-            return textFileGrowthMetric(path: path, fallbackLineCount: 0)
+            return textFileGrowthMetric(path: path, fallbackLineCount: fallbackLineCount ?? 0)
         case .grokHistory:
             guard let sessionDirectory = grokSessionDirectory(
                 cwd: normalizedHookValue(cwd) ?? session?.cwd,
@@ -97,7 +98,7 @@ extension CMUXCLI {
                 .appendingPathComponent("chat_history.jsonl", isDirectory: false)
                 .path
             guard FileManager.default.fileExists(atPath: historyPath) else { return nil }
-            return textFileGrowthMetric(path: historyPath, fallbackLineCount: 0)
+            return textFileGrowthMetric(path: historyPath, fallbackLineCount: fallbackLineCount ?? 0)
         }
     }
 
@@ -171,7 +172,7 @@ extension CMUXCLI {
                       !lines.isEmpty else {
                     return nil
                 }
-                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: 0)
+                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),

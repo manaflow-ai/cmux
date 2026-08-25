@@ -4174,7 +4174,14 @@ class TerminalController {
             let resolvedPanelId = panelId.flatMap { id in
                 workspace.panels[id] != nil ? id : workspace.panelIdFromSurfaceId(TabID(uuid: id))
             }
-            guard panelId == nil || resolvedPanelId != nil else { return }
+            guard panelId == nil || resolvedPanelId != nil else {
+                // The requested surface disappeared between hook routing and
+                // this transaction. Treat it as a terminally resolved skip so
+                // the same transcript does not keep retrying forever.
+                workspaceApplySkipped = true
+                panelApplySkipped = true
+                return
+            }
             // A remote mirror's unclaimed panel is authoritative for the whole
             // mirror. Preflight that ownership before mutating the workspace so
             // a rejected panel write cannot still emit `rename-session`.

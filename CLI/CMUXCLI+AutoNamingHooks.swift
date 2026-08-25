@@ -50,7 +50,7 @@ extension CMUXCLI {
                   !lines.isEmpty else { return nil }
             return (
                 lines,
-                textFileGrowthMetric(path: transcriptPath, fallbackLineCount: 0)
+                textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
             )
         }()
         if reconcilePendingAutoNamingTitleIfNeeded(
@@ -262,7 +262,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             lines: lines,
-            lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: 0),
+            lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,
@@ -328,7 +328,10 @@ extension CMUXCLI {
         let panelApplied = payload["panel_applied"] as? Bool
         let workspaceResolved = workspaceApplied
             || workspaceApplySkipped
-        let panelResolved = panelApplied != nil
+        let hasPanelOutcome = payload.keys.contains("panel_applied")
+            || payload.keys.contains("panel_apply_skipped")
+        let panelResolved = !hasPanelOutcome
+            || panelApplied != nil
             || payload["panel_apply_skipped"] as? Bool == true
         let titleApplied = workspaceApplied || panelApplied == true
         if titleApplied {
