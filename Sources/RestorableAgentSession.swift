@@ -2944,17 +2944,28 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
-        var allCandidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
+        // Keep only the bounded candidate prefix while indexing. Exact owner
+        // lookups still use `entriesByPanel`, but stable-panel resolution must
+        // never retain or sort an unbounded owner history a second time.
+        var candidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousPanelIds: Set<UUID> = []
         for (key, entry) in entriesByPanel {
-            allCandidatesByPanelId[key.panelId, default: []].append((key, entry))
+            guard !boundedAmbiguousPanelIds.contains(key.panelId) else {
+                continue
+            }
+            var candidates = candidatesByPanelId[key.panelId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousPanelIds.insert(key.panelId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByPanelId[key.panelId] = candidates
         }
 
         var entriesByPanelId: [UUID: Entry] = [:]
         var ambiguousPanelIds: Set<UUID> = []
         var equalRankAmbiguousPanelIds: Set<UUID> = []
-        var boundedAmbiguousPanelIds: Set<UUID> = []
-        var candidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
-        for (panelId, candidates) in allCandidatesByPanelId {
+        for (panelId, candidates) in candidatesByPanelId {
             let rankedCandidates = candidates.sorted { lhs, rhs in
                 Self.shouldPreferStablePanelEntry(lhs.1, over: rhs.1)
             }
@@ -2973,12 +2984,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 count += 1
             }
             if liveCandidateCount > 1 || topRankCount > 1 ||
-                rankedCandidates.count > Self.maximumStablePanelCandidates {
+                boundedAmbiguousPanelIds.contains(panelId) {
                 // Equal top-ranked owner records have no reliable panel-only winner.
                 ambiguousPanelIds.insert(panelId)
-            }
-            if rankedCandidates.count > Self.maximumStablePanelCandidates {
-                boundedAmbiguousPanelIds.insert(panelId)
             }
             if topRankCount > 1 {
                 equalRankAmbiguousPanelIds.insert(panelId)

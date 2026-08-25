@@ -509,6 +509,12 @@ extension Workspace {
             completedGeneration: detached.restoredAgentCompletedGeneration,
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
+        if let deferredRestore = detached.deferredAgentResumeRestore {
+            deferAgentResumeRestore(
+                panelId: detached.panelId,
+                restore: deferredRestore
+            )
+        }
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 

@@ -479,9 +479,16 @@ extension DockSplitStore {
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
             if let restorableAgent = restore.restorableAgent {
-                startupInput = restorableAgent.resumeStartupInput(
-                    restoringWorkingDirectory: restore.resumeWorkingDirectory
-                )
+                startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
+                    restorableAgent.resumeStartupInput(
+                        useLocalRestoreVerb: false,
+                        restoringWorkingDirectory: restore.resumeWorkingDirectory
+                    )
+                } else {
+                    restorableAgent.resumeStartupInput(
+                        restoringWorkingDirectory: restore.resumeWorkingDirectory
+                    )
+                }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
             } else if let binding = restore.resumeBinding {
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
