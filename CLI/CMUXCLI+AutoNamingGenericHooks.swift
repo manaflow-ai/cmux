@@ -42,11 +42,6 @@ extension CMUXCLI {
         guard probe["enabled"] as? Bool == true else { return false }
         guard probe["workspace_user_owned"] as? Bool == true else { return true }
         guard hasReplayableAutoNamingState(session) else { return false }
-        if session?.autoNameTitleReconciliationGeneration == nil,
-           max(0, session?.autoNameTitleReconciliationAttemptCount ?? 0)
-                >= ClaudeHookSessionStore.maxAutoNameTitleReconciliationAttempts {
-            return false
-        }
         if session?.autoNameTitleReconciliationGeneration != nil
             || session?.autoNameInFlightAt != nil {
             return true
@@ -56,6 +51,14 @@ extension CMUXCLI {
             session.autoNameLastLineCount ?? 0,
             max(session.autoNameLastObservedLineCount ?? 0, session.autoNameInFlightObservedLineCount ?? 0)
         )
+        if max(0, session.autoNameTitleReconciliationAttemptCount ?? 0)
+                >= ClaudeHookSessionStore.maxAutoNameTitleReconciliationAttempts {
+            // Keep an exhausted compact epoch quiet while its transcript stays
+            // at or below the observed high-water. A later growth starts a new
+            // epoch; the detached pass clears the old budget on its ordinary
+            // (non-reseed) begin path.
+            return currentProgress > observedProgress
+        }
         return currentProgress != observedProgress
     }
 
