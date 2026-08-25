@@ -6,8 +6,9 @@ struct TranscriptToolCompletion: Sendable {
     /// The result text, already extracted from the transcript shape.
     let output: String?
 
-    /// Whether the transcript flagged the result as an error.
-    let isError: Bool
+    /// Whether the transcript flagged the result as an error, when it carried
+    /// an explicit flag.
+    let isError: Bool?
 
     /// The exit code, when one was parseable from the result.
     let exitCode: Int?
@@ -19,18 +20,20 @@ struct TranscriptToolCompletion: Sendable {
     let authorizesArtifactMutation: Bool
 
     /// Returns whether a tool result provides enough positive evidence to
-    /// authorize a file mutation when no explicit error flag is available.
+    /// authorize a file mutation.
     ///
-    /// A missing exit code is common for Claude tool results, so non-empty
-    /// output is accepted unless the existing failure-text guard identifies a
-    /// failed operation. Empty or missing output fails closed.
+    /// When no exit code is available, Claude must carry an explicit
+    /// `is_error: false` flag before its output can authorize a mutation.
+    /// Empty or missing output still fails closed.
     static func authorizesMutation(
         output: String?,
-        isError: Bool,
+        isError: Bool?,
         exitCode: Int?
     ) -> Bool {
-        guard !isError else { return false }
-        if let exitCode { return exitCode == 0 }
+        if let exitCode {
+            return exitCode == 0 && isError != true
+        }
+        guard isError == false else { return false }
         guard let output,
               !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
@@ -40,7 +43,7 @@ struct TranscriptToolCompletion: Sendable {
 
     /// Whether the result proves the pending invocation completed successfully.
     var succeeded: Bool {
-        guard !isError else { return false }
+        guard isError != true else { return false }
         if let exitCode { return exitCode == 0 }
         return !reportsFailureWithoutExitStatus
     }
@@ -49,13 +52,13 @@ struct TranscriptToolCompletion: Sendable {
     ///
     /// - Parameters:
     ///   - output: The extracted result text.
-    ///   - isError: Whether the result was flagged as an error.
+    ///   - isError: Whether the result was explicitly flagged as an error.
     ///   - exitCode: The parsed exit code, when available.
     ///   - durationSeconds: The parsed duration, when available.
     ///   - authorizesArtifactMutation: Whether the source proved a mutation succeeded.
     init(
         output: String?,
-        isError: Bool,
+        isError: Bool?,
         exitCode: Int? = nil,
         durationSeconds: Double? = nil,
         authorizesArtifactMutation: Bool

@@ -91,7 +91,7 @@ extension CodexTranscriptParser {
         }
         return TranscriptToolCompletion(
             output: text,
-            isError: (exitCode ?? 0) != 0,
+            isError: exitCode.map { $0 != 0 },
             exitCode: exitCode,
             durationSeconds: duration,
             authorizesArtifactMutation: authorizesArtifactMutation(

@@ -162,7 +162,10 @@ public struct ClaudeTranscriptParser: Sendable {
         if let output {
             assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
         }
-        let isError = block["is_error"]?.bool ?? false
+        // Keep the distinction between an explicit `false` and a missing
+        // flag. Mutation provenance requires positive success evidence, so a
+        // missing Claude error flag must not be treated as success.
+        let isError = block["is_error"]?.bool
         let exitCode = parsedExitCode(from: output)
         assembler.resolve(
             key: callID,

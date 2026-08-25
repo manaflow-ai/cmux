@@ -12,31 +12,104 @@ extension AgentChatTranscriptService {
     func ensureTailerForEagerObservation(for record: AgentChatSessionRecord) {
         let hasSubscribers = hasEventSubscribers()
         guard hasSubscribers || observesTranscriptsForAutomaticArtifactCapture else { return }
-        ensureTailer(for: record)
+        ensureTailer(
+            for: record,
+            ownership: hasSubscribers ? .mobileSubscriber : .automaticArtifactCapture
+        )
     }
 
     /// Reconciles transcript ownership after the Artifacts beta setting changes.
     func reconcileAutomaticArtifactCaptureAvailability() {
         let isEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
-        guard automaticArtifactCaptureWasEnabled != isEnabled else { return }
+        guard automaticArtifactCaptureWasEnabled != isEnabled else {
+            reconcileTranscriptTailerOwnership()
+            return
+        }
         automaticArtifactCaptureWasEnabled = isEnabled
 
         if isEnabled {
             for record in registry.sessions(workspaceID: nil) where record.state != .ended {
                 ensureTailerForEagerObservation(for: record)
             }
+            reconcileTranscriptTailerOwnership()
             return
         }
 
         let captureTasks = artifactCaptureTasks.values.compactMap(\.task)
         artifactCaptureTasks.removeAll()
         captureTasks.forEach { $0.cancel() }
-        guard !hasEventSubscribers() else { return }
+        reconcileTranscriptTailerOwnership()
+    }
 
-        let artifactOnlyTailers = Array(tailers.values)
-        tailers.removeAll()
-        for tailer in artifactOnlyTailers {
-            Task { await tailer.stop() }
+    /// Records the strongest current consumer for a tailer and refreshes its
+    /// artifact-only recency when automatic capture owns it.
+    func noteTailerUse(
+        sessionID: String,
+        ownership: AgentChatTranscriptTailerOwnership
+    ) {
+        guard tailers[sessionID] != nil else { return }
+        switch ownership {
+        case .mobileSubscriber:
+            tailerOwnership[sessionID] = .mobileSubscriber
+            artifactTailerLastUse.removeValue(forKey: sessionID)
+        case .automaticArtifactCapture:
+            guard tailerOwnership[sessionID] != .mobileSubscriber else { return }
+            tailerOwnership[sessionID] = .automaticArtifactCapture
+            artifactTailerUseCounter &+= 1
+            artifactTailerLastUse[sessionID] = artifactTailerUseCounter
+        }
+    }
+
+    /// Stops and forgets one tailer, including its ownership and LRU entry.
+    func removeTailer(sessionID: String) {
+        tailerOwnership.removeValue(forKey: sessionID)
+        artifactTailerLastUse.removeValue(forKey: sessionID)
+        guard let tailer = tailers.removeValue(forKey: sessionID) else { return }
+        Task { await tailer.stop() }
+    }
+
+    /// Evicts the least recently used artifact-only tailers until the bounded
+    /// policy is satisfied. A newly requested session is protected so a full
+    /// cap never immediately evicts the work that caused the insertion.
+    func enforceArtifactTailerLimit(protectedSessionID: String? = nil) {
+        while artifactTailerLastUse.count > Self.maxArtifactOnlyTailers {
+            guard let victim = artifactTailerLastUse
+                .filter({ $0.key != protectedSessionID })
+                .min(by: { lhs, rhs in
+                    if lhs.value == rhs.value { return lhs.key < rhs.key }
+                    return lhs.value < rhs.value
+                })?.key else {
+                return
+            }
+            removeTailer(sessionID: victim)
+        }
+    }
+
+    /// Reconciles tailer ownership when subscriber demand changes outside a
+    /// hook event. This releases subscriber-only state when neither consumer
+    /// needs it and demotes it into the bounded artifact pool when capture is
+    /// still enabled.
+    func reconcileTranscriptTailerOwnership() {
+        let hasSubscribers = hasEventSubscribers()
+        if hasSubscribers {
+            for sessionID in tailers.keys {
+                guard let record = registry.record(sessionID: sessionID), record.state != .ended else {
+                    continue
+                }
+                noteTailerUse(sessionID: sessionID, ownership: .mobileSubscriber)
+            }
+            return
+        }
+
+        if observesTranscriptsForAutomaticArtifactCapture {
+            for sessionID in tailers.keys {
+                noteTailerUse(sessionID: sessionID, ownership: .automaticArtifactCapture)
+            }
+            enforceArtifactTailerLimit()
+        } else {
+            for sessionID in Array(tailers.keys) {
+                removeTailer(sessionID: sessionID)
+            }
         }
     }
 

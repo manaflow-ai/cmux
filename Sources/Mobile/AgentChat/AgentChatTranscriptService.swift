@@ -101,6 +101,11 @@ private final class AgentChatProseStreamWakeDriver {
     }
 }
 
+enum AgentChatTranscriptTailerOwnership: Sendable, Equatable {
+    case mobileSubscriber
+    case automaticArtifactCapture
+}
+
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
 /// events, tails their transcripts, serves history pages, and pushes
 /// `chat.message` events to subscribed mobile clients.
@@ -108,6 +113,10 @@ private final class AgentChatProseStreamWakeDriver {
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
+    /// Maximum number of transcript tailers retained solely for automatic
+    /// artifact capture. Mobile-owned tailers are demand-driven and are not
+    /// counted against this cap.
+    static let maxArtifactOnlyTailers = 32
     nonisolated private static let proseStreamingSnapshotMaxRows = 240
 
     let registry: AgentChatSessionRegistry
@@ -124,6 +133,10 @@ final class AgentChatTranscriptService {
         pending: (@Sendable () async -> Void)?
     )] = [:]
     var tailers: [String: AgentChatTranscriptTailer] = [:]
+    var tailerOwnership: [String: AgentChatTranscriptTailerOwnership] = [:]
+    var artifactTailerLastUse: [String: UInt64] = [:]
+    private var artifactTailerUseCounter: UInt64 = 0
+    private var eventSubscriptionObserver: NSObjectProtocol?
     let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
@@ -213,6 +226,15 @@ final class AgentChatTranscriptService {
             hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
         )
         self.proseWakeDriver.start()
+        self.eventSubscriptionObserver = NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reconcileTranscriptTailerOwnership()
+            }
+        }
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
@@ -472,6 +494,10 @@ final class AgentChatTranscriptService {
         failedResolutions.remove(sessionID)
         let tailer: AgentChatTranscriptTailer
         if let existing = tailers[sessionID] {
+            noteTailerUse(
+                sessionID: sessionID,
+                ownership: .mobileSubscriber
+            )
             tailer = existing
         } else {
             let resolver = resolver
@@ -485,9 +511,13 @@ final class AgentChatTranscriptService {
             guard !Task.isCancelled else { return nil }
             guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)
-            guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
-                resolver.boundedTranscriptPath(for: currentRecord) ?? fallbackPath
-            }) else {
+            guard let resolvedTailer = ensureTailer(
+                for: currentRecord,
+                ownership: .mobileSubscriber,
+                resolvePath: {
+                    resolver.boundedTranscriptPath(for: currentRecord) ?? fallbackPath
+                }
+            ) else {
                 return nil
             }
             tailer = resolvedTailer
@@ -527,6 +557,10 @@ final class AgentChatTranscriptService {
     @discardableResult
     func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
+            noteTailerUse(
+                sessionID: record.sessionID,
+                ownership: .mobileSubscriber
+            )
             return existing
         }
         guard !failedResolutions.contains(record.sessionID),
@@ -535,15 +569,20 @@ final class AgentChatTranscriptService {
             // failed explicit-history lookup. A later hook can still provide it.
             return nil
         }
-        return ensureTailer(for: record) { boundedPath }
+        return ensureTailer(
+            for: record,
+            ownership: .mobileSubscriber
+        ) { boundedPath }
     }
 
     @discardableResult
-    private func ensureTailer(
+    func ensureTailer(
         for record: AgentChatSessionRecord,
+        ownership: AgentChatTranscriptTailerOwnership,
         resolvePath: () -> String?
     ) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
+            noteTailerUse(sessionID: record.sessionID, ownership: ownership)
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
@@ -574,6 +613,8 @@ final class AgentChatTranscriptService {
             await self?.publishBatch(batch, sessionID: sessionID)
         }
         tailers[sessionID] = tailer
+        noteTailerUse(sessionID: sessionID, ownership: ownership)
+        enforceArtifactTailerLimit(protectedSessionID: sessionID)
         if record.transcriptPath != path {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = path }
         }
@@ -582,6 +623,9 @@ final class AgentChatTranscriptService {
     }
 
     func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        if tailerOwnership[sessionID] == .automaticArtifactCapture {
+            noteTailerUse(sessionID: sessionID, ownership: .automaticArtifactCapture)
+        }
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -673,13 +717,12 @@ final class AgentChatTranscriptService {
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
             endProseTurn(sessionID: record.sessionID)
-            if let tailer = tailers.removeValue(forKey: record.sessionID) {
-                // The transcript can no longer grow; release the file watcher
-                // and cache instead of holding them until app quit. Evicting
-                // only on the TRANSITION keeps unrelated record updates (title
-                // discovery while paging an ended session) from churning it.
-                Task { await tailer.stop() }
-            }
+            // The transcript can no longer grow; release the file watcher,
+            // cache, ownership, and LRU entry instead of holding them until
+            // app quit. Evicting only on the TRANSITION keeps unrelated record
+            // updates (title discovery while paging an ended session) from
+            // churning it.
+            removeTailer(sessionID: record.sessionID)
         }
         if transcriptBecameAvailable, record.state != .ended {
             ensureTailerForEagerObservation(for: record)
@@ -706,9 +749,7 @@ final class AgentChatTranscriptService {
         removeArtifactCaptureSession(sessionID: record.sessionID)
         Task { await artifactGalleryOrderingCache.remove(indexID: record.sessionID) }
         latestTranscriptSeqBySessionID[record.sessionID] = nil
-        if let tailer = tailers.removeValue(forKey: record.sessionID) {
-            Task { await tailer.stop() }
-        }
+        removeTailer(sessionID: record.sessionID)
         failedResolutions.remove(record.sessionID)
         endedListability.remove(sessionID: record.sessionID)
         guard hasEventSubscribers() else { return }
@@ -738,6 +779,9 @@ final class AgentChatTranscriptService {
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
         // so keep teardown synchronous while asserting that owner invariant.
         MainActor.assumeIsolated {
+            if let eventSubscriptionObserver {
+                NotificationCenter.default.removeObserver(eventSubscriptionObserver)
+            }
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
         }
