@@ -222,6 +222,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        XCTAssertTrue(
+            feedPushEvents(in: context).isEmpty,
+            "A compact fallback must not write SessionStart telemetry to the borrowed focused pane"
+        )
         XCTAssertFalse(
             context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
             "A compact SessionStart resolved through a focused fallback must not register Claude's PID on that borrowed pane, saw \(context.state.commands)"
@@ -420,7 +424,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         let record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
-        XCTAssertNil(record["autoNameTitleReconciliationAttemptCount"])
+        XCTAssertEqual(record["autoNameTitleReconciliationAttemptCount"] as? Int, 4)
     }
 
     func testClaudeCompactManualWorkspaceStillReconcilesAutoPanel() throws {
