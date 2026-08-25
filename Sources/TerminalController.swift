@@ -3847,7 +3847,8 @@ class TerminalController {
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: error),
+                data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
             return v2Error(
@@ -3856,6 +3857,20 @@ class TerminalController {
                 message: "unknown vm error"
             )
         }
+    }
+
+    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
+    /// can make idempotency decisions structurally instead of parsing the
+    /// formatted display text.
+    private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        guard case let VMClientError.httpStatus(status, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String,
+              !code.isEmpty else {
+            return nil
+        }
+        return ["backend_code": code, "http_status": status]
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {

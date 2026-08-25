@@ -27,17 +27,23 @@ struct CLIError: Error, CustomStringConvertible {
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    /// Cloud VM backend error code (e.g. "vm_create_failed") passed through the
+    /// v2 error's data payload, so callers can make idempotency decisions
+    /// structurally instead of parsing display text.
+    let vmBackendCode: String?
     let socketFailureKind: SocketFailureKind?
 
     init(
         message: String,
         exitCode: Int32 = 1,
         v2Code: String? = nil,
+        vmBackendCode: String? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.vmBackendCode = vmBackendCode
         self.socketFailureKind = socketFailureKind
     }
 
@@ -2937,6 +2943,7 @@ final class SocketClient {
             let message = (error["message"] as? String) ?? "Unknown v2 error"
             let action = error["action"] as? String
             let reason = error["reason"] as? String
+            let data = error["data"] as? [String: Any]
             throw CLIError(
                 message: formatV2Error(
                     code: code,
@@ -2945,7 +2952,8 @@ final class SocketClient {
                     reason: reason,
                     details: safeV2Details(error["details"])
                 ),
-                v2Code: error["code"] as? String
+                v2Code: error["code"] as? String,
+                vmBackendCode: data?["backend_code"] as? String
             )
         }
 
@@ -4639,11 +4647,25 @@ struct CMUXCLI {
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
-                let response = try client.sendV2(
-                    method: "vm.create",
-                    params: params,
-                    responseTimeout: Self.vmCreateResponseTimeoutSeconds
-                )
+                let response: [String: Any]
+                do {
+                    response = try client.sendV2(
+                        method: "vm.create",
+                        params: params,
+                        responseTimeout: Self.vmCreateResponseTimeoutSeconds
+                    )
+                } catch let error as CLIError {
+                    // The backend records a definitive create failure under the
+                    // sent key and replays it on every retry, so keeping the key
+                    // would wedge every future `vm new` on the old failure. Keep
+                    // it only while the create is still running (resending joins
+                    // the in-flight attempt) or when the outcome is unknown
+                    // (transport error/timeout: no backend code arrived).
+                    if let backendCode = error.vmBackendCode, backendCode != "vm_create_in_progress" {
+                        Self.clearVMCreateIdempotency(idempotency)
+                    }
+                    throw error
+                }
                 logVMTiming(
                     "create",
                     vmID: (response["id"] as? String) ?? "?",
