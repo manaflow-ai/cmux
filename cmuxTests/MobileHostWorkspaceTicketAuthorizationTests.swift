@@ -92,7 +92,10 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let routes = [loopback, tailscale, iroh]
 
         #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [sanitizedIroh])
-        #expect(try MobileAttachTarget.physicalDevice.selectRoutes(from: routes) == [sanitizedIroh])
+        #expect(
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: routes)
+                == [sanitizedIroh, try tailscaleRoute()]
+        )
         #expect(try MobileAttachTarget.ticketOnly.selectRoutes(from: routes) == routes)
         #expect(
             try MobileAttachTarget.simulatorInjection.selectRoutes(from: [loopback, tailscale])

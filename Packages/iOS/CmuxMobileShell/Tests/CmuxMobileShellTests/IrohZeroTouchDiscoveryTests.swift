@@ -637,6 +637,32 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 
+    /// LAN Only uses an encrypted Iroh identity as its bootstrap, so it must
+    /// keep zero-touch discovery available when no pairing row exists yet.
+    @Test func lanOnlyMethodKeepsZeroTouchIrohDiscovery() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            connectionMethod: .lan
+        )
+        defer { fixture.cleanup() }
+        let scope = try #require(
+            await fixture.shell.currentScopeSnapshot(userID: "user-1")
+        )
+
+        let candidates = await fixture.shell.discoverZeroTouchIrohCandidates(
+            scope: scope,
+            generation: fixture.shell.storedMacReconnectGeneration,
+            excluding: []
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.macDeviceID == "mac-a")
+        #expect(discovery.callCount() == 1)
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,

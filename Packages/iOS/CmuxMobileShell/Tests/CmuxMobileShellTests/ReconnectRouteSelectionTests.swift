@@ -142,6 +142,57 @@ import Testing
         #expect(candidates.isEmpty)
     }
 
+    @Test func rawLANReconnectCandidatesAreUnavailable() throws {
+        let lan = try CmxAttachRoute(
+            id: "lan",
+            kind: .lan,
+            endpoint: .hostPort(host: "192.168.1.20", port: 50906),
+            priority: 5
+        )
+
+        #expect(
+            MobileShellComposite.reconnectHostPortRoutes(
+                [lan],
+                supportedKinds: [.lan],
+                preferNonLoopback: true
+            ).isEmpty
+        )
+    }
+
+    @Test func defaultMethodChangeSkipsAnExplicitForegroundOverride() {
+        let shell = MobileShellComposite()
+        #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: .automatic,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: true
+        ))
+        #expect(shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: .automatic,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false
+        ))
+        #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: nil,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false
+        ))
+    }
+
+    @Test func storedReconnectFailureCapturesTheTargetPinnedModeError() {
+        let shell = MobileShellComposite()
+        shell.captureTransportModeErrorIfNeeded(
+            routes: [],
+            supportedKinds: [],
+            macDisplayName: "Studio Mac",
+            transportMode: .lan
+        )
+
+        #expect(
+            shell.lastTransportModeError
+                == .noRoute(mode: .lan, macDisplayName: "Studio Mac")
+        )
+    }
+
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
         // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
         try CmxAttachRoute(

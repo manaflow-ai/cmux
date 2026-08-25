@@ -573,6 +573,48 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func changedTransportPolicyRetiresAStillPendingDialBeforeReplacement() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .iroh
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        // The gated builder deliberately ignores cancellation while it is
+        // parked. This models an FFI dial that only notices cancellation after
+        // it has produced a session; the peer actor must still reject it by
+        // lifecycle revision before installing it.
+        let retired = TestConnectivitySession(continuityID: 43)
+        let replacement = TestConnectivitySession(continuityID: 44)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        let first = Task { try? await peer.connectedSession(for: automatic) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        let second = Task { try await peer.connectedSession(for: pinned) }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+
+        let firstResult = await first.value
+        let secondResult = try await second.value
+        #expect(firstResult == nil)
+        #expect(await secondResult.connectionContinuityID() == 44)
+        #expect(await peer.connectionContinuityID() == 44)
+        #expect(await retired.closeCount() == 1)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)

@@ -58,6 +58,21 @@ import Testing
         #expect(entry == nil)
     }
 
+    @Test func rawLANRoutesAreNotOfferedForManualEntry() throws {
+        // LAN routes are informational on the Mac pairing screen. The phone
+        // must bootstrap LAN Only through the encrypted Iroh identity route;
+        // the raw host/port factory intentionally rejects plaintext LAN.
+        let entry = CmxManualPairingEntry.best(in: [
+            try route(
+                id: "lan",
+                kind: .lan,
+                host: "192.168.1.20",
+                priority: 5
+            ),
+        ])
+        #expect(entry == nil)
+    }
+
     @Test func ipPreferenceRespectsPriorityOrderAmongLiterals() throws {
         let entry = CmxManualPairingEntry.best(in: [
             try route(id: "tailscale_2", host: "100.64.0.9", priority: 20),
