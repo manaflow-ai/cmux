@@ -94,9 +94,8 @@ actor CmxConnectivityByteTransport:
 
     func currentTransportPath() async -> CmxTransportPath {
         guard let session else { return .unavailable }
-        return Self.mobileTransportPath(
-            await session.observedSelectedPath(),
-            mode: request.transportMode
+        return await session.transportPath(
+            for: await session.observedSelectedPath()
         )
     }
 
@@ -108,12 +107,11 @@ actor CmxConnectivityByteTransport:
             }
         }
         let changes = await session.observedSelectedPathChanges()
-        let mode = request.transportMode
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await path in changes {
                     guard !Task.isCancelled else { return }
-                    continuation.yield(Self.mobileTransportPath(path, mode: mode))
+                    continuation.yield(await session.transportPath(for: path))
                 }
                 continuation.finish()
             }
@@ -123,7 +121,8 @@ actor CmxConnectivityByteTransport:
 
     nonisolated static func mobileTransportPath(
         _ path: CmxIrohObservedConnectionPath,
-        mode: CmxTransportMode
+        mode: CmxTransportMode,
+        source: CmxIrohPathHintSource? = nil
     ) -> CmxTransportPath {
         switch path {
         case .unavailable:
@@ -131,17 +130,19 @@ actor CmxConnectivityByteTransport:
         case .direct:
             return .irohDirect
         case let .privateNetwork(address):
-            // Preserve the explicit Tailscale provenance before applying the
-            // Iroh/Direct presentation mapping. The peer-session owner also
-            // matches this socket back to its source-qualified dial plan.
-            if let host = CmxIrohIPAddressScope.host(from: address),
-               CmxTailscalePeerAddress(host) != nil {
+            // A source-qualified caller may report LAN/Tailscale explicitly;
+            // without that provenance, do not infer a class from the address
+            // range and risk a false active-path claim.
+            if source == .lan {
+                return .lan(address: address)
+            }
+            if source == .tailscale {
                 return .tailscale(address: address)
             }
             if mode == .iroh || mode == .direct {
                 return .irohDirect
             }
-            return .lan(address: address)
+            return .unavailable
         case .relay:
             return .irohRelay(region: nil)
         }

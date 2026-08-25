@@ -272,7 +272,7 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
         case .direct:
             return CmxIrohDialPlan(
                 publicPaths: plan.publicPaths.filter {
-                    $0.kind == .directAddress
+                    $0.kind == .directAddress && $0.source == .customVPN
                 },
                 privateFallbackPaths: []
             )
@@ -306,7 +306,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             return hints.filter { $0.source == .native }
         case .lan:
             return hints.filter { $0.source == .lan }
-        case .automatic, .tailscale, .direct:
+        case .direct:
+            return hints.filter { $0.source == .customVPN }
+        case .automatic, .tailscale:
             return hints
         }
     }
@@ -322,7 +324,9 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             return
         case .direct:
             guard plan.privateFallbackPaths.isEmpty,
-                  plan.publicPaths.allSatisfy({ $0.kind == .directAddress }) else {
+                  plan.publicPaths.allSatisfy({
+                      $0.kind == .directAddress && $0.source == .customVPN
+                  }) else {
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .iroh,
                     actual: .iroh

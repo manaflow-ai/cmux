@@ -321,6 +321,32 @@ public actor CmxIrohClientSession {
         }
     }
 
+    /// Projects a selected path without guessing provenance from an IP range.
+    /// A private socket is classified from the matching dial-plan hint; an
+    /// unmatched private socket is deliberately unavailable rather than being
+    /// mislabeled as LAN or Tailscale.
+    func transportPath(for path: CmxIrohObservedConnectionPath) -> CmxTransportPath {
+        switch path {
+        case .unavailable:
+            return .unavailable
+        case .direct:
+            return .irohDirect
+        case .relay:
+            return .irohRelay(region: nil)
+        case let .privateNetwork(address):
+            switch matchingPathHintSource(for: address) {
+            case .some(.lan):
+                return .lan(address: address)
+            case .some(.tailscale):
+                return .tailscale(address: address)
+            case .some(.native), .some(.customVPN):
+                return .irohDirect
+            case nil:
+                return .unavailable
+            }
+        }
+    }
+
     private func privatePathMatchesPlan(
         _ path: CmxIrohObservedConnectionPath,
         source: CmxIrohPathHintSource
@@ -331,6 +357,15 @@ public actor CmxIrohClientSession {
                 && $0.source == source
                 && socketAddressesMatch($0.value, address)
         }
+    }
+
+    private func matchingPathHintSource(
+        for address: String
+    ) -> CmxIrohPathHintSource? {
+        (dialPlan.publicPaths + dialPlan.privateFallbackPaths).first {
+            $0.kind == .directAddress
+                && socketAddressesMatch($0.value, address)
+        }?.source
     }
 
     private func directPathMatchesPlan(

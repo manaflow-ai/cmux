@@ -189,20 +189,15 @@ final class MobileAttachTicketStore {
         // scoped, custom routes, loopback-only dev tickets): the compact
         // short-key v1 payload. The full ticket (including the token) still
         // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoder().encode(
+        let compactTicket = try legacyCompatibleCompactTicket(
             ticket,
             routeDisclosureMode: routeDisclosureMode
         )
-        let payload = Self.base64URLEncode(data)
-        // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
-        // QR must open the matching iOS channel just like the v2 path in
-        // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
-        // phone a code the system camera routes to a dev build (or vice versa).
-        guard let scheme = pairingURLScheme?.rawValue,
-              let url = URL(string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)") else {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-        return url
+        return try compactAttachURL(
+            for: compactTicket,
+            routeDisclosureMode: routeDisclosureMode,
+            pairingURLScheme: pairingURLScheme
+        )
     }
 
     private func attachURL(
@@ -360,6 +355,44 @@ final class MobileAttachTicketStore {
             for: compatibilityTicket,
             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
             pairingURLScheme: pairingURLScheme
+        )
+    }
+
+    private func legacyCompatibleCompactTicket(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> CmxAttachTicket {
+        guard routeDisclosureMode == .legacyPrivateNetworkCompatibility else {
+            return ticket
+        }
+        let routes = ticket.routes.compactMap { route -> CmxAttachRoute? in
+            guard route.kind != .lan else { return nil }
+            guard route.kind == .iroh else { return route }
+            guard case let .peer(identity, _) = route.endpoint else { return nil }
+            return try? CmxAttachRoute(
+                id: route.id,
+                kind: .iroh,
+                endpoint: .peer(identity: identity, pathHints: []),
+                priority: route.priority
+            )
+        }
+        guard !routes.isEmpty else {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
+        return try CmxAttachTicket(
+            version: ticket.version,
+            workspaceID: ticket.workspaceID,
+            terminalID: ticket.terminalID,
+            macDeviceID: ticket.macDeviceID,
+            macDisplayName: ticket.macDisplayName,
+            macUserEmail: nil,
+            macUserID: ticket.macUserID,
+            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+            macAppVersion: ticket.macAppVersion,
+            macAppBuild: ticket.macAppBuild,
+            routes: routes,
+            expiresAt: nil,
+            authToken: nil
         )
     }
 
