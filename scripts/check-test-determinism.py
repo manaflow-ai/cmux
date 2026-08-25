@@ -4529,6 +4529,14 @@ def _self_test() -> int:
                 "}\n"
             ),
         ),
+        (
+            "web/tests/n18d_fake_open.ts",
+            'fake.open("read", "https://api.openai.com/v1/items");\n',
+        ),
+        (
+            "tests/n18d_python_exec.py",
+            'exec("curl https://api.openai.com/v1/items")\n',
+        ),
         # Plain template text is still fixture data; only `${...}` regions are
         # executable JavaScript.
         (
