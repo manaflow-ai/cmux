@@ -413,11 +413,9 @@ function workspaceMenu(w) {
 function workspaceRow(w, entry) {
   // The title owns the FULL row width; badge, pin, and close button FLOAT
   // over its trailing edge (ZStack trailing) instead of reserving layout.
-  // On hover the title's tail dissolves under the close button
-  // (.fadeOnHover), and a title too long to fit starts marqueeing after the
-  // hover holds 1.5s (.marquee). At rest the title only reserves space when
-  // a badge or pin is actually visible.
-  const hasRestAccessory = () => (w()?.unread > 0) || !!w()?.pinned;
+  // A constant .fade replaces trailing padding: the title's last points
+  // dissolve where accessories float, no reservation, no hover animation.
+  // A title too long to fit starts marqueeing after the hover holds 0.5s.
   return ZStack({ alignment: "trailing" }, [
     HStack({ spacing: 0 }, [
       Text(() => displayTitle(w()))
@@ -425,11 +423,10 @@ function workspaceRow(w, entry) {
         .lineLimit(1)
         .truncation("tail")
         .marquee()
-        .paddingTrailing(() => (hasRestAccessory() ? 26 : 0))
         .color(() => (isSelected(w()) ? "primary" : "secondary")),
       Spacer({ minLength: 0 }),
     ])
-      .fadeOnHover(34)
+      .fade(30)
       .frame({ maxWidth: "infinity" }),
     ZStack({}, [
       // Unread badge at rest; on hover it yields to the close button.
@@ -447,11 +444,12 @@ function workspaceRow(w, entry) {
         .hideOnHover(),
       // Circular close: uniform padding around the glyph + full-round corner
       // (the background hugs content+padding, so padding IS the circle size).
+      // The circle only paints while the X ITSELF is hovered (hoverBackground
+      // with no resting background tracks the node's own pointer).
       Image("xmark")
         .font(9).weight("semibold").color("secondary")
         .padding(4)
         .cornerRadius(9)
-        .background("#7f7f7f30")
         .hoverBackground("#7f7f7f4a")
         .showOnHover()
         .onTap(() => closeWorkspace(w().id)),

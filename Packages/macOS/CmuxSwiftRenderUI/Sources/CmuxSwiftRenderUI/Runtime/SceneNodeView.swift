@@ -113,7 +113,7 @@ private struct SceneNodeContent: View {
             if node.props["marquee"] != nil {
                 SceneMarqueeText(
                     text: node.string("text") ?? "",
-                    delay: node.double("marquee") ?? 1.5
+                    delay: node.double("marquee") ?? 0.5
                 )
             } else {
                 Text(node.string("text") ?? "")
@@ -524,15 +524,15 @@ private struct SceneBoxStyle: ViewModifier {
 /// text dissolves under it) instead of reserving a permanent layout slot.
 private struct SceneTrailingFade: ViewModifier {
     let node: SceneNode
-    @Environment(\.sceneHovered) private var hovered
 
     func body(content: Content) -> some View {
-        if let width = node.double("fadeOnHover") {
+        if let width = node.double("fade") {
+            // CONSTANT trailing fade, deliberately not hover-gated and not
+            // animated: it replaces trailing padding (content dissolves where
+            // accessories float), and a static mask never re-renders the row
+            // mid-hover - an animated one churned tracking areas enough to
+            // flicker sceneHovered and kept cancelling the marquee delay.
             content.mask {
-                // Full-opacity rectangle plus a trailing fade strip; the
-                // strip collapses to zero width at rest, so the mask is a
-                // no-op until hover, and the 0.12s ease matches the hover
-                // wash.
                 HStack(spacing: 0) {
                     Rectangle()
                     LinearGradient(
@@ -540,9 +540,8 @@ private struct SceneTrailingFade: ViewModifier {
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: hovered ? CGFloat(width) : 0)
+                    .frame(width: CGFloat(width))
                 }
-                .animation(.easeOut(duration: 0.12), value: hovered)
             }
         } else {
             content
@@ -552,7 +551,7 @@ private struct SceneTrailingFade: ViewModifier {
 
 /// `.marquee(delay?)` text: renders exactly like a plain truncating title at
 /// rest. When the hover-tracking ancestor stays hovered for `delay` seconds
-/// (default 1.5) AND the text actually overflows its slot, the full text
+/// (default 0.5) AND the text actually overflows its slot, the full text
 /// scrolls horizontally (linear, out and back) until the hover ends.
 ///
 /// The truncating text OWNS layout the whole time - the scrolling clone
@@ -602,6 +601,9 @@ private struct SceneMarqueeText: View {
             // edges, so both edges fade instead of hard-clipping. The strips
             // collapse to zero width at rest.
             .mask {
+                // Static strips (no animation - mask churn re-renders the row
+                // mid-hover and flickers the tracking area): leading fade only
+                // while text has scrolled past the left edge.
                 let active = scrolling && overflow > 1
                 HStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
@@ -610,13 +612,20 @@ private struct SceneMarqueeText: View {
                     LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
                         .frame(width: active ? 12 : 0)
                 }
-                .animation(.easeOut(duration: 0.12), value: active)
             }
             .task(id: hovered) {
                 guard hovered else {
+                    // Exit debounce: tracking areas report a momentary exit
+                    // when the row re-renders under a stationary pointer (this
+                    // is what kept cancelling the arm delay). Only an exit
+                    // that SURVIVES 0.15s stops the marquee; a flicker's
+                    // re-enter cancels this task before it acts.
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled else { return }
                     stopScroll()
                     return
                 }
+                guard !scrolling else { return }
                 marqueeLog("hover start, waiting \(delay)s")
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }

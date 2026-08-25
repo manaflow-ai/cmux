@@ -186,7 +186,7 @@ struct SidebarJSRuntimeTests {
         // lineLimit(1)/opacity(1) into booleans and silently dropped them.
         let runtime = SidebarJSRuntime()
         runtime.start(source: """
-        sidebar(() => Text("t").lineLimit(1).opacity(1).padding(0).rotation(90).fadeOnHover(34).marquee())
+        sidebar(() => Text("t").lineLimit(1).opacity(1).padding(0).rotation(90).fade(30).marquee())
         """)
         let rootId = try! #require(runtime.store.rootId)
         let node = try! #require(runtime.store.node(rootId))
@@ -194,7 +194,7 @@ struct SidebarJSRuntimeTests {
         #expect(node.props["opacity"] == .number(1))
         #expect(node.props["padding"] == .number(0))
         #expect(node.props["rotation"] == .number(90))
-        #expect(node.props["fadeOnHover"] == .number(34))
+        #expect(node.props["fade"] == .number(30))
         // Bare `.marquee()` defaults to true (delay comes from the host).
         #expect(node.props["marquee"] == .bool(true))
         // Booleans still decode as booleans.
