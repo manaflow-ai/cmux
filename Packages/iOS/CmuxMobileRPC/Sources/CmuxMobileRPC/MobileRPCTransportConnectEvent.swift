@@ -34,12 +34,12 @@ public enum MobileRPCTransportConnectEvent: Equatable, Sendable {
         reason: DiagnosticCancellationReason,
         elapsedMilliseconds: Int
     )
-    /// The transport reported the concrete path it negotiated. This is a
+    /// The transport reported the redacted path class it negotiated. This is a
     /// separate case so existing dial lifecycle consumers remain source
-    /// compatible while diagnostics gain path attribution for successes and
-    /// failed/unknown attempts.
+    /// compatible while diagnostics gain path attribution without exposing
+    /// concrete network coordinates.
     case pathObserved(
         attemptID: Int,
-        path: CmxTransportPath
+        path: DiagnosticPathKind
     )
 }

@@ -183,7 +183,7 @@ import Testing
             return
         }
         #expect(sessionID == 91)
-        #expect(path == .irohDirect)
+        #expect(path == .direct)
     }
 
     @Test func pathObservedEventDoesNotCarryLANAddress() async throws {

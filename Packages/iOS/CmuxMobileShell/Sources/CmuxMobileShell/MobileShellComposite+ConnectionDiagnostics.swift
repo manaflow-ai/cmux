@@ -75,11 +75,11 @@ extension MobileShellComposite {
                     a: DiagnosticPathKind.unknown.rawValue,
                     c: attemptID
                 ))
-            case let .pathObserved(attemptID, path):
+            case let .pathObserved(attemptID, pathKind):
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialPath,
                     surface: peerAlias,
-                    a: path.diagnosticPathKind.rawValue,
+                    a: pathKind.rawValue,
                     c: attemptID
                 ))
             }

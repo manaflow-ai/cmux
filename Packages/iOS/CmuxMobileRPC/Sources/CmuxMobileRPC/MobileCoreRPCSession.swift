@@ -672,7 +672,8 @@ actor MobileCoreRPCSession {
                         if let observing = candidate as? any CmxByteTransportPathObserving {
                             transportConnectObserver(.pathObserved(
                                 attemptID: connectAttemptID,
-                                path: await observing.currentTransportPath()
+                                path: (await observing.currentTransportPath())
+                                    .diagnosticPathKind
                             ))
                         }
                     }
