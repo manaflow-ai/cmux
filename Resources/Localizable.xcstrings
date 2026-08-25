@@ -53926,6 +53926,23 @@
         }
       }
     },
+    "cli.ssh.error.mixedTTYOptionCluster": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mixed short-option cluster '%@' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 宛先の後の混在した短いオプションクラスター「%@」はサポートされていません。SSH フラグには --ssh-option、リモートコマンド引数には -- を使用してください"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.status": {
       "extractionState": "manual",
       "localizations": {

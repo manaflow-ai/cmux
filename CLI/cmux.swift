@@ -10480,6 +10480,14 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        if let mixedTTYCluster = undelimitedRemoteCommandArguments.first(
+            where: SSHRemoteCommand.isMixedTTYOptionCluster
+        ) {
+            throw CLIError(message: String(
+                localized: "cli.ssh.error.mixedTTYOptionCluster",
+                defaultValue: "ssh: mixed short-option cluster '\(mixedTTYCluster)' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+            ))
+        }
         let remoteCommand = SSHRemoteCommand(
             undelimitedArguments: undelimitedRemoteCommandArguments,
             delimitedArguments: delimitedRemoteCommandArguments

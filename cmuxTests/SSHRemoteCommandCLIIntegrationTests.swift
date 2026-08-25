@@ -13,6 +13,31 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     @Test
+    func testSSHRejectsMixedTTYOptionClusterBeforeSocketUse() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: RemoteCommandBundleToken.self
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-mixed-tty-option-cluster.sock"
+
+        let result = Harness.runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "--no-focus", "example.test", "-tq", "docker"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stderr))
+        #expect(
+            (result.stdout + result.stderr).contains("mixed short-option cluster"),
+            Comment(rawValue: result.stdout + result.stderr)
+        )
+    }
+
+    @Test
     func testSSHLeadingTTYDisablePersistsRequestTTYForRestoration() throws {
         let cases: [(name: String, arguments: [String], option: String)] = [
             ("flag", ["-T"], "RequestTTY=no"),
@@ -134,7 +159,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
         }
 
         let run = try Self.runRemoteCommandMockedSSH(arguments: [
-            "-tq",
+            "-t",
             "docker", "exec", "-it",
             "-w", "/workspaces/demo",
             "vsc-demo", "/bin/bash",
@@ -179,7 +204,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
         let sshArguments = try String(contentsOf: sshArgumentsLog, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
-        let ttyIndex = try #require(sshArguments.firstIndex(of: "-tq"))
+        let ttyIndex = try #require(sshArguments.firstIndex(of: "-t"))
         let destinationIndex = try #require(sshArguments.firstIndex(of: "example.test"))
         #expect(
             ttyIndex < destinationIndex,

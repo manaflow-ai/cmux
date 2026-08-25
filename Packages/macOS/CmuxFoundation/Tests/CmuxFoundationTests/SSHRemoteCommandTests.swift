@@ -30,15 +30,12 @@ struct SSHRemoteCommandTests {
         #expect(command.sshOptionsPersistingTTYRequest(in: []) == ["RequestTTY=yes"])
     }
 
-    @Test("preserves TTY requests in no-argument OpenSSH short-option clusters")
-    func preservesMixedTTYOptionCluster() {
-        let command = SSHRemoteCommand(
-            undelimitedArguments: ["-tq", "docker", "exec"]
-        )
-
-        #expect(command.ttyRequestArguments == ["-tq"])
-        #expect(command.arguments == ["docker", "exec"])
-        #expect(command.sshOptionsPersistingTTYRequest(in: []) == ["RequestTTY=yes"])
+    @Test("identifies mixed TTY option clusters for explicit rejection")
+    func identifiesMixedTTYOptionCluster() {
+        #expect(SSHRemoteCommand.isMixedTTYOptionCluster("-tq"))
+        #expect(SSHRemoteCommand.isMixedTTYOptionCluster("-4t"))
+        #expect(!SSHRemoteCommand.isMixedTTYOptionCluster("-tt"))
+        #expect(!SSHRemoteCommand.isMixedTTYOptionCluster("--literal"))
     }
 
     @Test("normalizes OpenSSH boolean RequestTTY aliases before applying flags")
