@@ -351,7 +351,7 @@ extension CmxIrohHostRuntimeTests {
         await runtime.waitForInitialPublicationForTesting()
 
         #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await endpoint.waitForCloseCallCount(1))
         #expect(await bindings.count() == 0)
     }
 
@@ -537,7 +537,7 @@ extension CmxIrohHostRuntimeTests {
         await runtime.waitForInitialPublicationForTesting()
 
         #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await endpoint.waitForCloseCallCount(1))
     }
 
     @Test
@@ -571,7 +571,7 @@ extension CmxIrohHostRuntimeTests {
         await runtime.waitForInitialPublicationForTesting()
 
         #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await endpoint.waitForCloseCallCount(1))
     }
 }
 

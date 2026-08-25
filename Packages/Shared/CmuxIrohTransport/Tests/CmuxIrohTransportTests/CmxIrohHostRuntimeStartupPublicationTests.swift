@@ -15,6 +15,19 @@ extension CmxIrohHostRuntime {
     }
 }
 
+extension TestIrohEndpoint {
+    /// A network-change refresh can own the terminal round and still be
+    /// finishing its teardown when the publication pipeline await returns.
+    /// Bounded wait for the endpoint close that teardown must perform.
+    func waitForCloseCallCount(_ minimum: Int) async -> Bool {
+        for _ in 0 ..< 50_000 {
+            if observedCloseCallCount() >= minimum { return true }
+            await Task.yield()
+        }
+        return observedCloseCallCount() >= minimum
+    }
+}
+
 extension CmxIrohHostRuntimeTests {
     /// Regression for the advertise-before-ready warm-up race
     /// (https://github.com/manaflow-ai/cmux/issues/9724): a Mac must not
