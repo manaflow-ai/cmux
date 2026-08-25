@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import stat
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -45,8 +46,30 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
     archive.parent.mkdir(parents=True, exist_ok=True)
     if archive.exists():
         archive.unlink()
-    with tarfile.open(archive, "w:gz") as output:
-        output.add(packages_dir, arcname=PACKAGE_ROOT, recursive=True)
+    # The archive is an internal transfer artifact, but deterministic bytes
+    # make retries and provenance checks reproducible.  tarfile's default
+    # gzip header contains the current time and directory traversal follows
+    # filesystem order, so normalize both.
+    with archive.open("wb") as raw:
+        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w") as output:
+                members = [packages_dir, *sorted(packages_dir.rglob("*"))]
+                for path in members:
+                    output.add(
+                        path,
+                        arcname=Path(PACKAGE_ROOT, path.relative_to(packages_dir)),
+                        recursive=False,
+                        filter=_normalize_member,
+                    )
+
+
+def _normalize_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
+    member.mtime = 0
+    member.uid = 0
+    member.gid = 0
+    member.uname = ""
+    member.gname = ""
+    return member
 
 
 def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
