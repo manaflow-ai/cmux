@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CmuxCore
 import AppKit
 import SwiftUI
@@ -2871,69 +2872,60 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 
-@MainActor
-final class TabManagerNewSurfaceZoomTests: XCTestCase {
-    func testNewSurfaceKeepsExpandedPaneWhenOptedIn() {
+@Suite("TabManager new-surface pane zoom")
+struct TabManagerNewSurfaceZoomTests {
+    @MainActor
+    @Test
+    func newSurfaceKeepsExpandedPaneWhenOptedIn() throws {
         let suiteName = "TabManagerNewSurfaceZoomTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Expected isolated defaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         settings.set(true, for: SettingCatalog().app.keepExpandedOnNewTab)
         let manager = TabManager(settings: settings)
-        guard let workspace = manager.selectedWorkspace,
-              let firstPanelId = workspace.focusedPanelId,
-              let expandedPaneId = workspace.paneId(forPanelId: firstPanelId),
-              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil else {
-            XCTFail("Expected a split workspace")
-            return
-        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let expandedPaneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
 
         workspace.focusPanel(firstPanelId)
-        XCTAssertTrue(workspace.toggleSplitZoom(panelId: firstPanelId))
-        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, expandedPaneId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == expandedPaneId)
 
         manager.newSurface()
 
-        XCTAssertEqual(
-            workspace.bonsplitController.zoomedPaneId,
-            expandedPaneId,
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == expandedPaneId,
             "An opted-in new tab should keep its pane expanded"
         )
-        XCTAssertNotEqual(
-            workspace.focusedPanelId,
-            firstPanelId,
-            "The new tab should receive focus"
-        )
+        #expect(workspace.focusedPanelId != firstPanelId, "The new tab should receive focus")
     }
 
-    func testNewSurfaceStillCollapsesExpandedPaneByDefault() {
+    @MainActor
+    @Test
+    func newSurfaceStillCollapsesExpandedPaneByDefault() throws {
         let suiteName = "TabManagerNewSurfaceZoomTests.default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Expected isolated defaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let manager = TabManager(settings: settings)
-        guard let workspace = manager.selectedWorkspace,
-              let firstPanelId = workspace.focusedPanelId,
-              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil else {
-            XCTFail("Expected a split workspace")
-            return
-        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
 
         workspace.focusPanel(firstPanelId)
-        XCTAssertTrue(workspace.toggleSplitZoom(panelId: firstPanelId))
-        XCTAssertNotNil(workspace.bonsplitController.zoomedPaneId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId != nil)
 
         manager.newSurface()
 
-        XCTAssertNil(
-            workspace.bonsplitController.zoomedPaneId,
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == nil,
             "The default should preserve the existing auto-unzoom behavior"
         )
     }
