@@ -99,8 +99,11 @@ struct ClaudeTaskSyncHookTests {
         let latestTodos = try #require(latestInput["todos"] as? [[String: Any]])
         #expect(latestTodos.compactMap { $0["id"] as? String } == ["1", "3"])
 
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(
+            tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        )
         #expect(FileManager.default.fileExists(
-            atPath: context.storeURL.path + ".task-sync.lock"
+            atPath: context.storeURL.path + ".task-sync.\(taskStoreIdentity.rawValue).lock"
         ))
     }
 
@@ -1028,15 +1031,23 @@ struct ClaudeTaskSyncHookTests {
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let requests = reconcileRequests(in: context)
         #expect(requests.count == 2)
-        #expect(requests[0]["owner_id"] as? String == taskOwnerID(
-            directoryName: "ArchivedList0",
-            tasksRootURL: tasksRoot
-        ))
-        #expect((requests[0]["items"] as? [[String: Any]])?.isEmpty == true)
-        #expect(requests[1]["owner_id"] as? String == taskOwnerID(
-            directoryName: taskListID,
-            tasksRootURL: tasksRoot
-        ))
+        let archivedRequest = try #require(
+            requests.first {
+                $0["owner_id"] as? String == taskOwnerID(
+                    directoryName: "ArchivedList0",
+                    tasksRootURL: tasksRoot
+                )
+            }
+        )
+        #expect((archivedRequest["items"] as? [[String: Any]])?.isEmpty == true)
+        #expect(
+            requests.contains {
+                $0["owner_id"] as? String == taskOwnerID(
+                    directoryName: taskListID,
+                    tasksRootURL: tasksRoot
+                )
+            }
+        )
         let records = try taskListDestinationRecords(in: context.storeURL)
         #expect(records.count == 128)
         #expect(!records.values.contains {

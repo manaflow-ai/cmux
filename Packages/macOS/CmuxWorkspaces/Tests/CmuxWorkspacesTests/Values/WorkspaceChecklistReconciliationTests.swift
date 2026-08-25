@@ -45,13 +45,14 @@ import Testing
             ),
         ]).get()
 
-        #expect(result.map(\.id) == [userItem.id, kept.id, newID, otherSession.id])
-        #expect(result[1].text == "Updated task text")
-        #expect(result[1].state == .completed)
-        #expect(result[1].attachments == [attachment])
+        #expect(result.map(\.id) == [userItem.id, newID, otherSession.id, kept.id])
+        #expect(result[3].text == "Updated task text")
+        #expect(result[3].state == .completed)
+        #expect(result[3].attachments == [attachment])
+        #expect(result[3].ownerID == "claude:session-a")
         #expect(result[1].ownerID == "claude:session-a")
-        #expect(result[2].ownerID == "claude:session-a")
-        #expect(result[3] == otherSession)
+        #expect(result[2] == otherSession)
+        #expect(result.dropLast().allSatisfy { $0.state != .completed })
         #expect(!result.contains(where: { $0.id == deleted.id }))
         #expect(checklist == result)
     }
