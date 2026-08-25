@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxBrowser"),
+        .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSettings"),
     ],
     targets: [
@@ -26,6 +27,7 @@ let package = Package(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 "CmuxControlSocketAtomicsC",
             ],
@@ -40,6 +42,7 @@ let package = Package(
             dependencies: [
                 "CmuxControlSocket",
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
             ]
         ),
