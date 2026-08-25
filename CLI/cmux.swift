@@ -33230,10 +33230,7 @@ export default CMUXSessionRestore;
             return firstString(in: rawObject, keys: ["tool_use_id", "toolUseId", "tool_call_id", "toolCallId"])
         }
 
-        func cursorShellFailureIsApprovalDenial(from input: ClaudeHookParsedInput) -> Bool {
-            if cursorShellToolUseId(from: input) != nil {
-                return true
-            }
+        func cursorShellFailureIsExplicitDenial(from input: ClaudeHookParsedInput) -> Bool {
             guard let rawObject = input.rawObject else { return false }
             let values = [
                 firstString(in: rawObject, keys: ["failure_type", "failureType"]),
@@ -33270,12 +33267,14 @@ export default CMUXSessionRestore;
                     telemetry.breadcrumb("\(def.name)-hook.shell-failed.non-shell")
                     return
                 }
-                guard cursorShellFailureIsApprovalDenial(from: input) else {
+                let hasStableToolUseId = cursorShellToolUseId(from: input) != nil
+                guard hasStableToolUseId || cursorShellFailureIsExplicitDenial(from: input) else {
                     sendAgentFeedTelemetry()
                     telemetry.breadcrumb("\(def.name)-hook.shell-failed.non-denial")
                     return
                 }
             }
+            let failureRestoresRunning = !failed || cursorShellFailureIsExplicitDenial(from: input)
             let mapped = sessionId.isEmpty
                 ? nil
                 : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
@@ -33388,9 +33387,16 @@ export default CMUXSessionRestore;
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
-                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                let runningStatus = failureRestoresRunning
+                    ? String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    : String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                        def.displayName
+                    )
                 sendCursorCriticalCommand(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    failureRestoresRunning
+                        ? "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        : "set_status \(def.statusKey) \(runningStatus) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
             }
 
@@ -33495,7 +33501,7 @@ export default CMUXSessionRestore;
                 )
             }
             emitJournal(
-                .turnStarted,
+                failed && !failureRestoresRunning ? .errorReported : .turnStarted,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 detail: failed ? "shell-failed" : "shell-completed",
@@ -34576,7 +34582,7 @@ export default CMUXSessionRestore;
                 reportTargetResolutionFailure()
                 emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
-                print("{}")
+                print(def.name == "cursor" && cursorShellNeedsApproval ? hookResponse : "{}")
                 return
             }
             let workspaceId = target.workspaceId
@@ -34613,8 +34619,7 @@ export default CMUXSessionRestore;
 
             if cursorShellNeedsApproval {
                 guard acquireCursorLifecycleLease() else {
-                    hookResponse = "{}"
-                    print("{}")
+                    print(hookResponse)
                     return
                 }
                 guard !sessionId.isEmpty,
@@ -34639,8 +34644,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
-                    hookResponse = "{}"
-                    print("{}")
+                    print(hookResponse)
                     return
                 }
                 if !rememberResult.inserted {
