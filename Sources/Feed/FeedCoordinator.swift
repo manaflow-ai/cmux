@@ -320,11 +320,11 @@ final class FeedCoordinator: @unchecked Sendable {
                         UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                     let attentionTarget = liveOwnerId.map {
-                        (ownerId: $0, surfaceId: liveSurfaceId)
+                        (workspaceId: $0, surfaceId: liveSurfaceId)
                     } ?? resolvedAttentionTarget
                     let attentionTabManager = attentionTarget.flatMap {
-                        AppDelegate.shared?.tabManagerFor(tabId: $0.ownerId)
-                            ?? AppDelegate.shared?.tabManagerFor(windowId: $0.ownerId)
+                        AppDelegate.shared?.tabManagerFor(tabId: $0.workspaceId)
+                            ?? AppDelegate.shared?.tabManagerFor(windowId: $0.workspaceId)
                     }
                     if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
                         event: acceptedEvent,
@@ -1278,7 +1278,7 @@ extension FeedCoordinator {
             return nil
         }
         let target = FeedAttentionTarget(
-            workspaceId: resolved.workspaceId,
+            workspaceId: owner.id,
             panelId: panelId,
             statusKey: statusKey,
             token: token
@@ -1303,11 +1303,12 @@ extension FeedCoordinator {
             color: "#4C8DFF",
             timestamp: Date()
         )
-        pendingAttentionStates[target] = FeedPendingAttentionState(
-            fallbackWorkspace: switch owner {
+        let fallbackWorkspace: Workspace? = switch owner {
             case .workspace(let workspace): workspace
             case .dock: nil
-            },
+        }
+        pendingAttentionStates[target] = FeedPendingAttentionState(
+            fallbackWorkspace: fallbackWorkspace,
             statusEntry: statusEntry,
             statusOwnerId: owner.id,
             statusIsPanelScoped: statusIsPanelScoped,
