@@ -12,8 +12,10 @@ import { configuredRelayCatalog } from "./catalog";
 
 export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
-export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
-export const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 60;
+// One hour keeps the credential device-bound and revocable-by-rotation while
+// cutting an always-on endpoint from ~288 refreshes/day (at 300 s) to 24.
+export const RELAY_TOKEN_TTL_SECONDS = 3_600; // the client refreshes before expiry
+export const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 300;
 
 export type ManagedRelayCredentialGrant = {
   readonly relayUrl: string;
