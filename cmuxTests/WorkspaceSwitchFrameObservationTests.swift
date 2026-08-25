@@ -21,7 +21,7 @@ struct WorkspaceSwitchFrameObservationTests {
         let observer = notificationCenter.addObserver(
             forName: notificationName,
             object: nil,
-            queue: .main
+            queue: nil
         ) { _ in
             Issue.record("Observer must be removed when its owner deinitializes")
         }
@@ -40,5 +40,47 @@ struct WorkspaceSwitchFrameObservationTests {
 
         #expect(releaseProbe.didRelease)
         notificationCenter.post(name: notificationName, object: nil)
+    }
+
+    @Test
+    func sourceRetirementReleasesUnresolvedFrameDemand() {
+        let notificationCenter = NotificationCenter()
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let targetView = GhosttyNSView(frame: .zero)
+        let coordinator = WorkspaceSwitchCoordinator(
+            notificationCenter: notificationCenter,
+            beginRendererProtection: { _, _, _ in },
+            endRendererProtection: { _ in }
+        )
+
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: targetView,
+            targetRendererPresented: false,
+            targetRenderedFrameSequence: 0
+        )
+        coordinator.beginPresentation(
+            WorkspaceSwitchPresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID,
+                terminalView: targetView,
+                terminalRendererPresented: false,
+                terminalRenderedFrameSequence: 0,
+                browserWebView: nil,
+                portalPresented: false,
+                interactionReady: false,
+                requiresInteraction: true
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
+        )
+
+        #expect(targetView.localRenderedFrameNotificationDemandIsActive)
+        coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
+        #expect(!targetView.localRenderedFrameNotificationDemandIsActive)
     }
 }
