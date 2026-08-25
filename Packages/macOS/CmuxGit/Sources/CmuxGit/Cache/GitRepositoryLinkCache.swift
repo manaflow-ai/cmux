@@ -61,6 +61,7 @@ actor GitRepositoryLinkCache {
         link: GitRepositoryLink?,
         repository: ResolvedGitRepository,
         configURLs: [URL],
+        expectedConfigStatuses: [String: GitFileStatus?] = [:],
         headSignature: String?,
         fileStatusReader: any GitFileStatusReading
     ) {
@@ -85,6 +86,13 @@ actor GitRepositoryLinkCache {
         var statuses: [String: GitFileStatus?] = [:]
         for path in paths {
             statuses.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+        }
+        for (path, expectedStatus) in expectedConfigStatuses {
+            guard statuses[path] == expectedStatus,
+                  fileStatusReader.status(atPath: path) == expectedStatus else {
+                removeEntry(for: key)
+                return
+            }
         }
         entries[key] = Entry(configStatuses: statuses, headSignature: headSignature, link: link)
         markRecentlyUsed(key)
