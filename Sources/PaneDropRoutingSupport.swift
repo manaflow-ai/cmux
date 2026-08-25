@@ -2,6 +2,16 @@ import AppKit
 import Bonsplit
 import Foundation
 
+@MainActor
+extension AppDelegate {
+    /// Ends the originating Bonsplit drag after a destination accepts it.
+    func finishAcceptedBonsplitTabDrop(
+        from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
+    ) {
+        tabDragTransferRegistry.finish(from: pasteboard)
+    }
+}
+
 struct PaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
@@ -19,6 +29,19 @@ struct PaneDragTransfer: Equatable {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
+    init(tabDragTransfer: TabDragTransfer) {
+        tabId = tabDragTransfer.tab.id.uuid
+        sourcePaneId = tabDragTransfer.sourcePaneId.id
+        sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32) {
+        self.tabId = tabId
+        self.sourcePaneId = sourcePaneId
+        self.sourceProcessId = sourceProcessId
+    }
+
+    /// Decodes the legacy JSON representation used by older synthetic sources.
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
@@ -51,7 +74,11 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 @MainActor
-extension WindowTerminalHostView {
+protocol PaneDropRoutingHost: AnyObject {
+    var paneDropRoutingSession: PaneDropRoutingSession { get }
+}
+
+extension PaneDropRoutingHost {
     var hasActivePaneDropDrag: Bool {
         paneDropRoutingSession.hasActiveDropDrag
     }
@@ -68,6 +95,9 @@ extension WindowTerminalHostView {
         paneDropRoutingSession.clearActiveDropDrag(sequenceNumber: sequenceNumber)
     }
 }
+
+extension WindowTerminalHostView: PaneDropRoutingHost {}
+extension WindowBrowserHostView: PaneDropRoutingHost {}
 
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
@@ -93,7 +123,7 @@ enum PaneDropRouting {
         }
     }
 
-    static func filePreviewDestination(
+    static func destination(
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> BonsplitController.ExternalTabDropRequest.Destination {

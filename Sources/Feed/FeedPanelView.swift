@@ -74,6 +74,7 @@ struct FeedPanelView: View {
 
     @State private var filter: Filter = .actionable
     @StateObject private var viewModel = FeedPanelViewModel()
+    let chromeBackgroundColor: NSColor
 
     var body: some View {
         VStack(spacing: 0) {
@@ -103,7 +104,7 @@ struct FeedPanelView: View {
             #endif
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 

@@ -1,5 +1,7 @@
 import XCTest
 import Foundation
+import CoreGraphics
+import ImageIO
 import Darwin
 
 final class AutomationSocketUITests: XCTestCase {
@@ -148,6 +150,59 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testCaffeineMenuAndSocketShareState() throws {
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-NSAppSleepDisabled", "YES"
+        ]
+        launchAllowingHeadlessBackground(app)
+        defer {
+            _ = socketResult(
+                method: "caffeine.set",
+                params: ["enabled": false]
+            )
+            app.terminate()
+        }
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected the app to launch for caffeine menu verification"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected a control socket for caffeine verification"
+        )
+        XCTAssertEqual(
+            socketResult(method: "caffeine.status", params: [:])?["enabled"] as? Bool,
+            false
+        )
+
+        clickKeepMacAwakeMenu(in: app)
+
+        let enabled = waitForJSON(timeout: 5.0) {
+            guard self.socketResult(
+                method: "caffeine.status",
+                params: [:]
+            )?["enabled"] as? Bool == true else { return nil }
+            return ["enabled": true]
+        }
+        XCTAssertNotNil(enabled, "Expected the menu to enable the shared caffeine controller")
+
+        XCTAssertEqual(
+            socketResult(
+                method: "caffeine.set",
+                params: ["enabled": false]
+            )?["enabled"] as? Bool,
+            false
+        )
+        XCTAssertEqual(
+            socketResult(method: "caffeine.status", params: [:])?["enabled"] as? Bool,
+            false
+        )
+    }
+
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
         let skillRoot = try makeSkillFixtureRoot(
             skillNames: [
@@ -225,6 +280,301 @@ final class AutomationSocketUITests: XCTestCase {
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
     }
 
+    func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalAndBrowserContent() throws {
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-NSAppSleepDisabled", "YES",
+        ]
+        defer { app.terminate() }
+
+        launchAllowingHeadlessBackground(app)
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for the window screenshot test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
+
+        let marker = "CMUX_SCREENSHOT_MARKER_9065"
+        let markerCommand = """
+        i=0; while [ $i -lt 8 ]; do printf '\\033[48;2;245;40;210m%-80s\\033[0m\\n' '\(marker)'; i=$((i+1)); done; tail -f /dev/null
+        """
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "title": "Window screenshot regression",
+                    "initial_command": markerCommand,
+                    "focus": true,
+                ]
+            ),
+            "Expected workspace.create to return the marker terminal"
+        )
+        let surfaceID = try XCTUnwrap(
+            workspace["surface_id"] as? String,
+            "Expected workspace.create to return a surface id"
+        )
+        let workspaceID = try XCTUnwrap(
+            workspace["workspace_id"] as? String,
+            "Expected workspace.create to return a workspace id"
+        )
+        XCTAssertTrue(
+            waitForTerminalText(marker, surfaceID: surfaceID, timeout: 12.0),
+            "Expected marker text to render before taking the screenshot"
+        )
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 5.0),
+            "Expected the main window to exist before taking the screenshot"
+        )
+
+        let terminalOnlyCapture = try XCTUnwrap(
+            waitForWindowScreenshotContainingMarker(
+                label: "issue-9065-terminal-only",
+                minimumMarkerPixels: 100,
+                minimumBrowserPixels: 0,
+                timeout: 30.0
+            ),
+            "Expected the screenshot command to capture terminal-only window content"
+        )
+        XCTAssertGreaterThan(
+            terminalOnlyCapture.stats.markerPixels,
+            100,
+            "Expected the terminal-only screenshot to include the magenta marker"
+        )
+
+        let browserHTML = """
+        <!doctype html>
+        <html>
+          <body style="margin:0;min-height:100vh;background:rgb(20,220,240)">
+            <h1>CMUX_BROWSER_SCREENSHOT_MARKER_9065</h1>
+          </body>
+        </html>
+        """
+        let browserURL = "data:text/html;base64,\(Data(browserHTML.utf8).base64EncodedString())"
+        let browser = try XCTUnwrap(
+            socketResult(
+                method: "browser.open_split",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                responseTimeout: 10.0
+            ),
+            "Expected browser.open_split to create a browser panel"
+        )
+        let browserSurfaceID = try XCTUnwrap(
+            browser["surface_id"] as? String,
+            "Expected browser.open_split to return a surface id"
+        )
+        XCTAssertNotNil(
+            socketResult(
+                method: "browser.navigate",
+                params: [
+                    "surface_id": browserSurfaceID,
+                    "url": browserURL,
+                ],
+                responseTimeout: 12.0
+            ),
+            "Expected the browser marker page to navigate"
+        )
+        XCTAssertNotNil(
+            socketResult(
+                method: "browser.wait",
+                params: [
+                    "surface_id": browserSurfaceID,
+                    "load_state": "complete",
+                    "timeout_ms": 10_000,
+                ],
+                responseTimeout: 12.0
+            ),
+            "Expected the browser marker page to finish loading"
+        )
+
+        let captured = try XCTUnwrap(
+            waitForWindowScreenshotContainingMarker(
+                label: "issue-9065-window",
+                minimumMarkerPixels: 100,
+                minimumBrowserPixels: 1_000,
+                timeout: 30.0
+            ),
+            "Expected debug.window.screenshot to capture terminal and browser content"
+        )
+        let pngData = captured.pngData
+        XCTAssertGreaterThan(pngData.count, 1_024, "Expected a non-empty PNG file")
+        XCTAssertTrue(
+            pngData.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+            "Expected the screenshot command to write PNG data"
+        )
+
+        let stats = captured.stats
+        XCTAssertGreaterThan(stats.width, 500, "Expected a main-window-sized screenshot")
+        XCTAssertGreaterThan(stats.height, 300, "Expected a main-window-sized screenshot")
+        XCTAssertGreaterThan(
+            stats.uniqueQuantizedColors,
+            8,
+            "Expected a non-blank, non-solid main window screenshot"
+        )
+        XCTAssertGreaterThan(
+            stats.markerPixels,
+            100,
+            "Expected the screenshot to include the terminal's magenta marker content"
+        )
+        XCTAssertGreaterThan(
+            stats.browserPixels,
+            1_000,
+            "Expected the screenshot to include the browser's cyan marker content"
+        )
+    }
+
+    private struct WindowScreenshotPixelStats {
+        let width: Int
+        let height: Int
+        let uniqueQuantizedColors: Int
+        let markerPixels: Int
+        let browserPixels: Int
+    }
+
+    private struct CapturedWindowScreenshot {
+        let pngData: Data
+        let stats: WindowScreenshotPixelStats
+    }
+
+    private func waitForTerminalText(
+        _ expectedText: String,
+        surfaceID: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                if let result = self.socketResult(
+                    method: "surface.read_text",
+                    params: ["surface_id": surfaceID]
+                ),
+                   let text = result["text"] as? String,
+                   text.contains(expectedText) {
+                    return true
+                }
+                return false
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForWindowScreenshotContainingMarker(
+        label: String,
+        minimumMarkerPixels: Int,
+        minimumBrowserPixels: Int,
+        timeout: TimeInterval
+    ) -> CapturedWindowScreenshot? {
+        var captured: CapturedWindowScreenshot?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let screenshot = self.socketResult(
+                    method: "debug.window.screenshot",
+                    params: ["label": label],
+                    // Two independently bounded backend waits can total ten
+                    // seconds; the outer wait leaves room for another poll.
+                    responseTimeout: 11.0,
+                    allowsReplayFallback: false
+                ),
+                    let path = screenshot["path"] as? String else {
+                    return false
+                }
+
+                let screenshotURL = URL(fileURLWithPath: path)
+                defer { try? FileManager.default.removeItem(at: screenshotURL) }
+                guard let pngData = try? Data(contentsOf: screenshotURL),
+                      let stats = self.windowScreenshotPixelStats(pngData),
+                      stats.markerPixels > minimumMarkerPixels,
+                      stats.browserPixels >= minimumBrowserPixels else {
+                    return false
+                }
+
+                captured = CapturedWindowScreenshot(pngData: pngData, stats: stats)
+                return true
+            },
+            object: NSObject()
+        )
+        guard XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed else {
+            return nil
+        }
+        return captured
+    }
+
+    private func windowScreenshotPixelStats(_ pngData: Data) -> WindowScreenshotPixelStats? {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let decoded = pixels.withUnsafeMutableBytes { rawBuffer -> Bool in
+            guard let baseAddress = rawBuffer.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow,
+                      space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue
+                          | CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard decoded else { return nil }
+
+        var uniqueQuantizedColors = Set<UInt16>()
+        var markerPixels = 0
+        var browserPixels = 0
+        let sampleStep = 2
+        for y in stride(from: 0, to: height, by: sampleStep) {
+            let row = y * bytesPerRow
+            for x in stride(from: 0, to: width, by: sampleStep) {
+                let index = row + x * bytesPerPixel
+                let red = pixels[index]
+                let green = pixels[index + 1]
+                let blue = pixels[index + 2]
+                let alpha = pixels[index + 3]
+
+                if alpha > 16 {
+                    let key = (UInt16(red >> 4) << 8)
+                        | (UInt16(green >> 4) << 4)
+                        | UInt16(blue >> 4)
+                    uniqueQuantizedColors.insert(key)
+                }
+                if red > 200, green < 110, blue > 150, alpha > 200 {
+                    markerPixels += 1
+                }
+                if red < 80, green > 180, blue > 180, alpha > 200 {
+                    browserPixels += 1
+                }
+            }
+        }
+
+        return WindowScreenshotPixelStats(
+            width: width,
+            height: height,
+            uniqueQuantizedColors: uniqueQuantizedColors.count,
+            markerPixels: markerPixels,
+            browserPixels: browserPixels
+        )
+    }
+
     private func configuredApp(mode: String) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-\(modeKey)", mode]
@@ -266,6 +616,45 @@ final class AutomationSocketUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func launchAllowingHeadlessBackground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            let diagnostics = [
+                issue.compactDescription,
+                issue.detailedDescription,
+                issue.associatedError?.localizedDescription
+            ]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            return (issue.type == .system || issue.type == .assertionFailure) &&
+                diagnostics.contains("Failed to activate application") &&
+                diagnostics.contains("Running Background")
+        }
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func clickKeepMacAwakeMenu(in app: XCUIApplication) {
+        let applicationMenu = app.menuBars.menuBarItems.element(boundBy: 0)
+        XCTAssertTrue(
+            applicationMenu.waitForExistence(timeout: 5.0),
+            "Expected the application menu"
+        )
+        applicationMenu.click()
+        let keepAwakeItem = app.menuItems["Keep Mac Awake"]
+        XCTAssertTrue(
+            keepAwakeItem.waitForExistence(timeout: 3.0),
+            "Expected the localized Keep Mac Awake menu item"
+        )
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "mac-keep-awake-menu"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        keepAwakeItem.click()
     }
 
     private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -363,18 +752,43 @@ final class AutomationSocketUITests: XCTestCase {
             controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
-    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+    private func socketJSON(
+        method: String,
+        params: [String: Any],
+        responseTimeout: TimeInterval = 2.0,
+        allowsReplayFallback: Bool = true
+    ) -> [String: Any]? {
         let request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
-            controlSocketJSONViaNetcat(request, socketPath: socketPath)
+        if let response = ControlSocketClient(
+            path: socketPath,
+            responseTimeout: responseTimeout
+        ).sendJSON(request) {
+            return response
+        }
+        guard allowsReplayFallback else { return nil }
+        return controlSocketJSONViaNetcat(
+            request,
+            socketPath: socketPath,
+            responseTimeout: responseTimeout
+        )
     }
 
-    private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
-        guard let envelope = socketJSON(method: method, params: params),
+    private func socketResult(
+        method: String,
+        params: [String: Any],
+        responseTimeout: TimeInterval = 2.0,
+        allowsReplayFallback: Bool = true
+    ) -> [String: Any]? {
+        guard let envelope = socketJSON(
+            method: method,
+            params: params,
+            responseTimeout: responseTimeout,
+            allowsReplayFallback: allowsReplayFallback
+        ),
               envelope["ok"] as? Bool == true else {
             return nil
         }

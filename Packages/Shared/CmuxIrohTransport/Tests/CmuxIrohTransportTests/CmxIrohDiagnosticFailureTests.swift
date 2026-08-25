@@ -25,6 +25,10 @@ import Testing
                 == .admissionDenied
         )
         #expect(
+            DiagnosticFailureKind.classify(CmxIrohClientSessionError.dialTimedOut)
+                == .timedOut
+        )
+        #expect(
             DiagnosticFailureKind.classify(CmxIrohKeychainIdentityStoreError(status: -50))
                 == .credentialUnavailable
         )
@@ -47,11 +51,21 @@ import Testing
             DiagnosticFailureKind.connectionClosed
         ),
         (
+            "ConnectionLost(ApplicationClosed(ApplicationClose { error_code: 0, reason: \"No route found\" }))",
+            DiagnosticFailureKind.connectionClosed
+        ),
+        (
             "ConnectionLost(ConnectionClosed(ConnectionClose { error_code: 0 }))",
             DiagnosticFailureKind.connectionClosed
         ),
         ("ConnectionLost(LocallyClosed)", DiagnosticFailureKind.cancelled),
         ("outgoing connection cancelled", DiagnosticFailureKind.cancelled),
+        ("No route found for endpoint", DiagnosticFailureKind.noRoute),
+        ("no usable path candidates", DiagnosticFailureKind.noRoute),
+        ("Network is unreachable (os error 51)", DiagnosticFailureKind.hostUnreachable),
+        ("No route to host", DiagnosticFailureKind.hostUnreachable),
+        ("Connection refused", DiagnosticFailureKind.connectionRefused),
+        ("closed by peer: No route found", DiagnosticFailureKind.connectionClosed),
         (
             "No addressing information available\nCaused by:\n    All address lookup services failed or produced no results",
             DiagnosticFailureKind.dnsFailed

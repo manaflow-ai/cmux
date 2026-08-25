@@ -113,6 +113,54 @@ import Testing
         #expect(plan.usesTransparentWindow)
     }
 
+    /// A mounted Dock must leave the shared window backdrop visible.
+    @Test func dockChromeLeavesSharedWindowBackdropUnpainted() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.8
+        )
+        var config = GhosttyConfig()
+        config.backgroundColor = snapshot.terminalBackgroundColor
+        config.backgroundOpacity = Double(snapshot.terminalBackgroundOpacity)
+
+        let appearance = DockSplitStore.makeAppearance(
+            from: config,
+            windowAppearance: snapshot
+        )
+
+        #expect(appearance.usesSharedBackdrop)
+        #expect(
+            appearance.chromeColors.backgroundHex == "#00000000",
+            "Dock chrome must leave the shared window backdrop visible behind terminal surfaces"
+        )
+        #expect(appearance.chromeColors.paneBackgroundHex == "#00000000")
+    }
+
+    /// The controller's pre-mount appearance retains a concrete fallback.
+    @Test func dockChromeKeepsConcreteFallbackBeforeWindowBackdropMounts() {
+        let config = GhosttyConfig()
+        let appearance = DockSplitStore.makeAppearance(from: config)
+
+        #expect(
+            appearance.chromeColors.backgroundHex != "#00000000",
+            "The pre-mount Dock configuration needs a concrete fallback"
+        )
+    }
+
+    /// Renderer-owned surfaces keep their concrete Dock chrome color.
+    @Test func dockChromeKeepsConcreteColorWhenGhosttyOwnsTheSurface() {
+        let color = NSColor(hex: "#112233")!
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.8,
+            sharesWindowBackdrop: true,
+            renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            chromeHost: .dock
+        )
+
+        #expect(colors.backgroundHex == "#112233CC")
+    }
+
     @Test func sidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
@@ -160,15 +208,57 @@ import Testing
         #expect(cmuxReadableColorScheme(for: composited) == .light)
     }
 
-    @Test func sidebarContentColorSchemeUsesTerminalOnlyForUnifiedBackdrops() {
+    @Test func sidebarContentColorSchemeUsesResolvedTerminalThemeForAllBackdrops() {
         #expect(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)
                 .sidebarContentColorScheme == .dark
         )
         #expect(
             makeSnapshot(unifySurfaceBackdrops: false, backgroundHex: "#101820", sidebarColorScheme: .light)
-                .sidebarContentColorScheme == .light
+                .sidebarContentColorScheme == .dark
         )
+    }
+
+    @Test func sidebarTintSelectionUsesResolvedTerminalThemeWhenSystemDisagrees() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundHex: "#F8F8F2",
+            sidebarTintHexDark: "#FF0000",
+            sidebarTintOpacity: 0.4,
+            sidebarColorScheme: .dark
+        )
+
+        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .rightSidebar) else {
+            Issue.record("right sidebar should keep its own material policy")
+            return
+        }
+        #expect(policy.tintColor.hexString(includeAlpha: true) == "#00000066")
+    }
+
+    @Test func dockAndSidebarChromeShareResolvedTerminalThemeWhenSystemDisagrees() {
+        let cases: [(backgroundHex: String, expected: ColorScheme)] = [
+            ("#F8F8F2", .light),
+            ("#101820", .dark),
+        ]
+
+        for testCase in cases {
+            for systemResolvedSidebarScheme in [ColorScheme.light, .dark] {
+                let snapshot = makeSnapshot(
+                    unifySurfaceBackdrops: false,
+                    backgroundHex: testCase.backgroundHex,
+                    sidebarColorScheme: systemResolvedSidebarScheme
+                )
+
+                #expect(
+                    snapshot.chromeColorScheme == testCase.expected,
+                    "Unexpected terminal theme resolution for \(testCase.backgroundHex)"
+                )
+                #expect(
+                    snapshot.sidebarContentColorScheme == testCase.expected,
+                    "Dock/sidebar chrome diverged for terminal \(testCase.expected) and system \(systemResolvedSidebarScheme)"
+                )
+            }
+        }
     }
 
     @Test func matchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
@@ -354,6 +444,138 @@ import Testing
         #expect(plan.owner == .ghosttyNativeRenderer)
         #expect(plan.hostLayerColor.hexString(includeAlpha: true) == "#00000000")
         #expect(!plan.excludesSharedRootBackdrop)
+    }
+
+    /// A translucent terminal theme does not own the rendered pixels: the
+    /// backdrop behind the surface tab strip and browser toolbar is the theme
+    /// color composited over the ambient window base. The resolved chrome
+    /// scheme must follow that rendered result, or icons keyed off it become
+    /// white-on-white in a light window (issue #10477).
+    @Test func translucentTerminalChromeSchemeFollowsRenderedBackdrop() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#101820") ?? .black,
+                backgroundOpacity: 0.3,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: .dark
+            )
+        )
+
+        let lightWindow = resolver.current(settings: makeUserSettings(colorScheme: .light))
+        #expect(
+            lightWindow.resolvedColorScheme == .light,
+            "Translucent dark theme over a light window renders a light backdrop; chrome icons must resolve dark"
+        )
+        #expect(
+            cmuxReadableColorScheme(for: lightWindow.resolvedChromeBackgroundColor) == .light,
+            "Chrome background must composite over the light window base the user actually sees"
+        )
+
+        let darkWindow = resolver.current(settings: makeUserSettings(colorScheme: .dark))
+        #expect(
+            darkWindow.resolvedColorScheme == .dark,
+            "Translucent dark theme over a dark window keeps dark chrome"
+        )
+    }
+
+    /// Opaque themes own their rendered pixels, so the terminal theme stays
+    /// the light/dark authority even when the window appearance disagrees
+    /// (issue #10146 contract).
+    @Test func opaqueTerminalChromeSchemeKeepsTerminalThemeAuthority() {
+        for (backgroundHex, terminalScheme) in [("#101820", ColorScheme.dark), ("#F8F8F2", .light)] {
+            for ambientScheme in [ColorScheme.light, .dark] {
+                let resolver = WindowAppearanceResolver(
+                    terminalAppearance: WindowTerminalAppearanceSnapshot(
+                        backgroundColor: NSColor(hex: backgroundHex) ?? .black,
+                        backgroundOpacity: 1.0,
+                        backgroundBlur: .disabled,
+                        usesHostLayerBackground: true,
+                        resolvedColorScheme: terminalScheme
+                    )
+                )
+                let snapshot = resolver.current(settings: makeUserSettings(colorScheme: ambientScheme))
+                #expect(
+                    snapshot.resolvedColorScheme == terminalScheme,
+                    "Opaque \(backgroundHex) theme must keep terminal authority under \(ambientScheme) ambient"
+                )
+            }
+        }
+    }
+
+    /// Bonsplit derives fixed black/white tab-strip glyph colors from the hex
+    /// the workspace hands it, so that hex must match the rendered backdrop:
+    /// composited over the ambient base for translucent themes, the theme
+    /// color itself for opaque ones (issue #10477).
+    @Test func bonsplitChromeBackgroundColorMatchesRenderedBackdrop() {
+        let translucentDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 0.3,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .light
+        )
+        #expect(
+            cmuxReadableColorScheme(for: translucentDarkOverLight) == .light,
+            "Translucent dark theme in a light window must hand Bonsplit a light hex so tab glyphs resolve dark"
+        )
+
+        let translucentDarkOverDark = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 0.3,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .dark
+        )
+        #expect(cmuxReadableColorScheme(for: translucentDarkOverDark) == .dark)
+
+        let opaqueDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 1.0,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .light
+        )
+        #expect(cmuxReadableColorScheme(for: opaqueDarkOverLight) == .dark)
+    }
+
+    /// Callers that omit the ambient scheme (`currentFromUserDefaults`) must
+    /// not have translucent chrome resolved against a guessed light window:
+    /// the resolver fails closed to the terminal authority instead.
+    @Test func omittedAmbientSchemeFailsClosedToTerminalAuthority() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#101820") ?? .black,
+                backgroundOpacity: 0.3,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: .dark
+            )
+        )
+        let snapshot = resolver.currentFromUserDefaults(
+            defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!
+        )
+
+        #expect(
+            snapshot.resolvedColorScheme == .dark,
+            "Without an injected ambient scheme, translucent chrome must stay on the terminal authority, not a guessed light window"
+        )
+    }
+
+    private func makeUserSettings(colorScheme: ColorScheme) -> WindowAppearanceUserSettingsSnapshot {
+        WindowAppearanceUserSettingsSnapshot(
+            unifySurfaceBackdrops: true,
+            colorScheme: colorScheme,
+            sidebarMaterial: SidebarMaterialOption.sidebar.rawValue,
+            sidebarBlendMode: SidebarBlendModeOption.withinWindow.rawValue,
+            sidebarState: SidebarStateOption.followWindow.rawValue,
+            sidebarTintHex: "#000000",
+            sidebarTintHexLight: nil,
+            sidebarTintHexDark: nil,
+            sidebarTintOpacity: 0.18,
+            sidebarCornerRadius: 0,
+            sidebarBlurOpacity: 1,
+            bgGlassEnabled: false,
+            bgGlassTintHex: "#000000",
+            bgGlassTintOpacity: 0.03
+        )
     }
 
     private func makeSnapshot(

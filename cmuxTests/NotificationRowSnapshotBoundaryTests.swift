@@ -278,6 +278,63 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(restoredNotification.scrollPosition?.rowSpaceRevision == nil)
     }
 
+    @Test func windowDockNotificationCaptureUsesExactTerminalSurface() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(
+            total: 400,
+            offset: 125,
+            len: 40
+        )
+        let baseDependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let dependencies = TerminalSurfaceRuntimeDependencies(
+            registry: baseDependencies.registry,
+            engine: baseDependencies.engine,
+            viewProvider: NotificationScrollSurfaceViewProvider(
+                surfaceView: surfaceView
+            ),
+            spawnPolicy: baseDependencies.spawnPolicy,
+            byteTee: baseDependencies.byteTee,
+            rendererRealization: baseDependencies.rendererRealization,
+            hibernationRecorder: baseDependencies.hibernationRecorder,
+            runtimeTeardown: baseDependencies.runtimeTeardown,
+            restoreSpawnScheduler: baseDependencies.restoreSpawnScheduler,
+            runtimeFilesystem: baseDependencies.runtimeFilesystem,
+            sessionPortBase: baseDependencies.sessionPortBase,
+            sessionPortRangeSize: baseDependencies.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey:
+                baseDependencies.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent:
+                baseDependencies.globalFontMagnificationPercent
+        )
+        let surface = TerminalSurface(
+            tabId: windowId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            dependencies: dependencies
+        )
+        let panel = TerminalPanel(workspaceId: windowId, surface: surface)
+        appDelegate.windowDock(forWindowId: windowId).panels[panel.id] = panel
+
+        let captured = appDelegate.terminalNotificationScrollPosition(
+            tabId: windowId,
+            surfaceId: panel.id,
+            panelId: nil
+        )
+
+        #expect(captured?.row == 235)
+        #expect(captured?.totalRows == 400)
+        #expect(captured?.rowSpaceRevision == 1)
+    }
+
     @Test func openingNotificationCapturedAtBottomRestoresLiveViewport() {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
@@ -340,8 +397,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         #expect(!hostedView.restoreNotificationScrollPosition(position))
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
 
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         for _ in 0 ..< 3 {
@@ -349,8 +405,7 @@ struct NotificationRowSnapshotBoundaryTests {
         }
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256", "scroll_to_row:256"])
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
     }
 
     @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])
@@ -478,6 +533,24 @@ struct NotificationRowSnapshotBoundaryTests {
             body: "Build succeeded",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: isRead
+        )
+    }
+}
+
+@MainActor
+private struct NotificationScrollSurfaceViewProvider: TerminalSurfaceViewProviding {
+    let surfaceView: NotificationScrollRecordingSurfaceView
+
+    func makeSurfaceViews(
+        initialFrame: NSRect
+    ) -> (
+        surfaceView: any TerminalSurfaceNativeViewing,
+        paneHost: any TerminalSurfacePaneHosting
+    ) {
+        _ = initialFrame
+        return (
+            surfaceView,
+            GhosttySurfaceScrollView(surfaceView: surfaceView)
         )
     }
 }

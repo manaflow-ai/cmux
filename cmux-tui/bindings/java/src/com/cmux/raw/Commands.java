@@ -27,6 +27,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_WHEEL_GUARDED = new CommandMetadata("browser-wheel-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLIENT_FOCUS = new CommandMetadata("client-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PANE = new CommandMetadata("close-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SCREEN = new CommandMetadata("close-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -34,7 +35,7 @@ public final class Commands {
     public static final CommandMetadata CLOSE_TERMINAL = new CommandMetadata("close-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata COPY = new CommandMetadata("copy", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata CREATE_SURFACE_WITH_RECEIPT = new CommandMetadata("create-surface-with-receipt", Authority.CONTROL, 10, "creation-receipts-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CREATE_SURFACE_WITH_RECEIPT = new CommandMetadata("create-surface-with-receipt", Authority.CONTROL, 10, "creation-receipts-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("idempotency_key", "creation-attempt-keys-v1")));
     public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("terminal_id", 9L)), Map.of());
     public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -42,16 +43,19 @@ public final class Commands {
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata GET_BROWSER_PROVIDER = new CommandMetadata("get-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata JOURNAL_FRONTEND_EVENT = new CommandMetadata("journal-frontend-event", Authority.CONTROL, 10, "frontend-journal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_AGENTS = new CommandMetadata("list-agents", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_CLIENTS = new CommandMetadata("list-clients", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB = new CommandMetadata("move-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TERMINAL = new CommandMetadata("move-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
@@ -69,6 +73,7 @@ public final class Commands {
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCROLLBACK = new CommandMetadata("read-scrollback", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REGISTER_BROWSER_PROVIDER = new CommandMetadata("register-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELEASE_ATTACHED_VIEW_SIZE = new CommandMetadata("release-attached-view-size", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELEASE_SURFACE_SIZE = new CommandMetadata("release-surface-size", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELOAD_CONFIG = new CommandMetadata("reload-config", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -78,6 +83,7 @@ public final class Commands {
     public static final CommandMetadata RENAME_SURFACE = new CommandMetadata("rename-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RENAME_WORKSPACE = new CommandMetadata("rename-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata REPORT_AGENT = new CommandMetadata("report-agent", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REPORT_FOCUS = new CommandMetadata("report-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESIZE_ATTACHED_VIEW = new CommandMetadata("resize-attached-view", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESIZE_SURFACE = new CommandMetadata("resize-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESOLVE_TERMINAL = new CommandMetadata("resolve-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
@@ -103,6 +109,7 @@ public final class Commands {
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata UNREGISTER_BROWSER_PROVIDER = new CommandMetadata("unregister-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ZOOM_PANE = new CommandMetadata("zoom-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -127,6 +134,7 @@ public final class Commands {
         values.put("browser-wheel-guarded", BROWSER_WHEEL_GUARDED);
         values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
+        values.put("client-focus", CLIENT_FOCUS);
         values.put("close-pane", CLOSE_PANE);
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
         values.put("close-screen", CLOSE_SCREEN);
@@ -142,16 +150,19 @@ public final class Commands {
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
+        values.put("get-browser-provider", GET_BROWSER_PROVIDER);
         values.put("get-cell-pixels", GET_CELL_PIXELS);
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);
+        values.put("journal-frontend-event", JOURNAL_FRONTEND_EVENT);
         values.put("list-agents", LIST_AGENTS);
         values.put("list-clients", LIST_CLIENTS);
         values.put("list-terminals", LIST_TERMINALS);
         values.put("list-workspaces", LIST_WORKSPACES);
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
+        values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-tab", MOVE_TAB);
         values.put("move-terminal", MOVE_TERMINAL);
         values.put("move-workspace", MOVE_WORKSPACE);
@@ -169,6 +180,7 @@ public final class Commands {
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("read-screen", READ_SCREEN);
         values.put("read-scrollback", READ_SCROLLBACK);
+        values.put("register-browser-provider", REGISTER_BROWSER_PROVIDER);
         values.put("release-attached-view-size", RELEASE_ATTACHED_VIEW_SIZE);
         values.put("release-surface-size", RELEASE_SURFACE_SIZE);
         values.put("reload-config", RELOAD_CONFIG);
@@ -178,6 +190,7 @@ public final class Commands {
         values.put("rename-surface", RENAME_SURFACE);
         values.put("rename-workspace", RENAME_WORKSPACE);
         values.put("report-agent", REPORT_AGENT);
+        values.put("report-focus", REPORT_FOCUS);
         values.put("resize-attached-view", RESIZE_ATTACHED_VIEW);
         values.put("resize-surface", RESIZE_SURFACE);
         values.put("resolve-terminal", RESOLVE_TERMINAL);
@@ -203,6 +216,7 @@ public final class Commands {
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-events", TERMINAL_EVENTS);
         values.put("undo-layout", UNDO_LAYOUT);
+        values.put("unregister-browser-provider", UNREGISTER_BROWSER_PROVIDER);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
         values.put("zoom-pane", ZOOM_PANE);

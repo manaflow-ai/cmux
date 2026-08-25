@@ -87,7 +87,7 @@ final class TerminalOutputCollector {
 // cached-session-validation assertions moved there with the AuthCoordinator
 // lift; see Packages/Shared/CmuxAuthRuntime/Tests.
 
-@Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
+@Test func mobileRuntimeDefaultsAllowSlowRelayPairingWithinOneHardDeadline() {
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([])),
@@ -95,7 +95,8 @@ final class TerminalOutputCollector {
     )
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
-    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+    #expect(runtime.pairingAttemptTimeoutNanoseconds == 30 * 1_000_000_000)
 }
 
 @Test func mobileRuntimeMapsTimedOutStackTokenToRequestTimeout() {
@@ -4115,6 +4116,8 @@ struct InertPushRegistration: PushRegistering {
         }
     }
     func setEnabled(_ enabled: Bool) async {}
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {}
+    func reconcileEnabledIntent(generation: UInt64) async {}
     func register(deviceToken: Data) async {}
     func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}
