@@ -126,7 +126,7 @@ struct TerminalPointerStyleViewTests {
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
 
-    @Test("focus regain restores a stationary link base pointer")
+    @Test("focus regain keeps suppression until a fresh pointer shape")
     func focusRegainRestoresStationaryLinkBasePointer() {
         let view = GhosttyNSView(frame: .zero)
         let runtimeLifetimeId = UUID()
