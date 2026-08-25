@@ -4201,6 +4201,9 @@ struct CMUXCLI {
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
         // beside renumberable refs unless the caller explicitly chooses a format.
         let preserveStableWorkspaceIDs = jsonOutput && idFormatArg == nil
+        // Agent integrations consume pane/surface UUIDs from these two topology
+        // listings, so keep them beside refs in the default JSON shape as well.
+        let preservePaneSurfaceIDsByDefault = jsonOutput && idFormatArg == nil
         // Most CLI --window routing focuses first so commands without an
         // explicit window_id still target the selected window.
         if let windowId, Self.shouldFocusWindowBeforeDispatch(command: command, commandArgs: commandArgs) {
@@ -5190,7 +5193,11 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "pane.list", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatIDs(
+                    payload,
+                    mode: idFormat,
+                    preservingIDKinds: preservePaneSurfaceIDsByDefault ? ["pane", "surface"] : []
+                )))
             } else {
                 let panes = payload["panes"] as? [[String: Any]] ?? []
                 if panes.isEmpty {
@@ -5220,7 +5227,11 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             let payload = try client.sendV2(method: "pane.surfaces", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatIDs(
+                    payload,
+                    mode: idFormat,
+                    preservingIDKinds: preservePaneSurfaceIDsByDefault ? ["pane", "surface"] : []
+                )))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 if surfaces.isEmpty {
