@@ -92,6 +92,25 @@ extension CMUXCLI {
             let taskStoreIdentity = ClaudeTaskStoreIdentity(
                 tasksRootURL: tasksRootURL
             )
+            let taskSyncScope = taskStoreIdentity.rawValue
+            guard let taskSyncToken = try? sessionStore.claimClaudeTaskSync(
+                scope: taskSyncScope
+            ) else {
+                telemetry.breadcrumb("claude-hook.task-sync.coalesce-claim-failed")
+                return
+            }
+            let taskSyncIsLatest = {
+                (try? sessionStore.isLatestClaudeTaskSync(
+                    scope: taskSyncScope,
+                    token: taskSyncToken
+                )) == true
+            }
+            defer {
+                try? sessionStore.finishClaudeTaskSync(
+                    scope: taskSyncScope,
+                    token: taskSyncToken
+                )
+            }
             let agentID = nonEmptyClaudeHookIdentifier(
                 parsedInput.rawObject?["agent_id"] as? String
             )
@@ -107,8 +126,12 @@ extension CMUXCLI {
             // only after the earlier snapshot and ownership transition finish.
             try sessionStore.withClaudeTaskSyncLock(
                 deadlineUptime: hookDeadlineUptime,
-                scope: taskStoreIdentity.rawValue
+                scope: taskSyncScope
             ) {
+                guard taskSyncIsLatest() else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                    return
+                }
                 let currentRecord = try sessionStore.lookup(sessionId: sessionID)
                 if isClaudeTeamDeleteHook(parsedInput) {
                     if let deletionTaskDirectoryName = deletedTeamTaskDirectoryName
@@ -293,6 +316,10 @@ extension CMUXCLI {
                         workspaceIDs: destinationWorkspaceIDs,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     guard let delivery = deliverClaudeTaskSnapshot(
                         snapshot,
                         taskStoreIdentity: taskStoreIdentity,
@@ -381,6 +408,10 @@ extension CMUXCLI {
                         workspaceIDs: teamWorkspaceIDs,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     guard let delivery = deliverClaudeTaskSnapshot(
                         snapshot,
                         taskStoreIdentity: taskStoreIdentity,
@@ -500,6 +531,10 @@ extension CMUXCLI {
                     taskStoreIdentity: taskStoreIdentity
                 ) else {
                     telemetry.breadcrumb("claude-hook.task-sync.retired-task-directory")
+                    return
+                }
+                guard taskSyncIsLatest() else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                     return
                 }
                 let personalFeedAlreadyPublished: Bool

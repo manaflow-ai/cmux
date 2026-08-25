@@ -19,6 +19,9 @@ struct ClaudeHookSessionStoreFile: Codable {
     // Retired task-list proofs prevent a deleted team directory from being
     // re-admitted by the compatibility identity scan.
     var retiredClaudeTaskLists: [String: TimeInterval] = [:]
+    // Latest pending task-sync token per task-store scope. Older async hook
+    // processes observe replacement and exit before doing expensive work.
+    var claudeTaskSyncLatestTokens: [String: String] = [:]
     // Automatic-team task identity is list-scoped rather than session-scoped:
     // leader and teammate hooks can run in independent Claude sessions.
     var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
@@ -35,6 +38,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsBySurface
         case endedSessionIDs
         case retiredClaudeTaskLists
+        case claudeTaskSyncLatestTokens
         case claudeTeamTaskBindings
         case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
@@ -65,6 +69,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         retiredClaudeTaskLists = try container.decodeIfPresent(
             [String: TimeInterval].self,
             forKey: .retiredClaudeTaskLists
+        ) ?? [:]
+        claudeTaskSyncLatestTokens = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .claudeTaskSyncLatestTokens
         ) ?? [:]
         claudeTeamTaskBindings = try container.decodeIfPresent(
             [String: ClaudeHookTeamTaskBindingRecord].self,
@@ -98,6 +106,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !retiredClaudeTaskLists.isEmpty {
             try container.encode(retiredClaudeTaskLists, forKey: .retiredClaudeTaskLists)
+        }
+        if !claudeTaskSyncLatestTokens.isEmpty {
+            try container.encode(claudeTaskSyncLatestTokens, forKey: .claudeTaskSyncLatestTokens)
         }
         if !claudeTeamTaskBindings.isEmpty {
             try container.encode(claudeTeamTaskBindings, forKey: .claudeTeamTaskBindings)

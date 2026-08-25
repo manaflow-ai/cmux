@@ -224,6 +224,7 @@ final class ClaudeHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxEndedSessionIDs = 256
     private static let maxRetiredClaudeTaskLists = 128
+    private static let maxClaudeTaskSyncScopes = 128
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -434,8 +435,11 @@ final class ClaudeHookSessionStore {
             let now = Date.now.timeIntervalSince1970
             var record: ClaudeHookSessionRecord
             if let existing = state.sessions[normalizedSessionId] {
-                if let expectedStartedAt {
-                    guard existing.startedAt == expectedStartedAt else { return false }
+                guard let expectedStartedAt,
+                      existing.startedAt == expectedStartedAt else {
+                    // A hook that began without a record must not bind into a
+                    // newly-created generation that appeared while it ran.
+                    return false
                 }
                 record = existing
             } else {
@@ -537,6 +541,39 @@ final class ClaudeHookSessionStore {
                     taskStoreIdentity: taskStoreIdentity
                 )
             )
+        }
+    }
+
+    /// Claims the newest pending task-sync worker for one task-store scope.
+    func claimClaudeTaskSync(scope: String) throws -> String {
+        let normalizedScope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedScope.isEmpty else { return UUID().uuidString }
+        let token = UUID().uuidString
+        try withLockedState { state in
+            state.claudeTaskSyncLatestTokens[normalizedScope] = token
+            if state.claudeTaskSyncLatestTokens.count > Self.maxClaudeTaskSyncScopes {
+                for key in state.claudeTaskSyncLatestTokens.keys.sorted()
+                    where key != normalizedScope
+                    && state.claudeTaskSyncLatestTokens.count > Self.maxClaudeTaskSyncScopes {
+                    state.claudeTaskSyncLatestTokens.removeValue(forKey: key)
+                }
+            }
+        }
+        return token
+    }
+
+    /// Returns whether a task-sync worker still owns the latest claim.
+    func isLatestClaudeTaskSync(scope: String, token: String) throws -> Bool {
+        try withLockedState { state in
+            state.claudeTaskSyncLatestTokens[scope] == token
+        }
+    }
+
+    /// Releases a task-sync claim only when no newer worker replaced it.
+    func finishClaudeTaskSync(scope: String, token: String) throws {
+        try withLockedState { state in
+            guard state.claudeTaskSyncLatestTokens[scope] == token else { return }
+            state.claudeTaskSyncLatestTokens.removeValue(forKey: scope)
         }
     }
 
