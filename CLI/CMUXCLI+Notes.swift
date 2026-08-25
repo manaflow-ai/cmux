@@ -110,6 +110,15 @@ extension CMUXCLI {
                 if jsonOutput { print(jsonString(notePayload(note))) }
 
             case "rm", "delete":
+                guard parsed.confirmsDeletion else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.note.error.confirmDelete",
+                            defaultValue: "note rm permanently deletes a note; pass --yes to confirm."
+                        ),
+                        exitCode: 2
+                    )
+                }
                 let name = try noteRequiredOperand(parsed.operands, subcommand: "rm")
                 let note = try await repository.deleteNote(projectRoot: projectRoot, name: name)
                 if jsonOutput {
@@ -156,7 +165,7 @@ extension CMUXCLI {
                cmux note append <name> (--text <text>|--stdin) [--project <path>]
                cmux note search <query> [--project <path>]
                cmux note open <name-or-relative-path> [--project <path>]
-               cmux note rm <name-or-relative-path> [--project <path>]
+               cmux note rm <name-or-relative-path> [--project <path>] [--yes|-y]
 
         Read and write ordinary Markdown files under the current agent session's
         <project>/.cmux/<agent-session>/notes directory. Commands work without a
@@ -168,6 +177,7 @@ extension CMUXCLI {
         var projectPath: String?
         var text: String?
         var readsStandardInput = false
+        var confirmsDeletion = false
         var remaining: [String] = []
         var index = 0
         var pastTerminator = false
@@ -193,6 +203,9 @@ extension CMUXCLI {
             } else if argument == "--stdin" {
                 readsStandardInput = true
                 index += 1
+            } else if argument == "--yes" || argument == "-y" {
+                confirmsDeletion = true
+                index += 1
             } else if argument.hasPrefix("-") {
                 throw noteUsageError()
             } else {
@@ -212,7 +225,8 @@ extension CMUXCLI {
             operands: Array(remaining.dropFirst()),
             projectPath: projectPath,
             text: text,
-            readsStandardInput: readsStandardInput
+            readsStandardInput: readsStandardInput,
+            confirmsDeletion: confirmsDeletion
         )
     }
 

@@ -547,7 +547,7 @@ struct ChatArtifactGalleryTests {
                     toolName: "Read",
                     summary: "read",
                     status: .succeeded,
-                    referencedPaths: ["/tmp/cap-\(index).md"]
+                    referencedPaths: ["/fixture/cap-\(index).md"]
                 ))
             )
         }
@@ -558,8 +558,8 @@ struct ChatArtifactGalleryTests {
         )
 
         #expect(records.count == 1_024)
-        #expect(!records.contains { $0.path == "/tmp/cap-0.md" })
-        #expect(records.contains { $0.path == "/tmp/cap-1_024.md" })
+        #expect(!records.contains { $0.path == "/fixture/cap-0.md" })
+        #expect(records.contains { $0.path == "/fixture/cap-1_024.md" })
         #expect(records.map(\.lastReferencedSeq).min() == 1)
     }
 

@@ -3520,7 +3520,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             processEnvironment: environment
         )
         let repository = LocalArtifactRepository()
-        #expect(try await repository.listNotes(projectRoot: root).count == 1)
+        let writtenNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertEqual(writtenNotes.count, 1)
 
         do {
             try await cli.runNoteCommand(
@@ -3532,14 +3533,35 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         } catch let error as CLIError {
             XCTAssertTrue(error.message.contains("--yes"), error.message)
         }
-        #expect(try await repository.listNotes(projectRoot: root).count == 1)
+        let preservedNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertEqual(preservedNotes.count, 1)
 
         try await cli.runNoteCommand(
             commandArgs: ["rm", "draft", "--project", root.path, "--yes"],
             jsonOutput: false,
             processEnvironment: environment
         )
-        #expect(try await repository.listNotes(projectRoot: root).isEmpty)
+        let remainingNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertTrue(remainingNotes.isEmpty)
+    }
+
+    func testProjectFileCleanupBoundsRetainedEditorCopies() throws {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-project-file-cleanup")
+        for index in 0..<300 {
+            let url = directory.appendingPathComponent("cmux-project-file-\(index).md")
+            XCTAssertTrue(
+                FileManager.default.createFile(
+                    atPath: url.path,
+                    contents: Data("copy-\(index)".utf8)
+                )
+            )
+        }
+
+        CMUXCLI(args: []).cleanupTemporaryProjectFiles(in: directory)
+
+        let copies = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("cmux-project-file-") }
+        XCTAssertLessThanOrEqual(copies.count, 256)
     }
 
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {

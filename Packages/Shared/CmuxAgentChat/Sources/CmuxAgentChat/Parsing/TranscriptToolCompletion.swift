@@ -25,16 +25,17 @@ struct TranscriptToolCompletion: Sendable {
     /// Returns whether a tool result provides enough positive evidence to
     /// authorize a file mutation.
     ///
-    /// When no exit code is available, Claude must carry an explicit
-    /// `is_error: false` flag before its output can authorize a mutation.
-    /// Empty or missing output still fails closed.
+    /// Claude must carry an explicit `is_error: false` flag before its output
+    /// can authorize a mutation. Textual exit-code headers are display data,
+    /// not provider-authenticated success evidence. Empty or missing output
+    /// still fails closed when no exit code is available.
     static func authorizesMutation(
         output: String?,
         isError: Bool?,
         exitCode: Int?
     ) -> Bool {
         if let exitCode {
-            return exitCode == 0 && isError != true
+            return exitCode == 0 && isError == false
         }
         guard isError == false else { return false }
         guard let output,

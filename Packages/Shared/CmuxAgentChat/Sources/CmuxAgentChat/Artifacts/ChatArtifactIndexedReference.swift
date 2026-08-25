@@ -179,18 +179,24 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         into byPath: inout [String: ChatArtifactIndexedReference],
         maximumPathCount: Int
     ) {
-        let canonicalPath: String
-        if let cached = canonicalPathByLexicalPath[path] {
-            canonicalPath = cached
-        } else {
-            let resolvedPath = canonicalizer.canonicalPathKey(for: path)
-            guard byPath[resolvedPath] != nil || byPath.count < maximumPathCount else {
+        let canonicalPath = canonicalPathByLexicalPath[path]
+            ?? canonicalizer.canonicalPathKey(for: path)
+        if byPath[canonicalPath] == nil, byPath.count >= maximumPathCount {
+            guard let oldest = byPath.min(by: { lhs, rhs in
+                if lhs.value.lastReferencedSeq != rhs.value.lastReferencedSeq {
+                    return lhs.value.lastReferencedSeq < rhs.value.lastReferencedSeq
+                }
+                return lhs.key < rhs.key
+            }),
+            seq > oldest.value.lastReferencedSeq
+                || (seq == oldest.value.lastReferencedSeq && canonicalPath > oldest.key) else {
                 return
             }
-            if canonicalPathByLexicalPath.count < Self.maximumCanonicalAliasCount {
-                canonicalPathByLexicalPath[path] = resolvedPath
-            }
-            canonicalPath = resolvedPath
+            byPath.removeValue(forKey: oldest.key)
+        }
+        if canonicalPathByLexicalPath[path] == nil,
+           canonicalPathByLexicalPath.count < Self.maximumCanonicalAliasCount {
+            canonicalPathByLexicalPath[path] = canonicalPath
         }
         let previous = byPath[canonicalPath]
         let candidateAuthorization = provenance.captureAuthorization(sequence: seq)

@@ -4,4 +4,5 @@ struct NoteCLIArguments {
     let projectPath: String?
     let text: String?
     let readsStandardInput: Bool
+    let confirmsDeletion: Bool
 }

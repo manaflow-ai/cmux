@@ -37311,7 +37311,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           \(String(localized: "cli.artifact.helpLine", defaultValue: "artifact <list|path|open|add|search> [--project <path>]"))
-          \(String(localized: "cli.note.helpLine", defaultValue: "note <list|path|read|write|append|search|open|rm> [--project <path>]"))
+          \(String(localized: "cli.note.helpLine", defaultValue: "note <list|path|read|write|append|search|open|rm> [--project <path>] (rm requires --yes|-y)"))
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>

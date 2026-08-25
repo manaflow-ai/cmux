@@ -175,8 +175,22 @@ extension CMUXCLI {
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
         _ = Darwin.close(duplicate)
-        let temporaryDirectory = FileManager.default.temporaryDirectory
+        let systemTemporaryDirectory = FileManager.default.temporaryDirectory
+        let temporaryDirectory = systemTemporaryDirectory
+            .appendingPathComponent("cmux-project-files", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: temporaryDirectory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
+        }
+        // Keep both new copies and legacy root-level copies bounded. The
+        // dedicated directory prevents ordinary /tmp entries from being
+        // materialized or competing with editor handoffs.
         cleanupTemporaryProjectFiles(in: temporaryDirectory)
+        cleanupTemporaryProjectFiles(in: systemTemporaryDirectory)
         let temporaryURL = temporaryDirectory
             .appendingPathComponent("cmux-project-file-\(UUID().uuidString)")
             .appendingPathExtension(openedPath.pathExtension)
@@ -199,24 +213,75 @@ extension CMUXCLI {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(failureMessage))
         }
+        cleanupTemporaryProjectFiles(in: temporaryDirectory)
+        cleanupTemporaryProjectFiles(in: systemTemporaryDirectory)
     }
 
-    private func cleanupTemporaryProjectFiles(in directory: URL) {
+    func cleanupTemporaryProjectFiles(in directory: URL) {
+        let maximumFileCount = 256
+        let maximumByteCount: Int64 = 256 * 1024 * 1024
         let cutoff = Date().addingTimeInterval(-60 * 60)
-        guard let entries = try? FileManager.default.contentsOfDirectory(
+        guard let enumerator = FileManager.default.enumerator(
             at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else { return }
-        for entry in entries.prefix(256) {
-            guard entry.lastPathComponent.hasPrefix("cmux-project-file-") else { continue }
+        let directoryPath = directory.standardizedFileURL.path
+        var retained: [(url: URL, size: Int64, modifiedAt: Date)] = []
+        for case let entry as URL in enumerator {
+            guard entry.deletingLastPathComponent().standardizedFileURL.path == directoryPath,
+                  entry.lastPathComponent.hasPrefix("cmux-project-file-") else {
+                continue
+            }
             var status = stat()
             guard lstat(entry.path, &status) == 0,
                   (status.st_mode & S_IFMT) == S_IFREG,
-                  Date(timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)) < cutoff else {
+                  status.st_size >= 0 else {
                 continue
             }
-            _ = unlink(entry.path)
+            let modifiedAt = Date(timeIntervalSince1970: Double(status.st_mtimespec.tv_sec))
+            if modifiedAt < cutoff {
+                _ = unlink(entry.path)
+                continue
+            }
+            let candidate = (url: entry, size: Int64(status.st_size), modifiedAt: modifiedAt)
+            guard retained.count >= maximumFileCount else {
+                retained.append(candidate)
+                continue
+            }
+            guard let oldestIndex = retained.indices.min(by: { lhs, rhs in
+                if retained[lhs].modifiedAt != retained[rhs].modifiedAt {
+                    return retained[lhs].modifiedAt < retained[rhs].modifiedAt
+                }
+                return retained[lhs].url.path < retained[rhs].url.path
+            }) else {
+                continue
+            }
+            let oldest = retained[oldestIndex]
+            let candidateIsNewer = candidate.modifiedAt > oldest.modifiedAt
+                || (candidate.modifiedAt == oldest.modifiedAt
+                    && candidate.url.path > oldest.url.path)
+            if candidateIsNewer {
+                _ = unlink(oldest.url.path)
+                retained[oldestIndex] = candidate
+            } else {
+                _ = unlink(candidate.url.path)
+            }
+        }
+        retained.sort {
+            if $0.modifiedAt != $1.modifiedAt {
+                return $0.modifiedAt > $1.modifiedAt
+            }
+            return $0.url.path > $1.url.path
+        }
+        var retainedBytes: Int64 = 0
+        for entry in retained {
+            guard entry.size <= maximumByteCount,
+                  retainedBytes <= maximumByteCount - entry.size else {
+                _ = unlink(entry.url.path)
+                continue
+            }
+            retainedBytes += entry.size
         }
     }
 
