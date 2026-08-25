@@ -87,7 +87,8 @@ final class SharedLiveAgentIndex {
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let sidebarLivenessRefreshInterval: TimeInterval = 5.0
+    private static let sidebarLivenessFreshnessWindow: TimeInterval = 5.0
+    private static let sidebarLivenessRefreshCadence: TimeInterval = 30.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
@@ -466,7 +467,7 @@ final class SharedLiveAgentIndex {
         let now = dateProvider()
         if let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
-                < Self.sidebarLivenessRefreshInterval {
+                < Self.sidebarLivenessRefreshCadence {
             return
         }
         lastSidebarLivenessRefreshAt = now
@@ -517,8 +518,8 @@ final class SharedLiveAgentIndex {
     func sidebarLivenessIsFresh() -> Bool {
         let anchor = lastSidebarLivenessRefreshAt ?? loadedAt
         guard let anchor else { return false }
-        return dateProvider().timeIntervalSince(anchor)
-            < Self.sidebarLivenessRefreshInterval
+        let elapsed = dateProvider().timeIntervalSince(anchor)
+        return elapsed >= 0 && elapsed < Self.sidebarLivenessFreshnessWindow
     }
 
     func scheduleRefreshIfStale(

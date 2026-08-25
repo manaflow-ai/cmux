@@ -40,6 +40,7 @@ final class SidebarAgentElapsedClock {
     }
 
     func tick(at now: Date) {
+        guard !targets.isEmpty else { return }
         var releasedTargets: [ObjectIdentifier] = []
         for (identifier, target) in targets {
             guard let value = target.value else {

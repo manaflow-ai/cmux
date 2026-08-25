@@ -11649,7 +11649,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     sharedIndex.refreshCachedProcessLivenessForSidebar()
                 }
                 do {
-                    try await ContinuousClock().sleep(for: .seconds(5))
+                    try await ContinuousClock().sleep(for: .seconds(30))
                 } catch {
                     return
                 }
