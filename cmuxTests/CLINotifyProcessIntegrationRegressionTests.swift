@@ -241,6 +241,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             activeSessionId: siblingSessionId,
             activeSurfaceId: siblingSurfaceId
         )
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        var state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        var activeBySurface = try XCTUnwrap(state["activeSessionsBySurface"] as? [String: Any])
+        activeBySurface[context.surfaceId] = [
+            "sessionId": sessionId,
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        state["activeSessionsBySurface"] = activeBySurface
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
 
         let compact = runClaudeHook(
             context: context,
