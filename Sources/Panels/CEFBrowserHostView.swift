@@ -36,6 +36,8 @@ final class CEFBrowserHostView: NSView {
         nil
     }
 
+    override var acceptsFirstResponder: Bool { true }
+
     deinit {
         for observer in windowObservers {
             NotificationCenter.default.removeObserver(observer)

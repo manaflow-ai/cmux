@@ -21,6 +21,8 @@ public final class CEFDevToolsClient {
         case notConnected
         /// The protocol reported an error for this command.
         case commandFailed(String)
+        /// The protocol did not answer before the bounded command deadline.
+        case timedOut
     }
 
     private let browser: CEFBrowser
@@ -52,14 +54,39 @@ public final class CEFDevToolsClient {
     /// - Parameters:
     ///   - method: Protocol function, e.g. `Runtime.evaluate`.
     ///   - params: JSON-compatible parameter dictionary.
+    ///   - timeout: Maximum time to await a protocol response.
     /// - Returns: The raw UTF-8 JSON of the `result` object.
-    /// - Throws: ``ClientError`` on submission or protocol failure.
-    public func send(method: String, params: [String: Any] = [:]) async throws -> Data {
+    /// - Throws: ``ClientError`` on submission, timeout, or protocol failure.
+    public func send(
+        method: String,
+        params: [String: Any] = [:],
+        timeout: Duration = .seconds(15)
+    ) async throws -> Data {
         let id = nextCommandID
         nextCommandID += 1
         var envelope: [String: Any] = ["id": id, "method": method]
         if !params.isEmpty { envelope["params"] = params }
         let message = try JSONSerialization.data(withJSONObject: envelope)
+        return try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { throw ClientError.notConnected }
+                return try await self.sendPendingCommand(id: id, message: message)
+            }
+            group.addTask {
+                // A stalled renderer is a genuine operation deadline; the
+                // losing command task is cancelled and removes its waiter.
+                try await ContinuousClock().sleep(for: timeout)
+                throw ClientError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
+            return result
+        }
+    }
+
+    private func sendPendingCommand(id: Int, message: Data) async throws -> Data {
         return try await withTaskCancellationHandler(
             operation: {
                 try await withCheckedThrowingContinuation { continuation in

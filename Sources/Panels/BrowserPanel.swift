@@ -3388,6 +3388,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Pure with respect to the injected `defaults`, so it is unit-testable against
     /// a scratch `UserDefaults(suiteName:)` without touching `UserDefaults.standard`.
     static func normalizeBrowserDefaults(defaults: UserDefaults) {
+        // Registration values are visible through `string(forKey:)`. Migrate
+        // the legacy key before registering the new fallback, otherwise the
+        // synthetic `.auto` value masks an existing Chromium opt-in.
+        let currentEngineObject = defaults.object(forKey: BrowserEngineSettingsStore.defaultEngineKey)
+        if (currentEngineObject == nil || (currentEngineObject as? String)?.isEmpty == true),
+           let legacyEngine = defaults.string(forKey: "browser.engine"),
+           !legacyEngine.isEmpty {
+            let migratedChoice = BrowserEngineDefaultChoice(persistedRawValue: legacyEngine)
+            defaults.set(migratedChoice.rawValue, forKey: BrowserEngineSettingsStore.defaultEngineKey)
+        }
         defaults.register(defaults: [
             BrowserSearchSettingsStore.searchEngineKey: BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
             BrowserSearchSettingsStore.customSearchEngineNameKey: BrowserSearchSettingsStore.defaultCustomSearchEngineName,
@@ -3501,7 +3511,8 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         let resolvedEngine = Self.effectiveBrowserEngine(
             requested: requestedEngine,
-            isRemoteWorkspace: isRemoteWorkspace
+            isRemoteWorkspace: isRemoteWorkspace,
+            isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
         )
         self.engineKind = resolvedEngine
         self.chromiumStorageID = chromiumStorageID ?? UUID()
@@ -5562,6 +5573,11 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+            onNavigationStarted?(nil)
+            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            return nil
+        }
         if isChromiumBacked {
             cancelHiddenWebViewDiscard()
             if !preserveRestoredSessionHistory {
@@ -5578,11 +5594,6 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         cancelHiddenWebViewDiscard()
-        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
-            onNavigationStarted?(nil)
-            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
-            return nil
-        }
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
@@ -7746,7 +7757,9 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if Self.responderChainContains(responder, target: webView) ||
+            (isChromiumBacked &&
+             chromiumContentView.map { Self.responderChainContains(responder, target: $0) } == true) {
             return .browser(.webView)
         }
 
@@ -7780,7 +7793,9 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            let target = isChromiumBacked ? chromiumContentView : webView
+            guard let target,
+                  Self.responderChainContains(window.firstResponder, target: target) else { return false }
             return window.makeFirstResponder(nil)
         }
     }

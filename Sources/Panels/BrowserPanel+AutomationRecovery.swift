@@ -80,6 +80,11 @@ extension BrowserPanel {
                 targetURL: targetURL,
                 allowsSameDocumentCompletion: true
             )
+            guard BrowserURLAllowlistPolicy(defaults: .standard).allows(targetURL) else {
+                navigationDelegate?.blockURLAllowlistNavigation(targetURL, in: webView)
+                automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
+                return ticket
+            }
             if shouldBlockInsecureHTTPNavigation(to: targetURL) {
                 presentInsecureHTTPAlert(
                     for: URLRequest(url: targetURL),

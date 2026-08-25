@@ -246,7 +246,12 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             let data = try JSONEncoder().encode(parameters)
             params = (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         }
-        let resultData = try await devTools.send(method: method, params: params)
+        let resultData: Data
+        do {
+            resultData = try await devTools.send(method: method, params: params)
+        } catch CEFDevToolsClient.ClientError.timedOut {
+            throw ChromiumBrowserDiagnostic.commandTimedOut
+        }
         return (try? JSONDecoder().decode(CDPValue.self, from: resultData)) ?? .null
     }
 

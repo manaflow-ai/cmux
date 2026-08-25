@@ -9,9 +9,16 @@ extension BrowserPanel {
     /// of silently sending remote traffic directly or sharing local cookies.
     static func effectiveBrowserEngine(
         requested: BrowserEngineKind,
-        isRemoteWorkspace: Bool
+        isRemoteWorkspace: Bool,
+        isURLAllowlistActive: Bool = false
     ) -> BrowserEngineKind {
-        requested == .chromium && isRemoteWorkspace ? .webkit : requested
+        // CEF and the streamed child do not yet expose a request-interception
+        // seam for page-initiated redirects/links. A configured URL allowlist
+        // is therefore a security boundary: fail closed to WebKit, whose
+        // navigation delegate enforces it for every request.
+        requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive)
+            ? .webkit
+            : requested
     }
 
     func makeBrowserEngineController() -> BrowserPaneEngineController {
@@ -127,6 +134,10 @@ extension BrowserPanel {
             shouldRenderWebView = shouldRender
             refreshWebViewLifecycleState()
             if shouldRender {
+                guard BrowserURLAllowlistPolicy(defaults: .standard).allows(initialURL) else {
+                    navigationDelegate?.blockURLAllowlistNavigation(initialURL, in: webView)
+                    return true
+                }
                 let initialRequest = request ?? URLRequest(url: initialURL)
                 if shouldBlockInsecureHTTPNavigation(to: initialURL) {
                     presentInsecureHTTPAlert(

@@ -1822,6 +1822,35 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BrowserEngineDefaultsMigrationTests: XCTestCase {
+    func testNormalizationMigratesLegacyEngineBeforeRegisteringAutoDefault() {
+        let suiteName = "BrowserEngineDefaultsMigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("chromium", forKey: "browser.engine")
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserEngineSettingsStore.defaultEngineKey),
+            BrowserEngineDefaultChoice.chromium.rawValue
+        )
+    }
+
+    func testActiveURLAllowlistFailsChromiumClosedToWebKit() {
+        XCTAssertEqual(
+            BrowserPanel.effectiveBrowserEngine(
+                requested: .chromium,
+                isRemoteWorkspace: false,
+                isURLAllowlistActive: true
+            ),
+            .webkit
+        )
+    }
+}
+
 final class BrowserDefaultZoomRegressionTests: XCTestCase {
     private let key = "browserDefaultZoomLevel"
 

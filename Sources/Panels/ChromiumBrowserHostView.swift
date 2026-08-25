@@ -108,7 +108,12 @@ final class ChromiumBrowserHostView: NSView {
                 // Decode eagerly off the main actor: `NSImage(data:)` defers
                 // decompression to first draw, which would put the whole
                 // JPEG decode on the main thread for every frame.
-                guard let image = Self.decodedFrameImage(frame) else { continue }
+                // ImageIO decompression and bitmap allocation are CPU-bound;
+                // keep them off the main actor that owns this AppKit view.
+                let image = await Task.detached(priority: .userInitiated) {
+                    Self.decodedFrameImage(frame)
+                }.value
+                guard !Task.isCancelled, let image else { return }
                 await MainActor.run {
                     guard let self else { return }
                     self.imageView.image = image

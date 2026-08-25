@@ -9,7 +9,23 @@
 set -euo pipefail
 
 SRCROOT="${SRCROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-FRAMEWORK_SOURCE="$(CMUX_CEF_ARCH="${ARCHS%% *}" "$SRCROOT/scripts/ensure-cef.sh")"
+# CEF is an optional renderer. A normal/offline build must remain usable with
+# the streamed Chromium fallback, so only an explicit opt-in may download the
+# ~400 MB framework. A previously populated machine cache is still reused.
+CEF_SOURCE_ARGS=()
+CEF_ERROR_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-cef-ensure.XXXXXX")"
+trap 'rm -f "$CEF_ERROR_LOG"' EXIT
+if [[ "${CMUX_CEF_ALLOW_DOWNLOAD:-0}" != "1" ]]; then
+  CEF_SOURCE_ARGS+=(--check)
+fi
+if ! FRAMEWORK_SOURCE="$(CMUX_CEF_ARCH="${ARCHS%% *}" "$SRCROOT/scripts/ensure-cef.sh" "${CEF_SOURCE_ARGS[@]}" 2>"$CEF_ERROR_LOG")"; then
+  if [[ "${CMUX_CEF_ALLOW_DOWNLOAD:-0}" != "1" ]]; then
+    echo "embed-cef: framework is not cached; skipping optional CEF embed (set CMUX_CEF_ALLOW_DOWNLOAD=1 to fetch it)"
+    exit 0
+  fi
+  cat "$CEF_ERROR_LOG" >&2
+  exit 1
+fi
 
 APP_FRAMEWORKS="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Frameworks"
 mkdir -p "$APP_FRAMEWORKS"
