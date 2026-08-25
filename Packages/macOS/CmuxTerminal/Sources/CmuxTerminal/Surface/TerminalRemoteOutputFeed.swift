@@ -24,7 +24,7 @@ public final class TerminalRemoteOutputFeed: @unchecked Sendable {
     /// Enqueues one chunk for the parser and a render wakeup behind it.
     /// Both native calls are thread-safe off-main; the wakeup is a mailbox
     /// post, and the parse is the blocking call this queue exists for.
-    func enqueue(surface: ghostty_surface_t, data: Data) {
+    public func enqueue(surface: ghostty_surface_t, data: Data) {
         queue.async { [self] in
             lock.lock()
             let isClosed = closed
