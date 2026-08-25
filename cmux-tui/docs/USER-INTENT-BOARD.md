@@ -2,7 +2,7 @@
 
 Audit snapshot: 2026-08-24.
 
-Audit base: aggregate-final at `48ddd759dcfc2601ce761b076b42c9baf1f48725`. This document records explicit user requests found in local
+Audit base: aggregate-final at `79b7047457329447e4c24d2a5c133634135818f4`. This document records explicit user requests found in local
 session history. It does not claim that an implementation is complete. For the
 aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
 

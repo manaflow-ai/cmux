@@ -2,14 +2,15 @@
 
 Audit date: 2026-08-24. This board records the GitHub search and exact check
 state used for the aggregate merge. A mergeable label is not acceptance proof.
-The aggregate branch currently includes the exact-head autoreview fixes and
-cross-platform hardening through `48ddd759dcfc2601ce761b076b42c9baf1f48725`;
-the reviewer must be rerun at the final pushed head.
+The aggregate branch currently includes the cross-platform hardening through
+`79b7047457329447e4c24d2a5c133634135818f4`. The current #10603 head is
+`49a2cc5a3776f4dc73b525e14213570acec42f59`; its app-host unit test shards
+2-4, swift-package-tests, tests, and ci-status checks are failing, so the
+branch is not green.
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
-The latest exact-head autoreview is clean for in-scope changes. It reported
-two remote-tmux findings, both ignored because they are outside this
-aggregate's cmux-tui, SDK, relay, and preview scope. The wave also includes
+The dated snapshot recorded a clean in-scope autoreview with two remote-tmux
+findings ignored as out of scope. The wave also includes
 the Go canonical fallback correction, C++ exact-parent/CMake include fix,
 bounded Rust workspace reads, watcher sink termination, and preview/shell
 ownership fixes. These are documented with full commit SHAs and exact revert

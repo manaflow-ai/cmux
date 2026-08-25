@@ -1,8 +1,8 @@
 # cmux-tui aggregate change log
 
-Correction: exact aggregate HEAD is `48ddd759dcfc2601ce761b076b42c9baf1f48725`, 694 commits ahead of `origin/main`; the hosted run and exact-head review are pending.
+Correction: exact aggregate HEAD is `79b7047457329447e4c24d2a5c133634135818f4`, 80 commits ahead of `origin/main` at this audit. Current hosted status is tracked in `PR-INTENT-BOARD.md`.
 
-Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`f0d52e38edd6525ef4a02f2e43651009c5d97aef`](https://github.com/manaflow-ai/cmux/commit/f0d52e38edd6525ef4a02f2e43651009c5d97aef). The prior documented code tip was [`c599fa778e506574bddf12393d4a9bb91c4772e5`](https://github.com/manaflow-ai/cmux/commit/c599fa778e506574bddf12393d4a9bb91c4772e5). The code branch is 647 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, task reaping, and the normal merge of concurrent review history.
+Snapshot: 2026-08-24. Aggregate branch: `aggregate-final`, current code tip [`79b7047457329447e4c24d2a5c133634135818f4`](https://github.com/manaflow-ai/cmux/commit/79b7047457329447e4c24d2a5c133634135818f4). The code branch is 80 commits ahead of `origin/main` before this documentation update. This update records the current aggregate state; earlier tip details remain historical.
 
 Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
 

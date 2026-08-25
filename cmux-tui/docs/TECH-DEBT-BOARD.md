@@ -1,13 +1,13 @@
 # cmux-tui technical-debt board
 
 Last updated: 2026-08-24.
-Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
+Audit base: `origin/main` at `835d046fed9d339443f718ff0f6ef87813272bbb`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `48ddd759dcfc2601ce761b076b42c9baf1f48725` (`Preserve custom stream factory with legacy fallback`).
+Current integration code tip before this documentation commit: `79b7047457329447e4c24d2a5c133634135818f4`.
 
-Current exact aggregate tip is `48ddd759dcfc2601ce761b076b42c9baf1f48725`,
-694 commits ahead of `origin/main` before this documentation update.
-Exact worktree HEAD at audit time: `48ddd759dcfc2601ce761b076b42c9baf1f48725`.
+Current exact aggregate tip is `79b7047457329447e4c24d2a5c133634135818f4`,
+80 commits ahead of `origin/main` before this documentation update.
+Exact worktree HEAD at audit time: `79b7047457329447e4c24d2a5c133634135818f4`.
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
