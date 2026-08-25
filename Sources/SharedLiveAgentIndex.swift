@@ -461,13 +461,17 @@ final class SharedLiveAgentIndex {
     /// Sidebar liveness uses this bounded path between full index TTL reloads,
     /// so an agent that exits without a hook event cannot remain confidently
     /// running. All process inspection stays off the main actor.
-    func refreshCachedProcessLivenessForSidebar() {
+    func refreshCachedProcessLivenessForSidebar(
+        panelKeys: Set<RestorableAgentSessionIndex.PanelKey>
+    ) {
         ensureWatchingHookStoreDirectory()
         guard let cachedIndex = index else {
             scheduleRefreshIfStale()
             return
         }
-        guard sidebarLivenessRefreshTask == nil else { return }
+        guard sidebarLivenessRefreshTask == nil,
+              forkAvailabilityRefreshTask == nil else { return }
+        guard !panelKeys.isEmpty else { return }
         let now = dateProvider()
         if let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
@@ -482,7 +486,10 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             let refreshed = await Task.detached(priority: .utility) {
                 let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
-                return cachedIndex.revalidatingCachedProcesses(against: processSnapshot)
+                return cachedIndex.revalidatingCachedProcesses(
+                    against: processSnapshot,
+                    panelKeys: panelKeys
+                )
             }.value
             guard !Task.isCancelled else {
                 self.sidebarLivenessRefreshTask = nil

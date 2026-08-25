@@ -1183,6 +1183,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// invocation mode, and explicit session argument still match.
     func revalidatingCachedProcesses(
         against processSnapshot: CmuxTopProcessSnapshot,
+        panelKeys: Set<PanelKey>? = nil,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1196,6 +1197,10 @@ struct RestorableAgentSessionIndex: Sendable {
         revalidatedEntries.reserveCapacity(entriesByPanel.count)
 
         for (key, entry) in entriesByPanel {
+            guard panelKeys == nil || panelKeys?.contains(key) == true else {
+                revalidatedEntries[key] = entry
+                continue
+            }
             let recordedAgentProcessIDs = entry.agentProcessIDs.isEmpty
                 ? entry.processIDs
                 : entry.agentProcessIDs
@@ -1220,7 +1225,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 against: matchesByProcessID.values
             )
             let processLiveness: RestorableAgentProcessLiveness = if entry.processLiveness == .running,
-                                                                    revalidatedLiveness != .running {
+                                                                    revalidatedLiveness == .exited {
                 // Cache reuse is an optimization, not authority. Unknown argv or identity evidence
                 // must fail closed instead of letting shell activity revive a stale session binding.
                 .exited
