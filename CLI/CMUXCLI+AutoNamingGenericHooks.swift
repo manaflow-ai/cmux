@@ -44,7 +44,8 @@ extension CMUXCLI {
         guard hasReplayableAutoNamingState(session) else { return false }
         // One detached worker already owns the store claim. Overlapping Stop
         // hooks must not fork another process while that marker is live.
-        if session?.autoNameInFlightAt != nil {
+        if let inFlightAt = session?.autoNameInFlightAt,
+           Date().timeIntervalSince1970 - inFlightAt < AutoNamingEngine().config.inFlightExpiry {
             return false
         }
         if session?.autoNameTitleReconciliationGeneration != nil {
@@ -428,11 +429,13 @@ extension CMUXCLI {
         }
 
         var confirmedTitle: String?
+        var baselineConfirmedWithoutTitle = false
         defer {
             try? sessionStore.finishAutoNaming(
                 sessionId: sessionId,
                 appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
+                baselineLineCount: confirmedTitle != nil || baselineConfirmedWithoutTitle ? baseline : nil,
+                baselineConfirmedWithoutTitle: baselineConfirmedWithoutTitle,
                 observationGeneration: outcome.observationGeneration,
                 now: Date()
             )
@@ -461,7 +464,17 @@ extension CMUXCLI {
         switch applyOutcome {
         case .success(let applied):
             if applied.targetsResolved {
-                confirmedTitle = applied.titleApplied ? sanitized : outcome.lastTitle
+                if applied.titleApplied {
+                    confirmedTitle = sanitized
+                } else if let lastTitle = outcome.lastTitle {
+                    confirmedTitle = lastTitle
+                } else {
+                    // A terminal target skip (for example, a panel that
+                    // disappeared) is resolved without creating a title. Mark
+                    // its baseline complete so the same transcript is not
+                    // summarized again forever.
+                    baselineConfirmedWithoutTitle = true
+                }
             }
         case .failure:
             confirmedTitle = nil

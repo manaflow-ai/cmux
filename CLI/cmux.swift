@@ -783,6 +783,7 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         appliedTitle: String?,
         baselineLineCount: Int?,
+        baselineConfirmedWithoutTitle: Bool = false,
         observationGeneration: String?,
         now: Date
     ) throws {
@@ -802,20 +803,29 @@ final class ClaudeHookSessionStore {
             // Stamp every completed pass (success or failure) so the throttle
             // enforces a cooldown before retrying a failing summarizer.
             record.autoNameLastAttemptAt = now.timeIntervalSince1970
-            if let appliedTitle, let baselineLineCount {
-                let isFirstConfirmedTitle = record.autoNameLastNamedAt == nil
-                record.autoNameLastTitle = appliedTitle
-                record.autoNameLastLineCount = baselineLineCount
-                record.autoNameLastNamedAt = now.timeIntervalSince1970
-                if isFirstConfirmedTitle,
-                   let inFlightObservedLineCount {
-                    // A failed first attempt may have observed a larger
-                    // pre-compaction transcript. Once the first title is
-                    // confirmed, discard that stale high-water while retaining
-                    // observations that joined this owned attempt.
+            if let baselineLineCount {
+                if let appliedTitle {
+                    let isFirstConfirmedTitle = record.autoNameLastNamedAt == nil
+                    record.autoNameLastTitle = appliedTitle
+                    record.autoNameLastLineCount = baselineLineCount
+                    record.autoNameLastNamedAt = now.timeIntervalSince1970
+                    if isFirstConfirmedTitle,
+                       let inFlightObservedLineCount {
+                        // A failed first attempt may have observed a larger
+                        // pre-compaction transcript. Once the first title is
+                        // confirmed, discard that stale high-water while retaining
+                        // observations that joined this owned attempt.
+                        record.autoNameLastObservedLineCount = max(
+                            baselineLineCount,
+                            inFlightObservedLineCount
+                        )
+                    }
+                } else if baselineConfirmedWithoutTitle {
+                    record.autoNameLastLineCount = baselineLineCount
+                    record.autoNameLastNamedAt = now.timeIntervalSince1970
                     record.autoNameLastObservedLineCount = max(
                         baselineLineCount,
-                        inFlightObservedLineCount
+                        record.autoNameLastObservedLineCount ?? baselineLineCount
                     )
                 }
             }
@@ -2002,8 +2012,6 @@ final class ClaudeHookSessionStore {
                 surfaceId: normalizedSurfaceId,
                 now: now
             )
-            let identityChanged = record.workspaceId != normalizedWorkspaceId
-                || record.surfaceId != normalizedSurfaceId
             let inheritedActiveRecord: ClaudeHookActiveSessionRecord? = {
                 let candidates = [
                     state.activeSessionsByWorkspace[normalizedWorkspaceId],
@@ -2035,24 +2043,22 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             state.sessions[normalizedSessionId] = record
-            if identityChanged {
-                for (workspaceID, active) in state.activeSessionsByWorkspace
-                    where workspaceID != normalizedWorkspaceId && active.sessionId == normalizedSessionId {
-                    state.activeSessionsByWorkspace.removeValue(forKey: workspaceID)
-                }
-                for (surfaceID, active) in state.activeSessionsBySurface
-                    where surfaceID != normalizedSurfaceId && active.sessionId == normalizedSessionId {
-                    state.activeSessionsBySurface.removeValue(forKey: surfaceID)
-                }
-                let activeRecord = ClaudeHookActiveSessionRecord(
-                    sessionId: normalizedSessionId,
-                    turnId: inheritedActiveRecord?.turnId,
-                    allowsNewSessionReplacement: inheritedActiveRecord?.allowsNewSessionReplacement,
-                    updatedAt: now
-                )
-                state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
-                state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
+            for (workspaceID, active) in state.activeSessionsByWorkspace
+                where workspaceID != normalizedWorkspaceId && active.sessionId == normalizedSessionId {
+                state.activeSessionsByWorkspace.removeValue(forKey: workspaceID)
             }
+            for (surfaceID, active) in state.activeSessionsBySurface
+                where surfaceID != normalizedSurfaceId && active.sessionId == normalizedSessionId {
+                state.activeSessionsBySurface.removeValue(forKey: surfaceID)
+            }
+            let activeRecord = ClaudeHookActiveSessionRecord(
+                sessionId: normalizedSessionId,
+                turnId: inheritedActiveRecord?.turnId,
+                allowsNewSessionReplacement: inheritedActiveRecord?.allowsNewSessionReplacement,
+                updatedAt: now
+            )
+            state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+            state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
             return true
         }
     }
