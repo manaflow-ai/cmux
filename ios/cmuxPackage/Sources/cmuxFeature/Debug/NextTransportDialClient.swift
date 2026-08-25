@@ -230,7 +230,7 @@ public final class NextTransportDialClient {
     }
 
     private func log(_ message: String) {
-        nextTransportLog.info("\(message, privacy: .public)")
+        nextTransportLog.notice("\(message, privacy: .public)")
         events.append(message)
         if events.count > 200 { events.removeFirst(events.count - 200) }
     }

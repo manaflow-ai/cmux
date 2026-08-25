@@ -1,5 +1,6 @@
 #if DEBUG
 import CMUXMobileCore
+import CmuxIrohTransport
 import CmuxNextTransport
 import Foundation
 import IrohLib
@@ -69,9 +70,26 @@ final class MobileHostNextTransportRuntime {
     /// (next_transport_ticket) so tooling can hand it to the phone.
     var ticketJSON: String? {
         guard let endpoint, let signer else { return nil }
-        let addrs = endpoint.boundSockets().map {
-            $0.replacingOccurrences(of: "0.0.0.0", with: "127.0.0.1")
+        // Real LAN addresses first: bound sockets report the wildcard
+        // (0.0.0.0:port), which after a loopback rewrite only a dialer ON
+        // this Mac (the simulator lab) can reach. A phone on the same
+        // network needs interface IPs carrying the bound port. Loopback
+        // stays for the sim flows.
+        let bound = endpoint.boundSockets()
+        var addrs: [String] = []
+        if let v4Port = bound.first(where: { $0.contains(".") })?
+            .split(separator: ":").last
+        {
+            let interfaces =
+                (try? CmxIrohSystemLANInterfaceSnapshotProvider().interfaceAddresses()) ?? []
+            for interface in interfaces where interface.family == .ipv4 {
+                addrs.append("\(interface.ipAddress):\(v4Port)")
+            }
         }
+        addrs.append(
+            contentsOf: bound.map {
+                $0.replacingOccurrences(of: "0.0.0.0", with: "127.0.0.1")
+            })
         var ticket: [String: JSONValue] = [
             "key": .data(endpoint.id().toBytes()),
             "serverKey": .data(signer.publicKeyData),

@@ -26,7 +26,10 @@ final class NextTransportGraduationFacade {
     static let shared = NextTransportGraduationFacade()
 
     static let routeTrafficDefaultsKey = "dev.cmux.nextTransport.ios.routeAppTraffic"
-    private static let bootstrapKeyPrefix = "dev.cmux.nextTransport.ios.bootstrap."
+    // v2: v1 tickets carried loopback-rewritten bound sockets that a real
+    // phone can never dial; bumping the prefix invalidates them so every
+    // Mac re-probes for a LAN-addressed ticket.
+    private static let bootstrapKeyPrefix = "dev.cmux.nextTransport.ios.bootstrap.v2."
 
     private struct Bootstrap: Codable {
         var ticket: String
@@ -86,7 +89,7 @@ final class NextTransportGraduationFacade {
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        graduationLog.info("next transport not admitted for \(macID, privacy: .public); legacy path")
+        graduationLog.notice("next transport not admitted for \(macID, privacy: .public); legacy path")
         return nil
     }
 
@@ -140,16 +143,16 @@ final class NextTransportGraduationFacade {
                 let ticket = result["ticket"] as? String,
                 let grant = result["grant"] as? String
             else {
-                graduationLog.error(
+                graduationLog.notice(
                     "bootstrap \(macID, privacy: .public): malformed pair response")
                 return
             }
             storeBootstrap(macID: macID, ticket: ticket, grant: grant)
-            graduationLog.info("bootstrap \(macID, privacy: .public): ticket + grant stored")
+            graduationLog.notice("bootstrap \(macID, privacy: .public): ticket + grant stored")
         } catch {
             // method_not_found (old Mac) and unavailable (host off) land
             // here: this Mac stays legacy for the run.
-            graduationLog.info(
+            graduationLog.notice(
                 "bootstrap \(macID, privacy: .public): unsupported or refused (\(String(describing: error), privacy: .public))")
         }
     }
