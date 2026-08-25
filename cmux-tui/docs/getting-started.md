@@ -30,6 +30,23 @@ This differs from tmux or Zellij attach-or-create shortcuts by keeping server
 ownership and stop behavior explicit. Use the first two forms unless another
 terminal must own the server lifecycle.
 
+When migrating a script that used an attach-or-create command, keep one owner
+and one client. Run the owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+The owner must stay supervised by the caller. Do not replace this with a blind
+`attach` retry, because a retry cannot distinguish a missing owner from an
+owner that is still becoming ready.
+
 Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.

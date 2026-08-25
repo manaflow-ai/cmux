@@ -1,14 +1,15 @@
 # cmux-tui aggregate change log
 
 Current snapshot: 2026-08-25. Exact aggregate HEAD is
-[`ea326c45bb`](https://github.com/manaflow-ai/cmux/commit/ea326c45bb7d8ceb3d0a29a5239af0144c0444c4),
-773 commits ahead of `origin/main` at
-`bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
-is pushed at this SHA. Current hosted status and merge evidence belong in
+[`4fffdfc128`](https://github.com/manaflow-ai/cmux/commit/4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c),
+777 commits ahead of `origin/main` at
+`f78182c0a11c5728f7e0a6dd6fd48605fd856ae5`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+is not pushed yet. Current hosted status and merge evidence belong in
 `PR-INTENT-BOARD.md`; do not claim review or hosted green until exact-head
 checks pass. The 2026-08-24 snapshot below is historical.
 
-This update records the current-main merge, web determinism merge
+This update records the current-main merge, the PyPI project-description fix,
+web determinism merge
 [#10718](https://github.com/manaflow-ai/cmux/pull/10718), and the final PTY,
 socket, Go, Java, workflow, and package-test hardening tail. Each entry names
 the commit and a direct revert command.
@@ -41,6 +42,10 @@ Intent-audit delta: local history added two deduplicated requests after the prio
 | [`702a0dcbc1`](https://github.com/manaflow-ai/cmux/commit/702a0dcbc1)`, [`4a50dd64b2`](https://github.com/manaflow-ai/cmux/commit/4a50dd64b2) | Reject invalid Go write counts and preserve dispatch after partial writes or write errors. | `git revert 702a0dcbc1 4a50dd64b2` |
 | [`3e85c7dd05`](https://github.com/manaflow-ai/cmux/commit/3e85c7dd05) | Cover Java path traversal rejection without narrowing the shared cross-language session-name contract. | `git revert 3e85c7dd05` |
 | [`7fdcfa583a`](https://github.com/manaflow-ai/cmux/commit/7fdcfa583a3b708b523a08dfcbfac3b57ffbc627) | Merge the web auth-cache determinism fix into `main` before the TUI merge. | Do not revert from this branch; it is already on `main`. |
+
+| [`de082a2cf3`](https://github.com/manaflow-ai/cmux/commit/de082a2cf390b59acd36fb11b13fa4c22f9a55df) | Merge current `main` at `f78182c0a1`, including PyPI project-description metadata and its contract test. | `git revert -m 1 de082a2cf3`; retain the metadata fix when rebasing the aggregate. |
+| [`774b42eaaf`](https://github.com/manaflow-ai/cmux/commit/774b42eaaf) | Stop broad remote-daemon cleanup from killing concurrent writers; reclaim only dead upload markers. | `git revert 774b42eaaf`; live writers remain untouched, while PID reuse can delay stale cleanup. |
+| [`4fffdfc128`](https://github.com/manaflow-ai/cmux/commit/4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c) | Use an exclusive payload descriptor, keep the owner PID marker, scope failed-writer termination, and cover shell quoting and concurrent uploads. | `git revert 4fffdfc128`; same-UID pathname races after hashing remain outside portable shell guarantees. |
 
 | [`bdff60c67d`](https://github.com/manaflow-ai/cmux/commit/bdff60c67d8c30cd5d00890f569d22e5cc65fcc1) | Include the current `main` journal-forwarder wire-identity fix. | Revert the aggregate merge as one unit if required. |
 | [`375daeb96e`](https://github.com/manaflow-ai/cmux/commit/375daeb96e229559532c534412276ee4bf19ba6f) | Remove stale PTY close races, make SSH staging ownership explicit, fix trait-object coercions, and remove an unused reader import. | `git revert 375daeb96e`; hosted Rust proof remains required. |
@@ -270,12 +275,12 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 The exact-head autoreview was clean for in-scope changes. It reported two
 out-of-scope remote-tmux findings, which were intentionally ignored: they do
 not affect cmux-tui protocol, SDK, relay, or preview ownership in this wave.
-# Current exact-state correction
+# Historical exact-state correction (2026-08-24)
 
 The exact documentation tip is `df419568b0490c794ec1230244936f70bf2e118f`.
 The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
 bound is at least 205.
-# Post-correction exact tail
+# Historical post-correction exact tail (2026-08-24)
 
 The previous aggregate tip was `c599fa778e506574bddf12393d4a9bb91c4772e5`,
 583 commits ahead of `origin/main`. The current code tip is

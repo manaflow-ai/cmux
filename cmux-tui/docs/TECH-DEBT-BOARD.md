@@ -1,16 +1,18 @@
 # cmux-tui technical-debt board
 
 Current snapshot: 2026-08-25.
-Audit base: `origin/main` at `bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`.
+Audit base: `origin/main` at `f78182c0a11c5728f7e0a6dd6fd48605fd856ae5`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Current code tip: `ea326c45bb7d8ceb3d0a29a5239af0144c0444c4`.
+Current code tip: `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`.
 PR: [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen.
-The branch is 773 commits ahead of `origin/main`. It includes the current-main
+The branch is 777 commits ahead of `origin/main`. It includes the current-main
 merge and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
 The latest tail adds stale-close identity removal, owned no-clobber SSH staging cleanup,
-the dedicated relay publish workflow from current `main`, and trait-object
-coercion fixes found by hosted compilation. Required hosted checks and final
-exact-head autoreview remain pending for this merge tip.
+the dedicated relay publish workflow from current `main`, trait-object
+coercion fixes found by hosted compilation, the PyPI project-description
+metadata fix from current `main`, scoped remote-daemon cleanup, and
+descriptor-backed no-clobber upload writes. Required hosted checks and final exact-head
+autoreview remain pending for this merge tip.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -63,16 +65,29 @@ out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
 
-Subagent ledger: at least 220 substantive agent turns are complete in this
+Subagent ledger: at least 231 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, conflict resolution, and merge gates. It excludes empty or duplicate
 turns. The requested 10,000-session target is not reached. I will not create
 empty sessions to inflate the count. The new intent rows do not count as
 completed work or extra sessions. New turns must have a named deliverable.
 
+## Live PR state
+
+This table is the only live PR state in this append-only board. Older PR tables
+below are historical audit snapshots and may contain old heads or old labels.
+
+| PR | Author | State and head on 2026-08-25 | Decision |
+| --- | --- | --- | --- |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, aggregate head `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`, not pushed yet. | Push this exact head, then run exact-head autoreview and hosted checks before merge. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, dirty, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head is unchanged. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, dirty, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head is unchanged. |
+
 ## Current state
 
-The latest code tail is `ea326c45bb7d8ceb3d0a29a5239af0144c0444c4`. It carries the watch compatibility,
+The latest code tail is `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -83,7 +98,8 @@ clippy cleanup after the 25-file relay/TUI integration merge. The current tail
 also adds per-attachment PTY delivery gates and generation-aware replacement
 cleanup, a bounded legacy socket scan that tolerates per-entry metadata errors,
 invalid Go write-progress handling, Java traversal coverage, and the current-main
-package workflow simplification. The latest tail also makes close generation-
+package workflow simplification plus PyPI project-description metadata. The latest tail also scopes remote-daemon
+cleanup to the failed writer and makes upload creation descriptor-backed. It makes close generation-
 aware, makes SSH upload staging no-clobber and ownership explicit, simplifies
 the Rust global-flag parser, and documents the interactive/headless CLI split.
 The same-user pathname `chmod` race remains a documented residual because the

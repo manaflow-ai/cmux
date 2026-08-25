@@ -37,6 +37,22 @@ The explicit split prevents two clients from silently creating competing
 owners. A future attach-or-create shortcut needs a readiness and concurrency
 contract before it can be added safely.
 
+Migration from tmux or Zellij keeps the owner and client steps visible. Run the
+owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+Callers supervise the owner. A blind attach retry cannot distinguish a missing
+owner from an owner still starting.
+
 `server` is the local durable mux owner for exactly one named session:
 
 ```text

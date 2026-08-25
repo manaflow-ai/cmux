@@ -3,7 +3,7 @@
 Current audit snapshot: 2026-08-25.
 
 Audit base: `codex/tui-techdebt-aggregate-wave39` at
-`ea326c45bb7d8ceb3d0a29a5239af0144c0444c4`. This document records explicit user requests found in local
+`4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`. This document records explicit user requests found in local
 session history. It does not claim that an implementation is complete. For the
 aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
 
@@ -11,6 +11,7 @@ The prior 2026-08-24 tip `387b4185f2` and its status labels are historical.
 The current merge adds PTY delivery-gate and generation cleanup, bounded socket
 metadata handling, Go write-progress checks, Java traversal coverage, and the
 current package workflow, stale-close identity checks, and owned SSH staging
+cleanup, plus the PyPI project-description metadata fix and scoped remote-daemon
 cleanup. These changes move no request to complete without
 end-to-end evidence.
 
@@ -26,7 +27,7 @@ end-to-end evidence.
 
 ## Deduplicated requests
 
-| ID | Explicit ask and evidence | Status at `ea326c45bb` | Acceptance test |
+| ID | Explicit ask and evidence | Status at `4fffdfc128` | Acceptance test |
 | --- | --- | --- | --- |
 | UI-01 | Make every cmux terminal use a separate cmux-tui owner, keep the CLI path coherent, preserve terminals across Swift restart, and define the Swift layout projection. Evidence: `~/.claude/history.jsonl:89411,89422-89442`, 2026-08-19T03:49:41Z to 04:29:21Z UTC; follow-up `~/.claude/history.jsonl:89568`, 2026-08-20T02:57:08Z UTC. | Partial. The aggregate has relay/TUI integration, but the technical-debt board says manual-IO replacement, full restore, and layout ownership remain open. | Start a terminal, quit and reopen the Swift shell, and prove the same PTY, scrollback, cwd, and session ID remain. Exercise the CLI and a right-sidebar projection without creating a second owner. |
 | UI-02 | Use journal-first recovery for both a normal cmux restart and a host reboot, with explicit recovery intent and outcome. Evidence: `~/.claude/history.jsonl:89427,89568`, 2026-08-19T04:04:18Z and 2026-08-20T02:57:08Z UTC; `~/.codex/history.jsonl:17612-17614`, 2026-08-07T07:58:12Z to 08:00:03Z UTC. | Open. The aggregate explicitly says reboot checkpoints, full agent restore, and policy-controlled resume are not implemented. | Run clean mux restart with a live host, then host-crash/reboot simulation. The first preserves the live PTY; the second classifies the session interrupted and records one journaled recovery intent and outcome. No secrets or live capabilities enter the journal. |
