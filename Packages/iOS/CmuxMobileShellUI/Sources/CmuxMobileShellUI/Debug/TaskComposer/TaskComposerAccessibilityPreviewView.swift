@@ -103,6 +103,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 macDeviceID: Self.previewMac.macDeviceID
             )
         }
+        if presentsDirectoryScrollStress {
+            // Gives the long-listing fixture one remembered directory so the
+            // chips bar renders above the scrolling rows.
+            templateStore.setLastDirectory(
+                "/Users/ui/folder-00",
+                macDeviceID: Self.previewMac.macDeviceID
+            )
+        }
         let catalogData = environment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"]?
             .data(using: .utf8)
         let catalogClient = MobileTaskModelCatalogClient(
