@@ -377,7 +377,8 @@ struct DockSessionPersistenceTests {
             workspaceId: restoredOwnerID,
             scope: scope,
             baseDirectoryProvider: { workingDirectory.path },
-            agentSessionAutoResumeDefaults: defaults
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { agentIndex }
         )
         defer { restoredStore.closeAllPanels() }
         let restoredIDs = restoredStore.restoreSessionSnapshot(persisted)
@@ -763,6 +764,11 @@ struct DockSessionPersistenceTests {
             startSeconds: 10,
             startMicroseconds: 20
         )
+        let reusedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(stalePID),
+            startSeconds: 11,
+            startMicroseconds: 21
+        )
         var staleRecord = codexHookRecord(
             sessionID: staleSessionID,
             workspaceID: staleOwnerID,
@@ -806,7 +812,7 @@ struct DockSessionPersistenceTests {
             },
             processPresenceProvider: { _ in .present },
             processIdentityProvider: { pid in
-                pid == stalePID ? recordedIdentity : nil
+                pid == stalePID ? reusedIdentity : nil
             }
         )
 
