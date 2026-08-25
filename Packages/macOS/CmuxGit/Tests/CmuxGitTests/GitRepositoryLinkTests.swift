@@ -675,7 +675,7 @@ import Testing
         #expect(snapshot.remoteVOutput?.contains("https://github.com/worktree-conditional/repo.git") == true)
     }
 
-    @Test func repositoryLinkUsesLastValueForDuplicateRemoteURLs() {
+    @Test func repositoryLinkUsesFirstFetchURLForDuplicateRemoteURLs() {
         let output = """
         origin\thttps://github.com/old/repo.git (fetch)
         origin\thttps://github.com/new/repo.git (fetch)
@@ -683,7 +683,7 @@ import Testing
 
         #expect(
             GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)?.url.absoluteString
-                == "https://github.com/new/repo"
+                == "https://github.com/old/repo"
         )
     }
 }
