@@ -8,6 +8,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case artifacts
     case feed
     case dock
+    case machines
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -22,6 +23,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
             )
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -34,6 +36,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .artifacts: return "shippingbox"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .machines: return "cloud"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -45,6 +48,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .machines: return .switchRightSidebarToMachines
         case .artifacts, .customSidebar: return nil
         }
     }

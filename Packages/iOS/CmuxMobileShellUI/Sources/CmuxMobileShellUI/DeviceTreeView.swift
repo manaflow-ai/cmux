@@ -26,6 +26,7 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
@@ -42,6 +43,18 @@ struct DeviceTreeView: View {
     /// list shows exactly the same computer set.
     private var computers: [MacComputerSnapshot] {
         MacComputerSnapshot.snapshots(from: store)
+    }
+
+    /// Which row lives in which section (method sections + Hidden Computers).
+    /// The visibility switches mutate the store asynchronously, so the row's
+    /// section move lands after the toggle's own transaction has ended;
+    /// animating the list on this key keeps that move smooth. Keyed on
+    /// membership only, so the 10s presence refresh (same rows, new status
+    /// text) doesn't animate.
+    private var rowMembership: [String] {
+        MacComputerListSection.sections(from: computers).flatMap { section in
+            [section.id] + section.computers.map(\.id)
+        } + ["hidden"] + store.hiddenComputers.map(\.id)
     }
 
     var body: some View {
@@ -95,6 +108,7 @@ struct DeviceTreeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: rowMembership)
             .navigationDestination(for: MacConnectionRef.self) { ref in
                 if let computer = computers.first(where: { $0.id == ref.pairingID }) {
                     MacComputerDetailView(

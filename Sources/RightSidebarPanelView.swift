@@ -20,7 +20,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .artifacts, .feed, .dock, .customSidebar:
+        case .sessions, .artifacts, .feed, .dock, .machines, .customSidebar:
             return false
         }
     }
@@ -113,7 +113,8 @@ struct RightSidebarPanelView: View {
         RightSidebarMode.availableModes(
             artifactsEnabled: artifactsEnabled && featureFlags.isArtifactsEnabled,
             feedEnabled: feedEnabled,
-            dockEnabled: dockEnabled
+            dockEnabled: dockEnabled,
+            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled
         )
     }
 
@@ -392,6 +393,10 @@ struct RightSidebarPanelView: View {
                 )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .machines:
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .customSidebar:
                 EmptyView()
             }
