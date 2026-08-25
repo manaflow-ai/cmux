@@ -152,6 +152,20 @@ struct SocketTerminalBindingRegressionTests {
                 )
             }
 
+            for method in ["mobile.terminal.input", "terminal.input"] {
+                let marker = "\(method.replacingOccurrences(of: ".", with: "-"))-\(UUID().uuidString)"
+                let envelope = try await socketEnvelopeOnWorker(
+                    method: method,
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": originalPanel.id.uuidString,
+                        "text": marker,
+                    ]
+                )
+                try #require(envelope["ok"] as? Bool == true, "\(method): \(envelope)")
+                try await waitForText(marker, in: replacement)
+            }
+
             for marker in markers {
                 try await waitForText(marker, in: replacement)
             }
