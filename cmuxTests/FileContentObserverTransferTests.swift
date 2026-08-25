@@ -41,6 +41,12 @@ struct FileContentObserverTransferTests {
         if let initialPreviewLoad = preview.loadTextContent() {
             await initialPreviewLoad.value
         }
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = preview.$content.dropFirst().sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
 
         editor.updateTextContent(updatedContent)
         let save = try #require(editor.saveTextContent())
@@ -50,6 +56,7 @@ struct FileContentObserverTransferTests {
         )
         await save.value
 
+        #expect(await awaitContent(updatedContent, from: contentChanges))
         #expect(preview.content == updatedContent)
     }
 
@@ -86,6 +93,12 @@ struct FileContentObserverTransferTests {
         if let initialPreviewLoad = preview.loadTextContent() {
             await initialPreviewLoad.value
         }
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = preview.$content.dropFirst().sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
 
         editor.updateTextContent(updatedContent)
         let save = try #require(editor.saveTextContent())
@@ -94,10 +107,8 @@ struct FileContentObserverTransferTests {
             fileContentChangeCoordinator: destinationChanges
         )
         await save.value
-        if let previewReload = preview.loadTextContent(replacingDirtyContent: false) {
-            await previewReload.value
-        }
 
+        #expect(await awaitContent(updatedContent, from: contentChanges))
         #expect(preview.content == updatedContent)
     }
 
@@ -147,15 +158,19 @@ struct FileContentObserverTransferTests {
             await initialLoad.value
         }
         #expect(panel.content == originalContent)
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = panel.$content.dropFirst().sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
 
         try updatedContent.write(to: fileURL, atomically: false, encoding: .utf8)
         sourceChanges.fileWriteCompleted(at: fileURL.path)
         #expect(panel.content == originalContent)
 
         destinationChanges.fileWriteCompleted(at: fileURL.path)
-        if let destinationReload = panel.loadTextContent(replacingDirtyContent: false) {
-            await destinationReload.value
-        }
+        #expect(await awaitContent(updatedContent, from: contentChanges))
         #expect(panel.content == updatedContent)
     }
 
@@ -217,5 +232,27 @@ struct FileContentObserverTransferTests {
             await changedLoad.value
         }
         #expect(panel.content == updatedContent)
+    }
+
+    private func awaitContent(
+        _ expected: String,
+        from changes: AsyncStream<String>
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = changes.makeAsyncIterator()
+                while let value = await iterator.next() {
+                    if value == expected { return true }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 }
