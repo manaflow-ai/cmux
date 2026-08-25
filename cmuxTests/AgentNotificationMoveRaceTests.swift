@@ -363,6 +363,41 @@ struct AgentNotificationRegressionTests {
         #expect(restored.soundContext == soundContext)
     }
 
+    @Test("Surface rebind preserves notification sound context")
+    @MainActor
+    func surfaceRebindPreservesSoundContext() throws {
+        let store = TerminalNotificationStore.shared
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let soundContext = try #require(
+            NotificationSoundOverrideContext(agentID: "codex", alertType: .needsInput)
+        )
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: sourceTabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: true,
+            title: "Context move",
+            subtitle: "Needs input",
+            body: "Keep the selected sound",
+            createdAt: Date(),
+            isRead: false,
+            soundContext: soundContext
+        )
+        store.replaceNotificationsForTesting([notification])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(store.notifications.first?.tabId == destinationTabId)
+        #expect(store.notifications.first?.soundContext == soundContext)
+    }
+
     @Test("Legacy session notifications retain trusted local move behavior")
     func legacySessionNotificationDefaultsToLiveRetargeting() throws {
         let legacySnapshot = SessionNotificationSnapshot(

@@ -58,6 +58,18 @@ struct NotificationSoundOverridesTests {
         #expect(overrides.isEmpty)
     }
 
+    @Test("agent ids use the notification wire grammar")
+    func agentIDsMatchWireGrammar() {
+        #expect(NotificationSoundOverrideContext(agentID: "claude-code", alertType: .turnDone) != nil)
+        #expect(NotificationSoundOverrideContext(agentID: "Claude-Code", alertType: .turnDone) == nil)
+        #expect(
+            NotificationSoundOverrideContext(
+                agentID: String(repeating: "a", count: 65),
+                alertType: .turnDone
+            ) == nil
+        )
+    }
+
     @Test("decoded context validates the agent id")
     func decodedContextRejectsInvalidAgentID() throws {
         let encoder = JSONEncoder()
