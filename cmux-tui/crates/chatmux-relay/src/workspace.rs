@@ -1574,6 +1574,12 @@ impl Drop for GitProcessGuard {
     }
 }
 
+fn disarm_if_reaped(child: &tokio::process::Child, process_guard: &mut GitProcessGuard) {
+    if child.id().is_none() {
+        process_guard.disarm();
+    }
+}
+
 /// Kill the process tree, then explicitly wait for the direct child. The
 /// wait is required on Unix to reap the child instead of leaving a zombie.
 async fn stop_git(child: &mut tokio::process::Child) {
@@ -1726,7 +1732,8 @@ async fn run_git_status_until(
     let mut process_guard = GitProcessGuard::new(&child);
     let Some(stdout) = child.stdout.take() else {
         stop_git(&mut child).await;
-        process_guard.disarm();
+        process_guard.kill_group();
+        disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
     let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
@@ -1753,6 +1760,8 @@ async fn run_git_status_until(
     };
     if let Err(error) = read_result {
         stop_git(&mut child).await;
+        process_guard.kill_group();
+        disarm_if_reaped(&child, &mut process_guard);
         if let Some(task) = stderr_task.take() {
             let result = task.finish().await?;
             if !result.complete {
@@ -1767,8 +1776,17 @@ async fn run_git_status_until(
     if stdout_capped {
         stdout_bytes.truncate(STATUS_MAX_BYTES);
         stop_git(&mut child).await;
+        process_guard.kill_group();
+        disarm_if_reaped(&child, &mut process_guard);
     }
-    let status = wait_git_until(&mut child, deadline).await?;
+    let status = match wait_git_until(&mut child, deadline).await {
+        Ok(status) => status,
+        Err(error) => {
+            process_guard.kill_group();
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
     // The leader is reaped at this point. Kill helpers which may still own an
     // inherited pipe while the process-group identity is fresh, then disarm
     // the numeric-PID guard before awaiting the bounded stderr drain.
@@ -1920,7 +1938,8 @@ async fn run_git_diff_until(
     // bounded even for a pathological working tree.
     let Some(stdout) = child.stdout.take() else {
         stop_git(&mut child).await;
-        process_guard.disarm();
+        process_guard.kill_group();
+        disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
     // Drain stderr while stdout is consumed. A diagnostic stream can fill its
@@ -1952,6 +1971,8 @@ async fn run_git_diff_until(
                     Ok(None) => break,
                     Err(error) => {
                         stop_git(&mut child).await;
+                        process_guard.kill_group();
+                        disarm_if_reaped(&child, &mut process_guard);
                         if let Some(task) = stderr_task.take() {
                             let _ = task.finish().await;
                         }
@@ -1960,6 +1981,8 @@ async fn run_git_diff_until(
                 },
                 Err(_) => {
                     stop_git(&mut child).await;
+                    process_guard.kill_group();
+                    disarm_if_reaped(&child, &mut process_guard);
                     if let Some(task) = stderr_task.take() {
                         let _ = task.finish().await;
                     }
@@ -1968,6 +1991,8 @@ async fn run_git_diff_until(
             },
             None => {
                 stop_git(&mut child).await;
+                process_guard.kill_group();
+                disarm_if_reaped(&child, &mut process_guard);
                 if let Some(task) = stderr_task.take() {
                     let _ = task.finish().await;
                 }
@@ -1997,7 +2022,14 @@ async fn run_git_diff_until(
             }
         }
     }
-    let status = wait_git_until(&mut child, deadline).await?;
+    let status = match wait_git_until(&mut child, deadline).await {
+        Ok(status) => status,
+        Err(error) => {
+            process_guard.kill_group();
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
     // The leader is reaped at this point. Kill helpers which may still own an
     // inherited pipe while the process-group identity is fresh, then disarm
     // the numeric-PID guard before awaiting the bounded stderr drain.
