@@ -1380,6 +1380,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             let record = try readClaudeHookSession(sessionId, context: context)
             XCTAssertNil(record["autoNameInFlightAt"])
+            XCTAssertEqual(
+                record["autoNameTitleReconciliationEpochLineCount"] as? Int,
+                compactedLineCount,
+                "Ordinary shrink retries must retain their compacted epoch marker"
+            )
             XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
             XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
             XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
