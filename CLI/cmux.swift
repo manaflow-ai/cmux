@@ -74,12 +74,6 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-struct CursorPendingShellApproval: Codable, Equatable {
-    let command: String
-    let toolUseId: String?
-    let createdAt: TimeInterval
-}
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
@@ -150,6 +144,14 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 #endif
 
 struct ClaudeHookSessionRecord: Codable {
+    /// Persisted beside the session record because it is only meaningful as
+    /// the command identity for this record's Cursor approval lifecycle.
+    struct PendingCursorShellApproval: Codable, Equatable {
+        let command: String
+        let toolUseId: String?
+        let createdAt: TimeInterval
+    }
+
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -201,7 +203,7 @@ struct ClaudeHookSessionRecord: Codable {
     /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
-    var pendingCursorShellApprovals: [CursorPendingShellApproval]? = nil
+    var pendingCursorShellApprovals: [PendingCursorShellApproval]? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -224,6 +226,7 @@ private struct CodexMonitorLeaseRecord: Codable {
 }
 
 final class ClaudeHookSessionStore {
+    private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxPendingCursorShellApprovals = 16
@@ -263,12 +266,6 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             state.sessions[normalized]
         }
-    }
-
-    struct CursorShellResolution {
-        let matched: Bool
-        let hasRemaining: Bool
-        let expired: Bool
     }
 
     /// Records one Cursor shell command for atomic completion correlation.
@@ -325,16 +322,16 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         toolUseId: String? = nil
-    ) throws -> CursorShellResolution {
+    ) throws -> (matched: Bool, hasRemaining: Bool, expired: Bool) {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return CursorShellResolution(matched: false, hasRemaining: false, expired: false)
+            return (matched: false, hasRemaining: false, expired: false)
         }
         return try withLockedState { state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
-                return CursorShellResolution(matched: false, hasRemaining: false, expired: false)
+                return (matched: false, hasRemaining: false, expired: false)
             }
             let now = Date().timeIntervalSince1970
             let beforePruneCount = pending.count
@@ -356,7 +353,7 @@ final class ClaudeHookSessionStore {
                     record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
                     state.sessions[normalizedSession] = record
                 }
-                return CursorShellResolution(matched: false, hasRemaining: !pending.isEmpty, expired: expired)
+                return (matched: false, hasRemaining: !pending.isEmpty, expired: expired)
             }
             pending.remove(at: matchIndex)
             let hasRemaining = !pending.isEmpty
@@ -387,7 +384,7 @@ final class ClaudeHookSessionStore {
                 record.lastNotificationStatus = nil
             }
             state.sessions[normalizedSession] = record
-            return CursorShellResolution(matched: true, hasRemaining: hasRemaining, expired: expired)
+            return (matched: true, hasRemaining: hasRemaining, expired: expired)
         }
     }
 
