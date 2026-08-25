@@ -214,14 +214,16 @@ public struct GitMetadataService: Sendable {
         if traversalResult.isComplete {
             output = traversalResult.output
         } else {
-            let runner = SystemWorkspaceChangesGitRunner(
-                boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+            let selector = GitReferenceRunnerSelector(
+                wallTimeLimit: safetyConfiguration.gitStatusWallTime
             )
-            let result = try? runner.run(
+            let result = selector.select(repository: repository).flatMap { runner in
+                try? runner.run(
                     arguments: ["remote", "-v"],
                     in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
                     maximumOutputByteCount: 1 * 1_024 * 1_024
-            )
+                )
+            }
             output = result.flatMap { result in
                 guard result.exitCode == 0, !result.standardOutputWasTruncated else { return nil }
                 return String(data: result.output, encoding: .utf8)

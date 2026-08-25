@@ -38,6 +38,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
             paths.append(contentsOf: GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path))
+            paths.append(repository.gitDirectory)
+            paths.append(repository.commonDirectory)
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
@@ -174,10 +176,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         // is an existing bounded regular file; broad roots such as `/` cannot
         // satisfy this check and are never handed to the recursive watcher.
         let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-        if case .contents = configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
+        switch configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
+        case .contents, .oversized:
             return true
+        case .missing, .unavailable:
+            return false
         }
-        return false
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.

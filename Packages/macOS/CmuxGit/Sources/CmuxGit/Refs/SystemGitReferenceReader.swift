@@ -376,10 +376,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Extracts the resolved object ID from a file-backed head signature.
     private func currentCommit(fromHeadSignature signature: String?) -> String? {
         guard let signature else { return nil }
-        let value = signature.split(
-            separator: "\n",
-            omittingEmptySubsequences: false
-        ).last.map(String.init) ?? signature
-        return normalizedObjectID(value)
+        if signature.hasPrefix("ref: ") {
+            let lines = signature.components(separatedBy: "\n")
+            guard lines.count == 2 else { return nil }
+            return normalizedObjectID(lines[1])
+        }
+        return normalizedObjectID(signature)
     }
 }
