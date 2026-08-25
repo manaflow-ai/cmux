@@ -1096,6 +1096,12 @@ fn run_tree(scope: &Scope, op: &wire::FsTreeOp) -> Result<wire::WorkspaceResultB
 }
 
 fn run_read(scope: &Scope, op: &wire::FsReadOp) -> Result<wire::WorkspaceResultBody, Refusal> {
+    // std::fs::OpenOptions follows Windows reparse points. Until reads use a
+    // handle-relative CreateFileW call with FILE_FLAG_OPEN_REPARSE_POINT,
+    // refuse them rather than allowing a post-canonicalization redirect.
+    #[cfg(windows)]
+    return Err(Refusal::path_forbidden("scoped reads are unavailable on Windows relays"));
+
     let path = scope.resolve(&op.path, false)?;
     let max = usize::try_from(clamp_i64(op.max_bytes, 1, READ_MAX_BYTES)).unwrap_or(1);
     let (bytes, truncated, size) = read_bounded_no_follow(&path, max).map_err(|error| {
