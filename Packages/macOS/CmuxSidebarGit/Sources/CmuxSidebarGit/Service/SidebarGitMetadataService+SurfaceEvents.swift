@@ -121,7 +121,7 @@ extension SidebarGitMetadataService {
         }
         if !activity.performsActivePolling ||
             host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
-            clearWorkspaceGitProbe(probeKey)
+            clearWorkspaceGitProbe(probeKey, clearRepositoryLink: false)
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId, panelId: panelId)
             return

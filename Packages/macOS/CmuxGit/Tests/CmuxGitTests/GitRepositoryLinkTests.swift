@@ -55,7 +55,7 @@ import Testing
         "ftp://host/repo.git",
         "ftp:host/repo.git",
         "svn:host/repo.git",
-        "custom:host/repo.git",
+        "custom://host/repo.git",
         "https:///group/repo.git",
         "ssh://git@/group/repo.git",
     ])
@@ -67,6 +67,8 @@ import Testing
     @Test(arguments: [
         ("git@gitlab.example.com:group/repo.git", "https://gitlab.example.com/group/repo"),
         ("git.example.com:group/repo.git", "https://git.example.com/group/repo"),
+        ("localhost:group/repo.git", "https://localhost/group/repo"),
+        ("work:team/repo.git", "https://work/team/repo"),
     ])
     func preservesUnambiguousSCPRemotes(remoteURL: String, url: String) {
         let output = "origin\t\(remoteURL) (fetch)\n"
