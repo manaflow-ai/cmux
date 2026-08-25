@@ -367,6 +367,14 @@ struct DockSessionPersistenceTests {
         #expect(persistedTerminal.resumeBinding?.checkpointId == currentSessionID)
         #expect(persistedTerminal.wasAgentRunning == true)
 
+        let closedPanelSnapshot = try #require(
+            sourceStore.closedPanelSessionSnapshot(
+                panelId: panelID,
+                restorableAgentIndex: agentIndex
+            )
+        )
+        #expect(closedPanelSnapshot.terminal?.agent?.sessionId == currentSessionID)
+
         sourceStore.closeAllPanels()
 
         let restoredStore = DockSplitStore(
@@ -526,6 +534,91 @@ struct DockSessionPersistenceTests {
         #expect(terminal.wasAgentRunning == true)
         #expect(terminal.agent?.sessionId != staleSessionID)
         #expect(terminal.resumeBinding?.checkpointId != staleSessionID)
+    }
+
+    @Test("Panel-only Dock lookups fail closed for equal-timestamp owner records")
+    func panelOnlyLookupsFailClosedForEqualTimestampOwnerRecords() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-dock-equal-timestamp-ambiguity-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
+            String(cString: $0)
+        }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
+
+        let firstOwnerID = UUID()
+        let secondOwnerID = UUID()
+        let panelID = UUID()
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        let firstSessionID = UUID().uuidString
+        let secondSessionID = UUID().uuidString
+        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try writeCodexHookStore(
+            directory: hookStateDirectory,
+            sessions: [
+                firstSessionID: codexHookRecord(
+                    sessionID: firstSessionID,
+                    workspaceID: firstOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+                secondSessionID: codexHookRecord(
+                    sessionID: secondSessionID,
+                    workspaceID: secondOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+            ]
+        )
+
+        let agentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        #expect(agentIndex.entry(panelId: panelID) == nil)
+        #expect(agentIndex.entry(workspaceId: UUID(), panelId: panelID) == nil)
+        #expect(
+            agentIndex.entryForStablePanel(workspaceId: firstOwnerID, panelId: panelID)?
+                .snapshot.sessionId == firstSessionID
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            .init(workspaceId: firstOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: firstSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+            .init(workspaceId: secondOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: secondSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+        ])
+        #expect(bindingIndex.binding(panelId: panelID) == nil)
+        #expect(bindingIndex.binding(workspaceId: UUID(), panelId: panelID) == nil)
+        #expect(
+            bindingIndex.bindingForStablePanel(workspaceId: firstOwnerID, panelId: panelID)?
+                .checkpointId == firstSessionID
+        )
     }
 
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")
