@@ -407,6 +407,7 @@ struct ArtifactSidebarFileAccess {
                     // alive until Foundation has finished consuming the URL.
                     progress.cancellationHandler = { _ = opened }
                     progress.pausingHandler = { _ = opened }
+                    progress.completedUnitCount = 1
                     return progress
                 } else {
                     completion(nil, false, nil)
