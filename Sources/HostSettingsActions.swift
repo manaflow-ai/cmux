@@ -451,7 +451,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge. Internal
     /// (not private) so the mapping is unit-testable.
-    static func mobilePairingSnapshot(
+    nonisolated static func mobilePairingSnapshot(
         from status: MobileHostServiceStatus,
         now: Date = Date()
     ) -> MobilePairingStatusSnapshot {
@@ -499,7 +499,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// Splits an Iroh direct-address hint (`203.0.113.7:58465` or
     /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
     /// renders, or `nil` for anything else. Internal for unit tests.
-    static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
+    nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
         let hostPart: Substring
         let portPart: Substring
         if value.hasPrefix("[") {
@@ -559,7 +559,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.
-    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+    nonisolated private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")

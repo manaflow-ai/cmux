@@ -111,7 +111,10 @@ public struct MobileSection: View {
                     displayNameRow
                     SettingsCardDivider()
                     artifactFolderAccessRow
-                    if iOSPairingHost.current {
+                    // The Iroh endpoint hosts for every signed-in Mac even when
+                    // the legacy pairing listener is toggled off, so diagnostics
+                    // follow the live snapshot rather than the toggle alone.
+                    if iOSPairingHost.current || status.current?.isRunning == true {
                         SettingsCardDivider()
                         diagnostics
                     }
