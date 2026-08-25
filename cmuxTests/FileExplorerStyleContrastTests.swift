@@ -115,6 +115,56 @@ import Testing
         #expect(nameLabel.textColor?.isEqual(NSColor.labelColor) == true)
     }
 
+    @Test func filesShowExplicitGitStatusIndicators() throws {
+        let cell = FileExplorerCellView(identifier: NSUserInterfaceItemIdentifier("git-status-test"))
+        let node = FileExplorerNode(name: "changed.swift", path: "/changed.swift", isDirectory: false)
+
+        let indicator = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first {
+            $0.accessibilityIdentifier() == "FileExplorerGitStatusIndicator"
+        })
+
+        let expectedIndicators: [(GitFileStatus, String)] = [
+            (.modified, "M"),
+            (.added, "A"),
+            (.deleted, "D"),
+            (.renamed, "R"),
+            (.untracked, "U"),
+        ]
+        for (status, expectedIndicator) in expectedIndicators {
+            cell.configure(with: node, gitStatus: status)
+            #expect(indicator.stringValue == expectedIndicator)
+            #expect(!indicator.isHidden)
+        }
+
+        cell.configure(with: node)
+        #expect(indicator.stringValue.isEmpty)
+        #expect(indicator.isHidden)
+    }
+
+    @Test(arguments: [
+        ("server.ts", FileExplorerIconDescriptor.Kind.badge("TS"), FileExplorerIconDescriptor.ColorRole.blue),
+        ("client.js", FileExplorerIconDescriptor.Kind.badge("JS"), FileExplorerIconDescriptor.ColorRole.yellow),
+        ("App.swift", FileExplorerIconDescriptor.Kind.symbol("swift"), FileExplorerIconDescriptor.ColorRole.orange),
+        ("package.json", FileExplorerIconDescriptor.Kind.symbol("curlybraces"), FileExplorerIconDescriptor.ColorRole.orange),
+        ("README.md", FileExplorerIconDescriptor.Kind.badge("MD"), FileExplorerIconDescriptor.ColorRole.green),
+        (".gitignore", FileExplorerIconDescriptor.Kind.symbol("arrow.triangle.branch"), FileExplorerIconDescriptor.ColorRole.orange),
+        (".env.local", FileExplorerIconDescriptor.Kind.symbol("key.fill"), FileExplorerIconDescriptor.ColorRole.yellow),
+        ("Dockerfile", FileExplorerIconDescriptor.Kind.symbol("shippingbox.fill"), FileExplorerIconDescriptor.ColorRole.blue),
+        ("bun.lock", FileExplorerIconDescriptor.Kind.symbol("lock.fill"), FileExplorerIconDescriptor.ColorRole.purple),
+        ("preview.png", FileExplorerIconDescriptor.Kind.symbol("photo.fill"), FileExplorerIconDescriptor.ColorRole.purple),
+        ("notes.txt", FileExplorerIconDescriptor.Kind.symbol("doc"), FileExplorerIconDescriptor.ColorRole.neutral),
+    ])
+    func fileNamesReceiveDistinctSemanticIcons(
+        fileName: String,
+        expectedKind: FileExplorerIconDescriptor.Kind,
+        expectedColor: FileExplorerIconDescriptor.ColorRole
+    ) {
+        let descriptor = FileExplorerIconDescriptor(fileName: fileName)
+
+        #expect(descriptor.kind == expectedKind)
+        #expect(descriptor.colorRole == expectedColor)
+    }
+
     private func forEachAppearance(
         _ body: (NSAppearance, NSColor) throws -> Void
     ) throws {

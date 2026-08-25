@@ -143,6 +143,10 @@ extension ContentView {
         switch mode {
         case .files:
             return "palette.showRightSidebarFiles"
+        case .gitGraph:
+            return "palette.showRightSidebarGitGraph"
+        case .herd:
+            return "palette.showRightSidebarHerd"
         case .find:
             return "palette.showRightSidebarFind"
         case .sessions:
@@ -172,6 +176,10 @@ extension ContentView {
         switch mode {
         case .files:
             return "palette.openFilesPane"
+        case .gitGraph:
+            return "palette.openGitGraphPane"
+        case .herd:
+            return "palette.openHerdPane"
         case .find:
             return "palette.openFindPane"
         case .sessions:
@@ -185,6 +193,10 @@ extension ContentView {
         switch mode {
         case .files:
             return String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
+        case .gitGraph:
+            return String(localized: "command.openGitGraphPane.title", defaultValue: "Open Git Graph as Pane")
+        case .herd:
+            return String(localized: "command.openHerdPane.title", defaultValue: "Open Herd as Pane")
         case .find:
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:

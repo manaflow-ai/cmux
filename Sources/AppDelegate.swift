@@ -16945,6 +16945,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newFileBrowser:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
+                      workspace.openOrFocusFileBrowserSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
+            case .newGitGraph:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
+                      workspace.openOrFocusGitGraphSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
+            case .newHerd:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
+                      workspace.openOrFocusHerdSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,

@@ -19,10 +19,11 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 enum FileExplorerPanelPresentation: Equatable {
     case files
     case find
+    case workspace
 
     var rightSidebarMode: RightSidebarMode {
         switch self {
-        case .files: return .files
+        case .files, .workspace: return .files
         case .find: return .find
         }
     }
@@ -999,7 +1000,7 @@ final class FileExplorerContainerView: NSView {
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
         guard presentation != nextPresentation else {
             // Re-selecting the active presentation is a no-op unless visibility drifted.
-            if presentation == .find, !isSearchVisible {
+            if (presentation == .find || presentation == .workspace), !isSearchVisible {
                 isSearchVisible = true
                 updateSearchLayout()
             }
@@ -1011,7 +1012,7 @@ final class FileExplorerContainerView: NSView {
         case .files:
             isSearchVisible = false
             searchController.cancel(clear: false)
-        case .find:
+        case .find, .workspace:
             isSearchVisible = true
             refreshSearchIfNeeded()
         }
@@ -1089,7 +1090,7 @@ final class FileExplorerContainerView: NSView {
 #endif
             return false
         }
-        if isSearchVisible {
+        if isSearchVisible, presentation != .workspace {
             isSearchVisible = false
             searchController.cancel(clear: true)
             searchField.stringValue = ""
@@ -1205,19 +1206,21 @@ final class FileExplorerContainerView: NSView {
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
-        let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
+        let showSearchBar = isSearchVisible && effectiveHasContent && !effectiveIsLoading
+        let showSearchResults = showSearchBar
+            && (presentation != .workspace || !searchField.stringValue.isEmpty)
+        let nextSearchBarHeight = showSearchBar ? searchBarVisibleHeight : 0
 
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false
-        if applyHidden(searchBarView, !showSearch) { changed = true }
+        if applyHidden(searchBarView, !showSearchBar) { changed = true }
         if searchBarHeightConstraint.constant != nextSearchBarHeight {
             searchBarHeightConstraint.constant = nextSearchBarHeight
             changed = true
         }
-        if applyHidden(searchScrollView, !showSearch) { changed = true }
-        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if applyHidden(searchScrollView, !showSearchResults) { changed = true }
+        if applyHidden(scrollView, showSearchResults || !effectiveHasContent || effectiveIsLoading) { changed = true }
         if changed {
             needsLayout = true
         }
@@ -1417,6 +1420,17 @@ final class FileExplorerContainerView: NSView {
 #endif
 
     private func closeSearchAndFocusOutline() {
+        if presentation == .workspace {
+            cancelPendingSearchRefresh()
+            pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            searchField.stringValue = ""
+            applySearchSnapshot(.empty)
+            updateSearchLayout()
+            _ = focusOutline()
+            return
+        }
+
         if presentation == .find {
             let hadQuery = !searchField.stringValue.isEmpty
             cancelPendingSearchRefresh()
@@ -1522,9 +1536,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
         scrollSearchFieldEditorToInsertionPoint()
-        Task { @MainActor [weak self] in
-            self?.scrollSearchFieldEditorToInsertionPoint()
+        if presentation == .workspace, searchField.stringValue.isEmpty {
+            cancelPendingSearchRefresh()
+            searchController.cancel(clear: true)
+            applySearchSnapshot(.empty)
+            updateSearchLayout()
+            return
         }
+        updateSearchLayout()
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let gapMs = debugLastSearchTextChangeUptime > 0

@@ -31,6 +31,184 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test(arguments: [
+        ("App.swift", FilePreviewSyntaxLanguage.swift),
+        ("server.ts", FilePreviewSyntaxLanguage.typescript),
+        ("worker.py", FilePreviewSyntaxLanguage.python),
+        (".env.local", FilePreviewSyntaxLanguage.configuration),
+        ("Dockerfile", FilePreviewSyntaxLanguage.shell),
+        ("notes.txt", FilePreviewSyntaxLanguage.plainText),
+    ])
+    func languageIsInferredFromFileName(fileName: String, expected: FilePreviewSyntaxLanguage) {
+        #expect(FilePreviewSyntaxLanguage(fileURL: URL(fileURLWithPath: fileName)) == expected)
+    }
+
+    @Test("Swift previews receive distinct keyword, string, and comment colors")
+    func swiftSyntaxHighlightingAppliesSemanticColors() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let title = \"cmux\" // agent-first editor"
+        textView.string = source
+        let baseColor = NSColor.labelColor
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: baseColor)
+
+        let keywordColor = try #require(Self.foregroundColor(of: "let", in: source, textView: textView))
+        let stringColor = try #require(Self.foregroundColor(of: "\"cmux\"", in: source, textView: textView))
+        let commentColor = try #require(Self.foregroundColor(of: "//", in: source, textView: textView))
+        #expect(!keywordColor.isEqual(baseColor))
+        #expect(!stringColor.isEqual(baseColor))
+        #expect(!commentColor.isEqual(baseColor))
+        #expect(!keywordColor.isEqual(stringColor))
+        #expect(!stringColor.isEqual(commentColor))
+    }
+
+    @Test("comment markers inside strings stay string-colored")
+    func commentMarkersInsideStringsAreNotParsedAsComments() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = #"let endpoint = "https://cmux.dev" // production"#
+        textView.string = source
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let stringStartColor = try #require(
+            Self.foregroundColor(of: #""https:"#, in: source, textView: textView)
+        )
+        let stringTailColor = try #require(
+            Self.foregroundColor(of: #"//cmux.dev"#, in: source, textView: textView)
+        )
+        let commentColor = try #require(
+            Self.foregroundColor(of: "// production", in: source, textView: textView)
+        )
+        #expect(stringTailColor.isEqual(stringStartColor))
+        #expect(!commentColor.isEqual(stringStartColor))
+    }
+
+    @Test("large previews keep the plain-text performance path")
+    func largePreviewSkipsSyntaxRules() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let " + String(repeating: "x", count: FilePreviewSyntaxHighlighter.maximumHighlightedUTF16Length)
+        textView.string = source
+        let baseColor = NSColor.labelColor
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: baseColor)
+
+        let color = try #require(Self.foregroundColor(of: "let", in: source, textView: textView))
+        #expect(color.isEqual(baseColor))
+    }
+
+    @Test("incremental highlighting leaves distant attributes untouched")
+    func incrementalHighlightingIsBoundedToTheEditedRegion() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let first = 1\n" + String(repeating: "padding\n", count: 5_000) + "let last = 2\n"
+        textView.string = source
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let distantRange = (source as NSString).range(of: "last")
+        let sentinelColor = NSColor.systemPink
+        textView.textStorage?.addAttribute(.foregroundColor, value: sentinelColor, range: distantRange)
+
+        textView.applyIncrementalFilePreviewSyntaxHighlight(editedRange: NSRange(location: 4, length: 1))
+
+        let retainedColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: distantRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        #expect(retainedColor.isEqual(sentinelColor))
+        let affectedRange = FilePreviewSyntaxHighlighter.affectedRange(
+            for: NSRange(location: 4, length: 1),
+            in: source
+        )
+        #expect(affectedRange.length < (source as NSString).length)
+    }
+
+    @Test("incremental highlighting falls back when a block comment begins before its context")
+    func incrementalHighlightingPreservesLongBlockComments() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "/*\n" + String(repeating: "padding\n", count: 2_000) + "let stillComment = true\n*/"
+        textView.string = source
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let keywordRange = (source as NSString).range(of: "let stillComment")
+        let expectedCommentColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: keywordRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        textView.textStorage?.addAttribute(
+            .foregroundColor,
+            value: NSColor.systemPink,
+            range: keywordRange
+        )
+
+        textView.applyIncrementalFilePreviewSyntaxHighlight(editedRange: keywordRange)
+
+        let restoredColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: keywordRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        #expect(restoredColor.isEqual(expectedCommentColor))
+    }
+
+    @Test("incremental highlighting falls back when a string begins before its context")
+    func incrementalHighlightingPreservesLongStrings() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let value = \"" + String(repeating: "padding\n", count: 2_000) + "return stillString\""
+        textView.string = source
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let contentRange = (source as NSString).range(of: "return stillString")
+        let expectedStringColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: contentRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        textView.textStorage?.addAttribute(
+            .foregroundColor,
+            value: NSColor.systemPink,
+            range: contentRange
+        )
+
+        textView.applyIncrementalFilePreviewSyntaxHighlight(editedRange: contentRange)
+
+        let restoredColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: contentRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        #expect(restoredColor.isEqual(expectedStringColor))
+    }
+
+    @Test("effective appearance changes recolor syntax without a SwiftUI update")
+    func effectiveAppearanceChangeRecolorsSyntax() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.appearance = NSAppearance(named: .aqua)
+        textView.string = "let value = true"
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+        let lightColor = try #require(
+            Self.foregroundColor(of: "let", in: textView.string, textView: textView)
+        )
+
+        textView.appearance = NSAppearance(named: .darkAqua)
+        textView.viewDidChangeEffectiveAppearance()
+
+        let darkColor = try #require(
+            Self.foregroundColor(of: "let", in: textView.string, textView: textView)
+        )
+        #expect(!darkColor.isEqual(lightColor))
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -382,8 +560,23 @@ struct FilePreviewTextEditorTextKitTests {
         )
     }
 
+    private static func foregroundColor(
+        of needle: String,
+        in source: String,
+        textView: NSTextView
+    ) -> NSColor? {
+        let range = (source as NSString).range(of: needle)
+        guard range.location != NSNotFound else { return nil }
+        return textView.textStorage?.attribute(
+            .foregroundColor,
+            at: range.location,
+            effectiveRange: nil
+        ) as? NSColor
+    }
+
     private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
         var textContent = ""
+        var syntaxLanguage: FilePreviewSyntaxLanguage = .plainText
         var saveCount = 0
 
         func attachTextView(_: NSTextView) {}
@@ -396,5 +589,7 @@ struct FilePreviewTextEditorTextKitTests {
             saveCount += 1
             return nil
         }
+
+        deinit {}
     }
 }

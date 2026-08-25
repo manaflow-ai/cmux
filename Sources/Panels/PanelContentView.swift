@@ -118,6 +118,8 @@ struct PanelContentView: View {
                     panel: rightSidebarToolPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    appearance: appearance,
                     resolvedChromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

@@ -15,6 +15,8 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
 enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
+    case gitGraph = "git-graph"
+    case herd
     case find
     case sessions
     case feed
@@ -25,6 +27,8 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
+        case .gitGraph: return String(localized: "rightSidebar.mode.gitGraph", defaultValue: "Git Graph")
+        case .herd: return String(localized: "herd.title", defaultValue: "Herd")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
@@ -38,6 +42,8 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     var symbolName: String {
         switch self {
         case .files: return "folder"
+        case .gitGraph: return "arrow.triangle.branch"
+        case .herd: return "point.3.connected.trianglepath.dotted"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
@@ -50,6 +56,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
+        case .gitGraph, .herd: return nil
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
@@ -61,7 +68,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .gitGraph, .herd, .find, .sessions]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -80,7 +87,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .gitGraph, .herd, .sessions, .feed, .dock, .machines, .customSidebar:
             return false
         }
     }
@@ -402,6 +409,10 @@ struct RightSidebarPanelView: View {
                     onOpenFilePreview: onOpenFilePreview,
                     presentation: .files
                 )
+            case .gitGraph:
+                Color.clear
+            case .herd:
+                Color.clear
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,
