@@ -2245,7 +2245,7 @@ fn detached_owner_launch_applicable(
     args.should_attach_existing(ws_addr, ws_token)
         && config.server.detached_owner
         && !args.ephemeral
-        && args.agent_browser_provider.is_none()
+        && !args.agent_browser_provider
         && !provider_owned
         && stdio_is_terminal
 }
