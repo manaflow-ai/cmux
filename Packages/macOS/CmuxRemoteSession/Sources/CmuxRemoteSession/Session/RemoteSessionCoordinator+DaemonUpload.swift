@@ -101,6 +101,7 @@ extension RemoteSessionCoordinator {
         # dup, cat exits 0 after writing an empty payload even though ssh had
         # a file-backed stdin stream to forward.
         exec 3<&0
+        set -C
         cat <&3 > "$temp_path" &
         cat_pid=$!
         printf '%s\\n' "$cat_pid" > "$pid_path"
@@ -371,8 +372,12 @@ extension RemoteSessionCoordinator {
           [ -r "$cmux_pid_file" ] || continue
           cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
           case "$cmux_pid" in
-            ''|0|1|*[!0-9]*) ;;
-            *) [ "$cmux_pid" = "$$" ] || kill "$cmux_pid" 2>/dev/null || true ;;
+            ''|0|1|*[!0-9]*) continue ;;
+            *)
+              if kill -0 "$cmux_pid" 2>/dev/null; then continue; fi
+              cmux_temp_path="${cmux_pid_file%.pid}"
+              rm -f -- "$cmux_temp_path" "$cmux_pid_file"
+              ;;
           esac
         done
         """
@@ -387,7 +392,9 @@ extension RemoteSessionCoordinator {
         }
         return """
         \(processCleanup)
-        rm -f -- \(quotedRemotePath).tmp-* \(quotedRemotePath).tmp-*.pid\(specificRemoveTargets)
+        if [ -n "\(currentTemporaryPath ?? "")" ]; then
+          rm -f --\(specificRemoveTargets)
+        fi
         """
     }
 

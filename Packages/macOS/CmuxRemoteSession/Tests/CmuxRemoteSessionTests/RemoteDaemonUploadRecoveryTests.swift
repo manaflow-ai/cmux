@@ -209,13 +209,14 @@ extension RemoteDaemonUploadTests {
         #expect(uploadRequest.arguments.last?.contains("kill") == true)
         #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
         #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
-        #expect(cleanupRequest.arguments.last?.contains(".tmp-*") == true)
+        #expect(cleanupRequest.arguments.last?.contains("kill -0") == true)
+        #expect(cleanupRequest.arguments.last?.contains("rm -f -- \(remotePath).tmp-*") == false)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
         #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
     }
 
-    @Test("Remote cleanup terminates recorded writers and removes every temporary upload")
-    func cleanupScriptKillsRecordedWriters() throws {
+    @Test("Remote cleanup preserves live writers and reclaims stale uploads")
+    func cleanupScriptPreservesLiveWriters() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-cleanup-\(UUID().uuidString)",
@@ -264,10 +265,23 @@ extension RemoteDaemonUploadTests {
         cleanup.waitUntilExit()
 
         #expect(cleanup.terminationStatus == 0)
-        #expect(!fileManager.fileExists(atPath: temporaryPath))
-        #expect(!fileManager.fileExists(atPath: pidPath))
+        #expect(fileManager.fileExists(atPath: temporaryPath))
+        #expect(fileManager.fileExists(atPath: pidPath))
+        writer.terminate()
         writer.waitUntilExit()
         #expect(!writer.isRunning)
+
+        let staleCleanup = Process()
+        staleCleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        staleCleanup.arguments = ["-c", RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)]
+        staleCleanup.standardInput = FileHandle.nullDevice
+        staleCleanup.standardOutput = FileHandle.nullDevice
+        staleCleanup.standardError = FileHandle.nullDevice
+        try staleCleanup.run()
+        staleCleanup.waitUntilExit()
+        #expect(staleCleanup.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: temporaryPath))
+        #expect(!fileManager.fileExists(atPath: pidPath))
     }
 
     private func uploadRequestForRecovery(
