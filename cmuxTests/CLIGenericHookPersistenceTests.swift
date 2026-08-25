@@ -1263,6 +1263,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Cursor's failure hook must restore Running after denial, saw \(failureCommands)"
         )
 
+        let duplicateCommand = "echo duplicate"
+        for _ in 0..<2 {
+            let duplicateApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(duplicateCommand)","sandbox":false}"#
+            )
+            XCTAssertFalse(duplicateApproval.timedOut, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.status, 0, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let duplicateCompletionStart = state.snapshot().count
+        let duplicateCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(duplicateCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        let duplicateCompletionCommands = Array(state.snapshot().dropFirst(duplicateCompletionStart))
+        XCTAssertTrue(
+            duplicateCompletionCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "A retried Cursor shell hook must not leave a duplicate approval pending, saw \(duplicateCompletionCommands)"
+        )
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(duplicateCommand)")
+            },
+            "A retried Cursor shell hook must resolve as one approval, saw \(duplicateCompletionCommands)"
+        )
+
         let cancelledCommand = "rm -rf cancelled-output"
         let cancelledApproval = runCursorHook(
             "shell-exec",

@@ -365,15 +365,49 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalizedSession] else { return false }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
+            let pendingCountBeforePrune = pending.count
             pending.removeAll {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+            }
+            let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
+            let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
+            let duplicateIndex = pending.firstIndex { existing in
+                if let normalizedToolUseId,
+                   let existingToolUseId = existing.toolUseId {
+                    return normalizedToolUseId == existingToolUseId
+                }
+                // Cursor retries can omit the tool id. In that case the
+                // command fingerprint/length is the only stable identity and
+                // coalescing prevents one terminal callback from leaving a
+                // duplicate approval behind.
+                return existing.commandFingerprint == commandIdentity.fingerprint
+                    && existing.commandLength == commandIdentity.length
+            }
+            if let duplicateIndex {
+                let existing = pending[duplicateIndex]
+                if existing.commandFingerprint != commandIdentity.fingerprint
+                    || existing.commandLength != commandIdentity.length {
+                    pending[duplicateIndex] = CursorPendingShellApproval(
+                        command: normalizedCommand,
+                        toolUseId: normalizedToolUseId,
+                        createdAt: existing.createdAt
+                    )
+                }
+                if pending.count != pendingCountBeforePrune
+                    || existing.commandFingerprint != commandIdentity.fingerprint
+                    || existing.commandLength != commandIdentity.length {
+                    record.pendingCursorShellApprovals = pending
+                    record.updatedAt = now
+                    state.sessions[normalizedSession] = record
+                }
+                return true
             }
             guard pending.count < Self.maxPendingCursorShellApprovals else {
                 return false
             }
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
-                toolUseId: normalizedCursorShellToolUseId(toolUseId),
+                toolUseId: normalizedToolUseId,
                 createdAt: now
             ))
             record.pendingCursorShellApprovals = pending
@@ -399,15 +433,14 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
-        toolUseId: String? = nil,
-        afterSave: ((CursorShellApprovalResolution) -> Void)? = nil
+        toolUseId: String? = nil
     ) throws -> CursorShellApprovalResolution {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
             return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
         }
-        return try withLockedState({ state in
+        return try withLockedState { state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
                 return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
@@ -484,9 +517,7 @@ final class ClaudeHookSessionStore {
                 expired: expired,
                 remainingDisplayCommand: pending.last?.displayCommand
             )
-        }, afterSave: { resolution in
-            afterSave?(resolution)
-        })
+        }
     }
 
     /// Drops all pending Cursor shell approvals when a session stops or starts
@@ -1910,13 +1941,7 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
-    /// Runs the optional post-save hook before releasing the cross-process
-    /// lock. Callers use this only for the short visible reconciliation that
-    /// must stay ordered with the durable mutation.
-    func withLockedState<T>(
-        _ body: (inout ClaudeHookSessionStoreFile) throws -> T,
-        afterSave: ((T) -> Void)? = nil
-    ) throws -> T {
+    func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -1933,8 +1958,29 @@ final class ClaudeHookSessionStore {
         pruneExpired(&state)
         let result = try body(&state)
         try saveUnlocked(state)
-        afterSave?(result)
         return result
+    }
+
+    /// Serializes Cursor's durable resolution with its visible reconciliation.
+    ///
+    /// The state lock must be released before socket I/O, so completion hooks
+    /// use this separate lock to keep their state/UI order without blocking
+    /// unrelated session-store transactions.
+    func withCursorShellApprovalReconciliationLock<T>(
+        _ body: () throws -> T
+    ) throws -> T {
+        let lockPath = statePath + ".cursor-approval-reconcile.lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Cursor approval reconciliation lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+        return try body()
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
@@ -32155,6 +32201,7 @@ export default CMUXSessionRestore;
             var mode: String?
             var allowedShellCommands: [String] = []
             var deniedShellCommands: [String] = []
+            var didReadConfig = false
             func applyConfig(at url: URL, readsApprovalMode: Bool) {
                 let maximumConfigBytes: Int64 = 256 * 1024
                 guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
@@ -32165,6 +32212,7 @@ export default CMUXSessionRestore;
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return
                 }
+                didReadConfig = true
                 if readsApprovalMode, let configuredMode = json["approvalMode"] as? String {
                     mode = configuredMode
                 }
@@ -32190,13 +32238,13 @@ export default CMUXSessionRestore;
                     .appendingPathComponent("cli-config.json", isDirectory: false),
                 readsApprovalMode: true
             )
-            // Cursor documents allowlist as the default when approvalMode is
-            // absent, including minimal configs that only contain permissions.
-            if mode == nil {
-                mode = "allowlist"
-            }
-
             guard let rawCwd = hookCwd ?? normalizedHookValue(env["PWD"]) else {
+                // Cursor documents allowlist as the default when a readable
+                // local config omits approvalMode. With no local policy file,
+                // fail closed because team/server policy is not observable.
+                if mode == nil, didReadConfig {
+                    mode = "allowlist"
+                }
                 return (mode, allowedShellCommands, deniedShellCommands)
             }
             let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
@@ -32230,9 +32278,12 @@ export default CMUXSessionRestore;
                 applyConfig(
                     at: cwdURL
                         .appendingPathComponent(".cursor", isDirectory: true)
-                        .appendingPathComponent("cli.json", isDirectory: false),
+                    .appendingPathComponent("cli.json", isDirectory: false),
                     readsApprovalMode: false
                 )
+            }
+            if mode == nil, didReadConfig {
+                mode = "allowlist"
             }
             return (mode, allowedShellCommands, deniedShellCommands)
         }()
@@ -32756,11 +32807,17 @@ export default CMUXSessionRestore;
                 return
             }
 
-            // Resolve the durable state and enqueue its visible reconciliation
-            // while the same cross-process state lock is held. Two completion
-            // hooks can otherwise resolve in order but enqueue their UI
-            // mutations in the opposite order, resurrecting a stale approval
-            // after the final clear.
+            // Keep the durable resolution and visible reconciliation in one
+            // cross-process order, while leaving socket I/O outside the state
+            // file lock. Two completion hooks can otherwise resolve in order
+            // but enqueue their UI mutations in the opposite order,
+            // resurrecting a stale approval after the final clear.
+            func sendCursorReconciliationCommand(_ command: String) {
+                // Reconciliation is best-effort and must not hold the
+                // cross-process ordering lock behind a stalled socket.
+                _ = try? client.send(command: command, responseTimeout: 1.0)
+            }
+
             func reconcileCursorShellUI(
                 _ resolution: ClaudeHookSessionStore.CursorShellApprovalResolution
             ) {
@@ -32785,9 +32842,8 @@ export default CMUXSessionRestore;
                         body: pendingBody,
                         meta: pendingMeta
                     )
-                    _ = try? sendV1Command(
+                    sendCursorReconciliationCommand(
                         "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)",
-                        client: client
                     )
                     return
                 }
@@ -32795,34 +32851,35 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
-                _ = try? sendV1Command(
+                sendCursorReconciliationCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                _ = try? sendV1Command(
+                sendCursorReconciliationCommand(
                     "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
                 )
             }
 
-            let resolution = try? store.resolveCursorShellApproval(
-                sessionId: sessionId,
-                command: command,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: preferredAgentHookResumeWorkingDirectory(
-                    kind: def.name,
-                    current: launchCommand,
-                    currentCwd: hookCwd,
-                    mapped: mapped
-                ),
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                pid: pid,
-                launchCommand: resumeLaunchCommand,
-                toolUseId: cursorShellToolUseId(from: input),
-                afterSave: reconcileCursorShellUI
-            )
+            let resolution = try? store.withCursorShellApprovalReconciliationLock {
+                let resolution = try store.resolveCursorShellApproval(
+                    sessionId: sessionId,
+                    command: command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: preferredAgentHookResumeWorkingDirectory(
+                        kind: def.name,
+                        current: launchCommand,
+                        currentCwd: hookCwd,
+                        mapped: mapped
+                    ),
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: resumeLaunchCommand,
+                    toolUseId: cursorShellToolUseId(from: input)
+                )
+                reconcileCursorShellUI(resolution)
+                return resolution
+            }
             if let resolution, !resolution.matched, resolution.expired, !resolution.hasRemaining {
                 emitJournal(
                     .stateChanged,
