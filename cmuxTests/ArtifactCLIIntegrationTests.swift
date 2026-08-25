@@ -86,6 +86,7 @@ struct ArtifactCLIIntegrationTests {
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_WORKSPACE_ID"] = "artifact-cli-test-workspace"
+        environment["CMUX_CODEX_SESSION_ID"] = "artifact-cli-test-session"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdout

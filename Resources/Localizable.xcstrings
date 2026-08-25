@@ -272455,13 +272455,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A stable agent session or cmux workspace identity is required before writing project files."
+            "value": "A stable agent session identity is required before writing project files."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロジェクトファイルを書き込む前に、安定したエージェントセッションまたは cmux ワークスペース ID が必要です。"
+            "value": "プロジェクトファイルを書き込む前に、安定したエージェントセッション ID が必要です。"
+          }
+        }
+      }
+    },
+    "cli.projectFiles.error.tooManyOpenCopies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many project files are already open; close one and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプロジェクトファイルが多すぎます。1 つ閉じてから再試行してください。"
           }
         }
       }

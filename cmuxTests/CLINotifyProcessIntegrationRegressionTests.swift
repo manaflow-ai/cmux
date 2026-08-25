@@ -3513,7 +3513,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(git.status, 0, git.stderr)
 
         let cli = CMUXCLI(args: [])
-        let environment = ["CMUX_WORKSPACE_ID": "workspace:note-confirm"]
+        let environment = [
+            "CMUX_WORKSPACE_ID": "workspace:note-confirm",
+            "CLAUDE_CODE_SESSION_ID": "note-confirm-session",
+        ]
         try await cli.runNoteCommand(
             commandArgs: ["write", "draft", "--text", "hello", "--project", root.path],
             jsonOutput: false,
@@ -3557,7 +3560,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
             XCTFail("A provider name without a workspace or native session must not select a store")
         } catch let error as CLIError {
-            XCTAssertTrue(error.message.contains("workspace identity"), error.message)
+            XCTAssertTrue(error.message.contains("session identity"), error.message)
         }
         XCTAssertFalse(
             FileManager.default.fileExists(

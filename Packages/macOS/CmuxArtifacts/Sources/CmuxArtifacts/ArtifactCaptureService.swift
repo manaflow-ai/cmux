@@ -41,9 +41,18 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         let configuration = await store
             .configuration(projectRoot: context.projectRoot)
             .normalized
-        return configuration.allowedExtensions.contains(
+        guard configuration.allowedExtensions.contains(
             sourceURL.pathExtension.lowercased()
-        )
+        ), let values = try? sourceURL.resourceValues(
+            forKeys: [.isRegularFileKey, .fileSizeKey]
+        ), values.isRegularFile == true, let fileSize = values.fileSize,
+              fileSize >= 0 else {
+            return false
+        }
+        let limit = ArtifactFileKind(fileURL: sourceURL) == .text
+            ? configuration.maximumTextFileBytes
+            : configuration.maximumFileBytes
+        return Int64(fileSize) <= limit
     }
 
     /// Captures eligible detected paths using the project's effective policy.
