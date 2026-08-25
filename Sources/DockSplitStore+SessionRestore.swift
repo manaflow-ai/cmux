@@ -519,10 +519,11 @@ extension DockSplitStore {
             // session that may still be live under another restored owner.
             return true
         }
-        if AgentResumeLiveness.hasLiveProcess(
-            for: index.entryForStablePanel(workspaceId: workspaceId, panelId: snapshotPanelId),
-            kind: restorableAgent.kind.rawValue,
-            sessionId: restorableAgent.sessionId
+        if index.hasCurrentLiveProcessForStablePanel(
+            workspaceId: workspaceId,
+            panelId: snapshotPanelId,
+            expectedKind: restorableAgent.kind.rawValue,
+            expectedSessionId: restorableAgent.sessionId
         ) {
             return true
         }
@@ -543,13 +544,9 @@ extension DockSplitStore {
         }) else {
             return nil
         }
+        // This is a cache-only decision path. A cold cache fails closed and lets
+        // the next restore/retry use the asynchronously prepared shared index.
         return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            .map { cachedIndex in
-                ProcessDetectedResumeIndexes.loadSynchronously(
-                    cachedRestorableAgentIndex: cachedIndex
-                ).restorableAgentIndex
-            }
-            ?? RestorableAgentSessionIndex.load()
     }
 
 }

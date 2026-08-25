@@ -1049,7 +1049,7 @@ struct RestorableAgentSessionIndex: Sendable {
         expectedSessionId: String?
     ) -> Bool {
         guard let entry = entryForStablePanel(workspaceId: workspaceId, panelId: panelId),
-              !entry.processIDs.isEmpty else {
+              hasCurrentLiveProcessForStablePanel(workspaceId: workspaceId, panelId: panelId) else {
             return false
         }
         guard let expectedKind, let expectedSessionId else { return true }
@@ -1059,6 +1059,47 @@ struct RestorableAgentSessionIndex: Sendable {
                 lhs: entry.snapshot.sessionId,
                 rhs: expectedSessionId
             )
+    }
+
+    func hasCurrentLiveProcessForStablePanel(
+        workspaceId: UUID,
+        panelId: UUID,
+        expectedKind: String? = nil,
+        expectedSessionId: String? = nil,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
+    ) -> Bool {
+        guard let entry = entryForStablePanel(workspaceId: workspaceId, panelId: panelId),
+              !entry.processIDs.isEmpty else {
+            return false
+        }
+        if let expectedKind, entry.snapshot.kind.rawValue != expectedKind {
+            return false
+        }
+        if let expectedSessionId,
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: entry.snapshot.kind.rawValue,
+               lhs: entry.snapshot.sessionId,
+               rhs: expectedSessionId
+           ) {
+            return false
+        }
+        let identities = entry.agentProcessIdentities.isEmpty
+            ? entry.processIdentities
+            : entry.agentProcessIdentities
+        guard !identities.isEmpty else { return entry.processLiveness == .running }
+        return identities.contains { processID, recordedIdentity in
+            guard let currentIdentity = processIdentityProvider(processID) else {
+                return processPresenceProvider(processID) != .absent
+            }
+            return currentIdentity == recordedIdentity
+        }
     }
 
     /// Resolves a restart-stable panel while preserving a live entry for its current owner.

@@ -1267,13 +1267,9 @@ extension Workspace {
         }) else {
             return nil
         }
+        // This is a cache-only decision path. A cold cache fails closed and lets
+        // the next restore/retry use the asynchronously prepared shared index.
         return SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            .map { cachedIndex in
-                ProcessDetectedResumeIndexes.loadSynchronously(
-                    cachedRestorableAgentIndex: cachedIndex
-                ).restorableAgentIndex
-            }
-            ?? RestorableAgentSessionIndex.load()
     }
 
     private func restorePane(
@@ -1628,14 +1624,11 @@ extension Workspace {
                     // may still be attached to another owner record.
                     return true
                 }
-                let liveEntry = restoreAgentIndex.entryForStablePanel(
+                if restoreAgentIndex.hasCurrentLiveProcessForStablePanel(
                     workspaceId: id,
-                    panelId: snapshot.id
-                )
-                if AgentResumeLiveness.hasLiveProcess(
-                    for: liveEntry,
-                    kind: restorableAgent.kind.rawValue,
-                    sessionId: restorableAgent.sessionId
+                    panelId: snapshot.id,
+                    expectedKind: restorableAgent.kind.rawValue,
+                    expectedSessionId: restorableAgent.sessionId
                 ) {
                     return true
                 }
