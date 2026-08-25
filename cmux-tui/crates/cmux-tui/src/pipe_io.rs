@@ -138,15 +138,14 @@ fn classify_daemon_loss(
     socket_path: &Path,
     terminal: &TerminalPublicId,
 ) -> PipeIoExitReason {
-    let terminal_still_exists = remote
-        .refresh_tree()
-        .ok()
-        .map(|tree| tree.resolve_terminal(terminal).is_some())
-        .or_else(|| {
-            let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
-            let tree = probe.refresh_tree().ok()?;
-            Some(tree.resolve_terminal(terminal).is_some())
-        });
+    let terminal_still_exists =
+        remote.refresh_tree().ok().map(|tree| tree.resolve_terminal(terminal).is_some()).or_else(
+            || {
+                let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
+                let tree = probe.refresh_tree().ok()?;
+                Some(tree.resolve_terminal(terminal).is_some())
+            },
+        );
     match terminal_still_exists {
         Some(false) => PipeIoExitReason::TerminalEnded,
         Some(true) | None => PipeIoExitReason::DaemonLost,
