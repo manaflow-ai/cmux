@@ -86,6 +86,9 @@ public protocol SidebarGitHosting: AnyObject {
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID)
+    /// Clears the panel's branch and dependent badge state while retaining a
+    /// repository link that remains valid for a detached-head snapshot.
+    func clearPanelGitBranchPreservingRepositoryLink(workspaceId: UUID, panelId: UUID)
     /// Shows a browser-safe repository link on the panel.
     ///
     /// - Parameters:

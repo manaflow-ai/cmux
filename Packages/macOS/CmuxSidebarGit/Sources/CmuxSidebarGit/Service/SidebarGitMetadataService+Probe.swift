@@ -409,7 +409,14 @@ extension SidebarGitMetadataService {
             workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             didApplyMaterialSidebarGitChange = previousBranchState != nil
-            host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+            if snapshot.repositoryLink == nil {
+                host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+            } else {
+                host.clearPanelGitBranchPreservingRepositoryLink(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId
+                )
+            }
         }
 
         if let nextRepositoryLink = snapshot.repositoryLink {

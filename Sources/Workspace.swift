@@ -5557,14 +5557,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    func clearPanelGitBranch(panelId: UUID) {
+    /// Clears branch and dependent pull-request state for a panel.
+    ///
+    /// - Parameter preservingRepositoryLink: Keep a valid repository link
+    ///   while applying a detached-head snapshot.
+    func clearPanelGitBranch(panelId: UUID, preservingRepositoryLink: Bool = false) {
         if panelGitBranches[panelId] != nil {
             panelGitBranches.removeValue(forKey: panelId)
         }
         if panelPullRequests[panelId] != nil {
             panelPullRequests.removeValue(forKey: panelId)
         }
-        clearPanelRepositoryLink(panelId: panelId)
+        if !preservingRepositoryLink {
+            clearPanelRepositoryLink(panelId: panelId)
+        }
         if panelId == focusedPanelId {
             if gitBranch != nil {
                 gitBranch = nil

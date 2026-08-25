@@ -143,6 +143,13 @@ extension TabManager: SidebarGitHosting {
         workspacesById[workspaceId]?.clearPanelGitBranch(panelId: panelId)
     }
 
+    func clearPanelGitBranchPreservingRepositoryLink(workspaceId: UUID, panelId: UUID) {
+        workspacesById[workspaceId]?.clearPanelGitBranch(
+            panelId: panelId,
+            preservingRepositoryLink: true
+        )
+    }
+
     func updatePanelRepositoryLink(
         workspaceId: UUID,
         panelId: UUID,
