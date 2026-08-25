@@ -36,6 +36,26 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func explicitSessionMutationGuardPrefersProcessGeneration() throws {
+        let identity = try #require(AgentHookProcessIdentity(livePID: Int(getpid())))
+        let guardValue = CMUXCLI(args: []).agentMutationGuard(
+            key: "codex",
+            sessionID: "session-reused",
+            expectedPIDKey: "codex.session-reused",
+            expectedPID: identity.pid,
+            expectedProcessIdentity: identity
+        )
+
+        #expect(guardValue == .process(
+            statusKey: "codex",
+            pidKey: "codex.session-reused",
+            pid: Int32(identity.pid),
+            startSeconds: identity.startSeconds,
+            startMicroseconds: identity.startMicroseconds
+        ))
+    }
+
+    @Test
     func verifiedReplacementStartPublishesOldExitBeforeNewOccupantState() throws {
         let fixture = try Fixture()
         fixture.workspace.setAgentLifecycle(
@@ -438,7 +458,7 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
-    func staleResumeBindingRevisionCannotClearAnonymousReplacement() throws {
+    func staleResumeBindingRevisionOrAgentGuardCannotClearReplacement() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
         TerminalController.shared.setActiveTabManager(manager)
@@ -448,6 +468,13 @@ struct AgentLifecycleEventTests {
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
         let sharedSessionID = surfaceID.uuidString
+        workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: surfaceID,
+            lifecycle: .running,
+            sessionID: "session-current",
+            startsNewOccupant: true
+        )
         let original = SurfaceResumeBindingSnapshot(
             name: "Kiro",
             kind: "kiro",
@@ -489,6 +516,10 @@ struct AgentLifecycleEventTests {
                 "source": "agent-hook",
                 "agent_session_ended": true,
                 "_cmux_expected_updated_at": original.updatedAt,
+                "_cmux_agent_mutation_guard": ControlSidebarAgentMutationGuard.session(
+                    statusKey: "kiro",
+                    sessionID: "session-stale"
+                ).socketEnvelope,
             ],
         ]
         let requestData = try JSONSerialization.data(withJSONObject: request)
@@ -517,6 +548,10 @@ struct AgentLifecycleEventTests {
                 "source": "agent-hook",
                 "agent_session_ended": true,
                 "_cmux_expected_updated_at": replacement.updatedAt,
+                "_cmux_agent_mutation_guard": ControlSidebarAgentMutationGuard.session(
+                    statusKey: "kiro",
+                    sessionID: "session-current"
+                ).socketEnvelope,
             ],
         ]
         let matchingRequestData = try JSONSerialization.data(withJSONObject: matchingRequest)
@@ -872,6 +907,60 @@ struct AgentLifecycleEventTests {
                 panelId: panelID
             )
         )
+    }
+
+    @Test
+    func dockStructuredPIDReplacementPublishesOneExitBeforeReplacement() throws {
+        let source = Workspace()
+        let panelID = try #require(source.focusedPanelId)
+        let transfer = try #require(source.detachSurface(panelId: panelID))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(dock.attachDetachedSurface(transfer, inPane: paneID, focus: false))
+
+        let olderProcess = try sleepingProcess()
+        let newerProcess = try sleepingProcess()
+        defer { terminate([olderProcess, newerProcess]) }
+        let olderIdentity = try #require(
+            AgentPIDProcessIdentity(pid: olderProcess.processIdentifier)
+        )
+        let newerIdentity = try #require(
+            AgentPIDProcessIdentity(pid: newerProcess.processIdentifier)
+        )
+        try #require(olderIdentity.startedBefore(newerIdentity))
+
+        #expect(dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelID,
+            lifecycle: .running,
+            expectedPIDKey: "codex.older",
+            expectedPID: olderProcess.processIdentifier,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds,
+            startsNewOccupant: true
+        ))
+        let baseline = CmuxEventBus.shared.latestSequence
+
+        #expect(dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelID,
+            lifecycle: .running,
+            expectedPIDKey: "codex.newer",
+            expectedPID: newerProcess.processIdentifier,
+            expectedPIDStartSeconds: newerIdentity.startSeconds,
+            expectedPIDStartMicroseconds: newerIdentity.startMicroseconds,
+            startsNewOccupant: true
+        ))
+
+        let states = CmuxEventBus.shared.retainedSnapshot()
+            .filter { event in
+                event["name"] as? String == "agent.state.changed"
+                    && event["surface_id"] as? String == panelID.uuidString
+                    && (CmuxEventBus.int64(event["seq"]) ?? 0) > baseline
+            }
+            .compactMap { ($0["payload"] as? [String: Any])?["state"] as? String }
+        #expect(states == ["exit", "running"])
     }
 
     @Test

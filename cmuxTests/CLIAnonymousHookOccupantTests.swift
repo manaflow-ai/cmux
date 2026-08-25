@@ -18,12 +18,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
-        startDetachedAgentHookMockServer(
+        startDetachedMockServer(
             listenerFD: listenerFD,
             state: state,
-            surfaceId: surfaceID,
             connectionCount: 80
-        )
+        ) { line in
+            if line.hasPrefix("set_agent_lifecycle kiro unknown "),
+               line.contains(" --require-accepted") {
+                let claimCount = state.snapshot().reduce(into: 0) { count, command in
+                    if command.hasPrefix("set_agent_lifecycle kiro unknown "),
+                       command.contains(" --require-accepted"),
+                       !command.contains(" --prepare-only") {
+                        count += 1
+                    }
+                }
+                return claimCount <= 2 ? "OK:1" : "OK:0"
+            }
+            return self.agentHookMockResponse(line: line, surfaceId: surfaceID)
+        }
 
         func runKiroHook(
             _ subcommand: String,
@@ -88,15 +100,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(delayedOlderStart.status, 0, delayedOlderStart.stderr)
         XCTAssertEqual(delayedOlderStart.stdout, "{}\n")
         let delayedStartCommands = Array(state.snapshot().dropFirst(delayedStartCommandOffset))
+        let delayedClaims = delayedStartCommands.filter {
+            $0.hasPrefix("set_agent_lifecycle kiro unknown ")
+                && $0.contains(" --require-accepted")
+        }
+        XCTAssertEqual(delayedClaims.count, 1, "\(delayedStartCommands)")
+        XCTAssertTrue(
+            delayedClaims[0].contains("--expected-pid=\(firstPID)"),
+            "The app must reject the exact older process claim: \(delayedStartCommands)"
+        )
         XCTAssertFalse(
             delayedStartCommands.contains {
                 $0.hasPrefix("set_agent_pid ")
-                    || $0.hasPrefix("set_agent_lifecycle ")
+                    || ($0.hasPrefix("set_agent_lifecycle ")
+                        && !$0.contains(" --require-accepted"))
                     || $0.hasPrefix("set_status ")
                     || $0.hasPrefix("clear_notifications ")
                     || $0.hasPrefix("notify_target_async ")
             },
-            "A delayed older SessionStart must not reclaim durable or app ownership: \(delayedStartCommands)"
+            "A rejected delayed SessionStart must not publish durable or visible state: \(delayedStartCommands)"
         )
 
         let lateCommandStart = state.snapshot().count
