@@ -1716,7 +1716,7 @@ extension Workspace {
                             if restoresRemoteWorkspaceTerminalSnapshot {
                                 return $0.remoteStartupInput()
                             }
-                            sessionRestorePolicy
+                            return sessionRestorePolicy
                                 .surfaceResumeStartupLaunch(forApprovedBinding: $0)?
                                 .initialInput
                         }
