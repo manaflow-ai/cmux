@@ -79,7 +79,7 @@ public final class HiveRemoteMacSession {
         retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
         stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
         expectedInstanceTag: String? = nil,
-        requiresHostIdentity: Bool = false
+        requiresHostIdentity: Bool = true
     ) {
         self.runtime = runtime
         self.macDeviceID = macDeviceID

@@ -86,7 +86,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            requiresHostIdentity: false
         )
         session.connect()
         await transport.waitForMethod("mobile.events.subscribe")
@@ -136,7 +137,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            requiresHostIdentity: false
         )
         macSession.connect()
         try await waitUntil { macSession.phase == .connected }
@@ -218,7 +220,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            requiresHostIdentity: false
         )
         macSession.connect()
         try await waitUntil { macSession.phase == .connected }
