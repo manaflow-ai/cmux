@@ -10,6 +10,7 @@ struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
         case workspaces
         case notifications
+        case push
 
         var accessibilityIdentifier: String {
             "MobileOnboardingScreenshot-\(rawValue)"
@@ -188,6 +189,13 @@ struct OnboardingScreenshot: View {
         language: OnboardingScreenshotLanguage,
         appearance: OnboardingScreenshotAppearance
     ) -> String {
+        // The push capture is a real iPhone Lock Screen photographed once: the
+        // notification and inline reply it shows are live device output, so a
+        // single asset serves every language and appearance until per-locale
+        // captures are staged.
+        if content == .push {
+            return "Onboarding-push"
+        }
         let baseName = "Onboarding-\(content.rawValue)-\(language.rawValue)"
         switch appearance {
         case .light:
@@ -222,6 +230,11 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             preferredHeight: preferredHeight,
             metrics: metrics
         ) {
+            // The mask asset is dilated a few pixels along its contour so the
+            // screen tucks under the opaque bezel ring (no page-background
+            // bleed at the seam) while staying inside the screen rectangle:
+            // a scale transform here once lifted the mask's top corners past
+            // the frame outline as visible tabs.
             OnboardingMaskedDeviceScreen(mask: screenMask) {
                 screen
             }

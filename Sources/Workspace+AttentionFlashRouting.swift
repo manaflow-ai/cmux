@@ -30,11 +30,16 @@ extension Workspace {
                     surfaceId: target.surfaceID,
                     in: ownerWindow
                 ) == true
-            if !ownsActiveFocus,
-               !self.manualUnreadPanelIds.contains(target.containerPanelID) {
+            let response = TerminalVisualBellResponse.resolve(
+                ownsActiveFocus: ownsActiveFocus,
+                isManuallyUnread: self.manualUnreadPanelIds.contains(target.containerPanelID)
+            )
+            if response.marksUnread {
                 self.markPanelUnread(target.containerPanelID)
             }
-            ownedTerminal.triggerFlash(reason: .notificationArrival)
+            if response.flashes {
+                ownedTerminal.triggerFlash(reason: .notificationArrival)
+            }
         }
     }
 
@@ -99,5 +104,24 @@ extension Workspace {
         guard panels[panelId] != nil else { return }
         focusPanel(panelId)
         requestAttentionFlash(panelId: panelId, reason: .debug)
+    }
+}
+
+/// What one terminal BEL does, given who owns keyboard focus.
+///
+/// Ghostty's `attention` bell feature asks for attention only when the surface
+/// is not the one being used. A bell in the terminal you are typing into —
+/// readline beeping at the end of the line, `less` at the last page — is
+/// feedback to you, not news from a background pane, so it must not render as
+/// a notification arriving (the same flash `cmux notify` produces).
+struct TerminalVisualBellResponse: Equatable {
+    let marksUnread: Bool
+    let flashes: Bool
+
+    static func resolve(ownsActiveFocus: Bool, isManuallyUnread: Bool) -> TerminalVisualBellResponse {
+        if ownsActiveFocus {
+            return TerminalVisualBellResponse(marksUnread: false, flashes: false)
+        }
+        return TerminalVisualBellResponse(marksUnread: !isManuallyUnread, flashes: true)
     }
 }
