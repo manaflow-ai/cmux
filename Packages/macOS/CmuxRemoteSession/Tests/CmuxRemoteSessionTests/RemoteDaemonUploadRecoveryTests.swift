@@ -184,6 +184,7 @@ extension RemoteDaemonUploadTests {
             relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
             absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
         )
+        let remotePath = location.absolutePath
 
         do {
             try coordinator.queue.sync {
@@ -270,6 +271,8 @@ extension RemoteDaemonUploadTests {
         #expect(fileManager.fileExists(atPath: pidPath))
         writer.terminate()
         writer.waitUntilExit()
+        try Self.ageFile(atPath: pidPath)
+        try Self.ageFile(atPath: temporaryPath)
         #expect(!writer.isRunning)
 
         let staleCleanup = Process()
@@ -283,6 +286,39 @@ extension RemoteDaemonUploadTests {
         #expect(staleCleanup.terminationStatus == 0)
         #expect(!fileManager.fileExists(atPath: temporaryPath))
         #expect(!fileManager.fileExists(atPath: pidPath))
+    }
+
+    @Test("Remote cleanup keeps fresh dead and malformed markers until aged")
+    func cleanupScriptRequiresAgedMarkers() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-age-\(UUID().uuidString)", isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let remotePath = root.appendingPathComponent("quoted path's/cmuxd-remote").path
+        try fileManager.createDirectory(
+            at: URL(fileURLWithPath: remotePath).deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let deadPath = "\(remotePath).tmp-dead"
+        let malformedPath = "\(remotePath).tmp-malformed"
+        try Data("dead".utf8).write(to: URL(fileURLWithPath: deadPath))
+        try Data("999999\n".utf8).write(to: URL(fileURLWithPath: "\(deadPath).pid"))
+        try Data("malformed".utf8).write(to: URL(fileURLWithPath: malformedPath))
+        try Data("not-a-pid\n".utf8).write(to: URL(fileURLWithPath: "\(malformedPath).pid"))
+
+        #expect(try Self.runShell(RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)) == 0)
+        #expect(fileManager.fileExists(atPath: deadPath))
+        #expect(fileManager.fileExists(atPath: malformedPath))
+
+        try Self.ageFile(atPath: deadPath)
+        try Self.ageFile(atPath: "\(deadPath).pid")
+        try Self.ageFile(atPath: malformedPath)
+        try Self.ageFile(atPath: "\(malformedPath).pid")
+        #expect(try Self.runShell(RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)) == 0)
+        #expect(!fileManager.fileExists(atPath: deadPath))
+        #expect(!fileManager.fileExists(atPath: malformedPath))
     }
 
     @Test("Remote cleanup kills only the explicitly failed writer")
@@ -356,6 +392,8 @@ extension RemoteDaemonUploadTests {
 
         otherWriter.terminate()
         otherWriter.waitUntilExit()
+        try Self.ageFile(atPath: otherPath)
+        try Self.ageFile(atPath: otherPIDPath)
         let staleCleanup = RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(
             remotePath: remotePath
         )
@@ -445,5 +483,13 @@ extension RemoteDaemonUploadTests {
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private static func ageFile(atPath path: String) throws {
+        let oldDate = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: path
+        )
     }
 }

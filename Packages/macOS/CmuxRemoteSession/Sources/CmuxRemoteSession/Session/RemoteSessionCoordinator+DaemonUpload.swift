@@ -386,7 +386,14 @@ extension RemoteSessionCoordinator {
           [ -r "$cmux_pid_file" ] || continue
           cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
           case "$cmux_pid" in
-            ''|0|1|*[!0-9]*) continue ;;
+            ''|0|1|*[!0-9]*)
+              # Malformed markers are treated as stale only after the same
+              # conservative age window used for dead owners.
+              if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
+              cmux_temp_path="${cmux_pid_file%.pid}"
+              rm -f -- "$cmux_temp_path" "$cmux_pid_file"
+              continue
+              ;;
             *)
               if kill -0 "$cmux_pid" 2>/dev/null; then continue; fi
               cmux_temp_path="${cmux_pid_file%.pid}"
