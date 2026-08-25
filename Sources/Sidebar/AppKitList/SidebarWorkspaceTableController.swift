@@ -510,7 +510,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
-        let viewportAnchor = (requiresAtomicReorderReload || forceTableReload)
+        // A forced reload can follow hidden-presentation pruning, where
+        // `previousRows` is already filtered while NSTableView still holds
+        // the old graph. Do not derive an anchor from mismatched indices.
+        let viewportAnchor = requiresAtomicReorderReload
             ? SidebarWorkspaceTableViewportAnchor.capture(
                 table: containerView.tableView,
                 previousRows: previousRows,
@@ -611,13 +614,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         do {
             let table = containerView.tableView
             let spacing = table.intercellSpacing.height
-            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+            let liveWidth = currentColumnWidth()
+            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = pumpHeightOverride(
+                let served = effectivePumpHeightOverride(
                     for: rows[row].id,
-                    columnWidth: probeWidth
+                    liveWidth: liveWidth,
+                    settledWidth: probeWidth
                 )
                     ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
                     ?? rows[row].estimatedHeight
@@ -794,17 +799,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        // The latest pump override is the height currently installed in the
-        // cell. Keep it through consecutive live-width ticks until the
-        // viewport pass replaces it or an authoritative apply releases it;
-        // the stored width is used by those reconciliation paths.
-        if let override = pumpHeightOverrides[configuration.id] {
-            return override.height
+        let liveWidth = currentColumnWidth()
+        let settledWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
+        if let override = effectivePumpHeightOverride(
+            for: configuration.id,
+            liveWidth: liveWidth,
+            settledWidth: settledWidth
+        ) {
+            return override
         }
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
-            columnWidth: columnWidth
+            columnWidth: settledWidth
         ) ?? configuration.estimatedHeight
     }
 
@@ -1487,8 +1493,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard width > 0 else { return }
         // A live partial pass leaves off-screen entries at the old width, so
         // it forces a full settle even when the drag ends back at the width
-        // it started from.
-        guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
+        // it started from. A transient pump override also needs a settle when
+        // the divider returns to the settled width so its installed frame is
+        // reconciled with the cache.
+        let hasMismatchedPumpOverrides = pumpHeightOverrides.values.contains {
+            $0.columnWidth != width
+        }
+        guard width != lastMeasuredWidth
+            || hasLiveMeasuredRows
+            || hasMismatchedPumpOverrides else { return }
         var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
@@ -1722,6 +1735,26 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) -> CGFloat? {
         guard let override = pumpHeightOverrides[rowId],
               override.columnWidth == columnWidth else {
+            return nil
+        }
+        return override.height
+    }
+
+    private func effectivePumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID,
+        liveWidth: CGFloat,
+        settledWidth: CGFloat
+    ) -> CGFloat? {
+        guard let override = pumpHeightOverrides[rowId] else { return nil }
+        if override.columnWidth == liveWidth || override.columnWidth == settledWidth {
+            return override.height
+        }
+        // Between live viewport ticks, keep the most recently installed live
+        // height only while the resize remains away from the settled width.
+        guard liveWidth != settledWidth,
+              hasLiveMeasuredRows,
+              lastLiveMeasuredWidth > 0,
+              override.columnWidth == lastLiveMeasuredWidth else {
             return nil
         }
         return override.height
