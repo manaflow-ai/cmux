@@ -9294,7 +9294,7 @@ final class cmuxUITests: XCTestCase {
             timeout: 4
         ) else { return }
         let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
-            $0["keyboardDockSource"] == "notification"
+            $0["keyboardDockSource"] == "layoutGuide"
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
