@@ -835,6 +835,7 @@ import Testing
                 #expect(result["workspace_apply_skipped"] as? Bool == true)
                 #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
                 #expect(result["panel_apply_skipped"] as? Bool == true)
+                #expect(result["terminal_skip"] as? Bool == true)
             }
         }
     }
