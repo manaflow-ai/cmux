@@ -376,6 +376,7 @@ def main() -> int:
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "yes"})
             state_cookie_name = "cmux_state_host_only"
             other_state_cookie_name = "cmux_state_other_host"
+            domain_state_cookie_name = "cmux_state_domain"
             c._call(
                 "browser.cookies.set",
                 {
@@ -396,20 +397,35 @@ def main() -> int:
                     "httpOnly": True,
                 },
             )
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": domain_state_cookie_name,
+                    "value": "domain-state-secret",
+                    "url": "https://example.test/",
+                    "domain": ".example.test",
+                    "secure": True,
+                    "httpOnly": True,
+                },
+            )
             c._call("browser.state.save", {"surface_id": sid, "path": state_path})
             state_snapshot = json.loads(Path(state_path).read_text(encoding="utf-8"))
             saved_state_rows = state_snapshot.get("cookies") or []
             saved_state_names = {str(row.get("name")) for row in saved_state_rows}
             _must(
-                {state_cookie_name, other_state_cookie_name} <= saved_state_names,
+                {state_cookie_name, other_state_cookie_name, domain_state_cookie_name} <= saved_state_names,
                 f"Expected both host-only cookies in state snapshot: {state_snapshot}",
             )
             for saved_row in saved_state_rows:
                 if str(saved_row.get("name")) in {state_cookie_name, other_state_cookie_name}:
                     _must(bool(saved_row.get("hostOnly")) is True, f"Expected hostOnly state row: {saved_row}")
+                if str(saved_row.get("name")) == domain_state_cookie_name:
+                    _must(bool(saved_row.get("hostOnly")) is False, f"Expected domain-scoped state row: {saved_row}")
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "no"})
             c._call("browser.cookies.clear", {"surface_id": sid, "name": state_cookie_name})
             c._call("browser.cookies.clear", {"surface_id": sid, "name": other_state_cookie_name})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": domain_state_cookie_name})
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
@@ -438,6 +454,17 @@ def main() -> int:
                 "localhost" in str(restored_other_row.get("domain") or "").lower(),
                 f"Expected second cookie to retain localhost scope: {restored_other_cookie}",
             )
+            restored_domain_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": domain_state_cookie_name}
+            ) or {}
+            restored_domain_rows = restored_domain_cookie.get("cookies") or []
+            restored_domain_row = next(
+                (row for row in restored_domain_rows if str(row.get("name")) == domain_state_cookie_name),
+                None,
+            )
+            _must(restored_domain_row is not None, f"Expected domain-scoped state cookie: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("hostOnly")) is False, f"Expected domain scope after restore: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("httpOnly")) is True, f"Expected domain HttpOnly after restore: {restored_domain_cookie}")
             try:
                 os.unlink(state_path)
             except Exception:

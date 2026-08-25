@@ -10340,7 +10340,7 @@ class TerminalController {
         let originURL: URL?
         if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
             originURL = url
-        } else if hostOnly, let serializedDomain {
+        } else if let serializedDomain {
             originURL = v2BrowserCookieOriginURL(for: serializedDomain, secure: secure)
         } else {
             originURL = fallbackURL
