@@ -6,33 +6,38 @@
 // to austin@manaflow.ai). The audience send itself is a human click in the
 // Resend dashboard.
 //
-// The greeting personalizes via Resend's contact merge tags. The segment
-// sync populates first_name on each contact, and
-// {{{contact.first_name|there}}} falls back to "there" for contacts without
-// one, so a broadcast never renders "Hi ," or "Hi undefined,".
+// The opening line personalizes via Resend's contact merge tags ("Hey,
+// {{{contact.first_name|there}}}.") ahead of a fixed founders-voice intro
+// ("Austin from cmux here."). The segment sync populates first_name on each
+// contact, and the merge tag's explicit "there" fallback means a broadcast
+// never renders "Hey, ," or "Hey, undefined.".
 
-import { Button, Heading, Link, Section, Text } from "@react-email/components";
+import { Button, Img, Link, Section, Text } from "@react-email/components";
 
+import type { Locale } from "../i18n/routing";
+import { MarketingEmailLayout, layoutStyles } from "./components/email-layout";
 import {
-  MarketingEmailLayout,
-  layoutStyles,
-} from "./components/email-layout";
+  DEFAULT_NEWSLETTER_LOCALE,
+  DEFAULT_NEWSLETTER_COPY,
+  type NewsletterSectionCopy,
+} from "./newsletter-copy";
 
 export const FIRST_NAME_GREETING_TOKEN = "{{{contact.first_name|there}}}";
 
-export type ProductUpdateSection = {
-  title: string;
-  body: string;
-  linkText?: string;
-  linkUrl?: string;
-};
+export type ProductUpdateSection = NewsletterSectionCopy;
 
 export type ProductUpdateEmailProps = {
   previewText: string;
   headline: string;
+  locale: Locale;
+  footerCopy: { receiptNotice: string; unsubscribe: string };
+  greetingTemplate: string;
+  signoff: string;
   // Overridable so one-off test sends (where merge tags are not substituted)
   // can show a concrete name; broadcasts keep the merge-tag default.
   greetingName?: string;
+  // One-line summary shown under the greeting, e.g. "This week, we shipped
+  // X, Y, and Z. Here's what's new:".
   intro?: string;
   sections: ProductUpdateSection[];
   ctaText?: string;
@@ -42,46 +47,68 @@ export type ProductUpdateEmailProps = {
 export default function ProductUpdateEmail({
   previewText,
   headline,
+  locale,
+  footerCopy,
+  greetingTemplate,
+  signoff,
   greetingName,
   intro,
   sections,
   ctaText,
   ctaUrl,
 }: ProductUpdateEmailProps) {
-  // Normalize at the rendering boundary: a missing, empty, or
-  // whitespace-only override still yields a natural greeting instead of
-  // "Hi ,".
-  const greeting = greetingName?.trim() || FIRST_NAME_GREETING_TOKEN;
+  // Normalize at the rendering boundary: a missing, empty, or whitespace-only
+  // override keeps the Resend merge tag and its explicit fallback intact.
+  const greetingNameOrToken =
+    greetingName?.trim() || FIRST_NAME_GREETING_TOKEN;
+  const greeting = greetingTemplate.replace("{name}", greetingNameOrToken);
   return (
-    <MarketingEmailLayout previewText={previewText}>
-      <Heading
-        as="h1"
-        style={{
-          margin: "0 0 16px",
-          fontFamily: layoutStyles.monoStack,
-          fontSize: "22px",
-          lineHeight: "30px",
-          color: layoutStyles.ink,
-        }}
-      >
-        {headline}
-      </Heading>
-      <Text style={bodyText}>{`Hi ${greeting},`}</Text>
-      {intro ? <Text style={bodyText}>{intro}</Text> : null}
-      {sections.map((section) => (
-        <Section key={section.title} style={{ paddingTop: "8px" }}>
+    <MarketingEmailLayout
+      previewText={previewText}
+      locale={locale}
+      footerCopy={footerCopy}
+      intro={
+        <>
+          <Text style={{ ...bodyText, margin: "0 0 12px" }}>
+            {greeting}
+          </Text>
+          <Text style={{ ...bodyText, margin: 0 }}>{intro ?? headline}</Text>
+        </>
+      }
+    >
+      {sections.map((section, index) => (
+        <Section
+          key={section.title}
+          style={{ paddingTop: index > 0 ? "24px" : 0 }}
+        >
           <Text
             style={{
-              margin: "0 0 4px",
-              fontFamily: layoutStyles.monoStack,
-              fontSize: "14px",
-              fontWeight: 600,
+              margin: "0 0 8px",
+              fontFamily: layoutStyles.textStack,
+              fontSize: "18px",
+              fontWeight: 700,
+              lineHeight: "24px",
               color: layoutStyles.ink,
             }}
           >
             {section.title}
           </Text>
-          <Text style={{ ...bodyText, margin: "0 0 8px" }}>
+          {section.imageUrl ? (
+            <Section style={{ padding: "4px 0 16px" }}>
+              <Img
+                src={section.imageUrl}
+                alt={section.imageAlt ?? ""}
+                width="100%"
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  border: `1px solid ${layoutStyles.border}`,
+                  display: "block",
+                }}
+              />
+            </Section>
+          ) : null}
+          <Text style={bodyText}>
             {section.body}
             {section.linkText && section.linkUrl ? (
               <>
@@ -90,6 +117,7 @@ export default function ProductUpdateEmail({
                   href={section.linkUrl}
                   style={{
                     color: layoutStyles.ink,
+                    fontWeight: 600,
                     textDecoration: "underline",
                   }}
                 >
@@ -98,19 +126,29 @@ export default function ProductUpdateEmail({
               </>
             ) : null}
           </Text>
+          {section.bullets && section.bullets.length > 0 ? (
+            <ul style={{ margin: "0 0 12px", padding: "0 0 0 20px" }}>
+              {section.bullets.map((bullet) => (
+                <li key={bullet} style={{ ...bodyText, margin: "0 0 6px" }}>
+                  {bullet}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </Section>
       ))}
       {ctaText && ctaUrl ? (
-        <Section style={{ paddingTop: "16px" }}>
+        <Section style={{ paddingTop: "24px" }}>
           <Button
             href={ctaUrl}
             style={{
               backgroundColor: layoutStyles.ink,
               color: "#ffffff",
-              fontFamily: layoutStyles.monoStack,
+              fontFamily: layoutStyles.textStack,
+              fontWeight: 600,
               fontSize: "14px",
-              padding: "12px 20px",
-              borderRadius: "8px",
+              padding: "13px 22px",
+              borderRadius: "10px",
               textDecoration: "none",
             }}
           >
@@ -119,44 +157,31 @@ export default function ProductUpdateEmail({
         </Section>
       ) : null}
       <Text style={{ ...bodyText, margin: "24px 0 0" }}>
-        Best,
-        <br />
-        Austin and Lawrence
+        {signoff.split("\n").map((line, index) => (
+          <span key={`${line}-${index}`}>
+            {index > 0 ? <br /> : null}
+            {line}
+          </span>
+        ))}
       </Text>
     </MarketingEmailLayout>
   );
 }
 
 const bodyText = {
+  fontFamily: layoutStyles.textStack,
   margin: "0 0 12px",
   fontSize: "15px",
   lineHeight: "24px",
-  color: layoutStyles.ink,
+  color: layoutStyles.bodyInk,
 } as const;
 
 // Sample content shown by the react-email preview server and used by the
 // email:test / email:draft scripts as a starting point.
 ProductUpdateEmail.PreviewProps = {
-  previewText: "Faster terminals, iOS beta, and a smarter sidebar.",
-  headline: "cmux update: July 2026",
-  intro:
-    "Here is what shipped in cmux since the last update. Everything below is live today.",
-  sections: [
-    {
-      title: "iOS beta",
-      body: "Drive your Mac's cmux workspaces from your phone, including agent sessions and notifications.",
-      linkText: "Read the announcement",
-      linkUrl: "https://cmux.com/blog",
-    },
-    {
-      title: "Faster typing under load",
-      body: "Keystroke latency stays flat even with dozens of live terminal splits.",
-    },
-    {
-      title: "Session restore",
-      body: "cmux restore brings back your whole workspace after a reboot, shell-free.",
-    },
-  ],
-  ctaText: "Download the latest cmux",
-  ctaUrl: "https://cmux.com",
+  ...DEFAULT_NEWSLETTER_COPY.productUpdate,
+  locale: DEFAULT_NEWSLETTER_LOCALE,
+  footerCopy: DEFAULT_NEWSLETTER_COPY.footer,
+  greetingTemplate: DEFAULT_NEWSLETTER_COPY.productUpdate.greeting,
+  signoff: DEFAULT_NEWSLETTER_COPY.productUpdate.signoff,
 } satisfies ProductUpdateEmailProps;

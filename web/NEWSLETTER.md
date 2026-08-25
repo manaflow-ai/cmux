@@ -1,7 +1,7 @@
 # cmux newsletter (Resend segments + broadcasts)
 
-How to keep the two cmux Resend segments in sync and ship a product-update
-email. All commands run from `web/`.
+How to keep the two cmux Resend segments in sync and ship a product-update or
+Founder's Edition feedback email. All commands run from `web/`.
 
 ## The data model
 
@@ -131,8 +131,9 @@ naturally.
 bun run email:dev        # preview server; open the printed localhost URL
 ```
 
-Edit `web/emails/product-update.tsx` (content lives in its `PreviewProps`)
-and the browser preview live-reloads. To add a new template, create
+Edit the `emails.newsletter` copy in `web/messages/en.json` and
+`web/messages/ja.json`; the React Email components only own layout and
+interpolation. The browser preview live-reloads. To add a new template, create
 `web/emails/<name>.tsx` composing `MarketingEmailLayout`, then register it
 in `web/emails/render.ts` and `TEMPLATE_CHOICES` in
 `web/services/newsletter/cli.ts`.
@@ -140,7 +141,7 @@ in `web/emails/render.ts` and `TEMPLATE_CHOICES` in
 ## (c) Preview it in a real inbox
 
 ```bash
-bun run email:test --template product-update
+bun run email:test --template product-update --locale en
 ```
 
 Sends ONE email to `austin@manaflow.ai` (subject prefixed `[TEST]`). Any
@@ -148,12 +149,15 @@ other `--to` is refused unless you also pass
 `--dangerously-email-someone-other-than-austin`. Merge tags are not
 substituted in one-off sends: the greeting falls back to "there" (override
 with `--greeting-name Austin`) and the unsubscribe link stays a literal
-token.
+token. Use `--locale ja` for the Japanese catalog; other locales intentionally
+fall back to the English newsletter catalog until translated copy is added.
 
 ## (d) Send it for real
 
 ```bash
-bun run email:draft --template product-update --audience users
+bun run email:draft --template product-update --audience users --locale en
+# Founder's Edition feedback invite
+bun run email:draft --template founders-feedback-call --audience founders --locale ja
 ```
 
 This creates a Resend Broadcast **draft** against the chosen segment,

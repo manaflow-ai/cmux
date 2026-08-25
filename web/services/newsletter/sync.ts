@@ -21,7 +21,10 @@
 
 import { type NewsletterContact, mergeContactSources } from "./contacts";
 import { planSegmentSync } from "./reconcile";
-import type { ResendClient } from "./resend-client";
+import {
+  isDuplicateContactError,
+  type ResendClient,
+} from "./resend-client";
 
 export const USERS_SEGMENT_NAME = "cmux Users";
 export const FOUNDERS_SEGMENT_NAME = "cmux Founder's Edition";
@@ -82,14 +85,11 @@ export async function syncSegment(options: {
   const { client, segmentName, topic, desired, existingContacts, apply } =
     options;
 
-  // The topic is provisioned alongside its segment so email:draft can always
-  // attach a topic_id. Creation is apply-gated like every other write.
+  // Resolve both resources before provisioning either one. In particular, a
+  // duplicate segment name must fail before an apply run creates a topic as a
+  // side effect.
+  let segment = await client.findSegmentByName(segmentName);
   let topicRecord = await client.findTopicByName(topic.name);
-  let topicCreated = false;
-  if (!topicRecord && apply) {
-    topicRecord = await client.createTopic(topic);
-    topicCreated = true;
-  }
   // default_subscription is immutable after creation and this tooling never
   // subscribes contacts explicitly, so a same-name topic that defaults to
   // opt_out would silently suppress broadcasts for nearly the whole
@@ -103,11 +103,17 @@ export async function syncSegment(options: {
     );
   }
 
-  let segment = await client.findSegmentByName(segmentName);
+  let topicCreated = false;
   let segmentCreated = false;
   if (!segment && apply) {
     segment = await client.createSegment(segmentName);
     segmentCreated = true;
+  }
+  // Creation is apply-gated like every other write. The topic is created only
+  // after the segment lookup above has passed its ambiguity guard.
+  if (!topicRecord && apply) {
+    topicRecord = await client.createTopic(topic);
+    topicCreated = true;
   }
 
   const base = {
@@ -140,19 +146,65 @@ export async function syncSegment(options: {
     })),
     segmentMemberEmails: memberEmails,
   });
+  const initialSegmentMemberCount = memberEmails.size;
+  let createdCount = plan.toCreate.length;
+  let addedToSegmentCount = plan.toAddToSegment.length;
+  let nameBackfilledCount = plan.toBackfillName.length;
 
   if (apply && segment) {
+    createdCount = 0;
+    addedToSegmentCount = 0;
+    nameBackfilledCount = 0;
     for (const create of plan.toCreate) {
-      await client.createContact({ ...create, segmentIds: [segment.id] });
+      // Re-read immediately before creating. A contact can be unsubscribed or
+      // created by another sync after the initial global listing.
+      const latest = await client.getContactByEmail(create.email);
+      if (latest?.unsubscribed) continue;
+      if (latest) {
+        if (!memberEmails.has(create.email)) {
+          await client.addContactToSegment(latest.id, segment.id);
+          memberEmails.add(create.email);
+          addedToSegmentCount += 1;
+        }
+        continue;
+      }
+      try {
+        await client.createContact({ ...create, segmentIds: [segment.id] });
+        memberEmails.add(create.email);
+        createdCount += 1;
+      } catch (error) {
+        if (!isDuplicateContactError(error)) throw error;
+        // Another worker won the create race. Re-read before any follow-up
+        // membership write and leave an unsubscribed winner untouched.
+        const raced = await client.getContactByEmail(create.email);
+        if (raced && !raced.unsubscribed && !memberEmails.has(create.email)) {
+          await client.addContactToSegment(raced.id, segment.id);
+          memberEmails.add(create.email);
+          addedToSegmentCount += 1;
+        }
+      }
     }
     for (const add of plan.toAddToSegment) {
+      const latest = await client.getContactByEmail(add.email);
+      if (!latest || latest.unsubscribed) continue;
       await client.addContactToSegment(add.contactId, segment.id);
+      memberEmails.add(add.email);
+      addedToSegmentCount += 1;
     }
     for (const backfill of plan.toBackfillName) {
-      await client.updateContactName(backfill.contactId, {
-        firstName: backfill.firstName,
-        lastName: backfill.lastName,
-      });
+      const latest = await client.getContactByEmail(backfill.email);
+      if (!latest || latest.unsubscribed) continue;
+      // Preserve the current contact value if another actor filled it while
+      // this run was in flight; only send fields that are still missing.
+      const firstName = !latest.first_name ? backfill.firstName : undefined;
+      const lastName = !latest.last_name ? backfill.lastName : undefined;
+      if (firstName || lastName) {
+        await client.updateContactName(backfill.contactId, {
+          firstName,
+          lastName,
+        });
+        nameBackfilledCount += 1;
+      }
     }
   }
 
@@ -171,10 +223,10 @@ export async function syncSegment(options: {
     segmentId: segment?.id ?? null,
     segmentCreated,
     applied: apply && Boolean(segment),
-    existingSegmentMembers: memberEmails.size,
-    created: plan.toCreate.length,
-    addedToSegment: plan.toAddToSegment.length,
-    nameBackfilled: plan.toBackfillName.length,
+    existingSegmentMembers: initialSegmentMemberCount,
+    created: createdCount,
+    addedToSegment: addedToSegmentCount,
+    nameBackfilled: nameBackfilledCount,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,
     staleSegmentMembers,

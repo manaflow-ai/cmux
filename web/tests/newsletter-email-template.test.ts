@@ -24,35 +24,32 @@ describe("product-update template", () => {
     const { html } = await renderTemplate("product-update");
     expect(html).toContain(FIRST_NAME_GREETING_TOKEN);
     // Resend's current broadcast merge-tag syntax with an explicit fallback,
-    // so contacts without a stored name never see "Hi ,".
+    // so contacts without a stored name never see "Hey, ,".
     expect(FIRST_NAME_GREETING_TOKEN).toBe("{{{contact.first_name|there}}}");
+  });
+
+  test("opens with 'Hey, <name>. Austin from cmux here.', never 'undefined'", async () => {
+    const { html } = await renderTemplate("product-update", {
+      greetingName: "Austin",
+    });
+    expect(html).toContain("Hey, Austin. Austin from cmux here.");
+    expect(html).not.toContain("undefined");
+    expect(html).not.toContain("Hey, ,");
+  });
+
+  test("a whitespace-only greeting override falls back instead of 'Hey, ,'", async () => {
+    const { html } = await renderTemplate("product-update", {
+      greetingName: "   ",
+    });
+    expect(html).toContain(FIRST_NAME_GREETING_TOKEN);
+    expect(html).not.toContain("Hey, ,");
   });
 
   test("always renders the CAN-SPAM physical postal address in the footer", async () => {
     const { html } = await renderTemplate("product-update");
     // Assert every address component (street, locality, region, zip) so a
     // partial footer cannot pass; the separator glyph may be HTML-escaped.
-    expect(COMPANY_POSTAL_ADDRESS).toContain("Rowland Heights");
-    expect(html).toContain("18428 Vantage Pointe Dr");
-    expect(html).toContain("Rowland Heights, CA 91748-5142");
-    expect(html).toContain("Manaflow, Inc.");
-  });
-
-  test("greeting override renders a concrete name and never 'undefined'", async () => {
-    const { html } = await renderTemplate("product-update", {
-      greetingName: "Austin",
-    });
-    expect(html).toContain("Hi Austin,");
-    expect(html).not.toContain("undefined");
-    expect(html).not.toContain("Hi ,");
-  });
-
-  test("a whitespace-only greeting override falls back instead of 'Hi ,'", async () => {
-    const { html } = await renderTemplate("product-update", {
-      greetingName: "   ",
-    });
-    expect(html).toContain(FIRST_NAME_GREETING_TOKEN);
-    expect(html).not.toContain("Hi ,");
+    expect(html).toContain(COMPANY_POSTAL_ADDRESS);
   });
 
   test("subject defaults to the headline and accepts an override", async () => {
@@ -66,7 +63,22 @@ describe("product-update template", () => {
 
   test("renders cmux branding", async () => {
     const { html } = await renderTemplate("product-update");
-    expect(html).toContain("https://cmux.com/logo.png");
+    expect(html).toContain("Austin from cmux here.");
     expect(html).toContain("Manaflow, Inc.");
+  });
+
+  test("renders bullet lists inside a section when provided", async () => {
+    const { html } = await renderTemplate("product-update");
+    expect(html).toContain("Full agent session history, synced live from your Mac");
+  });
+
+  test("renders the selected locale catalog and lang attribute", async () => {
+    const { html, subject } = await renderTemplate("product-update", {
+      locale: "ja",
+    });
+    expect(html).toContain('<html lang="ja"');
+    expect(html).toContain("cmux の Austin です");
+    expect(html).not.toContain("Austin from cmux here.");
+    expect(subject).toContain("cmux アップデート");
   });
 });

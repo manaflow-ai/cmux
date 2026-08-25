@@ -10,15 +10,22 @@
 //     a hopeful --send) are hard errors. Broadcast sending is a human click
 //     in the Resend dashboard, by design.
 
+import { locales, type Locale } from "../../i18n/routing";
+import { normalizeEmail } from "./contacts";
+
 export const AUDIENCE_CHOICES = ["users", "founders", "all"] as const;
 export type AudienceChoice = (typeof AUDIENCE_CHOICES)[number];
 
-export const TEMPLATE_CHOICES = ["product-update"] as const;
+export const TEMPLATE_CHOICES = [
+  "product-update",
+  "founders-feedback-call",
+] as const;
 export type TemplateChoice = (typeof TEMPLATE_CHOICES)[number];
 
 export const DEFAULT_TEST_RECIPIENT = "austin@manaflow.ai";
 export const TEST_RECIPIENT_OVERRIDE_FLAG =
   "--dangerously-email-someone-other-than-austin";
+export const LOCALE_CHOICES = locales;
 
 // Value-taking flags must not swallow a following flag as their value; a
 // missing value fails loudly instead of silently shifting the argument
@@ -65,12 +72,17 @@ export type DraftArgs = {
   template: TemplateChoice;
   audience: Exclude<AudienceChoice, "all">;
   subject?: string;
+  // A draft is authored in one locale. Resend broadcasts do not currently
+  // choose a locale per contact, so the explicit choice prevents accidental
+  // language claims and defaults to the English catalog in renderTemplate.
+  locale?: Locale;
 };
 
 export function parseDraftArgs(argv: string[]): DraftArgs {
   let template: TemplateChoice | null = null;
   let audience: Exclude<AudienceChoice, "all"> | null = null;
   let subject: string | undefined;
+  let locale: Locale | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--template") {
@@ -89,6 +101,12 @@ export function parseDraftArgs(argv: string[]): DraftArgs {
       audience = value;
     } else if (arg === "--subject") {
       subject = flagValue("--subject", argv[++i]);
+    } else if (arg === "--locale") {
+      const value = flagValue("--locale", argv[++i]);
+      if (!locales.includes(value as Locale)) {
+        throw new Error(`--locale must be one of: ${locales.join(", ")}`);
+      }
+      locale = value as Locale;
     } else {
       // No pass-through: anything unrecognized (including any send-shaped
       // flag) aborts before a single API call is made.
@@ -101,13 +119,19 @@ export function parseDraftArgs(argv: string[]): DraftArgs {
   if (!audience) {
     throw new Error('--audience is required ("users" or "founders")');
   }
-  return { template, audience, ...(subject ? { subject } : {}) };
+  return {
+    template,
+    audience,
+    ...(subject ? { subject } : {}),
+    ...(locale ? { locale } : {}),
+  };
 }
 
 export type TestSendArgs = {
   template: TemplateChoice;
   to: string;
   greetingName?: string;
+  locale?: Locale;
 };
 
 export function parseTestSendArgs(argv: string[]): TestSendArgs {
@@ -115,6 +139,7 @@ export function parseTestSendArgs(argv: string[]): TestSendArgs {
   let to = DEFAULT_TEST_RECIPIENT;
   let overrideAcknowledged = false;
   let greetingName: string | undefined;
+  let locale: Locale | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--template") {
@@ -131,6 +156,12 @@ export function parseTestSendArgs(argv: string[]): TestSendArgs {
       overrideAcknowledged = true;
     } else if (arg === "--greeting-name") {
       greetingName = flagValue("--greeting-name", argv[++i]);
+    } else if (arg === "--locale") {
+      const value = flagValue("--locale", argv[++i]);
+      if (!locales.includes(value as Locale)) {
+        throw new Error(`--locale must be one of: ${locales.join(", ")}`);
+      }
+      locale = value as Locale;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -138,15 +169,20 @@ export function parseTestSendArgs(argv: string[]): TestSendArgs {
   if (!template) {
     throw new Error("--template is required");
   }
-  if (
-    to.toLowerCase() !== DEFAULT_TEST_RECIPIENT &&
-    !overrideAcknowledged
-  ) {
+  const normalizedTo = normalizeEmail(to);
+  if (!normalizedTo) {
+    throw new Error("--to must be a valid email address");
+  }
+  if (normalizedTo !== DEFAULT_TEST_RECIPIENT && !overrideAcknowledged) {
     throw new Error(
-      `Refusing to send a test email to ${to}. The only default-allowed ` +
-        `recipient is ${DEFAULT_TEST_RECIPIENT}; pass ` +
-        `${TEST_RECIPIENT_OVERRIDE_FLAG} if you really mean it.`,
+      "Refusing to send a test email to a non-default recipient; pass the " +
+        `${TEST_RECIPIENT_OVERRIDE_FLAG} flag if you really mean it.`,
     );
   }
-  return { template, to, ...(greetingName ? { greetingName } : {}) };
+  return {
+    template,
+    to: normalizedTo,
+    ...(greetingName ? { greetingName } : {}),
+    ...(locale ? { locale } : {}),
+  };
 }

@@ -1,7 +1,7 @@
 // Send ONE one-off preview email for inbox/mobile/dark-mode checking.
 //
 //   bun run email:test --template product-update
-//   bun run email:test --template product-update --greeting-name Austin
+//   bun run email:test --template product-update --greeting-name Austin --locale ja
 //
 // The recipient is hardcoded to austin@manaflow.ai. Any other --to value is
 // refused unless the explicit override flag
@@ -29,18 +29,21 @@ const args = parseTestSendArgs(process.argv.slice(2));
 // text instead of a raw {{{FIRST_NAME|there}}} token in the preview.
 const rendered = await renderTemplate(args.template, {
   greetingName: args.greetingName ?? "there",
+  locale: args.locale,
 });
 
 const client = new ResendClient({ apiKey: requiredEnv("RESEND_API_KEY") });
 const from = newsletterFrom();
-const sent = await client.sendEmail({
+await client.sendEmail({
   from,
   to: args.to,
   subject: `[TEST] ${rendered.subject}`,
   html: rendered.html,
 });
 
-console.log(`Test email sent to ${args.to} (id ${sent.id}).`);
+// Do not echo the recipient address or provider-generated message id into
+// terminal/CI logs; the command's success is all the operator needs here.
+console.log("Test email sent successfully.");
 console.log(
   "Note: the unsubscribe link is a literal merge token in test sends; it is " +
     "substituted per contact only when Resend sends a broadcast.",

@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import type { FetchLike } from "../services/newsletter/resend-client";
 import { listStackContacts } from "../services/newsletter/stack-source";
 import { listFounderContacts } from "../services/newsletter/stripe-source";
+import { fetchSourceJson } from "../services/newsletter/source-http";
 
 type CannedResponse = { status?: number; body: unknown };
 
@@ -145,6 +146,78 @@ describe("listStackContacts", () => {
 
     expect(calls).toHaveLength(2);
     expect(result.contacts.map((c) => c.email)).toEqual(["ada@example.com"]);
+  });
+
+  test("bounds endlessly advancing cursors", async () => {
+    const { fetchImpl } = fetchScript((url) => {
+      const cursor = new URL(url).searchParams.get("cursor") ?? "first";
+      return {
+        body: {
+          items: [
+            {
+              primary_email: `${cursor}@example.com`,
+              primary_email_verified: true,
+            },
+          ],
+          pagination: { next_cursor: `${cursor}-next` },
+        },
+      };
+    });
+    await expect(
+      listStackContacts({
+        projectId: "proj",
+        secretServerKey: "secret",
+        fetchImpl,
+        maxPages: 2,
+      }),
+    ).rejects.toThrow(/page limit/);
+  });
+});
+
+describe("fetchSourceJson", () => {
+  test("retries transport failures without exposing the thrown detail", async () => {
+    let calls = 0;
+    const fetchImpl: FetchLike = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("secret socket URL");
+      return {
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ ok: true }),
+      };
+    };
+    await expect(
+      fetchSourceJson({
+        fetchImpl,
+        url: "https://source.test/users",
+        label: "source listing",
+        backoffBaseMs: 0,
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
+  test("honors a bounded Retry-After for rate limits", async () => {
+    let calls = 0;
+    const fetchImpl: FetchLike = async () => {
+      calls += 1;
+      return {
+        status: 429,
+        headers: { get: (name: string) => (name === "retry-after" ? "3600" : null) },
+        text: async () => "{}",
+      };
+    };
+    await expect(
+      fetchSourceJson({
+        fetchImpl,
+        url: "https://source.test/users",
+        label: "source listing",
+        maxAttempts: 2,
+        maxRetryAfterMs: 0,
+        backoffBaseMs: 0,
+      }),
+    ).rejects.toThrow(/429/);
+    expect(calls).toBe(2);
   });
 });
 

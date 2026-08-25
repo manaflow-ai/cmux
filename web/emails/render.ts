@@ -9,10 +9,18 @@ import { render } from "@react-email/render";
 import { createElement } from "react";
 
 import type { TemplateChoice } from "@/services/newsletter/cli";
+import type { Locale } from "../i18n/routing";
 
+import FoundersFeedbackCallEmail, {
+  type FoundersFeedbackCallEmailProps,
+} from "./founders-feedback-call";
 import ProductUpdateEmail, {
   type ProductUpdateEmailProps,
 } from "./product-update";
+import {
+  DEFAULT_NEWSLETTER_LOCALE,
+  loadNewsletterCopy,
+} from "./newsletter-copy";
 
 export type RenderedEmail = {
   html: string;
@@ -21,12 +29,23 @@ export type RenderedEmail = {
 
 export async function renderTemplate(
   template: TemplateChoice,
-  overrides: { subject?: string; greetingName?: string } = {},
+  overrides: {
+    subject?: string;
+    greetingName?: string;
+    locale?: Locale;
+  } = {},
 ): Promise<RenderedEmail> {
+  const locale = overrides.locale ?? DEFAULT_NEWSLETTER_LOCALE;
+  const copy = await loadNewsletterCopy(locale);
   switch (template) {
     case "product-update": {
       const props: ProductUpdateEmailProps = {
         ...ProductUpdateEmail.PreviewProps,
+        ...copy.productUpdate,
+        locale,
+        footerCopy: copy.footer,
+        greetingTemplate: copy.productUpdate.greeting,
+        signoff: copy.productUpdate.signoff,
         ...(overrides.greetingName
           ? { greetingName: overrides.greetingName }
           : {}),
@@ -34,6 +53,21 @@ export async function renderTemplate(
       const html = await render(createElement(ProductUpdateEmail, props));
       // A whitespace-only subject override would create a blank-subject
       // broadcast; fall back to the headline instead.
+      const subject = overrides.subject?.trim() || props.headline;
+      return { html, subject };
+    }
+    case "founders-feedback-call": {
+      const props: FoundersFeedbackCallEmailProps = {
+        ...FoundersFeedbackCallEmail.PreviewProps,
+        ...copy.foundersFeedbackCall,
+        locale,
+        footerCopy: copy.footer,
+        greetingTemplate: copy.foundersFeedbackCall.greeting,
+        ...(overrides.greetingName
+          ? { greetingName: overrides.greetingName }
+          : {}),
+      };
+      const html = await render(createElement(FoundersFeedbackCallEmail, props));
       const subject = overrides.subject?.trim() || props.headline;
       return { html, subject };
     }

@@ -3614,7 +3614,8 @@
       "testflightLink": "Inscreva-se no TestFlight: {url}",
       "testflightLinkLabel": "Inscreva-se no TestFlight",
       "signoff": "Que bom ter você por aqui!\nEquipe cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro está ativo",

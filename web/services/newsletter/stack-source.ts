@@ -15,6 +15,7 @@ import { fetchSourceJson } from "./source-http";
 
 const STACK_API_BASE = "https://api.stack-auth.com";
 const PAGE_LIMIT = 200;
+const MAX_PAGES = 10_000;
 
 type StackUser = {
   id?: string;
@@ -38,6 +39,8 @@ export async function listStackContacts(options: {
   projectId: string;
   secretServerKey: string;
   fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+  maxPages?: number;
 }): Promise<StackSourceResult> {
   const fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
   const byEmail = new Map<string, NewsletterContact>();
@@ -45,8 +48,23 @@ export async function listStackContacts(options: {
   let skipped = 0;
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
+  let pageCount = 0;
 
   for (;;) {
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error(
+        "Stack Auth pagination repeated a cursor; refusing to continue with " +
+          "a truncated user listing.",
+      );
+    }
+    if (cursor) seenCursors.add(cursor);
+    pageCount += 1;
+    if (pageCount > (options.maxPages ?? MAX_PAGES)) {
+      throw new Error(
+        "Stack Auth pagination exceeded the safety page limit; refusing " +
+          "to continue with an unbounded user listing.",
+      );
+    }
     // include_restricted covers users who signed up but have not finished
     // every onboarding requirement (Stack omits them by default). The
     // verified-primary-email filter below still applies, so unverified
@@ -69,6 +87,7 @@ export async function listStackContacts(options: {
         "x-stack-secret-server-key": options.secretServerKey,
       },
       label: "Stack Auth user listing",
+      signal: options.signal,
     });
     const items = page.items ?? [];
     for (const user of items) {
@@ -99,7 +118,6 @@ export async function listStackContacts(options: {
           "a truncated user listing.",
       );
     }
-    seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
 

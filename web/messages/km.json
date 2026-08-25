@@ -3612,7 +3612,8 @@
       "testflightLink": "ចុះឈ្មោះ TestFlight៖ {url}",
       "testflightLinkLabel": "ចុះឈ្មោះ TestFlight",
       "signoff": "រីករាយដែលមានអ្នកនៅទីនេះ!\nក្រុម cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro បានដំណើរការ",

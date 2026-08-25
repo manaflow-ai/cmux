@@ -52,6 +52,7 @@
     "@orpc/tanstack-query": "^1.14.7",
     "@orpc/zod": "^1.14.7",
     "@react-email/components": "^1.0.12",
+    "@react-email/font": "^0.0.10",
     "@react-email/render": "^2.1.0",
     "@sentry/nextjs": "10.63.0",
     "@stackframe/js": "^2.8.89",

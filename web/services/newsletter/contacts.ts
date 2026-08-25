@@ -58,7 +58,10 @@ export function splitDisplayName(raw: string | null | undefined): {
 
 // Name-completeness score used when the same email appears in multiple
 // sources with different name data.
-function nameScore(contact: { firstName?: string; lastName?: string }): number {
+export function nameScore(contact: {
+  firstName?: string;
+  lastName?: string;
+}): number {
   let score = 0;
   if (contact.firstName) score += 1;
   if (contact.lastName) score += 1;
@@ -81,10 +84,18 @@ export function mergeContactSources(
   const byEmail = new Map<string, NewsletterContact>();
   for (const list of sourceLists) {
     for (const contact of list) {
-      const existing = byEmail.get(contact.email);
+      // Keep the normalization invariant at this shared merge boundary too.
+      // A future adapter must not create duplicate contacts solely because it
+      // preserved email casing or surrounding whitespace.
+      const email = normalizeEmail(contact.email);
+      if (!email) {
+        continue;
+      }
+      const existing = byEmail.get(email);
       if (!existing) {
-        byEmail.set(contact.email, {
+        byEmail.set(email, {
           ...contact,
+          email,
           sources: [...contact.sources],
         });
         continue;

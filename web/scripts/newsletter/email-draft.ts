@@ -1,7 +1,7 @@
 // Create a Resend Broadcast DRAFT for human review. This script cannot send.
 //
 //   bun run email:draft --template product-update --audience users
-//   bun run email:draft --template product-update --audience founders --subject "cmux update"
+//   bun run email:draft --template product-update --audience founders --subject "cmux update" --locale ja
 //
 // It renders the React Email template, creates the broadcast as a draft
 // against the chosen segment (scoped to that segment's unsubscribe topic so
@@ -36,15 +36,15 @@ const client = new ResendClient({ apiKey: requiredEnv("RESEND_API_KEY") });
 const segment = await client.findSegmentByName(segmentName);
 if (!segment) {
   throw new Error(
-    `Segment "${segmentName}" does not exist in Resend. Run ` +
-      "`bun run newsletter:sync --apply` first to create and populate it.",
+    "The selected newsletter audience is not provisioned. Run " +
+      "`bun run newsletter:sync --apply` first.",
   );
 }
 const topic = await client.findTopicByName(topicName);
 if (!topic) {
   throw new Error(
-    `Topic "${topicName}" does not exist in Resend. Run ` +
-      "`bun run newsletter:sync --apply` first to create it.",
+    "The selected newsletter preference lane is not provisioned. Run " +
+      "`bun run newsletter:sync --apply` first.",
   );
 }
 // Same fail-closed gate as the sync: this tooling never subscribes contacts
@@ -52,14 +52,14 @@ if (!topic) {
 // the broadcast for nearly the whole segment.
 if (topic.defaultSubscription !== "opt_in") {
   throw new Error(
-    `Topic "${topicName}" has default_subscription ` +
-      `"${topic.defaultSubscription}" but broadcasts require "opt_in" (the ` +
-      "setting is immutable). Recreate the topic in the Resend dashboard.",
+    "The selected newsletter preference lane is configured unsafely. " +
+      "Recreate it with opt-in defaults before drafting a broadcast.",
   );
 }
 
 const rendered = await renderTemplate(args.template, {
   subject: args.subject,
+  locale: args.locale,
 });
 const from = newsletterFrom();
 
@@ -72,9 +72,7 @@ const draft = await client.createBroadcastDraft({
   name: `${args.template} (${new Date().toISOString().slice(0, 10)})`,
 });
 
-console.log(
-  `Draft broadcast created for segment "${segmentName}" (topic "${topicName}").`,
-);
+console.log(`Draft broadcast created for the ${args.audience} audience.`);
 console.log(`Review and send it here: https://resend.com/broadcasts/${draft.id}`);
 console.log(
   "This tooling never sends broadcasts; the send button in the dashboard is the only send path.",

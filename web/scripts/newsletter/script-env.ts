@@ -7,7 +7,9 @@ export const DEFAULT_NEWSLETTER_FROM = "Austin Wang <austin@manaflow.ai>";
 export function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(`Missing required env var ${name}`);
+    // Do not echo secret/configuration key names into user-facing CLI output;
+    // operators can consult NEWSLETTER.md for the required configuration.
+    throw new Error("Newsletter configuration is incomplete.");
   }
   return value;
 }

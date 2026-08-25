@@ -1,42 +1,34 @@
 // Purchase-time segment upsert: when a Founder's Edition checkout completes
-// with a successful payment, add the buyer to both cmux segments ("cmux
-// Users" is a superset that includes founders; "cmux Founder's Edition" is
-// the founders-only list).
+// with a successful payment, add the buyer to both cmux segments ("cmux Users"
+// is a superset; "cmux Founder's Edition" is the founder-only list).
 //
-// This keeps the segments fresh between manual runs of
-// web/scripts/newsletter/sync-audiences.ts without any new cron surface: the
-// existing Stripe-signature-gated webhook is the trigger. Failures here are
-// best-effort by contract; the caller logs and still acknowledges the
-// webhook, and the reconciliation script is the catch-up mechanism. The
-// caller also bounds the whole upsert with a deadline (see withDeadline) so
-// a Resend stall can never hold the webhook open past its response.
-//
-// Subscription state is untouchable here, same as in the sync: a contact
-// with global unsubscribed=true gets no writes at all, topic preferences are
-// never written, and an existing subscribed contact only has missing name
-// fields backfilled.
+// This path is deliberately best-effort. The caller bounds it with a deadline
+// and the reconciliation script is the catch-up mechanism. Subscription state
+// is untouchable: a globally unsubscribed contact gets no writes, and the
+// latest contact state is re-read immediately before every mutation.
 
+import { isDuplicateContactError, type ResendClient } from "./resend-client";
 import { normalizeEmail, splitDisplayName } from "./contacts";
-import type { ResendClient } from "./resend-client";
 import { FOUNDERS_SEGMENT_NAME, USERS_SEGMENT_NAME } from "./sync";
 
-// "added_to_segment" also covers re-adding an existing member: Resend
-// treats that as a no-op and reporting it separately would require an extra
-// membership read per webhook for telemetry-only value.
 export type FounderContactUpsertResult = {
   segmentName: string;
   outcome:
     | "created"
-    | "added_to_segment"
+    // Membership is idempotent. The name intentionally says "ensured" rather
+    // than "added" because a repeated webhook may already have membership.
+    | "membership_ensured"
     | "name_backfilled"
     | "skipped_unsubscribed"
-    | "skipped_missing_segment";
+    | "skipped_missing_contact"
+    | "skipped_missing_segment"
+    | "failed";
 };
 
 // Bound a best-effort promise with a wall-clock deadline. When the deadline
-// fires, the provided controller is aborted so the underlying work
-// (in-flight requests, throttle pacing, 429 backoff in ResendClient) stops
-// instead of continuing detached after the caller has answered the webhook.
+// fires, the provided controller is aborted so the underlying work (in-flight
+// requests, throttle pacing, and 429 backoff) stops rather than continuing
+// detached after the caller has answered the webhook.
 export async function withDeadline<T>(
   work: Promise<T>,
   deadlineMs: number,
@@ -49,15 +41,24 @@ export async function withDeadline<T>(
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           abortOnTimeout?.abort();
-          reject(
-            new Error(`newsletter upsert exceeded ${deadlineMs}ms deadline`),
-          );
+          reject(new Error("newsletter upsert deadline exceeded"));
         }, deadlineMs);
       }),
     ]);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
+}
+
+function resultsFor(
+  segmentNames: readonly string[],
+  outcome: FounderContactUpsertResult["outcome"],
+): FounderContactUpsertResult[] {
+  return segmentNames.map((segmentName) => ({ segmentName, outcome }));
+}
+
+function isUnsubscribed(contact: { unsubscribed: boolean } | null): boolean {
+  return contact?.unsubscribed === true;
 }
 
 export async function upsertFounderIntoSegments(options: {
@@ -70,63 +71,89 @@ export async function upsertFounderIntoSegments(options: {
     throw new Error("Founder contact upsert requires a valid email");
   }
   const name = splitDisplayName(options.customerName);
-  const segmentNames = [USERS_SEGMENT_NAME, FOUNDERS_SEGMENT_NAME];
+  const segmentNames = [USERS_SEGMENT_NAME, FOUNDERS_SEGMENT_NAME] as const;
 
-  // Contacts are global: read once, decide once, then apply per segment.
-  const existing = await options.client.getContactByEmail(email);
-  if (existing?.unsubscribed) {
-    return segmentNames.map((segmentName) => ({
-      segmentName,
-      outcome: "skipped_unsubscribed",
-    }));
+  // Contacts are global: read once, decide once, then resolve both segments.
+  let existing = await options.client.getContactByEmail(email);
+  if (isUnsubscribed(existing)) {
+    return resultsFor(segmentNames, "skipped_unsubscribed");
   }
 
-  // Segments are provisioned by the sync script (or by hand); the webhook
-  // never creates them, so a typo'd or not-yet-created segment shows up as
-  // an explicit skip in the logs instead of a surprise new list. One
-  // listing resolves both names (same ambiguity rule as findSegmentByName),
-  // keeping this deadline-bounded path to a single paginated read.
   const allSegments = await options.client.listSegments();
   const segments = segmentNames.map((segmentName) => {
-    const matches = allSegments.filter((s) => s.name === segmentName);
+    const matches = allSegments.filter((segment) => segment.name === segmentName);
     if (matches.length > 1) {
       throw new Error(
         `Segment name "${segmentName}" is ambiguous: ${matches.length} ` +
           "segments share it. Rename or delete the duplicates in the " +
-          "Resend dashboard.",
+          "provider dashboard.",
       );
     }
     return { segmentName, segment: matches[0] ?? null };
   });
 
-  const results: FounderContactUpsertResult[] = [];
+  // Re-read after the potentially paginated segment lookup. This closes the
+  // common unsubscribe race before any contact mutation begins.
+  existing = await options.client.getContactByEmail(email);
+  if (isUnsubscribed(existing)) {
+    return resultsFor(segmentNames, "skipped_unsubscribed");
+  }
+
   if (!existing) {
     const segmentIds = segments
       .filter((entry) => entry.segment)
       .map((entry) => entry.segment!.id);
-    if (segmentIds.length > 0) {
-      await options.client.createContact({ email, ...name, segmentIds });
+    if (segmentIds.length === 0) {
+      return resultsFor(segmentNames, "skipped_missing_segment");
     }
-    for (const entry of segments) {
-      results.push({
+    try {
+      await options.client.createContact({ email, ...name, segmentIds });
+      return segments.map((entry) => ({
         segmentName: entry.segmentName,
         outcome: entry.segment ? "created" : "skipped_missing_segment",
-      });
+      }));
+    } catch (error) {
+      // A concurrent webhook may have created the global contact between our
+      // GET and POST. Recover only that duplicate race, then continue through
+      // the existing-contact path so both segment memberships are attempted.
+      if (!isDuplicateContactError(error)) throw error;
+      existing = await options.client.getContactByEmail(email);
+      if (!existing) throw error;
+      if (existing.unsubscribed) {
+        return resultsFor(segmentNames, "skipped_unsubscribed");
+      }
     }
-    return results;
   }
 
+  if (!existing) {
+    return resultsFor(segmentNames, "skipped_missing_contact");
+  }
+
+  // Backfill missing names, but re-read immediately before the PATCH. A
+  // contact can unsubscribe while this request is in flight; in that case no
+  // write is attempted and the caller receives an explicit skip outcome.
   const backfill: { firstName?: string; lastName?: string } = {};
-  if (!existing.first_name && name.firstName) {
-    backfill.firstName = name.firstName;
-  }
-  if (!existing.last_name && name.lastName) {
-    backfill.lastName = name.lastName;
-  }
+  if (!existing.first_name && name.firstName) backfill.firstName = name.firstName;
+  if (!existing.last_name && name.lastName) backfill.lastName = name.lastName;
+  let nameBackfilled = false;
   if (backfill.firstName || backfill.lastName) {
-    await options.client.updateContactName(existing.id, backfill);
+    const latest = await options.client.getContactByEmail(email);
+    if (!latest) return resultsFor(segmentNames, "skipped_missing_contact");
+    if (latest.unsubscribed) {
+      return resultsFor(segmentNames, "skipped_unsubscribed");
+    }
+    existing = latest;
+    try {
+      await options.client.updateContactName(existing.id, backfill);
+      nameBackfilled = true;
+    } catch {
+      // Keep attempting segment membership; the next reconciliation can retry
+      // the name backfill. Per-segment results still report failed adds below.
+      nameBackfilled = false;
+    }
   }
 
+  const results: FounderContactUpsertResult[] = [];
   for (const entry of segments) {
     if (!entry.segment) {
       results.push({
@@ -135,16 +162,34 @@ export async function upsertFounderIntoSegments(options: {
       });
       continue;
     }
-    // Membership add is idempotent from our perspective; Resend treats a
-    // re-add of an existing member as a no-op rather than an error.
-    await options.client.addContactToSegment(existing.id, entry.segment.id);
-    results.push({
-      segmentName: entry.segmentName,
-      outcome:
-        backfill.firstName || backfill.lastName
-          ? "name_backfilled"
-          : "added_to_segment",
-    });
+
+    // Re-read before every membership mutation to preserve the one-way
+    // unsubscribe guarantee across the whole webhook operation.
+    const latest = await options.client.getContactByEmail(email);
+    if (!latest) {
+      results.push({
+        segmentName: entry.segmentName,
+        outcome: "skipped_missing_contact",
+      });
+      continue;
+    }
+    if (latest.unsubscribed) {
+      results.push({
+        segmentName: entry.segmentName,
+        outcome: "skipped_unsubscribed",
+      });
+      continue;
+    }
+    try {
+      await options.client.addContactToSegment(latest.id, entry.segment.id);
+      results.push({
+        segmentName: entry.segmentName,
+        outcome: nameBackfilled ? "name_backfilled" : "membership_ensured",
+      });
+    } catch {
+      // Do not abort the second segment when the first provider call fails.
+      results.push({ segmentName: entry.segmentName, outcome: "failed" });
+    }
   }
   return results;
 }

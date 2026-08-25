@@ -3614,7 +3614,8 @@
       "testflightLink": "Prijavite se za TestFlight: {url}",
       "testflightLinkLabel": "Prijavite se za TestFlight",
       "signoff": "Drago nam je što ste ovdje!\ncmux tim"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro je aktivan",

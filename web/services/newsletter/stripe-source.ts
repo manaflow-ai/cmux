@@ -15,6 +15,7 @@
 
 import {
   type NewsletterContact,
+  nameScore,
   normalizeEmail,
   splitDisplayName,
 } from "./contacts";
@@ -23,6 +24,7 @@ import { fetchSourceJson } from "./source-http";
 
 const STRIPE_API_BASE = "https://api.stripe.com";
 const PAGE_LIMIT = 100;
+const MAX_PAGES = 10_000;
 
 type StripeCheckoutSession = {
   id: string;
@@ -50,6 +52,8 @@ export type StripeSourceResult = {
 export async function listFounderContacts(options: {
   stripeSecretKey: string;
   fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+  maxPages?: number;
 }): Promise<StripeSourceResult> {
   const fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
   const byEmail = new Map<string, NewsletterContact>();
@@ -58,8 +62,23 @@ export async function listFounderContacts(options: {
   let skippedMissingEmail = 0;
   let startingAfter: string | null = null;
   const seenCursors = new Set<string>();
+  let pageCount = 0;
 
   for (;;) {
+    if (startingAfter && seenCursors.has(startingAfter)) {
+      throw new Error(
+        "Stripe pagination repeated a cursor; refusing to continue with a " +
+          "truncated checkout-session listing.",
+      );
+    }
+    if (startingAfter) seenCursors.add(startingAfter);
+    pageCount += 1;
+    if (pageCount > (options.maxPages ?? MAX_PAGES)) {
+      throw new Error(
+        "Stripe pagination exceeded the safety page limit; refusing to " +
+          "continue with an unbounded checkout-session listing.",
+      );
+    }
     // status=complete filters server-side so the run does not page through
     // every abandoned checkout the account has ever created; the in-loop
     // status check stays as a defensive invariant.
@@ -75,6 +94,7 @@ export async function listFounderContacts(options: {
       url: `${STRIPE_API_BASE}/v1/checkout/sessions?${query.toString()}`,
       headers: { Authorization: `Bearer ${options.stripeSecretKey}` },
       label: "Stripe checkout session listing",
+      signal: options.signal,
     });
     const sessions = page.data ?? [];
     for (const session of sessions) {
@@ -107,9 +127,7 @@ export async function listFounderContacts(options: {
       }
       // A founder can have several checkout sessions; keep the most
       // complete name across them rather than whichever came first.
-      const completeness = (n: { firstName?: string; lastName?: string }) =>
-        (n.firstName ? 1 : 0) + (n.lastName ? 1 : 0);
-      if (completeness(name) > completeness(existing)) {
+      if (nameScore(name) > nameScore(existing)) {
         existing.firstName = name.firstName;
         existing.lastName = name.lastName;
       }
@@ -126,7 +144,6 @@ export async function listFounderContacts(options: {
           "truncated checkout session listing.",
       );
     }
-    seenCursors.add(nextAfter);
     startingAfter = nextAfter;
   }
 

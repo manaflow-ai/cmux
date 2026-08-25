@@ -3611,7 +3611,8 @@
       "testflightLink": "TestFlight 등록: {url}",
       "testflightLinkLabel": "TestFlight 등록",
       "signoff": "함께해 주셔서 기쁩니다!\ncmux 팀"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro 활성화됨",

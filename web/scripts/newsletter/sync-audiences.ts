@@ -162,14 +162,11 @@ if (args.json) {
     console.log(`  source ${key}: ${value}`);
   }
   for (const summary of summaries) {
-    const location = summary.segmentId
-      ? summary.segmentId
-      : "missing (would be created on --apply)";
-    console.log(`  segment "${summary.segmentName}" [${location}]`);
+    const location = summary.segmentId ? "present" : "missing";
+    console.log(`  segment ${location}`);
     console.log(
-      `    topic "${summary.topicName}" ${
-        summary.topicId ?? "missing (would be created on --apply)"
-      }${summary.topicCreated ? " (created)" : ""}`,
+      `    preference lane ${summary.topicId ? "present" : "missing"}` +
+        (summary.topicCreated ? " (created)" : ""),
     );
     console.log(
       `    desired=${summary.desiredContacts} ` +

@@ -366,8 +366,8 @@ describe("syncSegment", () => {
     expect(summary.segmentCreated).toBe(true);
     expect(summary.topicCreated).toBe(true);
     expect(fake.writes.slice(0, 2)).toEqual([
-      `create-topic:${FOUNDERS_TOPIC.name}`,
       `create-segment:${FOUNDERS_SEGMENT_NAME}`,
+      `create-topic:${FOUNDERS_TOPIC.name}`,
     ]);
     expect(fake.writes[2]).toStartWith("create-contact:founder@example.com");
   });
@@ -486,6 +486,66 @@ describe("syncSegment", () => {
     expect(summary.addedToSegment).toBe(0);
     expect(fake.writes).toEqual([]);
   });
+
+  test("rechecks unsubscribe state before each apply mutation", async () => {
+    const contactState = {
+      id: "con_1",
+      email: "race@example.com",
+      first_name: null,
+      last_name: null,
+      unsubscribed: false,
+    };
+    const writes: string[] = [];
+    let lookupCount = 0;
+    const fakeClient = {
+      async findSegmentByName() {
+        return { id: "seg_users", name: USERS_SEGMENT_NAME };
+      },
+      async findTopicByName() {
+        return {
+          id: "top_updates",
+          name: USERS_TOPIC.name,
+          defaultSubscription: "opt_in",
+        };
+      },
+      async listSegmentContacts() {
+        return [];
+      },
+      async getContactByEmail() {
+        lookupCount += 1;
+        if (lookupCount > 0) contactState.unsubscribed = true;
+        return contactState;
+      },
+      async addContactToSegment() {
+        writes.push("add");
+      },
+      async updateContactName() {
+        writes.push("patch");
+      },
+      async createContact() {
+        writes.push("create");
+      },
+    } as unknown as ResendClient;
+
+    const summary = await syncSegment({
+      client: fakeClient,
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      desired: [contact("race@example.com", "Race")],
+      existingContacts: [
+        {
+          id: "con_1",
+          email: "race@example.com",
+          unsubscribed: false,
+        },
+      ],
+      apply: true,
+    });
+
+    expect(writes).toEqual([]);
+    expect(summary.created).toBe(0);
+    expect(summary.addedToSegment).toBe(0);
+  });
 });
 
 describe("ResendClient error handling", () => {
@@ -546,6 +606,26 @@ describe("ResendClient error handling", () => {
       expect((error as Error).message).not.toContain("secret-person");
       expect((error as Error).message).toContain("/contacts/<email>");
     }
+  });
+
+  test("retries a transient Resend transport failure", async () => {
+    let calls = 0;
+    const fetchImpl: FetchLike = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("secret socket details");
+      return {
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ data: [], has_more: false }),
+      };
+    };
+    const client = new ResendClient({
+      apiKey: "re_test",
+      fetchImpl,
+      writeSpacingMs: 0,
+    });
+    await expect(client.listSegments()).resolves.toEqual([]);
+    expect(calls).toBe(2);
   });
 
   test("a cancel signal stops in-flight requests and pending backoff", async () => {

@@ -13,6 +13,7 @@ import type {
   ResendClient,
   ResendContact,
 } from "../services/newsletter/resend-client";
+import { ResendApiError } from "../services/newsletter/resend-client";
 import {
   FOUNDERS_SEGMENT_NAME,
   USERS_SEGMENT_NAME,
@@ -116,8 +117,8 @@ describe("upsertFounderIntoSegments", () => {
       "add:con_1:seg_founders",
     ]);
     expect(results.map((r) => r.outcome)).toEqual([
-      "added_to_segment",
-      "added_to_segment",
+      "membership_ensured",
+      "membership_ensured",
     ]);
   });
 
@@ -158,6 +159,118 @@ describe("upsertFounderIntoSegments", () => {
     ]);
   });
 
+  test("recovers when another delivery wins the contact-create race", async () => {
+    const state = bothSegments();
+    const existing: ResendContact = {
+      id: "con_raced",
+      email: "fred@example.com",
+      unsubscribed: false,
+    };
+    let lookups = 0;
+    const writes: string[] = [];
+    const client = {
+      async listSegments() {
+        return state.segments;
+      },
+      async getContactByEmail() {
+        lookups += 1;
+        return lookups <= 2 ? null : existing;
+      },
+      async createContact() {
+        writes.push("create");
+        throw new ResendApiError("duplicate", 409, "contact_already_exists");
+      },
+      async updateContactName() {
+        writes.push("patch");
+      },
+      async addContactToSegment(contactId: string, segmentId: string) {
+        writes.push(`add:${contactId}:${segmentId}`);
+      },
+    } as unknown as ResendClient;
+
+    const results = await upsertFounderIntoSegments({
+      client,
+      email: "fred@example.com",
+    });
+    expect(writes).toEqual([
+      "create",
+      "add:con_raced:seg_users",
+      "add:con_raced:seg_founders",
+    ]);
+    expect(results.map((result) => result.outcome)).toEqual([
+      "membership_ensured",
+      "membership_ensured",
+    ]);
+  });
+
+  test("rechecks unsubscribe state before mutating an existing contact", async () => {
+    const state = bothSegments();
+    const subscribed: ResendContact = {
+      id: "con_1",
+      email: "fred@example.com",
+      unsubscribed: false,
+    };
+    const unsubscribed = { ...subscribed, unsubscribed: true };
+    let lookups = 0;
+    const writes: string[] = [];
+    const client = {
+      async listSegments() {
+        return state.segments;
+      },
+      async getContactByEmail() {
+        lookups += 1;
+        return lookups === 1 ? subscribed : unsubscribed;
+      },
+      async addContactToSegment() {
+        writes.push("add");
+      },
+    } as unknown as ResendClient;
+
+    const results = await upsertFounderIntoSegments({
+      client,
+      email: "fred@example.com",
+    });
+    expect(writes).toEqual([]);
+    expect(results).toEqual([
+      { segmentName: USERS_SEGMENT_NAME, outcome: "skipped_unsubscribed" },
+      {
+        segmentName: FOUNDERS_SEGMENT_NAME,
+        outcome: "skipped_unsubscribed",
+      },
+    ]);
+  });
+
+  test("keeps attempting later segments when one add fails", async () => {
+    const state = bothSegments();
+    const existing: ResendContact = {
+      id: "con_1",
+      email: "fred@example.com",
+      unsubscribed: false,
+    };
+    let addCalls = 0;
+    const client = {
+      async listSegments() {
+        return state.segments;
+      },
+      async getContactByEmail() {
+        return existing;
+      },
+      async addContactToSegment() {
+        addCalls += 1;
+        if (addCalls === 1) throw new Error("temporary provider failure");
+      },
+    } as unknown as ResendClient;
+
+    const results = await upsertFounderIntoSegments({
+      client,
+      email: "fred@example.com",
+    });
+    expect(results.map((result) => result.outcome)).toEqual([
+      "failed",
+      "membership_ensured",
+    ]);
+  });
+
   test("rejects an unusable email instead of writing garbage", async () => {
     const { client } = fakeClient(bothSegments());
     await expect(
@@ -175,13 +288,13 @@ describe("withDeadline", () => {
 
   test("rejects when the work stalls past the deadline", async () => {
     const stalled = new Promise<never>(() => {});
-    await expect(withDeadline(stalled, 20)).rejects.toThrow(/deadline/);
+    await expect(withDeadline(stalled, 0)).rejects.toThrow(/deadline/);
   });
 
   test("aborts the provided controller when the deadline fires", async () => {
     const abort = new AbortController();
     const stalled = new Promise<never>(() => {});
-    await expect(withDeadline(stalled, 20, abort)).rejects.toThrow(
+    await expect(withDeadline(stalled, 0, abort)).rejects.toThrow(
       /deadline/,
     );
     expect(abort.signal.aborted).toBe(true);

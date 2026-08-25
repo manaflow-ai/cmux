@@ -68,12 +68,28 @@ export class ResendApiError extends Error {
   }
 }
 
+// Resend has used both 409 and named validation errors when a contact is
+// created concurrently. Callers can recover only this narrow race; unrelated
+// API failures must still propagate.
+export function isDuplicateContactError(error: unknown): boolean {
+  if (!(error instanceof ResendApiError)) return false;
+  const name = error.apiName?.toLowerCase() ?? "";
+  return (
+    error.status === 409 ||
+    name.includes("already_exists") ||
+    name.includes("already-exists") ||
+    name.includes("duplicate")
+  );
+}
+
 const API_BASE = "https://api.resend.com";
 const PAGE_LIMIT = 100;
+const MAX_PAGES = 10_000;
 // Resend's default rate limit is 2 requests/second; space mutating calls so a
 // large first sync does not trip it, and retry 429s with backoff regardless.
 const WRITE_SPACING_MS = 600;
 const MAX_ATTEMPTS = 5;
+const NETWORK_BACKOFF_BASE_MS = 250;
 // Cap both the per-request wall time and any server-suggested Retry-After so
 // a Resend stall cannot hold a caller (notably the Stripe webhook) open
 // indefinitely.
@@ -125,6 +141,7 @@ export class ResendClient {
   private readonly maxRetryAfterMs: number;
   private readonly cancelSignal: AbortSignal | undefined;
   private lastWriteAt = 0;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(options: {
     apiKey: string;
@@ -160,8 +177,9 @@ export class ResendClient {
       const onCancel = () => abort.abort();
       this.cancelSignal?.addEventListener("abort", onCancel, { once: true });
       const timer = setTimeout(() => abort.abort(), this.requestTimeoutMs);
-      let response: Awaited<ReturnType<FetchLike>>;
-      let text: string;
+      let response: Awaited<ReturnType<FetchLike>> | undefined;
+      let text = "";
+      let networkFailure = false;
       try {
         response = await this.fetchImpl(`${API_BASE}${path}`, {
           method,
@@ -175,7 +193,7 @@ export class ResendClient {
             : { body: JSON.stringify(options.body) }),
         });
         text = await response.text();
-      } catch (cause) {
+      } catch {
         if (this.cancelSignal?.aborted) {
           throw cancelledError(`${method} ${label}`);
         }
@@ -185,10 +203,28 @@ export class ResendClient {
             0,
           );
         }
-        throw cause;
+        // Connection-level failures are transient. Keep the error generic so
+        // a CLI or webhook log never echoes a socket/URL/provider payload.
+        networkFailure = true;
       } finally {
         clearTimeout(timer);
         this.cancelSignal?.removeEventListener("abort", onCancel);
+      }
+      if (networkFailure) {
+        if (attempt >= MAX_ATTEMPTS) {
+          throw new ResendApiError(
+            `Resend ${method} ${label} failed to reach the provider`,
+            0,
+          );
+        }
+        await sleep(
+          Math.min(NETWORK_BACKOFF_BASE_MS * attempt, this.maxRetryAfterMs),
+          this.cancelSignal,
+        );
+        continue;
+      }
+      if (!response) {
+        throw new ResendApiError(`Resend ${method} ${label} failed`, 0);
       }
       if (response.status === 429 && attempt < MAX_ATTEMPTS) {
         const retryAfter = Number(response.headers.get("retry-after"));
@@ -214,24 +250,19 @@ export class ResendClient {
           message?: string;
           name?: string;
         } | null;
-        // Resend returns 401 restricted_api_key when the key can only send
-        // emails. Surface the fix instead of a bare 401 so the operator knows
-        // this is a dashboard permission change, not a wrong key.
+        // A restricted key cannot manage segments/contacts/topics. Keep the
+        // diagnostic actionable without exposing provider or environment
+        // implementation details in a user-facing error.
         if (apiError?.name === "restricted_api_key") {
           throw new ResendApiError(
-            "The RESEND_API_KEY is restricted to sending emails only. " +
-              "Segment, contact, topic, and broadcast management require a " +
-              'key with "Full access" permission (Resend dashboard -> API Keys).',
+            "Newsletter management requires a key with Full access permission.",
             response.status,
             apiError.name,
           );
         }
-        // On PII-labeled endpoints the upstream message is dropped too: a
-        // validation error body can echo request data (for example the
-        // contact email), and these errors flow into CLI/webhook logs.
-        const detail = options.redactedLabel
-          ? (apiError?.name ?? `http_${response.status}`)
-          : (apiError?.message ?? text.slice(0, 200));
+        // Upstream bodies can echo request data (for example a contact email)
+        // and flow into CLI/webhook logs. Keep only a stable error name/status.
+        const detail = apiError?.name ?? `http_${response.status}`;
         throw new ResendApiError(
           `Resend ${method} ${label} failed with ${response.status}: ${detail}`,
           response.status,
@@ -248,13 +279,26 @@ export class ResendClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    const now = Date.now();
-    const waitMs = this.lastWriteAt + this.writeSpacingMs - now;
-    if (waitMs > 0) {
-      await sleep(waitMs, this.cancelSignal);
+    // Reserve a queue slot before awaiting. Without this, concurrent callers
+    // all observe the same lastWriteAt and wake together, defeating the rate
+    // limit this throttle is meant to enforce.
+    let release!: () => void;
+    const previous = this.writeQueue;
+    this.writeQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      const now = Date.now();
+      const waitMs = this.lastWriteAt + this.writeSpacingMs - now;
+      if (waitMs > 0) {
+        await sleep(waitMs, this.cancelSignal);
+      }
+      this.lastWriteAt = Date.now();
+      return await this.request<T>(method, path, options);
+    } finally {
+      release();
     }
-    this.lastWriteAt = Date.now();
-    return this.request<T>(method, path, options);
   }
 
   // Page through a Resend list endpoint (limit/after cursor protocol). If the
@@ -264,7 +308,16 @@ export class ResendClient {
     const items: T[] = [];
     let after: string | null = null;
     const seenCursors = new Set<string>();
+    let pageCount = 0;
     for (;;) {
+      pageCount += 1;
+      if (pageCount > MAX_PAGES) {
+        throw new ResendApiError(
+          `Resend pagination exceeded the safety page limit for ${path}; ` +
+            "refusing to continue with an unbounded listing.",
+          0,
+        );
+      }
       const separator = path.includes("?") ? "&" : "?";
       const pagedPath: string = after
         ? `${path}${separator}limit=${PAGE_LIMIT}&after=${encodeURIComponent(after)}`

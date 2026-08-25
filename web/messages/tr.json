@@ -3612,7 +3612,8 @@
       "testflightLink": "TestFlight’a kaydol: {url}",
       "testflightLinkLabel": "TestFlight’a kaydol",
       "signoff": "Aramıza katılmana sevindik!\ncmux ekibi"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",

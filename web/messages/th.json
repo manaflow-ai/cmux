@@ -3619,7 +3619,8 @@
       "testflightLink": "ลงทะเบียน TestFlight: {url}",
       "testflightLinkLabel": "ลงทะเบียน TestFlight",
       "signoff": "ดีใจที่มีคุณร่วมทาง!\nทีม cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro เปิดใช้งานแล้ว",

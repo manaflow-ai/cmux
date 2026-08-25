@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Resend } from "resend";
 
 import { env } from "@/app/env";
@@ -147,9 +147,7 @@ export async function POST(request: Request) {
       if (event.type === "checkout.session.async_payment_succeeded") {
         const asyncSession = event.data?.object;
         const asyncEmail = asyncSession?.customer_details?.email ?? null;
-        const settled =
-          asyncSession?.payment_status === "paid" ||
-          asyncSession?.payment_status === "no_payment_required";
+        const settled = isPaymentSettled(asyncSession);
         if (
           welcomeTriggerForMetadata(asyncSession?.metadata) !==
             "founders_edition" ||
@@ -158,10 +156,12 @@ export async function POST(request: Request) {
         ) {
           return NextResponse.json({ ok: true, skipped: "async_payment" });
         }
-        const upsert = await upsertFounderBestEffort(span, config, {
-          email: asyncEmail,
-          customerName: asyncSession?.customer_details?.name,
-        });
+        const upsert = await scheduleNewsletterUpsert(() =>
+          upsertFounderBestEffort(span, config, {
+            email: asyncEmail,
+            customerName: asyncSession?.customer_details?.name,
+          }),
+        );
         return NextResponse.json(
           { ok: true, upsert },
           { headers: { "Cache-Control": "no-store" } },
@@ -222,8 +222,9 @@ export async function POST(request: Request) {
       );
 
       if (error) {
-        recordSpanError(span, error);
-        console.error("stripe.founders_welcome.resend_failed", error);
+        const category = errorCategory(error);
+        recordSpanError(span, new Error(category));
+        console.error("stripe.founders_welcome.resend_failed", { category });
         // Non-2xx so Stripe retries and the email is not silently lost.
         return jsonError("Failed to send welcome email", 502);
       }
@@ -240,14 +241,14 @@ export async function POST(request: Request) {
       // emits checkout.session.completed with payment_status "unpaid" for
       // delayed payment methods that may still fail, and the additive sync
       // would never remove a buyer whose payment later fell through.
-      const paymentSettled =
-        session?.payment_status === "paid" ||
-        session?.payment_status === "no_payment_required";
+      const paymentSettled = isPaymentSettled(session);
       if (trigger === "founders_edition" && paymentSettled) {
-        await upsertFounderBestEffort(span, config, {
-          email: customerEmail,
-          customerName: session?.customer_details?.name,
-        });
+        await scheduleNewsletterUpsert(() =>
+          upsertFounderBestEffort(span, config, {
+            email: customerEmail,
+            customerName: session?.customer_details?.name,
+          }),
+        );
       }
 
       return NextResponse.json(
@@ -289,15 +290,62 @@ async function upsertFounderBestEffort(
         .map((result) => `${result.segmentName}:${result.outcome}`)
         .join(","),
     });
-    return "completed";
+    return results.some((result) => result.outcome === "failed")
+      ? "failed"
+      : "completed";
   } catch (segmentError) {
-    recordSpanError(span, segmentError);
+    const category = newsletterErrorCategory(segmentError);
+    recordSpanError(span, new Error(category));
     console.error(
       "stripe.founders_welcome.segment_upsert_failed",
-      segmentError,
+      { category },
     );
     return "failed";
   }
+}
+
+// Next's after() keeps best-effort work alive after the 2xx response on the
+// deployed runtime. Outside a request scope (unit tests and local scripts),
+// fall back to awaiting the work so failures remain observable and tests stay
+// deterministic.
+async function scheduleNewsletterUpsert(
+  work: () => Promise<"completed" | "failed">,
+): Promise<"scheduled" | "completed" | "failed"> {
+  try {
+    after(async () => {
+      await work();
+    });
+    return "scheduled";
+  } catch {
+    return work();
+  }
+}
+
+function isPaymentSettled(session: {
+  payment_status?: string | null;
+} | null | undefined): boolean {
+  return (
+    session?.payment_status === "paid" ||
+    session?.payment_status === "no_payment_required"
+  );
+}
+
+function newsletterErrorCategory(error: unknown): string {
+  if (error instanceof Error && /deadline/i.test(error.message)) {
+    return "deadline_exceeded";
+  }
+  if (error instanceof Error && error.name === "ResendApiError") {
+    return "provider_api_error";
+  }
+  return "unknown";
+}
+
+function errorCategory(error: unknown): string {
+  if (error && typeof error === "object" && "name" in error) {
+    const name = String((error as { name?: unknown }).name ?? "");
+    if (name) return "provider_" + name.replace(/[^a-z0-9_]/gi, "_");
+  }
+  return "provider_error";
 }
 
 function jsonError(message: string, status: number): Response {
