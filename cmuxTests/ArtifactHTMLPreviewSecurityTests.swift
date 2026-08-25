@@ -134,6 +134,10 @@ struct ArtifactHTMLPreviewSecurityTests {
         )
 
         #expect(try String(contentsOf: opened.readURL, encoding: .utf8) == "authorized")
+        let temporary = try #require(opened.makeTemporaryPreviewURL())
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        #expect(temporary.pathExtension == "txt")
+        #expect(try String(contentsOf: temporary, encoding: .utf8) == "authorized")
     }
 
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
@@ -155,7 +159,12 @@ struct ArtifactHTMLPreviewSecurityTests {
         let policy = ArtifactHTMLPreviewNavigationPolicy(documentURL: documentURL)
 
         #expect(policy.allowsNavigation(to: documentURL, targetIsMainFrame: true))
+        #expect(policy.allowsNavigation(
+            to: URL(string: documentURL.absoluteString + "#section"),
+            targetIsMainFrame: true
+        ))
         #expect(policy.allowsNavigation(to: URL(string: "about:srcdoc"), targetIsMainFrame: false))
+        #expect(policy.allowsNavigation(to: URL(string: "about:srcdoc#section"), targetIsMainFrame: false))
         #expect(!policy.allowsNavigation(to: URL(string: "https://example.com"), targetIsMainFrame: true))
         #expect(!policy.allowsNavigation(to: URL(fileURLWithPath: "/private/sibling.txt"), targetIsMainFrame: false))
         #expect(!policy.allowsNavigation(to: documentURL, targetIsMainFrame: nil))

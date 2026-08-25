@@ -104,19 +104,22 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importedPaths == [oldPath, rewrittenPath])
     }
 
-    @Test func skippedSourceIsRetriedWithoutAdvancingCaptureCursor() async throws {
+    @Test func missingSourceDoesNotStarveLaterArtifact() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
-        let source = projectRoot.appendingPathComponent("appears-later.md")
+        let missing = projectRoot.appendingPathComponent("missing.md")
+        let source = projectRoot.appendingPathComponent("available.md")
+        try "available".write(to: source, atomically: true, encoding: .utf8)
         let store = LocalArtifactRepository()
         let coordinator = AgentArtifactCaptureCoordinator(
             captureService: ArtifactCaptureService(store: store)
         )
         let record = captureRecord(projectRoot: projectRoot)
-        let indexed = snapshot(revision: 1, path: source.path)
+        let indexed = snapshot(
+            revision: 1,
+            artifacts: [(missing.path, 1), (source.path, 2)]
+        )
 
-        await coordinator.capture(record: record, snapshot: indexed)
-        try "now present".write(to: source, atomically: true, encoding: .utf8)
         await coordinator.capture(record: record, snapshot: indexed)
 
         let snapshot = try await store.snapshot(projectRoot: projectRoot)
