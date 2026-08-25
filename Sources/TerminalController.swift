@@ -10274,16 +10274,19 @@ class TerminalController {
             return nil
         }
 
+        let secure = v2Bool(raw, "secure") ?? false
+        let serializedDomain = raw["domain"] as? String
+        let hostOnly = v2Bool(raw, "hostOnly") == true
         let originURL: URL?
         if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
             originURL = url
+        } else if hostOnly, let serializedDomain {
+            originURL = v2BrowserCookieOriginURL(for: serializedDomain, secure: secure)
         } else {
             originURL = fallbackURL
         }
-        let hostOnly = v2Bool(raw, "hostOnly") == true
-        let domain = hostOnly ? nil : raw["domain"] as? String
+        let domain = hostOnly ? nil : serializedDomain
         let path = (raw["path"] as? String) ?? "/"
-        let secure = v2Bool(raw, "secure") ?? false
         let expires: Date?
         if let expiresValue = raw["expires"] as? TimeInterval {
             expires = Date(timeIntervalSince1970: expiresValue)
@@ -10303,6 +10306,14 @@ class TerminalController {
             expires: expires,
             httpOnly: v2Bool(raw, "httpOnly") ?? false
         )
+    }
+
+    private nonisolated func v2BrowserCookieOriginURL(for domain: String, secure: Bool) -> URL? {
+        var components = URLComponents()
+        components.scheme = secure ? "https" : "http"
+        components.host = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        components.path = "/"
+        return components.url
     }
 
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
