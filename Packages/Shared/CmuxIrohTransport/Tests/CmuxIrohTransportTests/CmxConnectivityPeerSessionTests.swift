@@ -19,7 +19,7 @@ struct CmxConnectivityPeerSessionTests {
         )
 
         let first = Task { try await peer.connectedSession(for: request) }
-        await builder.waitForFirstCall()
+        try #require(await builder.waitForFirstCall(timeout: .seconds(2)))
         let second = Task { try await peer.connectedSession(for: routeVariant) }
         await builder.release()
 
@@ -47,7 +47,7 @@ struct CmxConnectivityPeerSessionTests {
         let connected = Task {
             try await peer.connectedSession(for: request)
         }
-        await builder.waitForFirstCall()
+        try #require(await builder.waitForFirstCall(timeout: .seconds(2)))
         await builder.release()
         _ = try await connected.value
         await peer.releaseControl(ownerID: UUID())
@@ -702,7 +702,7 @@ private actor GatedConnectivitySessionBuilder {
     private let session: any CmxConnectivitySession
     private var calls = 0
     private var gate: CheckedContinuation<Void, Never>?
-    private var firstCallContinuation: CheckedContinuation<Void, Never>?
+    private var firstCallWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var hasReceivedFirstCall = false
 
     init(session: any CmxConnectivitySession) {
@@ -716,8 +716,11 @@ private actor GatedConnectivitySessionBuilder {
         calls += 1
         if !hasReceivedFirstCall {
             hasReceivedFirstCall = true
-            firstCallContinuation?.resume()
-            firstCallContinuation = nil
+            let waiters = firstCallWaiters
+            firstCallWaiters.removeAll(keepingCapacity: false)
+            for waiter in waiters.values {
+                waiter.resume()
+            }
         }
         await withCheckedContinuation { continuation in
             gate = continuation
@@ -725,15 +728,45 @@ private actor GatedConnectivitySessionBuilder {
         return session
     }
 
-    func waitForFirstCall() async {
-        guard !hasReceivedFirstCall else { return }
-        await withCheckedContinuation { continuation in
-            if hasReceivedFirstCall {
-                continuation.resume()
-            } else {
-                firstCallContinuation = continuation
+    func waitForFirstCall(timeout: Duration) async -> Bool {
+        guard !hasReceivedFirstCall else { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForFirstCallSignal()
+                return !Task.isCancelled
             }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
+    }
+
+    private func waitForFirstCallSignal() async {
+        guard !hasReceivedFirstCall else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if hasReceivedFirstCall {
+                    continuation.resume()
+                } else {
+                    firstCallWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelFirstCallWaiter(waiterID) }
+        }
+    }
+
+    private func cancelFirstCallWaiter(_ waiterID: UUID) {
+        firstCallWaiters.removeValue(forKey: waiterID)?.resume()
     }
 
     func release() {

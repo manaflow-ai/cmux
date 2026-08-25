@@ -139,6 +139,8 @@ struct SidebarWorkspaceAgentActivityTests {
 
         clock.actions.unregister(target)
         #expect(!clock.hasTargets)
+        clock.tick(at: Date(timeIntervalSince1970: 124))
+        #expect(target.receivedDates == [tickDate])
     }
 
     private static func evidence(
@@ -256,6 +258,38 @@ struct SidebarWorkspaceAgentActivityTests {
     }
 
     @Test
+    func lifecycleOnlyRuntimeSharesTheCachedSessionGeneration() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                generation: .session("lifecycle-session"),
+                lifecycle: .running,
+                startedAt: 100,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            ),
+            Self.evidence(
+                generation: .session("lifecycle-session"),
+                lifecycle: .needsInput,
+                startedAt: nil,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: true,
+                isHookBacked: false,
+                isExactProcessBinding: false
+            ),
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .needsInput)
+        #expect(activity.primaryElapsedStart == nil)
+    }
+
+    @Test
     func hookAnchorWinsOverAnEarlierRuntimeAnchorByProvenancePriority() {
         let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(
@@ -343,6 +377,31 @@ struct SidebarWorkspaceAgentActivityTests {
     }
 
     @Test
+    func correctedStatusEntriesChoosesOneMostActionableAgentPerStatusKey() {
+        let activity = SidebarWorkspaceAgentActivity(agents: [
+            SidebarAgentActivity(
+                id: "codex-running",
+                statusKey: "codex",
+                state: .running,
+                startedAt: 100
+            ),
+            SidebarAgentActivity(
+                id: "codex-needs-input",
+                statusKey: "codex",
+                state: .needsInput,
+                startedAt: nil
+            ),
+        ])
+
+        let corrected = activity.correctedStatusEntries([
+            SidebarStatusEntry(key: "codex", value: "Running")
+        ])
+
+        #expect(corrected.count == 1)
+        #expect(corrected.first?.value == SidebarWorkspaceAgentActivity.localizedStateLabel(.needsInput))
+    }
+
+    @Test
     func sessionAnchorClampsFutureClockToZero() {
         let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(lifecycle: .running, startedAt: 500)
@@ -370,7 +429,7 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(activity.agents.isEmpty)
         #expect(activity.primaryState == nil)
         #expect(activity.activeCodingAgentCount == 0)
-        #expect(activity.elapsedText(at: .now) == nil)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 10_000)) == nil)
     }
 
     @Test

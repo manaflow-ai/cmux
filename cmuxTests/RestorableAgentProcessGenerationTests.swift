@@ -222,6 +222,36 @@ struct RestorableAgentProcessGenerationTests {
         #expect(second.liveAgentProcessFingerprint() != third.liveAgentProcessFingerprint())
     }
 
+    @Test("Index fingerprint changes stay scoped to affected workspace panels")
+    func indexFingerprintChangesStayScopedToAffectedWorkspacePanels() {
+        let firstWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
+        let firstPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
+        let secondWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+        let secondPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+        let addedWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+        let addedPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+
+        let previous: Set<String> = [
+            "(firstWorkspace.uuidString)|(firstPanel.uuidString)|old",
+            "(secondWorkspace.uuidString)|(secondPanel.uuidString)|same",
+        ]
+        let current: Set<String> = [
+            "(firstWorkspace.uuidString)|(firstPanel.uuidString)|new",
+            "(secondWorkspace.uuidString)|(secondPanel.uuidString)|same",
+            "(addedWorkspace.uuidString)|(addedPanel.uuidString)|added",
+        ]
+
+        let changeSet = RestorableAgentSessionIndexChangeSet(
+            previous: previous,
+            current: current
+        )
+
+        #expect(changeSet.panelIdsByWorkspaceId == [
+            firstWorkspace: Set([firstPanel]),
+            addedWorkspace: Set([addedPanel]),
+        ])
+    }
+
     private func loadRunningFixture(
         _ fixture: Fixture,
         processArguments: CmuxTopProcessArguments,
