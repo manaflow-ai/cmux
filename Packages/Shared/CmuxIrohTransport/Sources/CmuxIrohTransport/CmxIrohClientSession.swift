@@ -291,6 +291,8 @@ public actor CmxIrohClientSession {
             switch path {
             case .unavailable:
                 return true
+            case .unknown:
+                return false
             case let .relay(url):
                 return dialPlan.publicPaths.contains {
                     $0.source == .native
@@ -311,6 +313,8 @@ public actor CmxIrohClientSession {
             switch path {
             case .unavailable:
                 return true
+            case .unknown:
+                return false
             case .relay:
                 return false
             case let .direct(address):
@@ -331,6 +335,8 @@ public actor CmxIrohClientSession {
     func transportPath(for path: CmxIrohObservedConnectionPath) async -> CmxTransportPath {
         switch path {
         case .unavailable:
+            return .unavailable
+        case .unknown:
             return .unavailable
         case let .direct(address):
             guard let address else { return .irohDirect }
@@ -371,7 +377,7 @@ public actor CmxIrohClientSession {
         case let .direct(address):
             guard let address else { return false }
             return directPathMatchesPlan(address, source: source)
-        case .unavailable, .relay:
+        case .unavailable, .unknown, .relay:
             return false
         }
     }

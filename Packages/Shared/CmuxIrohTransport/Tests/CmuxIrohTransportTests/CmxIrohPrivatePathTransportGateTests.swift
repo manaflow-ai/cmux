@@ -445,6 +445,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                     switch path {
                     case .privateNetwork: return true
                     case .direct, .relay: return false
+                    case .unknown: return false
                     case .unavailable: continue
                     }
                 }

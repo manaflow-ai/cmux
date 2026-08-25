@@ -174,6 +174,8 @@ actor CmxConnectivityByteTransport:
         switch path {
         case .unavailable:
             return .unavailable
+        case .unknown:
+            return .unavailable
         case .direct:
             return .irohDirect
         case let .privateNetwork(address):
