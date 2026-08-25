@@ -111,6 +111,8 @@ struct CmuxNoteAtomicWriter {
             fcntl(descriptor, F_GETPATH, bytes.baseAddress)
         }
         guard result == 0 else { return nil }
-        return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        let path = String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        return ArtifactPathResolver(fileManager: fileManager)
+            .canonicalPath(URL(fileURLWithPath: path))
     }
 }

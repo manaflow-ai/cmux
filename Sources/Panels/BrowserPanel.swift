@@ -3754,7 +3754,7 @@ final class BrowserPanel: Panel, ObservableObject {
             refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
-               !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+               !allowsNavigationURL(url) {
                 navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             } else if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
