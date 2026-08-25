@@ -255,15 +255,23 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 }
 
 /// Spawn the headless owner detached from this process's terminal.
+struct OwnerProcessState {
+    child: std::sync::Mutex<Option<std::process::Child>>,
+    wake: std::sync::Condvar,
+    terminate: std::sync::atomic::AtomicBool,
+}
+
 struct SpawnedOwner {
-    child: std::sync::Arc<std::sync::Mutex<Option<std::process::Child>>>,
+    state: std::sync::Arc<OwnerProcessState>,
 }
 
 impl SpawnedOwner {
     fn terminate(self) {
-        if let Some(mut child) = self.child.lock().expect("owner mutex poisoned").take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
+        self.state.wake.notify_all();
+        let mut child = self.state.child.lock().expect("owner mutex poisoned");
+        while child.is_some() {
+            child = self.state.wake.wait(child).expect("owner condvar poisoned");
         }
     }
 }
@@ -307,12 +315,34 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
-    let reaper_child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
-    let reaper_handle = std::sync::Arc::clone(&reaper_child);
+    let state = std::sync::Arc::new(OwnerProcessState {
+        child: std::sync::Mutex::new(Some(child)),
+        wake: std::sync::Condvar::new(),
+        terminate: std::sync::atomic::AtomicBool::new(false),
+    });
+    let reaper_state = std::sync::Arc::clone(&state);
     if let Err(_error) =
         std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
-            if let Some(mut child) = reaper_handle.lock().expect("reaper mutex poisoned").take() {
-                let _ = child.wait();
+            let mut child = reaper_state.child.lock().expect("owner mutex poisoned");
+            loop {
+                let Some(process) = child.as_mut() else { break };
+                if reaper_state.terminate.load(std::sync::atomic::Ordering::Acquire) {
+                    let _ = process.kill();
+                }
+                let exited = match process.try_wait() {
+                    Ok(Some(_)) | Err(_) => true,
+                    Ok(None) => false,
+                };
+                if exited {
+                    child.take();
+                    reaper_state.wake.notify_all();
+                    break;
+                }
+                child = reaper_state
+                    .wake
+                    .wait_timeout(child, POLL_INTERVAL)
+                    .expect("owner condvar poisoned")
+                    .0;
             }
         })
     {
@@ -320,13 +350,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         // returning. This preserves the no-zombie guarantee even under
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
-        if let Some(mut child) = reaper_child.lock().expect("reaper mutex poisoned").take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        SpawnedOwner { state: std::sync::Arc::clone(&state) }.terminate();
         return Err(io::Error::other("local owner reaper unavailable"));
     }
-    Ok(SpawnedOwner { child: reaper_child })
+    Ok(SpawnedOwner { state })
 }
 
 /// Exclusive lock serializing owner spawns for one socket path. The lock
@@ -343,34 +370,19 @@ impl SpawnLock {
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
         let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            loop {
-                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                    return Ok(Self { _file: file });
-                }
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::WouldBlock {
-                    return Err(error);
-                }
-                if Instant::now() >= deadline {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "timed out waiting for a concurrent session-owner start",
-                    ));
-                }
-                std::thread::sleep(POLL_INTERVAL);
+        loop {
+            match fs4::FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(error) if io::Error::from(error).kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(io::Error::from(error)),
             }
-        }
-        #[cfg(not(unix))]
-        {
-            // Windows has no flock with these semantics in std on this
-            // toolchain's MSRV policy; concurrent ensures fall back to the
-            // server's own live-socket refusal, which covers everything but
-            // a sub-millisecond bind race.
-            let _ = deadline;
-            Ok(Self { _file: file })
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "timed out waiting for a concurrent session-owner start",
+                ));
+            }
+            std::thread::sleep(POLL_INTERVAL);
         }
     }
 }
