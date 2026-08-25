@@ -41,6 +41,7 @@ struct ArtifactSidebarModelTests {
         #expect(model.projectRoot == root.standardizedFileURL)
         #expect(model.rows.map(\.relativePath) == ["session", "session/plan.md"])
         #expect(model.rows.map(\.depth) == [0, 1])
+        #expect(model.rows.allSatisfy { $0.projectRoot == root.standardizedFileURL })
     }
 
     @Test("Binding scans once while installing the initial filesystem watcher")
