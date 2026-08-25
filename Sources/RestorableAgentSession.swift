@@ -1220,16 +1220,19 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Bool {
         guard let entry = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] else {
             return false
         }
-        return Self.entryHasCurrentLiveProcess(
-            entry,
-            processIdentityProvider: processIdentityProvider,
-            processPresenceProvider: processPresenceProvider
-        )
+        return revalidateProcessEvidence
+            ? Self.entryHasCurrentLiveProcess(
+                entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            )
+            : Self.entryHasLiveProcess(entry)
     }
 
     /// Resolves a restart-stable panel while preserving a live entry for its current owner.

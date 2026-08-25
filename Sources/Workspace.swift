@@ -1523,24 +1523,31 @@ extension Workspace {
             let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
             let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
                 workspaceId: id,
-                panelId: snapshot.id
+                panelId: snapshot.id,
+                revalidateProcessEvidence: false
             ) == true
             let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
                 workspaceId: id,
                 panelId: snapshot.id,
                 expectedKind: expectedAgentKind,
-                expectedSessionId: expectedSessionId
+                expectedSessionId: expectedSessionId,
+                revalidateProcessEvidence: false
             ) == true
             let stablePanelHasUncertainProcess = restoreAgentIndex?.hasUncertainStablePanelEntry(
-                panelId: snapshot.id
+                panelId: snapshot.id,
+                revalidateProcessEvidence: false
             ) == true
             let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
                 workspaceId: id,
-                panelId: snapshot.id
+                panelId: snapshot.id,
+                revalidateProcessEvidence: false
             ) == true
             let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
                 stablePanelHasConflictingLiveProcess ||
-                (restoreAgentIndex?.hasCurrentAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
+                (restoreAgentIndex?.hasCurrentAmbiguousPanel(
+                    snapshot.id,
+                    revalidateProcessEvidence: false
+                ) == true && !exactOwnerHasLiveProcess)
             )
             let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
                 stablePanelHasUncertainProcess
@@ -1645,7 +1652,10 @@ extension Workspace {
                     // when the persisted session is not the selected entry.
                     return true
                 }
-                if restoreAgentIndex.hasCurrentAmbiguousPanel(snapshot.id) {
+                if restoreAgentIndex.hasCurrentAmbiguousPanel(
+                    snapshot.id,
+                    revalidateProcessEvidence: false
+                ) {
                     // Do not launch while panel ownership is ambiguous; a live process
                     // may still be attached to another owner record.
                     return true
@@ -1654,7 +1664,8 @@ extension Workspace {
                     workspaceId: id,
                     panelId: snapshot.id,
                     expectedKind: restorableAgent.kind.rawValue,
-                    expectedSessionId: restorableAgent.sessionId
+                    expectedSessionId: restorableAgent.sessionId,
+                    revalidateProcessEvidence: false
                 ) {
                     return true
                 }
@@ -1680,13 +1691,12 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let deferredAgentResumeAdmission = restoreIndexUnavailable &&
-                restoredHibernation == nil &&
-                (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
-            // Retain the command as construction metadata while the runtime is
-            // held behind the deferred ownership gate. It is not admitted until
-            // the fresh index resolver supplies the final command.
-            let deferredAgentResumeStartupInput: String? = if deferredAgentResumeAdmission {
+            // Build the candidate before arming the gate. A binding that is
+            // disabled, unapproved, or cannot render a command must start as an
+            // ordinary shell instead of waiting behind deferred admission.
+            let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+                restoredHibernation == nil,
+                restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent.resumeStartupInput(
@@ -1715,6 +1725,10 @@ extension Workspace {
             } else {
                 nil
             }
+            let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
+            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
@@ -1923,9 +1937,7 @@ extension Workspace {
                 ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil,
                 defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
-            if restoreIndexUnavailable,
-               restoredHibernation == nil,
-               restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
+            if deferredAgentResumeAdmission {
                 deferAgentResumeRestore(
                     panelId: terminalPanel.id,
                     restore: DeferredAgentResumeRestore(

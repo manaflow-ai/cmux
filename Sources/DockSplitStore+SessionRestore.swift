@@ -229,24 +229,31 @@ extension DockSplitStore {
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
         let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
             workspaceId: workspaceId,
-            panelId: snapshot.id
+            panelId: snapshot.id,
+            revalidateProcessEvidence: false
         ) == true
         let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
             workspaceId: workspaceId,
             panelId: snapshot.id,
             expectedKind: expectedAgentKind,
-            expectedSessionId: expectedSessionId
+            expectedSessionId: expectedSessionId,
+            revalidateProcessEvidence: false
         ) == true
         let stablePanelHasUncertainProcess = restoreAgentIndex?.hasUncertainStablePanelEntry(
-            panelId: snapshot.id
+            panelId: snapshot.id,
+            revalidateProcessEvidence: false
         ) == true
         let exactOwnerHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForOwner(
             workspaceId: workspaceId,
-            panelId: snapshot.id
+            panelId: snapshot.id,
+            revalidateProcessEvidence: false
         ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             stablePanelHasConflictingLiveProcess ||
-            (restoreAgentIndex?.hasCurrentAmbiguousPanel(snapshot.id) == true && !exactOwnerHasLiveProcess)
+            (restoreAgentIndex?.hasCurrentAmbiguousPanel(
+                snapshot.id,
+                revalidateProcessEvidence: false
+            ) == true && !exactOwnerHasLiveProcess)
         )
         let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
             stablePanelHasUncertainProcess
@@ -311,12 +318,12 @@ extension DockSplitStore {
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
-        let deferredAgentResumeAdmission = restoreIndexUnavailable &&
-            hibernation == nil &&
-            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
-        // Keep a deferred command visible as staged startup metadata while its
-        // runtime remains held until the fresh ownership scan completes.
-        let deferredAgentResumeStartupInput: String? = if deferredAgentResumeAdmission {
+        // Build the candidate before arming the gate. A binding that is
+        // disabled, unapproved, or cannot render a command must start as an
+        // ordinary shell instead of waiting behind deferred admission.
+        let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+            hibernation == nil,
+            restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
             if let restorableAgent {
                 restorableAgent.resumeStartupInput(
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
@@ -336,6 +343,10 @@ extension DockSplitStore {
         } else {
             nil
         }
+        let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
+        let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
@@ -442,9 +453,7 @@ extension DockSplitStore {
             ownsResumeLaunchClaim: agentLaunch != nil,
             defersStartupRestoreAdmission: deferredAgentResumeAdmission
         )
-        if restoreIndexUnavailable,
-           hibernation == nil,
-           restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
+        if deferredAgentResumeAdmission {
             deferAgentResumeRestore(
                 panelId: terminal.id,
                 restore: DeferredAgentResumeRestore(
@@ -574,7 +583,10 @@ extension DockSplitStore {
             return true
         }
         guard let index = liveIndex else { return true }
-        if index.hasCurrentAmbiguousPanel(snapshotPanelId) {
+        if index.hasCurrentAmbiguousPanel(
+            snapshotPanelId,
+            revalidateProcessEvidence: false
+        ) {
             // Unknown ownership is safer than launching a duplicate agent against a
             // session that may still be live under another restored owner.
             return true
@@ -583,7 +595,8 @@ extension DockSplitStore {
             workspaceId: workspaceId,
             panelId: snapshotPanelId,
             expectedKind: restorableAgent.kind.rawValue,
-            expectedSessionId: restorableAgent.sessionId
+            expectedSessionId: restorableAgent.sessionId,
+            revalidateProcessEvidence: false
         ) {
             return true
         }

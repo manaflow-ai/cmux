@@ -3839,6 +3839,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// runtime was still being created. Replay them once Ghostty is ready so
     /// the user's opt-out keystroke is never lost.
     private var pendingExplicitKeyDownEvents: [NSEvent] = []
+    private var pendingExplicitKeyDownKeyCodes: Set<UInt16> = []
+    private var pendingExplicitKeyUpEvents: [UInt16: NSEvent] = [:]
     private static let maximumPendingExplicitKeyDownEvents = 32
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
@@ -4151,6 +4153,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         pendingExplicitKeyDownEvents.append(event)
+        pendingExplicitKeyDownKeyCodes.insert(event.keyCode)
     }
 
     fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
@@ -4158,7 +4161,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let pendingEvents = pendingExplicitKeyDownEvents
         pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
         for event in pendingEvents {
+            pendingExplicitKeyDownKeyCodes.remove(event.keyCode)
             keyDown(with: event)
+            if let queuedKeyUp = pendingExplicitKeyUpEvents.removeValue(forKey: event.keyCode) {
+                keyUp(with: queuedKeyUp)
+            }
         }
     }
 
@@ -6208,6 +6215,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        if pendingExplicitKeyDownKeyCodes.contains(event.keyCode) {
+            pendingExplicitKeyUpEvents[event.keyCode] = event
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
