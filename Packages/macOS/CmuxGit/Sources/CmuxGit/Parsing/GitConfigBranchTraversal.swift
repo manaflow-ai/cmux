@@ -71,7 +71,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         return (urls, storagePaths)
     }
 
-    private func referenceStoragePaths(fromConfig config: String, configURL: URL) -> [String] {
+    private func referenceStoragePaths(fromConfig config: String, configURL _: URL) -> [String] {
         var paths: [String] = []
         var inExtensionsSection = false
         for rawLine in config.components(separatedBy: .newlines) {
@@ -102,13 +102,27 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             if payload.hasPrefix("/") {
                 path = URL(fileURLWithPath: payload).standardizedFileURL.path
             } else {
-                path = configURL.deletingLastPathComponent()
+                path = URL(fileURLWithPath: repository.commonDirectory)
                     .appendingPathComponent(payload)
                     .standardizedFileURL.path
             }
+            guard isSafeReferenceStoragePath(path) else { continue }
             paths.append(path)
         }
         return paths
+    }
+
+    /// Keeps repository-controlled watch roots inside the resolved checkout.
+    private func isSafeReferenceStoragePath(_ path: String) -> Bool {
+        guard path != "/" else { return false }
+        let roots = [
+            repository.gitDirectory,
+            repository.commonDirectory,
+            repository.workTreeRoot,
+        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        return roots.contains { root in
+            path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.

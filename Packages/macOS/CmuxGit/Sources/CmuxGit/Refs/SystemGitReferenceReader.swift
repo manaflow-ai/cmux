@@ -317,7 +317,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private func referenceStorageName(repository: ResolvedGitRepository) -> String? {
         var storageName: String?
         var seenPaths: Set<String> = []
-        for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
+        let configURLs = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .fileBacked,
+            configReader: configReader
+        ).configURLs()
+        for configURL in configURLs {
             let configURL = configURL.standardizedFileURL
             guard seenPaths.insert(configURL.path).inserted else {
                 continue
