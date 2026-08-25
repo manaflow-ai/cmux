@@ -32,7 +32,7 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func cancelStartupRestoreAdmissionForExplicitInput() {
+    func cancelStartupRestoreAdmissionForExplicitInput() {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
         nextRuntimeInitialInput = nil
         suppressConfiguredInitialInput = true
