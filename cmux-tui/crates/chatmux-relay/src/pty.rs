@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
@@ -279,11 +279,140 @@ pub fn pty_env(base: &HashMap<String, String>) -> HashMap<String, String> {
 // Shared session/attachment state
 // ---------------------------------------------------------------------------
 
+/// Events queued for one shell viewer while its initial replay is handed off.
+/// Keeping the queue separate from `ShellInner` lets the shell state lock stay
+/// short while callbacks run, without allowing live output to overtake replay.
+enum ViewerEvent {
+    Data(Bytes),
+    Exit(i64),
+}
+
+struct ViewerDeliveryState {
+    active: bool,
+    finished: bool,
+    released: bool,
+    draining: bool,
+    queue: VecDeque<ViewerEvent>,
+}
+
+/// Serializes one viewer's banner/replay/live/exit callbacks.
+///
+/// The delivery starts inactive. Producers can enqueue live output while the
+/// initial replay is being assembled; `activate` starts one drainer after the
+/// replay has been queued. Every subsequent producer either owns the drainer
+/// or appends to its FIFO queue, so callbacks cannot overtake one another.
+struct ViewerDelivery {
+    state: Mutex<ViewerDeliveryState>,
+    on_data: DataSink,
+    on_exit: ExitSink,
+}
+
+impl ViewerDelivery {
+    fn new(on_data: DataSink, on_exit: ExitSink) -> Arc<ViewerDelivery> {
+        Arc::new(ViewerDelivery {
+            state: Mutex::new(ViewerDeliveryState {
+                active: false,
+                finished: false,
+                released: false,
+                draining: false,
+                queue: VecDeque::new(),
+            }),
+            on_data,
+            on_exit,
+        })
+    }
+
+    /// Queue an initial banner or replay while callbacks remain paused.
+    fn seed(&self, banner: Option<Bytes>, replay: Option<Bytes>) {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        if state.finished || state.released {
+            return;
+        }
+        if let Some(banner) = banner {
+            state.queue.push_back(ViewerEvent::Data(banner));
+        }
+        if let Some(replay) = replay {
+            state.queue.push_back(ViewerEvent::Data(replay));
+        }
+    }
+
+    /// Queue live output and report whether this caller should drain it.
+    fn push_data(&self, chunk: Bytes) -> bool {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        if state.finished || state.released {
+            return false;
+        }
+        state.queue.push_back(ViewerEvent::Data(chunk));
+        if state.active && !state.draining {
+            state.draining = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Mark the viewer active and report whether this caller should drain it.
+    fn activate(&self) -> bool {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        if state.released {
+            return false;
+        }
+        state.active = true;
+        if !state.queue.is_empty() && !state.draining {
+            state.draining = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Queue terminal exit and report whether this caller should drain it.
+    fn finish(&self, code: i64) -> bool {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        if state.finished || state.released {
+            return false;
+        }
+        state.finished = true;
+        state.queue.push_back(ViewerEvent::Exit(code));
+        if state.active && !state.draining {
+            state.draining = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Stop future callbacks for a detached viewer and discard queued output.
+    fn release(&self) {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        state.finished = true;
+        state.released = true;
+        state.queue.clear();
+    }
+
+    /// Drain callbacks without holding either the delivery or shell lock.
+    fn drain(&self) {
+        loop {
+            let event = {
+                let mut state = self.state.lock().expect("viewer delivery lock");
+                let Some(event) = state.queue.pop_front() else {
+                    state.draining = false;
+                    return;
+                };
+                event
+            };
+            match event {
+                ViewerEvent::Data(chunk) => (self.on_data)(chunk),
+                ViewerEvent::Exit(code) => (self.on_exit)(code),
+            }
+        }
+    }
+}
+
 /// A per-attachment output sink into the framing path.
 struct ViewerSink {
     id: u64,
-    on_data: Arc<dyn Fn(Bytes) + Send + Sync>,
-    on_exit: Arc<dyn Fn(i64) + Send + Sync>,
+    delivery: Arc<ViewerDelivery>,
 }
 
 /// A fallback $SHELL session: one PTY, a bounded ring, and a viewer set that
@@ -1111,7 +1240,7 @@ impl Inner {
                 let exit_session = Arc::clone(&shell_session);
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
-                    let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
+                    let viewers_to_drain: Vec<Arc<ViewerDelivery>> = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
@@ -1119,22 +1248,41 @@ impl Inner {
                             let Some(dropped) = inner.ring.pop_front() else { break };
                             inner.ring_size -= dropped.len();
                         }
-                        inner.viewers.iter().map(|viewer| Arc::clone(&viewer.on_data)).collect()
+                        inner
+                            .viewers
+                            .iter()
+                            .filter_map(|viewer| {
+                                if viewer.delivery.push_data(chunk.clone()) {
+                                    Some(Arc::clone(&viewer.delivery))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
                     };
-                    for on_data in viewers_to_notify {
-                        on_data(chunk.clone());
+                    for delivery in viewers_to_drain {
+                        delivery.drain();
                     }
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
-                    let viewers = {
+                    let viewers_to_drain = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
+                        if !inner.alive {
+                            return;
+                        }
                         inner.alive = false;
                         inner.exit_code = Some(code);
                         std::mem::take(&mut inner.viewers)
+                            .into_iter()
+                            .filter_map(|viewer| {
+                                let delivery = viewer.delivery;
+                                if delivery.finish(code) { Some(delivery) } else { None }
+                            })
+                            .collect::<Vec<_>>()
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
-                    for viewer in viewers {
-                        (viewer.on_exit)(code);
+                    for delivery in viewers_to_drain {
+                        delivery.drain();
                     }
                 });
                 self.shell_sessions
@@ -1164,48 +1312,50 @@ impl Inner {
             session: Arc::clone(&shell_session),
             viewer_id,
             released: Arc::clone(&released),
+            delivery: OnceLock::new(),
         });
         let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&proxy));
+        let delivery = ViewerDelivery::new(on_data, on_exit);
+        assert!(
+            proxy.delivery.set(Arc::clone(&delivery)).is_ok(),
+            "shell viewer delivery initialized"
+        );
 
         let start_session = Arc::clone(&shell_session);
+        let start_delivery = Arc::clone(&delivery);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
-            let (banner, replay) = {
-                let inner = start_session.inner.lock().expect("shell inner lock");
-                let banner = created.then(|| start_session.banner.clone()).flatten();
-                let replay = (!created && inner.ring_size > 0).then(|| {
-                    inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
-                });
-                (banner, replay)
-            };
-            if let Some(banner) = banner {
-                on_data(Bytes::from(banner));
-            }
-            if let Some(replay) = replay {
-                on_data(Bytes::from(replay));
-            }
             if released.load(Ordering::SeqCst) {
                 return;
             }
-            // Registration and the alive check are one critical section.
-            // Exit can therefore either take this viewer or leave its
-            // terminal exit code for the just-completed attachment.
-            let exit_code = {
+            // Register an inactive delivery and seed its replay while holding
+            // the shell lock. Live bytes arriving after this point queue behind
+            // the replay instead of racing past it.
+            let should_activate = {
                 let mut inner = start_session.inner.lock().expect("shell inner lock");
-                if !released.load(Ordering::SeqCst) && inner.alive {
-                    inner.viewers.push(ViewerSink {
-                        id: viewer_id,
-                        on_data: Arc::clone(&on_data),
-                        on_exit: Arc::clone(&on_exit),
-                    });
-                    None
-                } else if !inner.alive {
-                    inner.exit_code
+                if released.load(Ordering::SeqCst) {
+                    false
                 } else {
-                    None
+                    let banner = created.then(|| start_session.banner.clone()).flatten();
+                    let replay = (inner.ring_size > 0).then(|| {
+                        inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
+                    });
+                    if inner.alive {
+                        inner.viewers.push(ViewerSink {
+                            id: viewer_id,
+                            delivery: Arc::clone(&start_delivery),
+                        });
+                    }
+                    start_delivery.seed(banner.map(Bytes::from), replay.map(Bytes::from));
+                    if !inner.alive {
+                        if let Some(code) = inner.exit_code {
+                            start_delivery.finish(code);
+                        }
+                    }
+                    true
                 }
             };
-            if let Some(code) = exit_code {
-                on_exit(code);
+            if should_activate && start_delivery.activate() {
+                start_delivery.drain();
             }
         });
 
@@ -1217,6 +1367,7 @@ struct ShellViewerControl {
     session: Arc<ShellSession>,
     viewer_id: u64,
     released: Arc<AtomicBool>,
+    delivery: OnceLock<Arc<ViewerDelivery>>,
 }
 
 impl ShellViewerControl {
@@ -1224,6 +1375,13 @@ impl ShellViewerControl {
         self.released.store(true, Ordering::SeqCst);
         let mut inner = self.session.inner.lock().expect("shell inner lock");
         inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
+        drop(inner);
+        // The viewer may already have exited and been removed from the shell
+        // set. Release the delivery in either case so a queued handoff cannot
+        // emit after the attachment has been closed.
+        if let Some(delivery) = self.delivery.get() {
+            delivery.release();
+        }
     }
 }
 
@@ -2007,6 +2165,59 @@ mod tests {
             state.on_data = Some(on_data);
             state.on_exit = Some(on_exit);
         }
+    }
+
+    #[test]
+    fn viewer_delivery_keeps_banner_replay_live_and_exit_ordered() {
+        let seen = TestArc::new(StdMutex::new(Vec::<String>::new()));
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let invocations = TestArc::new(AtomicUsize::new(0));
+
+        let callback_seen = TestArc::clone(&seen);
+        let callback_entered = TestArc::clone(&entered);
+        let callback_release = TestArc::clone(&release);
+        let callback_invocations = TestArc::clone(&invocations);
+        let on_data: DataSink = TestArc::new(move |chunk| {
+            let invocation = callback_invocations.fetch_add(1, AtomicOrdering::Relaxed);
+            if invocation == 0 {
+                callback_entered.wait();
+                callback_release.wait();
+            }
+            callback_seen
+                .lock()
+                .expect("viewer callback lock")
+                .push(String::from_utf8_lossy(&chunk).into_owned());
+        });
+        let callback_seen = TestArc::clone(&seen);
+        let on_exit: ExitSink = TestArc::new(move |code| {
+            callback_seen.lock().expect("viewer callback lock").push(format!("exit:{code}"));
+        });
+
+        let delivery = ViewerDelivery::new(on_data, on_exit);
+        delivery.seed(Some(Bytes::from_static(b"banner")), Some(Bytes::from_static(b"buffered")));
+
+        let worker_delivery = TestArc::clone(&delivery);
+        let worker = thread::spawn(move || {
+            assert!(worker_delivery.activate());
+            worker_delivery.drain();
+        });
+
+        entered.wait();
+        assert!(!delivery.push_data(Bytes::from_static(b"live")));
+        assert!(!delivery.finish(7));
+        release.wait();
+        worker.join().expect("viewer delivery worker");
+
+        assert_eq!(
+            *seen.lock().expect("viewer callback lock"),
+            vec![
+                "banner".to_owned(),
+                "buffered".to_owned(),
+                "live".to_owned(),
+                "exit:7".to_owned(),
+            ]
+        );
     }
 
     #[derive(Default)]
