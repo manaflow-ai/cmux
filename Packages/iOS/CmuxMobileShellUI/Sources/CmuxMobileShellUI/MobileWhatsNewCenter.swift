@@ -64,13 +64,16 @@ public final class MobileWhatsNewCenter {
         }
     }
 
-    /// The cache key scoped to the configured API host, so a build that
-    /// switches environments (production, staging, localhost dev) never
-    /// consumes another environment's visibility list from the cache. A
-    /// never-populated environment simply fails open to binary pages until
-    /// its first fetch.
+    /// The cache key scoped to the configured API origin (scheme, host, and
+    /// port), so a build that switches environments (production, staging,
+    /// localhost dev servers on different ports) never consumes another
+    /// environment's visibility list from the cache. A never-populated
+    /// environment simply fails open to binary pages until its first fetch.
     private var environmentCacheKey: String {
-        Self.cacheKey + "." + (requestURL?.host?.lowercased() ?? "none")
+        let scheme = requestURL?.scheme?.lowercased() ?? "none"
+        let host = requestURL?.host?.lowercased() ?? "none"
+        let port = requestURL?.port.map(String.init) ?? "default"
+        return "\(Self.cacheKey).\(scheme).\(host).\(port)"
     }
 
     /// Fetches the remote list, replacing the device cache on success. Any
