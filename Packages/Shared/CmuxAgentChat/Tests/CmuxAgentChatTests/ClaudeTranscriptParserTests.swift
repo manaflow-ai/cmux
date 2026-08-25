@@ -53,7 +53,7 @@ struct ClaudeTranscriptParserTests {
         uuid: String = "r-1",
         toolUseID: String,
         content: Any,
-        isError: Bool? = nil,
+        isError: Bool? = false,
         timestamp: String = "2026-06-12T05:08:23.317Z"
     ) -> String {
         var block: [String: Any] = ["tool_use_id": toolUseID, "type": "tool_result", "content": content]
@@ -162,6 +162,23 @@ struct ClaudeTranscriptParserTests {
         }
         #expect(grep.status == .failed)
         #expect(grep.output == "No matches")
+    }
+
+    @Test("Claude results without positive success evidence fail closed")
+    func unknownResultFailsClosed() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_unknown", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(toolUseID: "toolu_unknown", content: "unexpected failure text", isError: nil),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
     }
 
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")
