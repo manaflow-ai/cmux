@@ -2,13 +2,14 @@
 
 Current snapshot: 2026-08-25. The aggregate branch is
 `codex/tui-techdebt-aggregate-wave39`; its audited local tip is
-`ba16a6745e1c6791c92e44c36bd24495a75de820`, based on `origin/main`
-`bd985bddcded04ed849e3484dbcb645b32a32cb6`, 801 commits ahead and 0 behind.
-PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708) points to the exact
-pushed head and is mergeable. Focused hosted run
+`e4f527bc00af27346b0e628f76f907ef34531d82` (code), with board head
+`09d5dde272`, based on `origin/main`
+`bd985bddcded04ed849e3484dbcb645b32a32cb6`, 809 commits ahead and 0 behind.
+PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708) still points to the
+older pushed head until this wave is pushed. Focused hosted run
 [`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
-passed on Linux, macOS, Rust MSRV, and the release artifact. Full hosted
-verification and final exact-head autoreview are pending. A mergeable label is
+passed on the earlier quota source tip. Run focused and full hosted checks on
+the new exact head, then run final exact-head autoreview. A mergeable label is
 not acceptance proof.
 
 The prior 2026-08-24 values are historical. The aggregate includes the
@@ -31,14 +32,20 @@ newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
 conflicting branches remain ordered work. Green inherited checks do not replace
 an exact-head review.
 
+Session-mined unfinished requests and the simplification backlog are in
+[`USER-REQUEST-BOARD.md`](USER-REQUEST-BOARD.md). They remain open until a
+behavior test or dogfood result proves completion.
+
 Final aggregate commits include the merge of current main
 [`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
  the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
 legacy socket scan fix `ae2fa91709`, the Go write-progress fixes through
 `4a50dd64b2`, the Java path test `3e85c7dd05`, and scoped remote-daemon upload
 cleanup through `4fffdfc128`, followed by the PID-marker, terminal-lookup,
-wire-contract, selector, and Kitty quota fixes recorded at the audited tip. Do
-not infer hosted or review-green status from commits alone.
+wire-contract, selector, and Kitty quota fixes recorded at the audited tip.
+The latest tail also includes protocol-v7 PTY error gating, partial-write
+cancellation retirement, and bounded Git stderr drains for both status and
+diff. Do not infer hosted or review-green status from commits alone.
 
 ## Live PR state
 
@@ -46,9 +53,9 @@ This table is authoritative. Older tables below preserve historical snapshots.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, exact head `ba16a6745e1c6791c92e44c36bd24495a75de820`, mergeable. Focused hosted run `32851303914` passed. | Run full hosted verification and exact-head autoreview, then merge. |
-| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, mergeable independent sidebar preview feature. Current review has focus-transition and localization findings. | Keep separate; fix findings and rerun exact-head checks. |
-| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, mergeable independent detached-session-owner feature. Current review has lifecycle and localization findings. | Keep separate; fix findings and rerun exact-head checks. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, local branch head `09d5dde272` with code through `e4f527bc00`; remote head is older until push. | Push, run focused and full hosted checks, run local autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, head `2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, mergeable, all listed checks pass. Prior preview and localization findings are addressed; local autoreview needs a clean engine run. | Keep separate from #10708, run local autoreview, then merge if exact gates stay green. |
+| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, mergeable independent detached-session-owner feature. Current lifecycle and localization review status needs a fresh exact-head check. | Keep separate, run exact-head review and checks. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Already merged. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Already merged. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded. | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking the head. |

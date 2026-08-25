@@ -353,3 +353,26 @@ documentation update.
 | `1dea79f1ac19a2f7c45a1b813c69039bff17dd19` | Bound unknown frame-type diagnostics to 64 recent names. | Diagnostic retention is bounded; repeated evictions can log a type again. | `git revert 1dea79f1ac19a2f7c45a1b813c69039bff17dd19` |
 | `c599fa778e506574bddf12393d4a9bb91c4772e5` | Apply hosted rustfmt to task-reaping changes. | Formatter-only; hosted relay behavior remains required. | `git revert c599fa778e506574bddf12393d4a9bb91c4772e5` |
 | `17413db11cc0ebb7b0b5c254447cede3faaad0cf` | Bound preview task reaping to 32 completions per event-loop turn. | Preserves listener and shutdown fairness under instant connection churn. | `git revert 17413db11cc0ebb7b0b5c254447cede3faaad0cf` |
+
+# Current wave: protocol and I/O lifecycle corrections
+
+The exact local source tip for this wave is `e4f527bc00af27346b0e628f76f907ef34531d82`.
+The branch is 808 commits ahead of `origin/main`. Hosted checks must use the
+pushed exact SHA. No local Rust build or test claim is made.
+
+| Commit | Change | Verification / residual risk | Exact revert |
+| --- | --- | --- | --- |
+| `29145d800c822b45575cd00aba0628d62ba2ac48` | Sync the vendored relay wire contract with chatmux protocol v7 and gate typed PTY operational errors by negotiated version. | Official chatmux source audit and static review completed. Exact-head hosted protocol, relay, and SDK checks remain required. | `git revert 29145d800c822b45575cd00aba0628d62ba2ac48` |
+| `cd76c82e3d3045af898e7dfc65c9fba46c2c7a4f` | Classify relay output-cap overflow as `overflow` at v7 and preserve safe downgrade messages for older workers. | Focused compatibility tests added. Hosted exact-head relay tests remain required. | `git revert cd76c82e3d3045af898e7dfc65c9fba46c2c7a4f` |
+| `2f3e4783857f5936e3559fcedcf1c4663090045a` | Add cancellation regression coverage for pre-write rejection and partial Unix-socket writes. | Static formatting and diff checks pass. Hosted Rust stream tests remain required. | `git revert 2f3e4783857f5936e3559fcedcf1c4663090045a` |
+| `ec074f4b536bd318ff932e315b087c1e157e8db3` | Retire a cancellation send after any write error so a partial frame cannot be retried. | Uses `ready -> sending -> retired`; official Tokio cancellation guidance supports the invariant. Hosted Rust stream tests remain required. | `git revert ec074f4b536bd318ff932e315b087c1e157e8db3` |
+| `c4e842cc55e01a355331b6ea7e4c1ced31d90041` | Drain `git diff` stderr continuously, retain a bounded prefix, abort on cancellation, and bound inherited-descriptor drain time. | Duplex regression test added. Hosted workspace tests remain required. | `git revert c4e842cc55e01a355331b6ea7e4c1ced31d90041` |
+| `e4f527bc00af27346b0e628f76f907ef34531d82` | Reuse bounded stderr ownership for `git status`, including read-error cleanup and retention-cap coverage. | Static formatting and diff checks pass. Hosted workspace tests must prove no pipe backpressure. | `git revert e4f527bc00af27346b0e628f76f907ef34531d82` |
+| `USER-REQUEST-BOARD.md` | Record session-mined unfinished requests and the simplification rule. | Documentation only. Session evidence is intent, not completion proof. | Revert the documentation commit containing this file. |
+
+Official pattern references used for the I/O decisions:
+
+- [Tokio `AsyncWriteExt`](https://docs.rs/tokio/latest/src/tokio/io/util/async_write_ext.rs.html), `write_all` is not cancellation-safe.
+- [Tokio `JoinHandle`](https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html), dropping detaches and aborting must be awaited.
+- [Tokio process](https://docs.rs/tokio/latest/tokio/process/struct.Command.html), child cleanup and inherited descriptors need explicit ownership.
+- [Rust `Write`](https://doc.rust-lang.org/std/io/trait.Write.html), partial writes require explicit progress handling.

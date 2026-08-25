@@ -3,14 +3,15 @@
 Current snapshot: 2026-08-25.
 Audit base: `origin/main` at `bd985bddcded04ed849e3484dbcb645b32a32cb6`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Audited source tip before this board snapshot: `ba16a6745e1c6791c92e44c36bd24495a75de820`.
+Audited code tip for this board snapshot: `e4f527bc00af27346b0e628f76f907ef34531d82`.
+Current branch head, including this board update: `09d5dde272`.
 PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen,
-points to that exact source tip. The branch is 801 commits ahead of
-`origin/main` and 0 commits behind. The focused hosted run
+points to the previous source tip until the new commits are pushed. The branch
+is 809 commits ahead of `origin/main` and 0 commits behind. The focused hosted run
 [`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
-passed on Linux, macOS, Rust MSRV, and the release artifact. The board commit
-itself is documentation-only and follows the audited source tip. Full hosted
-verification and exact-head autoreview remain required before merge.
+passed on the earlier quota source tip and is stale for this board. The new
+protocol, cancellation, and Git pipe fixes need exact pushed-head hosted
+verification and exact-head autoreview before merge.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -54,7 +55,10 @@ declarations, path-error classification, shell and preview task ownership,
 and clippy cleanup through the earlier aggregate tail, followed by the current
 main merge, C1 parser normalization, relay stderr draining, cancellation retry
 state, private SSH staging, selector tests, workflow identity checks, and CLI
-payload-scope parsing.
+payload-scope parsing. The latest code tail adds the v7 typed PTY
+operational-error compatibility gate, output-overflow classification, retired
+partial-write cancellation state, and bounded Git stderr drains for both
+`git diff` and `git status`.
 
 Latest wave follow-ups are recorded in the changelog. The prior exact-head
 autoreview found three relay retention issues, now fixed in the latest tail;
@@ -62,12 +66,13 @@ the final review for this source tip is pending. Two earlier remote-tmux
 findings were ignored as out of scope. The ledger remains a lower bound on
 substantive turns, not a fabricated 10,000-session total.
 
-Subagent ledger: at least 249 substantive agent turns are complete in this
-run. The count includes code audits, web research, session mining, fixes,
-reviews, conflict resolution, and merge gates. It excludes empty or duplicate
-turns. The requested 10,000-session target is not reached. I will not create
-empty sessions to inflate the count. The new intent rows do not count as
-completed work or extra sessions. New turns must have a named deliverable.
+Subagent ledger: at least 256 substantive agent turns are complete in this
+run. This conservative lower bound adds one protocol implementation audit, one
+partial-write fix, two Git drain fixes, one session inventory, one official web
+research result, and one PR audit batch to the prior 249. It excludes empty,
+duplicate, and self-counting turns. The requested 10,000-session target is not
+reached. I will not create empty sessions to inflate the count. New turns must
+have a named deliverable.
 
 ## Live PR state
 
@@ -76,8 +81,8 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, exact remote head `ba16a6745e1c6791c92e44c36bd24495a75de820`, mergeable. Focused hosted run `32851303914` passed. | Run full hosted verification and exact-head autoreview, then merge. |
-| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, independent sidebar preview feature, mergeable. Current review has focus-transition and localization action items. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); fix review items and run exact-head checks. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, local branch head `09d5dde272` with code through `e4f527bc00`; remote head is older until push. | Push, run focused and full exact-head hosted verification, run local autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, head `2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, mergeable, listed checks pass. Prior preview and localization findings are addressed; local autoreview needs a clean engine run. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); run local autoreview and exact-head checks, then merge. |
 | [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, independent detached-session-owner feature, mergeable. Current review has lifecycle and localization action items. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); fix review items and run exact-head checks. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
@@ -86,7 +91,7 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 ## Current state
 
-The audited source tail is `ba16a6745e`. It carries the watch compatibility,
+The audited source tail is `e4f527bc00af27346b0e628f76f907ef34531d82`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -110,7 +115,11 @@ The exact tail then adds a valid public-ID selector fixture (`663317e431`), a
 typed `selector.not_found` assertion (`42e97c05c6`), Kitty quota timeout
 admission coverage (`2597d7720d`), graceful timeout admission with disabled
 Kitty graphics (`31857f0c4c`), the corrected applied-limit assertion
-(`95fd2196df`), and the matching recovery comment (`ba16a6745e`).
+(`95fd2196df`), and the matching recovery comment (`ba16a6745e`). The current
+tail then adds protocol v7 operational PTY error gating (`29145d800c`,
+`cd76c82e3d`), cancellation retirement after partial writes (`2f3e478385`,
+`ec074f4b53`), and bounded Git stderr ownership (`c4e842cc55`,
+`e4f527bc00`).
 
 ### Wave 45 audit residuals
 
@@ -184,6 +193,11 @@ round 9B; no manual-IO proof exists yet.
 | Spec-only plan | [PR 10388](https://github.com/manaflow-ai/cmux/pull/10388) | Closed by direction. Specs must land with implementation. |
 
 ## Open requests and acceptance work
+
+Session-mined product and infrastructure requests are tracked in
+[`USER-REQUEST-BOARD.md`](USER-REQUEST-BOARD.md). The current open items include
+stale surface references, base-image installation, relay onboarding and token
+ownership, PTY resize ordering, replaceable sleeps, and attach simplification.
 
 | Request | Acceptance gap | State |
 | --- | --- | --- |
