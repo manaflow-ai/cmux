@@ -710,6 +710,90 @@ pub fn is_executable_file(path: &Path) -> bool {
     }
 }
 
+/// Working directory of a terminal's live foreground process group leader.
+///
+/// `pid` is the terminal's top-level PTY child. The kernel reports the
+/// process group that currently owns that child's controlling terminal (the
+/// same value `tcgetpgrp` returns for the PTY), and a process group id is
+/// its leader's PID, so the leader's working directory is read at request
+/// time. Returns `None` when the child or leader is gone, the child has no
+/// controlling terminal, or the platform denies the lookup.
+pub fn foreground_cwd(pid: u32) -> Option<String> {
+    process_cwd(foreground_process_group(pid)?)
+}
+
+#[cfg(target_os = "linux")]
+fn foreground_process_group(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Fields after the parenthesized command name are state(3) ppid(4)
+    // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
+    // controlling terminal.
+    let fields = stat.get(stat.rfind(')')? + 1..)?;
+    let tpgid = fields.split_whitespace().nth(5)?.parse::<i64>().ok()?;
+    u32::try_from(tpgid).ok().filter(|tpgid| *tpgid > 0)
+}
+
+#[cfg(target_os = "linux")]
+fn process_cwd(pid: u32) -> Option<String> {
+    let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+    Some(cwd.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn foreground_process_group(pid: u32) -> Option<u32> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
+    // returns the initialized byte count.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure.
+    let info = unsafe { info.assume_init() };
+    // NODEV (all ones) means the process has no controlling terminal.
+    if info.e_tdev == u32::MAX || info.e_tpgid == 0 {
+        return None;
+    }
+    Some(info.e_tpgid)
+}
+
+#[cfg(target_os = "macos")]
+fn process_cwd(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_vnodepathinfo>()).ok()?;
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
+    // returns the initialized byte count.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure, and vip_path is a
+    // MAXPATHLEN byte buffer of plain bytes.
+    let info = unsafe { info.assume_init() };
+    let path = std::ptr::from_ref(&info.pvi_cdir.vip_path).cast::<u8>();
+    // SAFETY: the cast covers the complete fixed-size vip_path buffer.
+    let bytes = unsafe { std::slice::from_raw_parts(path, size_of_val(&info.pvi_cdir.vip_path)) };
+    let path = std::ffi::CStr::from_bytes_until_nul(bytes).ok()?.to_str().ok()?;
+    (!path.is_empty()).then(|| path.to_owned())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn foreground_process_group(_pid: u32) -> Option<u32> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_cwd(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(not(windows))]
 fn runtime_base_dir() -> PathBuf {
     env_path("XDG_RUNTIME_DIR")
@@ -878,6 +962,65 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn foreground_cwd_lookup_reads_a_live_child_directory_and_fails_closed() {
+        let target = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("cmux-foreground-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&target).unwrap();
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .current_dir(&target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let observed = process_cwd(child.id());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(
+            observed.map(PathBuf::from),
+            Some(target.clone()),
+            "the live child working directory was not observed"
+        );
+        assert_eq!(process_cwd(u32::MAX), None, "an impossible PID did not fail closed");
+        std::fs::remove_dir(&target).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn foreground_cwd_requires_a_controlling_terminal() {
+        // The child starts its own session, so it deterministically has no
+        // controlling terminal and the foreground lookup must fail closed
+        // instead of inventing a directory.
+        use std::os::unix::process::CommandExt as _;
+        let mut command = std::process::Command::new("/bin/sleep");
+        command
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        // SAFETY: setsid is async-signal-safe and the closure does not
+        // allocate between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let observed = foreground_process_group(child.id());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(observed, None);
+        assert_eq!(foreground_cwd(u32::MAX), None);
+    }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {
         let expected = expected.as_ref();

@@ -4,7 +4,7 @@
 
 ## Contents
 
-- [Getting started](getting-started.md): build prerequisites, local and headless runs, sockets, detach and attach.
+- [Getting started](getting-started.md): build prerequisites, local and headless runs, sockets, detach and attach, session isolation for products built on cmux-tui.
 - [Concepts](concepts.md): session tree, focus, collapse behavior, tab naming, smart split, terminals, and browsers.
 - [Keyboard](keyboard.md): prefix model, modeless Alt layer, default bindings, and `cmux-tui.json` key remapping.
 - [Mouse](mouse.md): clickable UI, drag reorder, resize, scrollbars, menus, selection, pointer shape, and dialogs.

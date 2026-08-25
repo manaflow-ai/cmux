@@ -7072,6 +7072,10 @@ pub const ProcessInfoResult = struct {
     executable: ?[]const u8,
     argv: []const []const u8,
     cwd: ?[]const u8,
+    /// Working directory of the process group that owns the PTY, read at
+    /// request time. Null when the lookup fails or when an older server
+    /// omits the field.
+    foreground_cwd: ?[]const u8,
     children: []const u32,
 };
 
@@ -7404,6 +7408,18 @@ fn requiredNullableString(
     name: []const u8,
 ) !?[]const u8 {
     const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn optionalNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return null;
     return switch (value) {
         .null => null,
         .string => |text| text,
@@ -8382,7 +8398,7 @@ fn decodeProcessInfoResult(
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
-        &.{ "pid", "executable", "argv", "cwd", "children" },
+        &.{ "pid", "executable", "argv", "cwd", "foreground_cwd", "children" },
     );
     const raw_argv = switch (object.get("argv") orelse
         return error.MissingField) {
@@ -8410,6 +8426,7 @@ fn decodeProcessInfoResult(
         .executable = try strictOptionalString(object, "executable"),
         .argv = argv,
         .cwd = try strictOptionalString(object, "cwd"),
+        .foreground_cwd = try optionalNullableString(object, "foreground_cwd"),
         .children = children,
     };
 }
@@ -14729,6 +14746,7 @@ const FakeShared = struct {
                     ))
                         "{\"pid\":123,\"executable\":\"/bin/zsh\"," ++
                             "\"argv\":[\"zsh\",\"-l\"],\"cwd\":\"/tmp\"," ++
+                            "\"foreground_cwd\":\"/tmp/subshell\"," ++
                             "\"children\":[124,125]}"
                     else if (std.mem.eql(
                         u8,
@@ -17595,6 +17613,10 @@ test "typed terminal reads controls and empty mutation receipts decode" {
     try std.testing.expectEqual(@as(u32, 123), process.value.pid);
     try std.testing.expectEqualStrings("/bin/zsh", process.value.executable.?);
     try std.testing.expectEqualStrings("zsh", process.value.argv[0]);
+    try std.testing.expectEqualStrings(
+        "/tmp/subshell",
+        process.value.foreground_cwd.?,
+    );
     try std.testing.expectEqual(@as(u32, 125), process.value.children[1]);
 
     var cleared = try terminal.clearHistory(

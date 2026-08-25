@@ -1285,8 +1285,8 @@ func (c *Client) writeUntrackedStreamCancel(
 				Err:       errors.New("transport returned an invalid write count"),
 			}
 		}
+		encoded = encoded[count:]
 		if writeErr != nil {
-			encoded = encoded[count:]
 			return &TransportError{
 				Operation: wirev2.StreamCancel.Name,
 				Err:       writeErr,

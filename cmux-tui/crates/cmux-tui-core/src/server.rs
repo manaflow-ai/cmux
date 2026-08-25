@@ -11978,6 +11978,7 @@ fn handle_command_with_cancellation(
                 "pid": surface.process_id(),
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
+                "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
