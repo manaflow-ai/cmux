@@ -609,11 +609,24 @@ export default function (amp: PluginAPI) {
     nativeAttentionIdentityRetryCount: number;
     nativeAttentionOwnsSharedStatus: boolean;
   };
+  type AmpTurnStateOverflowTombstone = {
+    turnId: string;
+    provisionalEndPublished: boolean;
+  };
 
   // Amp plugin processes are long-lived and may serve multiple threads
   // concurrently. Tool liveness and provisional completion therefore belong
   // to a thread/turn, never to one process-global counter.
   const turnStates = new Map<string, AmpTurnState>();
+  // Evicted turns remain conservative even after their exact observer is
+  // released. The bounded map prevents unbounded retention; once its bound is
+  // exhausted, the process-wide unknown latch keeps all untracked turns from
+  // being recreated until an authoritative process cleanup.
+  const turnStateOverflowTombstones = new Map<
+    string,
+    AmpTurnStateOverflowTombstone
+  >();
+  let turnStateOverflowedUnknown = false;
   let turnSequence = 0;
   let activeToolStatusSequence = 0;
   let nativeAttentionEpisodeSequence = 0;
@@ -668,6 +681,38 @@ export default function (amp: PluginAPI) {
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
   const maximumRetainedActiveToolsPerTurn = 128;
   const maximumRetainedTurnStateCount = 128;
+  const maximumTurnStateOverflowTombstones = 128;
+
+  const markTurnStateOverflow = (
+    threadId: string,
+    state: AmpTurnState,
+  ): void => {
+    if (turnStateOverflowTombstones.has(threadId)) return;
+    if (
+      turnStateOverflowTombstones.size
+        >= maximumTurnStateOverflowTombstones
+    ) {
+      turnStateOverflowedUnknown = true;
+      return;
+    }
+    turnStateOverflowTombstones.set(threadId, {
+      turnId: state.turnId,
+      provisionalEndPublished: false,
+    });
+  };
+
+  const clearTurnStateOverflow = (threadId?: string): void => {
+    if (threadId) {
+      turnStateOverflowTombstones.delete(threadId);
+      return;
+    }
+    turnStateOverflowTombstones.clear();
+    turnStateOverflowedUnknown = false;
+  };
+
+  const hasTurnStateOverflow = (threadId: string): boolean =>
+    turnStateOverflowedUnknown
+      || turnStateOverflowTombstones.has(threadId);
 
   const refreshNativeAttentionStatusOwnership = (
     state: AmpTurnState,
@@ -700,7 +745,11 @@ export default function (amp: PluginAPI) {
       setStatus(activeTool.label, activeTool.icon, activeTool.color);
       return;
     }
-    if (turnStates.size > 0) {
+    if (
+      turnStates.size > 0
+      || turnStateOverflowedUnknown
+      || turnStateOverflowTombstones.size > 0
+    ) {
       setStatus("thinking", "brain", COLOR.thinking);
       return;
     }
@@ -1046,6 +1095,14 @@ export default function (amp: PluginAPI) {
     turnStates.set(threadId, state);
   };
 
+  const evictTurnState = (
+    threadId: string,
+    state: AmpTurnState,
+  ): void => {
+    markTurnStateOverflow(threadId, state);
+    discardTurnState(threadId, state);
+  };
+
   const retainTurnState = (
     threadId: string,
     state: AmpTurnState,
@@ -1060,7 +1117,7 @@ export default function (amp: PluginAPI) {
     while (turnStates.size > maximumRetainedTurnStateCount) {
       const oldest = turnStates.entries().next().value;
       if (!oldest) break;
-      discardTurnState(oldest[0], oldest[1]);
+      evictTurnState(oldest[0], oldest[1]);
     }
   };
 
@@ -1349,12 +1406,16 @@ export default function (amp: PluginAPI) {
   process.on("exit", () => {
     try {
       clearStatus();
+      clearTurnStateOverflow();
     } catch (_) {}
   });
 
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     if (sessionId) {
+      // A new session boundary is the only event that can prove an evicted
+      // turn from this thread no longer owns unresolved work.
+      clearTurnStateOverflow(sessionId);
       discardTurnState(sessionId, turnStates.get(sessionId));
     }
     inactiveStatus = {
@@ -1370,6 +1431,12 @@ export default function (amp: PluginAPI) {
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
+    if (hasTurnStateOverflow(sessionId)) {
+      // Do not let a later start manufacture a clean state for work whose
+      // exact observer was evicted. Session/process cleanup must clear it.
+      publishAggregateStatus();
+      return;
+    }
     discardTurnState(sessionId, turnStates.get(sessionId));
     const state = makeTurnState(event, sessionId);
     retainTurnState(sessionId, state);
@@ -1458,6 +1525,22 @@ export default function (amp: PluginAPI) {
     const incomingTurnId = firstString(event.id)
       || currentState?.turnId
       || `${process.pid}:${sessionId}:${Date.now()}:${turnSequence + 1}`;
+    if (!currentState && hasTurnStateOverflow(sessionId)) {
+      const tombstone = turnStateOverflowTombstones.get(sessionId);
+      if (tombstone && !tombstone.provisionalEndPublished) {
+        tombstone.provisionalEndPublished = true;
+        sendHook("stop", sessionId, cwd, {
+          turn_id: tombstone.turnId,
+          cmux_turn_boundary: "turn_end",
+          cmux_active_background_work_count: 1,
+        });
+      }
+      // A bounded eviction dropped exact work ownership. Never recreate an
+      // empty state from this late end; only session/process cleanup can
+      // retire the overflow tombstone.
+      publishAggregateStatus();
+      return;
+    }
     if (currentState && currentState.turnId !== incomingTurnId) {
       // A late end from a superseded turn must never consume the newer turn's
       // tool set. Publish it as settled evidence; the shared reconciler rejects
@@ -1568,14 +1651,6 @@ export default function (amp: PluginAPI) {
                     contentsOf: extensionURL,
                     encoding: .utf8
                 )
-                if existing.isEmpty {
-                    try Self.ampExtensionSource.write(
-                        to: extensionURL,
-                        atomically: true,
-                        encoding: .utf8
-                    )
-                    return
-                }
                 guard existing.contains(Self.ampExtensionMarker),
                       existing != Self.ampExtensionSource else {
                     return

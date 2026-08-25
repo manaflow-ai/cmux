@@ -1244,9 +1244,10 @@ try {
       `an evicted Amp turn was recreated and settled: ${JSON.stringify(evictedEndSettlements)}`
     );
   }
+  const beforeRetainedIdle = stopCalls().length;
   boundedThreads.at(-1).setState("idle");
   await waitFor(
-    () => stopCalls().length === beforeEvictedIdle + 1,
+    () => stopCalls().length === beforeRetainedIdle + 1,
     "the most recent bounded Amp turn lost settlement ownership"
   );
 

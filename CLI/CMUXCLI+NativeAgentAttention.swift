@@ -204,15 +204,35 @@ extension CMUXCLI {
         )
     }
 
+    private static let nativeAttentionDeliveryAttemptCount = 2
+    private static let nativeAttentionDeliveryTimeoutSeconds: TimeInterval = 2
+
     private func sendAgentAttentionV2Message(
         method: String,
         params: [String: Any],
         socketPath: String,
         socketPassword: String?
     ) throws {
+        try sendAgentAttentionV2Message(
+            method: method,
+            params: params,
+            socketPath: socketPath,
+            socketPassword: socketPassword,
+            deadline: Date.now.addingTimeInterval(
+                Self.nativeAttentionDeliveryTimeoutSeconds
+            )
+        )
+    }
+
+    private func sendAgentAttentionV2Message(
+        method: String,
+        params: [String: Any],
+        socketPath: String,
+        socketPassword: String?,
+        deadline: Date
+    ) throws {
         let client = SocketClient(path: socketPath)
         defer { client.close() }
-        let deadline = Date.now.addingTimeInterval(2)
         try client.connect(deadline: deadline)
         try authenticateClientIfNeeded(
             client,
@@ -228,27 +248,40 @@ extension CMUXCLI {
         )
     }
 
-    func sendBestEffortAgentAttentionV2Message(
+    /// Delivers one attention mutation with an acknowledgement and one
+    /// immediate retry inside a single bounded deadline. Begin/end mutations
+    /// are keyed by opaque observation identifiers, so replaying a request
+    /// after a lost response is idempotent while avoiding fire-and-forget
+    /// attention state that can strand a stale Needs Input badge.
+    func sendAcknowledgedAgentAttentionV2MessageWithRetry(
         method: String,
         params: [String: Any],
         socketPath: String,
         socketPassword: String?
-    ) {
-        let frame: [String: Any] = [
-            "method": method,
-            "params": params,
-        ]
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: frame
-        ),
-        let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        sendBestEffortFeedTelemetry(
-            socketPath: socketPath,
-            line: line,
-            socketPassword: socketPassword
+    ) throws {
+        let deadline = Date.now.addingTimeInterval(
+            Self.nativeAttentionDeliveryTimeoutSeconds
         )
+        var lastError: Error?
+        for attempt in 0 ..< Self.nativeAttentionDeliveryAttemptCount {
+            do {
+                try sendAgentAttentionV2Message(
+                    method: method,
+                    params: params,
+                    socketPath: socketPath,
+                    socketPassword: socketPassword,
+                    deadline: deadline
+                )
+                return
+            } catch {
+                lastError = error
+                guard attempt + 1 < Self.nativeAttentionDeliveryAttemptCount,
+                      deadline.timeIntervalSinceNow > 0 else {
+                    break
+                }
+            }
+        }
+        if let lastError { throw lastError }
     }
 
     static func nativeAttentionOpaqueIdentifier(

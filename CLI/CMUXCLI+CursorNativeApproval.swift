@@ -172,7 +172,7 @@ extension CMUXCLI {
             "pid_start_microseconds": processIdentity.startMicroseconds,
             "boundary_epoch": String(boundaryEpoch),
         ]
-        sendBestEffortAgentAttentionV2Message(
+        try? sendAcknowledgedAgentAttentionV2MessageWithRetry(
             method: "agent.attention.end",
             params: params,
             socketPath: client.socketPath,
@@ -211,7 +211,7 @@ extension CMUXCLI {
             processIdentity: processIdentity,
             observationID: identifiers.observationId
         )
-        sendBestEffortAgentAttentionV2Message(
+        try? sendAcknowledgedAgentAttentionV2MessageWithRetry(
             method: "agent.attention.end",
             params: [
                 "source":
@@ -393,7 +393,7 @@ extension CMUXCLI {
            let surfaceId = UUID(uuidString: surfaceIdValue) {
             params["surface_id"] = surfaceId.uuidString
         }
-        sendBestEffortAgentAttentionV2Message(
+        try sendAcknowledgedAgentAttentionV2MessageWithRetry(
             method: "agent.attention.begin",
             params: params,
             socketPath: socketPath,
