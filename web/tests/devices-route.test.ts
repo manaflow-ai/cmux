@@ -26,6 +26,7 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 const { DELETE, GET, POST } = await import("../app/api/devices/route");
+const { clearNativeAuthCacheForTests } = await import("../services/vms/auth");
 const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
 );
@@ -70,8 +71,12 @@ const publicIrohRoute = {
 
 function authHeaders(teamId?: string): Record<string, string> {
   const base: Record<string, string> = {
-    authorization: "Bearer access-token",
-    "x-stack-refresh-token": "refresh-token",
+    // Native auth verification is cached by the exact token pair. Use a
+    // distinct pair for each impersonated user so switching `currentUserId`
+    // models a new native session instead of reusing the previous user's
+    // cached identity.
+    authorization: `Bearer access-token-${currentUserId}`,
+    "x-stack-refresh-token": `refresh-token-${currentUserId}`,
     "content-type": "application/json",
   };
   if (teamId) base["x-cmux-team-id"] = teamId;
@@ -101,6 +106,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  clearNativeAuthCacheForTests();
   if (!sql) return;
   await sql`truncate devices, device_app_instances, account_deletion_tombstones restart identity cascade`;
   getUser.mockClear();
