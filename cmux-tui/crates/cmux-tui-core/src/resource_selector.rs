@@ -1122,29 +1122,18 @@ mod tests {
 
     #[test]
     fn singleton_name_matches_only_expected_name_and_id_matches_public_id() {
-        let by_name =
-            resolve_singleton("session", "name:dev", &String::from("session_abc"), Some("dev"), Ok)
-                .expect("matching name resolves");
-        assert_eq!(by_name, "session_abc");
+        let public_id = String::from("session_0123456789abcdef0123456789abcdef");
+        let by_name = resolve_singleton("session", "name:dev", &public_id, Some("dev"), Ok)
+            .expect("matching name resolves");
+        assert_eq!(by_name, public_id);
 
-        let by_id = resolve_singleton(
-            "session",
-            "session_abc",
-            &String::from("session_abc"),
-            Some("other"),
-            Ok,
-        )
-        .expect("matching public id resolves");
-        assert_eq!(by_id, "session_abc");
+        let by_id = resolve_singleton("session", &public_id, &public_id, Some("other"), Ok)
+            .expect("matching public id resolves");
+        assert_eq!(by_id, public_id);
 
-        let mismatch = resolve_singleton(
-            "session",
-            "name:session_abc",
-            &String::from("session_abc"),
-            Some("dev"),
-            Ok,
-        )
-        .expect_err("public id must not match as a name");
+        let mismatch =
+            resolve_singleton("session", &format!("name:{public_id}"), &public_id, Some("dev"), Ok)
+                .expect_err("public id must not match as a name");
         assert!(mismatch.to_string().contains("not found"));
     }
 }
