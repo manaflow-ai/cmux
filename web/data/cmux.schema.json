@@ -34,7 +34,9 @@
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": {
+        "$ref": "#/$defs/cmuxActionDefinition"
+      }
     },
     "ui": {
       "title": "ui",
@@ -61,8 +63,7 @@
       "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": true
+        "$ref": "#/$defs/cmuxCommandDefinition"
       }
     },
     "agentChat": {
@@ -1824,6 +1825,301 @@
     }
   },
   "$defs": {
+    "cmuxActionDefinition": {
+      "type": "object",
+      "description": "A command, agent, built-in, workspace-command, or inline workspace action. Actions without a type infer it from builtin, command, agent, or workspace.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["builtin", "command", "agent", "workspaceCommand", "workspace"]
+        },
+        "builtin": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "commandName": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$"
+        },
+        "args": {
+          "type": "string"
+        },
+        "workspace": {
+          "$ref": "#/$defs/cmuxWorkspaceDefinition"
+        },
+        "restart": {
+          "$ref": "#/$defs/cmuxRestartBehavior"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "palette": {
+          "type": "boolean"
+        },
+        "shortcut": {
+          "$ref": "#/$defs/cmuxActionShortcut"
+        },
+        "icon": {
+          "$ref": "#/$defs/cmuxIcon"
+        },
+        "tooltip": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "target": {
+          "type": "string",
+          "enum": ["currentTerminal", "newTabInCurrentPane"]
+        },
+        "newWorkspaceMenu": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "builtin" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["builtin"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "command" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["command"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "agent" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["agent"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "workspaceCommand" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "anyOf": [
+              { "required": ["commandName"] },
+              { "required": ["name"] },
+              { "required": ["command"] }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "workspace" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["workspace"] }
+        }
+      ]
+    },
+    "cmuxCommandDefinition": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "restart": {
+          "$ref": "#/$defs/cmuxRestartBehavior"
+        },
+        "workspace": {
+          "$ref": "#/$defs/cmuxWorkspaceDefinition"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        { "required": ["workspace"] },
+        { "required": ["command"] }
+      ]
+    },
+    "cmuxRestartBehavior": {
+      "type": "string",
+      "enum": ["new", "recreate", "ignore", "confirm"]
+    },
+    "cmuxWorkspaceDefinition": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cwd": { "type": "string" },
+        "color": { "type": "string" },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "setup": { "type": "string" },
+        "layout": { "$ref": "#/$defs/cmuxLayoutNode" }
+      }
+    },
+    "cmuxLayoutNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["pane"],
+          "properties": {
+            "pane": { "$ref": "#/$defs/cmuxPaneDefinition" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["direction", "children"],
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": ["horizontal", "vertical"]
+            },
+            "split": { "type": "number" },
+            "children": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/cmuxLayoutNode" }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "cmuxPaneDefinition": {
+      "type": "object",
+      "required": ["surfaces"],
+      "properties": {
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/cmuxSurfaceDefinition" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "cmuxSurfaceDefinition": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["terminal", "browser", "project"]
+        },
+        "name": { "type": "string" },
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "url": { "type": "string" },
+        "focus": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "cmuxIcon": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "name"],
+          "properties": {
+            "type": { "type": "string", "enum": ["symbol", "sfSymbol", "systemImage"] },
+            "name": { "type": "string", "minLength": 1, "pattern": "\\S" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "value"],
+          "properties": {
+            "type": { "const": "emoji" },
+            "value": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "scale": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "path"],
+          "properties": {
+            "type": { "type": "string", "enum": ["image", "file"] },
+            "path": { "type": "string", "minLength": 1, "pattern": "\\S" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "cmuxActionShortcut": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": { "type": "string" }
+        }
+      ]
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

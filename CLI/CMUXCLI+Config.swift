@@ -105,13 +105,17 @@ extension CMUXCLI {
     }
 
     func configUsage() -> String {
+        let doctorDescription = String(
+            localized: "cli.config.doctor.usage",
+            defaultValue: "Validate JSONC syntax and action/workspace structure."
+        )
         return """
         Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>
 
         Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
         Subcommands:
-          doctor|check|validate [--path <path>]   Validate JSONC syntax for cmux config files.
+          doctor|check|validate [--path <path>]   \(doctorDescription)
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
@@ -610,12 +614,31 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
+            let validationIssues = CmuxConfigValidator().validate(jsonObject: dictionary)
+            let message: String
+            let status: String
+            if validationIssues.isEmpty {
+                status = "ok"
+                message = String(
+                    localized: "cli.config.doctor.valid",
+                    defaultValue: "JSONC syntax and action/workspace structure are valid"
+                )
+            } else {
+                status = "error"
+                message = String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.config.doctor.invalid",
+                        defaultValue: "JSONC syntax is valid, but config structure is invalid: %@"
+                    ),
+                    validationIssues.map(\.description).joined(separator: "; ")
+                )
+            }
             return ConfigDoctorFinding(
                 label: target.label,
                 displayPath: target.displayPath,
                 path: target.path,
-                status: "ok",
-                message: "JSONC syntax is valid",
+                status: status,
+                message: message,
                 keys: dictionary.keys.sorted(),
                 byteCount: data.count
             )

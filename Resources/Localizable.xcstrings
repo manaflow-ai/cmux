@@ -38120,6 +38120,57 @@
         }
       }
     },
+    "cli.config.doctor.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC syntax is valid, but config structure is invalid: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC 構文は有効ですが、設定構造が無効です: %@"
+          }
+        }
+      }
+    },
+    "cli.config.doctor.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validate JSONC syntax and action/workspace structure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC 構文とアクション／ワークスペース構造を検証します。"
+          }
+        }
+      }
+    },
+    "cli.config.doctor.valid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC syntax and action/workspace structure are valid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC 構文とアクション／ワークスペース構造は有効です"
+          }
+        }
+      }
+    },
     "cli.creation.remoteTmux.newPane": {
       "extractionState": "manual",
       "localizations": {

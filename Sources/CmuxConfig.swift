@@ -2999,15 +2999,22 @@ final class CmuxConfigStore: ObservableObject {
         }
 
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            let decoded = try CmuxConfigFile.decodeToleratingInvalidActions(from: sanitized)
+            let config = decoded.config
+            let issue = decoded.actionIssues.isEmpty
+                ? nil
+                : schemaIssue(
+                    path: path,
+                    message: decoded.actionIssues.map { "\($0.path): \($0.message)" }.joined(separator: "; ")
+                )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: config,
-                issue: nil
+                issue: issue
             )
-            return ParsedConfigResult(config: config, issue: nil)
+            return ParsedConfigResult(config: config, issue: issue)
         } catch {
             let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(
