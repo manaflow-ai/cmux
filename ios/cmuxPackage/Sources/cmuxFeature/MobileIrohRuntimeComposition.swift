@@ -715,15 +715,18 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         #if DEBUG
-        // Graduation lane routing: control rides the next transport when the
-        // dev flag is on and this Mac is bootstrapped + admitted. Bootstrap
-        // itself runs post-connect on the shell's live RPC client (slice 2);
-        // installing the hook here is idempotent.
+        // Graduation lane routing: a next-transport Mac carries control over
+        // the bridge and FAILS HARD while its session reconnects — the
+        // ReconnectOwner inside the facade's client is the sole redial
+        // authority. Legacy serves only non-next Macs and re-credentialing.
         NextTransportGraduationFacade.installProbeHook()
         if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
             for: request)
         {
             return try await BridgeLaneDialer.openControlTransport(on: connection)
+        }
+        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            throw NextTransportUnavailableError()
         }
         #endif
         let runtime = try await preparedRuntimeForConnection()
@@ -748,6 +751,9 @@ public final class MobileIrohRuntimeComposition:
         {
             return try await BridgeLaneDialer.openLane(
                 on: connection, lane: lane, priority: priority)
+        }
+        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            throw NextTransportUnavailableError()
         }
         #endif
         let runtime = try await preparedRuntimeForConnection()
@@ -848,6 +854,9 @@ public final class MobileIrohRuntimeComposition:
                     Task { await stream.receiveStream.stop(errorCode: 0) }
                 }
             }
+        }
+        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
+            throw NextTransportUnavailableError()
         }
         #endif
         let runtime = try await preparedRuntimeForConnection()

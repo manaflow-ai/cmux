@@ -13,10 +13,15 @@ private let graduationLog = Logger(
     category: "next-transport-graduation"
 )
 
-/// Graduation lane routing, phone side. When the route-traffic flag is on
-/// and a Mac has been bootstrapped, the composition sends control, lanes,
-/// and server events over the next transport; anything the facade cannot
-/// serve falls back to the legacy path for that call.
+/// Thrown for requests to a next-transport Mac while its session is down:
+/// the app fails and reconnects rather than silently degrading to legacy.
+struct NextTransportUnavailableError: Error {}
+
+/// Graduation lane routing, phone side. Routing is a sticky PER-MAC
+/// decision made only by probe verdicts: a next-transport Mac carries all
+/// traffic over the bridge and FAILS HARD while reconnecting; legacy
+/// remains only for Macs that answered method_not_found and for the
+/// credentialing handshake.
 ///
 /// Bootstrap is slice 2: one `mobile.next_transport.pair` RPC over the
 /// ALREADY authenticated legacy channel mints this phone's ticket + grant,
@@ -36,16 +41,27 @@ final class NextTransportGraduationFacade {
         var grant: String
     }
 
+    /// Sticky per-Mac routing, decided ONLY by probe verdicts, never by
+    /// dial outcomes (capability and reachability are different axes).
+    enum MacRouting: String {
+        /// Not yet probed, or credentials invalidated: legacy carries
+        /// traffic and the next healthy connection re-probes.
+        case unknown
+        /// Probe succeeded: ALL traffic rides the next transport and fails
+        /// hard while it reconnects — no silent legacy fallback.
+        case next
+        /// The Mac build answered method_not_found: legacy is correct.
+        case legacy
+    }
+
+    private static let routingKeyPrefix = "dev.cmux.nextTransport.ios.routing.v1."
+
     private var clients: [String: NextTransportDialClient] = [:]
     private var acceptors: [ObjectIdentifier: BridgeLaneAcceptor] = [:]
     private var bootstrapsInFlight: Set<String> = []
     /// Macs probed this app run whose probe failed (no support, host off):
     /// stay legacy without re-probing until the next launch.
     private var probedThisRun: Set<String> = []
-    /// Consecutive failed dials per Mac. A Mac restart re-mints its signing
-    /// key and ports, so stored credentials go stale; after a few failures
-    /// the bootstrap is dropped and the next healthy connection re-probes.
-    private var dialFailures: [String: Int] = [:]
 
     /// Default ON in dev builds: support is negotiated per Mac (the pair
     /// probe is the capability check — unsupported Macs simply stay legacy),
@@ -66,52 +82,79 @@ final class NextTransportGraduationFacade {
         storedBootstrap(macID: macDeviceID) != nil
     }
 
-    /// The admitted next-transport connection for this request's Mac, or nil
-    /// when the facade should not (flag off) or cannot (no bootstrap, not
-    /// admitted) serve it. Waits briefly for a dial in flight; a Mac that
-    /// stays unreachable over the next transport degrades to legacy per call.
+    /// This Mac's sticky routing decision.
+    func routing(macID: String) -> MacRouting {
+        guard isEnabled else { return .legacy }
+        guard let raw = UserDefaults.standard.string(forKey: Self.routingKeyPrefix + macID),
+            let value = MacRouting(rawValue: raw)
+        else { return .unknown }
+        return value
+    }
+
+    private func setRouting(_ value: MacRouting, macID: String) {
+        if value == .unknown {
+            UserDefaults.standard.removeObject(forKey: Self.routingKeyPrefix + macID)
+        } else {
+            UserDefaults.standard.set(value.rawValue, forKey: Self.routingKeyPrefix + macID)
+        }
+        graduationLog.notice(
+            "routing \(macID, privacy: .public) -> \(value.rawValue, privacy: .public)")
+    }
+
+    /// Lab-shaped access: a synchronous snapshot of the owner's state.
+    /// Never blocks, never dials, never returns a closed connection. The
+    /// ReconnectOwner inside the dial client is the ONLY reconnect
+    /// authority; this method just reads its current truth.
+    ///
+    /// An admission denial means stale credentials (never a transient): the
+    /// bootstrap is dropped and routing returns to unknown so the legacy
+    /// control channel can re-credential — its one remaining data job.
     func admittedConnection(
         for request: CmxByteTransportRequest
     ) async -> IrohPeerConnection? {
         guard isEnabled, let macID = request.expectedPeerDeviceID else { return nil }
-        guard let bootstrap = storedBootstrap(macID: macID) else { return nil }
-        let client: NextTransportDialClient
-        if let existing = clients[macID] {
-            client = existing
-        } else {
-            client = NextTransportDialClient()
-            client.configure(ticketJSON: bootstrap.ticket, grantJSON: bootstrap.grant)
-            clients[macID] = client
-        }
-        if let connection = await client.admittedConnection() {
-            dialFailures[macID] = 0
-            return connection
-        }
-        await client.connect()
-        for _ in 0..<20 {
-            if let connection = await client.admittedConnection() {
-                dialFailures[macID] = 0
-                return connection
-            }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        let failures = (dialFailures[macID] ?? 0) + 1
-        dialFailures[macID] = failures
-        if failures >= 3 {
-            // Stale credentials (the Mac restarted and re-minted its signer
-            // or moved ports): drop them so the next healthy connection
-            // re-probes for fresh ones.
-            UserDefaults.standard.removeObject(forKey: Self.bootstrapKeyPrefix + macID)
-            clients[macID] = nil
-            probedThisRun.remove(macID)
-            dialFailures[macID] = 0
+        guard routing(macID: macID) == .next else { return nil }
+        guard let client = ensureClient(macID: macID) else { return nil }
+        if client.state.contains("denied") {
             graduationLog.notice(
-                "bootstrap \(macID, privacy: .public) invalidated after \(failures) failed dials; will re-probe")
-        } else {
-            graduationLog.notice(
-                "next transport not admitted for \(macID, privacy: .public); legacy path")
+                "credentials for \(macID, privacy: .public) denied; re-credentialing over legacy")
+            invalidateBootstrap(macID: macID)
+            return nil
         }
-        return nil
+        guard let connection = await client.admittedConnection() else { return nil }
+        guard await !connection.isClosed else { return nil }
+        return connection
+    }
+
+    /// True when this request's Mac is a next-transport Mac: traffic MUST
+    /// ride the bridge and fail hard while it reconnects.
+    func requiresBridge(for request: CmxByteTransportRequest) -> Bool {
+        guard isEnabled, let macID = request.expectedPeerDeviceID else { return false }
+        return routing(macID: macID) == .next
+    }
+
+    /// Boots (once) the per-Mac dial client from stored credentials. The
+    /// owner autonomously maintains the session from then on.
+    @discardableResult
+    private func ensureClient(macID: String) -> NextTransportDialClient? {
+        if let existing = clients[macID] { return existing }
+        guard let bootstrap = storedBootstrap(macID: macID) else {
+            setRouting(.unknown, macID: macID)
+            return nil
+        }
+        let client = NextTransportDialClient()
+        client.configure(ticketJSON: bootstrap.ticket, grantJSON: bootstrap.grant)
+        clients[macID] = client
+        Task { await client.connect() }
+        return client
+    }
+
+    private func invalidateBootstrap(macID: String) {
+        UserDefaults.standard.removeObject(forKey: Self.bootstrapKeyPrefix + macID)
+        let client = clients.removeValue(forKey: macID)
+        Task { await client?.disconnect() }
+        probedThisRun.remove(macID)
+        setRouting(.unknown, macID: macID)
     }
 
     /// One raw-stream acceptor per connection (single onRawStream owner),
@@ -142,6 +185,7 @@ final class NextTransportGraduationFacade {
     /// that answers method_not_found (old build) stays legacy silently.
     private func probeBootstrap(client: MobileCoreRPCClient, macID: String) async {
         guard isEnabled, storedBootstrap(macID: macID) == nil,
+            routing(macID: macID) != .legacy,
             !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID)
         else { return }
         probedThisRun.insert(macID)
@@ -170,12 +214,23 @@ final class NextTransportGraduationFacade {
                 return
             }
             storeBootstrap(macID: macID, ticket: ticket, grant: grant)
+            setRouting(.next, macID: macID)
+            ensureClient(macID: macID)
             graduationLog.notice("bootstrap \(macID, privacy: .public): ticket + grant stored")
         } catch {
-            // method_not_found (old Mac) and unavailable (host off) land
-            // here: this Mac stays legacy for the run.
-            graduationLog.notice(
-                "bootstrap \(macID, privacy: .public): unsupported or refused (\(String(describing: error), privacy: .public))")
+            // Probe verdicts are the ONLY capability signal. method_not_found
+            // = the Mac build has no next transport: legacy is CORRECT,
+            // sticky. Anything else (host off, transient) leaves the Mac
+            // unknown so a later healthy connection re-probes.
+            let description = String(describing: error)
+            if description.contains("method_not_found") {
+                setRouting(.legacy, macID: macID)
+                graduationLog.notice(
+                    "bootstrap \(macID, privacy: .public): Mac build has no next transport; legacy sticky")
+            } else {
+                graduationLog.notice(
+                    "bootstrap \(macID, privacy: .public): probe inconclusive (\(description, privacy: .public)); will retry")
+            }
         }
     }
 

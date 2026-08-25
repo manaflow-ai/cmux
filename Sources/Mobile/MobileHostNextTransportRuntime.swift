@@ -124,7 +124,20 @@ final class MobileHostNextTransportRuntime {
             // Identity: stable per install, separate from the legacy
             // transport's identity (parallel hosts, parallel keys).
             let identity = Self.loadOrCreateIdentity()
-            let signer = GrantSigner()
+            // The signer persists like the identity: a fresh key per launch
+            // would invalidate every previously minted phone grant on every
+            // Mac restart, forcing phones through re-credentialing.
+            let signerKeyKey = "dev.cmux.nextTransport.signer.key"
+            let signer: GrantSigner
+            if let stored = UserDefaults.standard.string(forKey: signerKeyKey),
+                let keyData = Data(base64Encoded: stored)
+            {
+                signer = GrantSigner(privateKeyData: keyData)
+            } else {
+                signer = GrantSigner()
+                UserDefaults.standard.set(
+                    signer.privateKeyData.base64EncodedString(), forKey: signerKeyKey)
+            }
             self.signer = signer
             let host = TransportHost(
                 verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
