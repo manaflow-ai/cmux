@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Definitive outcome of one addressed agent-prompt admission transaction.
 public enum AgentPromptSubmissionResult: Equatable, Sendable {

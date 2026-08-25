@@ -411,7 +411,6 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
-        let events = Self.parsedSocketInputEvents(for: text)
         var queuedInput = false
         for input in Self.pendingSocketInputs(from: events) {
             queuedInput = deliverPendingSocketInput(
