@@ -138,7 +138,8 @@ jobs:
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
             --include-windows \
-            --install-npm-package cmux-tui-linux-x64
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
 
       - name: Verify native npm package attestations
         env:
