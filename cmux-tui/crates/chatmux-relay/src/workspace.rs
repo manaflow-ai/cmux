@@ -62,6 +62,8 @@ pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
 // Include one byte for the line delimiter. The assembled patch still uses
 // DIFF_MAX_BYTES as its payload ceiling, so this only bounds one input line.
 const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
+const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
+const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1493,6 +1495,68 @@ fn decode_git_diff_line(line: &mut Vec<u8>) -> std::io::Result<String> {
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
+/// Own the stderr reader for one git operation. Dropping a JoinHandle only
+/// detaches its task, so abort it explicitly when the operation is cancelled.
+/// Once git exits, `finish` bounds the wait for descendants that inherited the
+/// pipe and never close it.
+struct GitStderrDrain {
+    task: tokio::task::JoinHandle<std::io::Result<()>>,
+    retained: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+impl Drop for GitStderrDrain {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl GitStderrDrain {
+    fn start<R>(mut stderr: R) -> GitStderrDrain
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        let retained = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let task_retained = Arc::clone(&retained);
+        let task = tokio::spawn(async move {
+            let mut buffer = [0_u8; 8 * 1024];
+            loop {
+                let read = stderr.read(&mut buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                if let Ok(mut retained) = task_retained.lock() {
+                    if retained.len() < GIT_STDERR_MAX_BYTES {
+                        let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
+                        retained.extend_from_slice(&buffer[..keep]);
+                    }
+                }
+            }
+            Ok(())
+        });
+        GitStderrDrain { task, retained }
+    }
+
+    async fn finish(mut self) -> Result<Vec<u8>, Refusal> {
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(GIT_STDERR_DRAIN_TIMEOUT_MS),
+            &mut self.task,
+        )
+        .await
+        {
+            Ok(result) => result
+                .map_err(|error| Refusal::failed(format!("git diff stderr drain failed: {error}")))?
+                .map_err(|error| {
+                    Refusal::failed(format!("git diff stderr read failed: {error}"))
+                })?,
+            Err(_) => {
+                self.task.abort();
+                let _ = (&mut self.task).await;
+            }
+        }
+        Ok(self.retained.lock().map(|retained| retained.clone()).unwrap_or_default())
+    }
+}
+
 /// Two-column XY code in the porcelain v1 spelling ("M " not "M.") — the
 /// wire schema pins v1's verbatim codes.
 fn porcelain_v1_xy(xy: &str) -> String {
@@ -1661,24 +1725,7 @@ async fn run_git_diff(
     // Drain stderr while stdout is consumed. A diagnostic stream can fill its
     // OS pipe and block git before it exits. Retain only a bounded prefix for
     // the error message, but continue reading until EOF.
-    const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
-    let mut stderr_task = child.stderr.take().map(|mut stderr| {
-        tokio::spawn(async move {
-            let mut retained = Vec::new();
-            let mut buffer = [0_u8; 8 * 1024];
-            loop {
-                let read = stderr.read(&mut buffer).await?;
-                if read == 0 {
-                    break;
-                }
-                if retained.len() < GIT_STDERR_MAX_BYTES {
-                    let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
-                    retained.extend_from_slice(&buffer[..keep]);
-                }
-            }
-            Ok::<Vec<u8>, std::io::Error>(retained)
-        })
-    });
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
     let mut reader = tokio::io::BufReader::new(stdout);
     let mut line_bytes = Vec::with_capacity(GIT_DIFF_LINE_MAX_BYTES.min(8 * 1024));
     let mut patch = String::new();
@@ -1699,7 +1746,7 @@ async fn run_git_diff(
                     let _ = child.kill().await;
                     let _ = child.wait().await;
                     if let Some(task) = stderr_task.take() {
-                        let _ = task.await;
+                        let _ = task.finish().await;
                     }
                     return Err(Refusal::failed(format!("could not read git diff: {error}")));
                 }
@@ -1732,10 +1779,7 @@ async fn run_git_diff(
         .await
         .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
     let stderr = match stderr_task {
-        Some(task) => task
-            .await
-            .map_err(|error| Refusal::failed(format!("git diff stderr drain failed: {error}")))?
-            .map_err(|error| Refusal::failed(format!("git diff stderr read failed: {error}")))?,
+        Some(task) => task.finish().await?,
         None => Vec::new(),
     };
     if !status.success() {
@@ -2575,6 +2619,24 @@ mod tests {
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(line.len() <= 8, "reader appended bytes past its limit");
+    }
+
+    #[tokio::test]
+    async fn git_diff_stderr_drain_bounds_inherited_descriptor_wait() {
+        use tokio::io::AsyncWriteExt as _;
+
+        let (mut writer, reader) = tokio::io::duplex(64);
+        writer.write_all(b"diagnostic").await.expect("stderr write");
+        let drain = GitStderrDrain::start(reader);
+        let retained = tokio::time::timeout(
+            std::time::Duration::from_millis(GIT_STDERR_DRAIN_TIMEOUT_MS + 100),
+            drain.finish(),
+        )
+        .await
+        .expect("inherited stderr descriptor must not block git diff")
+        .expect("stderr drain");
+
+        assert_eq!(retained, b"diagnostic");
     }
 
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
