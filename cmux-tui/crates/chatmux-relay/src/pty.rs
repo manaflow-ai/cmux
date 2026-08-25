@@ -1879,6 +1879,7 @@ impl Inner {
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
         let (on_data, _) = self.sinks(pty_id, context, Arc::clone(&proxy));
+        let control_for_exit: Arc<dyn PtyControl> = Arc::clone(&proxy);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
@@ -1893,7 +1894,7 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit);
+                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit, &control_for_exit);
             }
         });
         let start_stream = Arc::clone(&stream);
