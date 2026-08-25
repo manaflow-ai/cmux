@@ -871,13 +871,8 @@ impl Inner {
     ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
         let Some(control) = control.upgrade() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
-            || self
-                .attachments
-                .lock()
-                .expect("attach lock")
-                .get(pty_id)
-                .is_none_or(|a| a.generation != generation || !Arc::ptr_eq(&a.control, control))
+        if !self.attachment_is_current(pty_id, generation, &control)
+            || self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
         {
             return;
         }
@@ -891,16 +886,18 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            self.close(pty_id);
-            send_pty_error(
-                context,
-                pty_id,
-                "failed",
-                &format!(
-                    "dropped: {buffered} bytes buffered toward the server (cap {})",
-                    self.output_cap
-                ),
-            );
+            if self.remove_attachment_if_current(pty_id, generation, &control) {
+                control.kill();
+                send_pty_error(
+                    context,
+                    pty_id,
+                    "failed",
+                    &format!(
+                        "dropped: {buffered} bytes buffered toward the server (cap {})",
+                        self.output_cap
+                    ),
+                );
+            }
             return;
         }
         (auth.send)(json!({
@@ -921,13 +918,8 @@ impl Inner {
     ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
         let Some(control) = control.upgrade() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
-            || self
-                .attachments
-                .lock()
-                .expect("attach lock")
-                .get(pty_id)
-                .is_none_or(|a| a.generation != generation || !Arc::ptr_eq(&a.control, control))
+        if !self.attachment_is_current(pty_id, generation, &control)
+            || self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
         {
             return;
         }
@@ -962,16 +954,32 @@ impl Inner {
         }
     }
 
-    /// Remove and close an attachment only if the callback still belongs to
-    /// the current generation. The identity check and removal share one lock,
-    /// so replacement cannot slip between them.
+    fn attachment_is_current(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        control: &Arc<dyn PtyControl>,
+    ) -> bool {
+        self.attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .is_some_and(|attachment| {
+                attachment.generation == generation
+                    && !attachment.closing.load(Ordering::SeqCst)
+                    && Arc::ptr_eq(&attachment.control, control)
+            })
+    }
+
+    /// Remove an attachment only if the callback still belongs to the current
+    /// generation. The identity check and removal share one lock, so
+    /// replacement cannot slip between them.
     fn remove_attachment_if_current(
         &self,
         pty_id: &str,
         generation: u64,
-        control: &Weak<dyn PtyControl>,
+        control: &Arc<dyn PtyControl>,
     ) -> bool {
-        let Some(control) = control.upgrade() else { return false };
         let mut attachments = self.attachments.lock().expect("attach lock");
         let matches = attachments.get(pty_id).is_some_and(|attachment| {
             attachment.generation == generation
@@ -1920,14 +1928,14 @@ impl Inner {
         let stream_for_exit = Arc::clone(&stream);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                if relay.remove_attachment_if_current(
-                    &pty_id_for_exit,
-                    generation,
-                    &control_identity,
-                ) {
-                    if let Some(control) = control_identity.upgrade() {
-                        control.kill();
-                    }
+                if let Some(control) = control_identity.upgrade()
+                    && relay.remove_attachment_if_current(
+                        &pty_id_for_exit,
+                        generation,
+                        &control,
+                    )
+                {
+                    control.kill();
                 }
                 send_pty_error(
                     &context_for_exit,
