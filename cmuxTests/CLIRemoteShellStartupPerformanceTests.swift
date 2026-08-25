@@ -301,7 +301,6 @@ struct CLIRemoteShellStartupPerformanceTests {
             --)
               shift
               [ "$#" -gt 0 ] || exit 2
-              shift
               break
               ;;
             -*) shift ;;
