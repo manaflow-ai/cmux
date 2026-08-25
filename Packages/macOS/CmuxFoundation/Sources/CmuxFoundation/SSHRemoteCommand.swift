@@ -49,26 +49,6 @@ public struct SSHRemoteCommand: Equatable, Sendable {
         usesArgumentSeparator = delimitedArguments != nil
     }
 
-    /// Returns whether a token mixes a TTY flag with another short SSH option.
-    ///
-    /// cmux forwards only the supported TTY subset after a destination. Callers
-    /// should pass other SSH options with ``--ssh-option`` and use `--` when a
-    /// literal remote command begins with a dash; silently moving a mixed token
-    /// to the remote shell would change OpenSSH's meaning.
-    ///
-    /// - Parameter argument: A token that appeared after an SSH destination.
-    /// - Returns: `true` for short-option clusters such as `-tq` or `-4t`.
-    public static func isMixedTTYOptionCluster(_ argument: String) -> Bool {
-        guard argument.count > 2,
-              argument.first == "-",
-              argument.dropFirst().first != "-" else {
-            return false
-        }
-        let flags = argument.dropFirst()
-        return flags.contains(where: { $0 == "t" || $0 == "T" })
-            && flags.contains(where: { $0 != "t" && $0 != "T" })
-    }
-
     /// Returns SSH options that durably encode this command's effective TTY request.
     ///
     /// The live invocation retains ``ttyRequestArguments`` because OpenSSH's

@@ -10484,7 +10484,7 @@ struct CMUXCLI {
             $0.hasPrefix("-")
         }
         if let mixedTTYCluster = leadingRemoteOptionArguments.first(
-            where: SSHRemoteCommand.isMixedTTYOptionCluster
+            where: isMixedTTYOptionCluster
         ) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(
