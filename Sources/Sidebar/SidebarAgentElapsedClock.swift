@@ -55,6 +55,9 @@ final class SidebarAgentElapsedClock {
         for identifier in releasedTargets {
             targets.removeValue(forKey: identifier)
         }
-        hasTargets = !targets.isEmpty
+        let nextHasTargets = !targets.isEmpty
+        if hasTargets != nextHasTargets {
+            hasTargets = nextHasTargets
+        }
     }
 }

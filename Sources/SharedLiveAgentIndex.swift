@@ -484,6 +484,7 @@ final class SharedLiveAgentIndex {
             self.index = refreshed
             self.liveAgentProcessFingerprint = nextFingerprint
             self.refreshTask = nil
+            self.restartForkAvailabilityRefreshIfPending()
             if !changedPanelIdsByWorkspaceId.isEmpty {
                 self.postSharedLiveAgentIndexDidChange(
                     panelIdsByWorkspaceId: changedPanelIdsByWorkspaceId
