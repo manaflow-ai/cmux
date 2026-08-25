@@ -4,6 +4,68 @@ import Testing
 
 @Suite(.serialized)
 struct CLIWorkspaceStableIDTests {
+    @Test("Default pane inspection JSON keeps IDs for agent targeting")
+    func paneInspectionJSONKeepsIDsByDefault() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let commands: [(command: [String], key: String, id: String, ref: String)] = [
+            (
+                ["list-panes", "--workspace", "workspace:1", "--json"],
+                "panes",
+                Self.paneID,
+                "pane:1"
+            ),
+            (
+                [
+                    "list-pane-surfaces",
+                    "--workspace", "workspace:1",
+                    "--pane", "pane:1",
+                    "--json",
+                ],
+                "surfaces",
+                Self.surfaceID,
+                "surface:1"
+            ),
+        ]
+
+        for item in commands {
+            let result = try await run(command: item.command, cliPath: cliPath)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            let root = try responseObject(in: result.stdout)
+            let rows = try #require(root[item.key] as? [[String: Any]])
+            let row = try #require(rows.first)
+            #expect(row["id"] as? String == item.id, Comment(rawValue: "command=\(item.command) row=\(row)"))
+            #expect(row["ref"] as? String == item.ref, Comment(rawValue: "command=\(item.command) row=\(row)"))
+        }
+    }
+
+    @Test("Explicit pane inspection ID formats remain respected")
+    func explicitIDFormatsStillShapePaneInspectionJSON() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let expectations: [(mode: String, hasID: Bool, hasRef: Bool)] = [
+            ("refs", false, true),
+            ("uuids", true, false),
+            ("both", true, true),
+        ]
+
+        for expectation in expectations {
+            let command = [
+                "list-panes",
+                "--workspace", "workspace:1",
+                "--json",
+                "--id-format", expectation.mode,
+            ]
+            let result = try await run(command: command, cliPath: cliPath)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            let root = try responseObject(in: result.stdout)
+            let rows = try #require(root["panes"] as? [[String: Any]])
+            let row = try #require(rows.first)
+            #expect((row["id"] != nil) == expectation.hasID, Comment(rawValue: "command=\(command) row=\(row)"))
+            #expect((row["ref"] != nil) == expectation.hasRef, Comment(rawValue: "command=\(command) row=\(row)"))
+        }
+    }
+
     @Test("Workspace inspection JSON keeps mirror UUIDs by default")
     func workspaceInspectionJSONKeepsMirrorUUIDsByDefault() async throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
@@ -261,4 +323,6 @@ struct CLIWorkspaceStableIDTests {
 
     private static let windowID = "11111111-1111-1111-1111-111111111111"
     private static let workspaceID = "22222222-2222-2222-2222-222222222222"
+    private static let paneID = "33333333-3333-3333-3333-333333333333"
+    private static let surfaceID = "44444444-4444-4444-4444-444444444444"
 }
