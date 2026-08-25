@@ -336,6 +336,39 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func restoreKeepsRecentlyExpiredLastGoodPolicyRoutesForDialing() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .automatic,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        // The one-hour policy expired five minutes ago and the broker refresh
+        // failed (cmux#10375). Restoring must keep the last-good catalog
+        // dialable instead of publishing a zero-route managed profile; the
+        // relay itself remains the authority on credential validity.
+        let restored = await stores.service.restore(
+            accountID: "account-a",
+            trustRoot: try fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now.addingTimeInterval(3_600 + 300)
+        )
+
+        #expect(restored.source == .managed)
+        #expect(restored.usedCachedPolicy)
+        #expect(restored.endpointRelayProfile.allowedRelayURLs == Set(fixture.relayURLs))
+        #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
+    }
+
+    @Test
     func implicitRevisionZeroStillRejectsEquivocation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
