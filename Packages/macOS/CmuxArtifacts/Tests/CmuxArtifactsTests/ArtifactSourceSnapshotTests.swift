@@ -30,6 +30,44 @@ struct ArtifactSourceSnapshotTests {
         #expect(try String(contentsOf: snapshot.url, encoding: .utf8) == "initial")
     }
 
+    @Test("A swapped parent symlink is rejected after the source descriptor opens")
+    func rejectsSwappedParentSymlink() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let parent = root.appendingPathComponent("project", isDirectory: true)
+        let source = try ArtifactTestSupport.write("authorized", named: "result.txt", under: parent)
+        let outsideSource = try ArtifactTestSupport.write(
+            "outside",
+            named: "result.txt",
+            under: outside
+        )
+        let resolver = ArtifactPathResolver(fileManager: .default)
+        let expectedCanonicalPath = resolver.canonicalPath(source)
+        try FileManager.default.removeItem(at: parent)
+        try FileManager.default.createSymbolicLink(at: parent, withDestinationURL: outside)
+
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let lease = try ArtifactImportStagingLease(
+            root: paths.importStagingRoot,
+            fileManager: .default
+        )
+        defer { lease.finish() }
+
+        #expect(throws: ArtifactStoreError.self) {
+            _ = try ArtifactSourceSnapshotter(fileManager: .default).snapshot(
+                source: source,
+                paths: paths,
+                configuration: .defaultValue,
+                maximumBytes: nil,
+                stagedURL: lease.makeStagedURL(),
+                expectedCanonicalPath: expectedCanonicalPath
+            )
+        }
+        #expect(try String(contentsOf: outsideSource, encoding: .utf8) == "outside")
+    }
+
     @Test("A pre-canceled snapshot stops before staging bytes")
     func preCanceledSnapshotLeavesNoStagedFile() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

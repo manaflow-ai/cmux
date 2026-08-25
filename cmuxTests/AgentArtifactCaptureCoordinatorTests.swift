@@ -263,6 +263,72 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     @MainActor
+    @Test func streamedProseBatchesShareOneDebouncedCapture() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = UUID().uuidString
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            )
+        )
+        let firstMessage = ChatMessage(
+            id: "prose-1",
+            seq: 1,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 1),
+            kind: .prose(ChatProse(text: "first chunk"))
+        )
+        let secondMessage = ChatMessage(
+            id: "prose-2",
+            seq: 2,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 2),
+            kind: .prose(ChatProse(text: "second chunk"))
+        )
+
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [firstMessage],
+                updated: [],
+                discoveredTitle: nil
+            ),
+            sessionID: sessionID
+        )
+        let firstToken = try #require(
+            service.artifactCaptureDebounceTasks[sessionID]?.token
+        )
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [secondMessage],
+                updated: [],
+                discoveredTitle: nil
+            ),
+            sessionID: sessionID
+        )
+        let secondToken = try #require(
+            service.artifactCaptureDebounceTasks[sessionID]?.token
+        )
+
+        #expect(firstToken != secondToken)
+        #expect(service.artifactCaptureDebounceTasks.count == 1)
+        #expect(service.artifactCaptureTasks[sessionID] == nil)
+    }
+
+    @MainActor
     @Test func completedTranscriptTurnsCaptureWithoutMobileSubscribers() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
