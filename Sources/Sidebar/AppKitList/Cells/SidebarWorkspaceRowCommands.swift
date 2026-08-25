@@ -195,6 +195,11 @@ struct SidebarWorkspaceRowCommands {
         _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
     }
 
+    /// Opens the shared workspace-environment editor for this row.
+    func beginEnvironmentEdit() {
+        tab.presentWorkspaceEnvironmentEditor()
+    }
+
     /// Parity with TabItemView.applyTabColor.
     func applyTabColor(_ hex: String?) {
         tabManager?.applyWorkspaceColor(hex, toWorkspaceIds: contextMenuWorkspaceIds)
@@ -534,6 +539,12 @@ struct SidebarWorkspaceRowMenuBuilder {
                 shortcut: KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
             ) { [commands] in
                 commands.beginDescriptionEdit()
+            })
+
+            menu.addItem(item(
+                String(localized: "contextMenu.editWorkspaceEnvironment", defaultValue: "Edit Workspace Environment…")
+            ) { [commands] in
+                commands.beginEnvironmentEdit()
             })
 
             if tab.hasCustomDescription {

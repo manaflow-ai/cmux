@@ -118,6 +118,10 @@ extension TabItemView {
                 }
             }
 
+            Button(String(localized: "contextMenu.editWorkspaceEnvironment", defaultValue: "Edit Workspace Environment…")) {
+                AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.presentWorkspaceEnvironmentEditor()
+            }
+
             if snapshot.hasCustomDescription {
                 Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
                     actions.clearCustomDescription()

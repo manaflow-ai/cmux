@@ -11,7 +11,8 @@ import Testing
 /// Behavior coverage for per-workspace user-defined environment variables
 /// (issue #5995): the initial shell inherits them, every later pane/split
 /// inherits them, they survive session restore, explicit per-surface env wins,
-/// and the managed `CMUX_*` variables can never be clobbered.
+/// and the managed `CMUX_*` variables can never be clobbered. The editor
+/// parser and mutation path also cover issue #9847's add/edit/remove flow.
 @Suite(.serialized)
 @MainActor
 struct WorkspaceEnvironmentTests {
@@ -42,6 +43,70 @@ struct WorkspaceEnvironmentTests {
             "GOOD": "value",
         ])
         #expect(result == ["GOOD": "value"])
+    }
+
+    // MARK: - Editor representation
+
+    @Test
+    func workspaceEnvironmentEditorParsesAssignmentsAndPreservesValueEqualsSigns() throws {
+        let parsed = try WorkspaceEnvironmentEditor.parse(
+            "# comment\nFOO=bar=baz\n  TRIMMED =value\n\n"
+        )
+        #expect(parsed == ["FOO": "bar=baz", "TRIMMED": "value"])
+    }
+
+    @Test
+    func workspaceEnvironmentEditorRejectsMalformedAndDuplicateEntries() {
+        do {
+            _ = try WorkspaceEnvironmentEditor.parse("GOOD=value\nBROKEN\n")
+            Issue.record("Expected a malformed assignment to be rejected")
+        } catch let error as WorkspaceEnvironmentEditor.ParseError {
+            #expect(error == .invalidAssignment(line: 2))
+        } catch {
+            Issue.record("Unexpected parser error: \(error)")
+        }
+
+        do {
+            _ = try WorkspaceEnvironmentEditor.parse("DUPLICATE=one\nDUPLICATE=two\n")
+            Issue.record("Expected a duplicate key to be rejected")
+        } catch let error as WorkspaceEnvironmentEditor.ParseError {
+            #expect(error == .duplicateKey(line: 2))
+        } catch {
+            Issue.record("Unexpected parser error: \(error)")
+        }
+    }
+
+    @Test
+    func updatingWorkspaceEnvironmentPersistsAndInvalidatesAutosaveFingerprint() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let before = manager.sessionAutosaveFingerprint()
+
+        #expect(workspace.setWorkspaceEnvironment([
+            "  PI_CODING_AGENT_DIR  ": "/tmp/pi",
+            "API_BASE": "https://example.test?a=b",
+        ]))
+        #expect(workspace.workspaceEnvironment == [
+            "PI_CODING_AGENT_DIR": "/tmp/pi",
+            "API_BASE": "https://example.test?a=b",
+        ])
+        #expect(workspace.sessionSnapshot(includeScrollback: false).environment == [
+            "PI_CODING_AGENT_DIR": "/tmp/pi",
+            "API_BASE": "https://example.test?a=b",
+        ])
+        #expect(manager.sessionAutosaveFingerprint() != before)
+
+        // Omitting a previously stored line is the editor's remove operation.
+        #expect(workspace.setWorkspaceEnvironment([
+            "API_BASE": "https://example.test?a=b",
+        ]))
+        #expect(workspace.workspaceEnvironment == [
+            "API_BASE": "https://example.test?a=b",
+        ])
+        #expect(workspace.sessionSnapshot(includeScrollback: false).environment == [
+            "API_BASE": "https://example.test?a=b",
+        ])
+        #expect(!workspace.setWorkspaceEnvironment(workspace.workspaceEnvironment))
     }
 
     // MARK: - Acceptance: initial shell inherits the workspace environment
