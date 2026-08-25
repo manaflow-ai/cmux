@@ -44,6 +44,7 @@ public struct CmxPairingCode: Equatable, Sendable {
     ///   - now: Mint-side clock, injected for testability.
     ///   - generator: Randomness source, injected for testability.
     /// - Returns: The minted code value.
+    // lint:allow namespace-type — this type owns code/expiry state; this is a value factory.
     public static func minted(
         ttl: TimeInterval,
         now: Date,
@@ -59,7 +60,7 @@ public struct CmxPairingCode: Equatable, Sendable {
     public var instanceLabels: [String: String] {
         [
             Self.codeLabelKey: code,
-            Self.expiresAtLabelKey: pairingCodeISO8601Formatter().string(from: expiresAt),
+            Self.expiresAtLabelKey: Self.iso8601.string(from: expiresAt),
         ]
     }
 
@@ -72,12 +73,13 @@ public struct CmxPairingCode: Equatable, Sendable {
     ///   - labels: The instance's string labels as returned by the registry.
     ///   - now: The claim-side clock, injected for testability.
     /// - Returns: The active code, or `nil` when absent or expired.
+    // lint:allow namespace-type — this type owns code/expiry state; this decodes that value.
     public static func active(in labels: [String: String], now: Date) -> CmxPairingCode? {
         guard
             let code = labels[codeLabelKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
             !code.isEmpty,
             let rawExpiry = labels[expiresAtLabelKey],
-            let expiresAt = parsePairingCodeISO8601(rawExpiry),
+            let expiresAt = Self.parseISO8601(rawExpiry),
             expiresAt > now
         else { return nil }
         return CmxPairingCode(code: code, expiresAt: expiresAt)
@@ -87,31 +89,32 @@ public struct CmxPairingCode: Equatable, Sendable {
     /// `"042 117"` and `"042117"` claim the same code.
     /// - Parameter rawInput: The text the user typed.
     /// - Returns: The digit string, or `nil` unless exactly 6 digits remain.
+    // lint:allow namespace-type — normalization is part of this value's claim grammar.
     public static func normalizedClaimInput(_ rawInput: String) -> String? {
         let digits = rawInput.filter(\.isNumber)
         return digits.count == 6 ? digits : nil
     }
 
-}
+    /// Encoder for the expiry label; fractional seconds match the registry's
+    /// own `toISOString()` timestamps.
+    private static var iso8601: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
 
-/// Encoder for the expiry label; fractional seconds match the registry's own
-/// `toISOString()` timestamps.
-private func pairingCodeISO8601Formatter() -> ISO8601DateFormatter {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-}
+    /// Lenient ISO 8601 parse (fractional and whole-second forms).
+    // lint:allow static-helper — formatter construction stays inside the value's
+    // Sendable boundary and is only used on registry label reads.
+    private static func parseISO8601(_ raw: String) -> Date? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: trimmed) { return date }
+        let whole = ISO8601DateFormatter()
+        whole.formatOptions = [.withInternetDateTime]
+        return whole.date(from: trimmed)
+    }
 
-/// Lenient ISO 8601 parse (fractional and whole-second forms). Formatters are
-/// created per call so the surrounding value remains `Sendable`-clean; this
-/// runs only on label reads, never in a hot path.
-private func parsePairingCodeISO8601(_ raw: String) -> Date? {
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    let fractional = ISO8601DateFormatter()
-    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = fractional.date(from: trimmed) { return date }
-    let whole = ISO8601DateFormatter()
-    whole.formatOptions = [.withInternetDateTime]
-    return whole.date(from: trimmed)
 }

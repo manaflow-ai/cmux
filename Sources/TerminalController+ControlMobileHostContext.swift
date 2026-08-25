@@ -70,6 +70,16 @@ extension TerminalController: ControlMobileHostContext {
         guard let deviceID = foundation["device_id"] as? String, !deviceID.isEmpty else {
             return .err(code: "invalid_params", message: "Missing device_id", data: nil)
         }
+        guard HiveComputersService.shared.viewerTransportAvailable else {
+            return .err(
+                code: "transport_unavailable",
+                message: String(
+                    localized: "hive.viewer.error.connection",
+                    defaultValue: "The other Mac couldn't be reached. Check that it is online and paired, then try again."
+                ),
+                data: nil
+            )
+        }
         // Same shared action path as the Settings "Open" button and the
         // sidebar scope picker; presentation happens asynchronously.
         HiveComputerMirrorController.presentViewer(deviceID: deviceID)

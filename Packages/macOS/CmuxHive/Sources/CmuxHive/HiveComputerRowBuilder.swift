@@ -69,7 +69,7 @@ public nonisolated struct HiveComputerRowBuilder: Sendable {
         guard registry != nil || paired != nil else { return nil }
         let deviceID = registry?.deviceId ?? paired?.macDeviceID ?? ""
         let instances: [HiveComputerInstance]
-        if let registry {
+        if let registry, !registry.instances.isEmpty {
             instances = registry.instances.map { instance in
                 let live = presence.instanceSummary(deviceId: deviceID, tag: instance.tag)
                 let liveRoutes = presence.instance(deviceId: deviceID, tag: instance.tag)?.routes ?? []
@@ -87,15 +87,26 @@ public nonisolated struct HiveComputerRowBuilder: Sendable {
                     isOnline: live?.online ?? false
                 )
             }
-        } else {
+        } else if !pairedRecords.isEmpty {
+            instances = pairedRecords.map { record in
+                HiveComputerInstance(
+                    tag: record.instanceTag ?? "default",
+                    routes: record.routes,
+                    lastSeenAt: record.lastSeenAt,
+                    isOnline: false
+                )
+            }
+        } else if let paired {
             instances = [
                 HiveComputerInstance(
-                    tag: paired?.instanceTag ?? "default",
-                    routes: paired?.routes ?? [],
-                    lastSeenAt: paired?.lastSeenAt ?? .distantPast,
+                    tag: paired.instanceTag ?? "default",
+                    routes: paired.routes,
+                    lastSeenAt: paired.lastSeenAt,
                     isOnline: false
                 )
             ]
+        } else {
+            instances = []
         }
         let fallbackLastSeen = registry?.lastSeenAt ?? paired?.lastSeenAt
         return HiveComputer(
