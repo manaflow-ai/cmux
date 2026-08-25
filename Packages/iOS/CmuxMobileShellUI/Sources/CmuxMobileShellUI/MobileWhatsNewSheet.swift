@@ -17,7 +17,7 @@ struct MobileWhatsNewSheet: View {
         VStack(spacing: 0) {
             if pages.count > 1 {
                 TabView(selection: $pageIndex) {
-                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
+                    ForEach(Array(pages.enumerated()), id: \.element.listID) { index, page in
                         pageView(page)
                             .tag(index)
                     }

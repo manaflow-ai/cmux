@@ -32,6 +32,14 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
+
+    /// SwiftUI list identity, namespaced by kind so an announcement id can
+    /// never collide with a binary entry id in a mixed list (the server
+    /// cannot validate against catalog entries it does not know about, such
+    /// as remotely hidden ones that are later re-enabled).
+    var listID: String {
+        (isAnnouncement ? "announcement:" : "entry:") + id
+    }
 }
 
 /// Version-keyed release notes compiled into this binary, newest first.

@@ -17,7 +17,7 @@ struct MobileWhatsNewListView: View {
         let pages = center?.archivePages ?? MobileWhatsNewCatalog.entries
         let allowedHosts = center?.allowedWebHosts ?? []
         List {
-            ForEach(pages) { page in
+            ForEach(pages, id: \.listID) { page in
                 MobileWhatsNewArchiveRow(page: page, allowedHosts: allowedHosts)
             }
         }
