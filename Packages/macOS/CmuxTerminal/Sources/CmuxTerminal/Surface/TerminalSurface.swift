@@ -660,6 +660,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         let callbackContext = surfaceCallbackContext
+        if let runtimeLifetimeId = callbackContext?
+            .takeUnretainedValue().runtimeLifetimeId {
+            let pointerLifetimeEndRequest =
+                TerminalSurfacePointerLifetimeEndRequest(
+                    view: attachedView ?? surfaceView,
+                    runtimeLifetimeId: runtimeLifetimeId
+                )
+            Task { @MainActor in pointerLifetimeEndRequest.end() }
+        }
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
@@ -789,5 +798,20 @@ private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
     func close() {
         window.contentView = nil
         window.close()
+    }
+}
+
+/// Transports pointer-lifetime cleanup from nonisolated ``deinit`` to the main
+/// actor without retaining the surface model itself.
+///
+/// SAFETY: The view reference is owned by this request until the main-actor
+/// closure runs; the request only invokes the view's main-actor lifecycle seam.
+private struct TerminalSurfacePointerLifetimeEndRequest: @unchecked Sendable {
+    let view: any TerminalSurfaceNativeViewing
+    let runtimeLifetimeId: UUID
+
+    @MainActor
+    func end() {
+        view.runtimeSurfaceDidEnd(runtimeLifetimeId: runtimeLifetimeId)
     }
 }
