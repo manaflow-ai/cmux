@@ -2291,9 +2291,7 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
-        if selectedTabId == removed.id {
-            removed.clearSplitZoom()
-        }
+        removed.clearSplitZoom()
         // Same anchor-close lifecycle as closeWorkspace: detaching a group's
         // anchor dissolves the group; non-anchor members stay in tabs as
         // ungrouped workspaces.
