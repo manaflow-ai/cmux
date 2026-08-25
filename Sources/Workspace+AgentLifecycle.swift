@@ -700,7 +700,10 @@ extension Workspace {
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
                 startupInput = approvedBinding.flatMap {
-                    policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
+                    if restore.restoresRemoteWorkspaceTerminalSnapshot {
+                        return $0.remoteStartupInput()
+                    }
+                    return policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
                 }
                 claim = binding.kind.flatMap { kind in
                     binding.checkpointId.map { (kind, $0) }

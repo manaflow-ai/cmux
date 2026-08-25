@@ -1713,6 +1713,9 @@ extension Workspace {
                             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                         )
                         .flatMap {
+                            if restoresRemoteWorkspaceTerminalSnapshot {
+                                return $0.remoteStartupInput()
+                            }
                             sessionRestorePolicy
                                 .surfaceResumeStartupLaunch(forApprovedBinding: $0)?
                                 .initialInput

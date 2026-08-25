@@ -665,25 +665,37 @@ final class SharedLiveAgentIndex {
             return !task.isCancelled
         }
         let waiterID = UUID()
-        return await withCheckedContinuation { continuation in
-            ownershipRefreshWaiters[waiterID] = continuation
-            ownershipRefreshWaiterMinimumGenerations[waiterID] = minimumGeneration
-            ownershipRefreshWaiterKinds[waiterID] = kind
-            let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(
-                deadline: .now() + .nanoseconds(
-                    Int(Self.ownershipRefreshTimeoutNanoseconds)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                ownershipRefreshWaiters[waiterID] = continuation
+                ownershipRefreshWaiterMinimumGenerations[waiterID] = minimumGeneration
+                ownershipRefreshWaiterKinds[waiterID] = kind
+                let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+                timer.schedule(
+                    deadline: .now() + .nanoseconds(
+                        Int(Self.ownershipRefreshTimeoutNanoseconds)
+                    )
                 )
-            )
-            timer.setEventHandler { [weak self] in
-                Task { @MainActor in
-                    self?.finishOwnershipRefreshWaiter(waiterID, result: false)
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor in
+                        self?.finishOwnershipRefreshWaiter(waiterID, result: false)
+                    }
+                }
+                ownershipRefreshWaiterTimers[waiterID] = timer
+                timer.resume()
+                if Task.isCancelled {
+                    finishOwnershipRefreshWaiter(waiterID, result: false)
+                } else if refreshCompletionGeneration >= minimumGeneration {
+                    finishOwnershipRefreshWaiter(waiterID, result: !task.isCancelled)
                 }
             }
-            ownershipRefreshWaiterTimers[waiterID] = timer
-            timer.resume()
-            if refreshCompletionGeneration >= minimumGeneration {
-                finishOwnershipRefreshWaiter(waiterID, result: !task.isCancelled)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishOwnershipRefreshWaiter(waiterID, result: false)
             }
         }
     }
