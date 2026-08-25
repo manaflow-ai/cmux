@@ -86,6 +86,7 @@ public actor CmuxPluginExecutionSnapshotter {
     private let rootDirectoryURL: URL
     private let fileManager: FileManager
     private var openEntrypointDescriptors: Set<Int32> = []
+    private static let orphanSnapshotAge: TimeInterval = 24 * 60 * 60
 
     /// Creates a snapshotter with an injected private staging root.
     public init(
@@ -95,6 +96,7 @@ public actor CmuxPluginExecutionSnapshotter {
     ) {
         self.rootDirectoryURL = rootDirectoryURL.standardizedFileURL
         self.fileManager = fileManager
+        pruneOrphanedSnapshots()
     }
 
     /// Copies and revalidates one approved plugin artifact.
@@ -490,5 +492,31 @@ public actor CmuxPluginExecutionSnapshotter {
         }
         clearImmutableFlags(at: candidate)
         try? fileManager.removeItem(at: candidate)
+    }
+
+    /// Recovers UUID-named snapshots left by a crashed or force-quit host.
+    /// Only roots older than a day are removed, leaving snapshots from another
+    /// currently-running cmux instance untouched while bounding disk retention.
+    private func pruneOrphanedSnapshots() {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: rootDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-Self.orphanSnapshotAge)
+        for entry in entries {
+            guard UUID(uuidString: entry.lastPathComponent) != nil,
+                  let values = try? entry.resourceValues(
+                      forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                  ),
+                  values.isDirectory == true,
+                  values.isSymbolicLink != true,
+                  let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
+                  let modified = attributes[.modificationDate] as? Date,
+                  modified < cutoff else {
+                continue
+            }
+            removeStagingRoot(entry)
+        }
     }
 }

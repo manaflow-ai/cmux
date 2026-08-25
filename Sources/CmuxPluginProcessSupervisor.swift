@@ -36,6 +36,7 @@ final class CmuxPluginProcessSupervisor {
         let sessionToken: String
         let socketPath: String
         let processID: pid_t
+        let processGroupID: pid_t
         let authorizationIdentity: CmuxPluginProcessIdentity
         let snapshot: CmuxPluginExecutionSnapshot
         let integrityMonitor: CmuxPluginSnapshotIntegrityMonitor
@@ -261,11 +262,17 @@ final class CmuxPluginProcessSupervisor {
 
         do {
             try process.run()
+            guard setpgid(process.processIdentifier, process.processIdentifier) == 0 else {
+                throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+            }
         } catch {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
+            if process.isRunning {
+                process.terminate()
+            }
             Task { await snapshotter.remove(executionSnapshot) }
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch failed: \(String(describing: error), privacy: .private)"
@@ -291,9 +298,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
-            if process.isRunning {
-                process.terminate()
-            }
+            terminateProcess(process, processGroupID: process.processIdentifier)
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -317,6 +322,7 @@ final class CmuxPluginProcessSupervisor {
             sessionToken: sessionToken,
             socketPath: socketPath,
             processID: processID,
+            processGroupID: processID,
             authorizationIdentity: authorizationIdentity,
             snapshot: executionSnapshot,
             integrityMonitor: integrityMonitor,
@@ -332,9 +338,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
-            if process.isRunning {
-                process.terminate()
-            }
+            terminateProcess(process, processGroupID: process.processIdentifier)
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -356,9 +360,7 @@ final class CmuxPluginProcessSupervisor {
             integrityMonitor.cancel()
             integrityTask.cancel()
             Task { await snapshotter.remove(executionSnapshot) }
-            if process.isRunning {
-                process.terminate()
-            }
+            terminateProcess(process, processGroupID: process.processIdentifier)
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch gate failed: \(String(describing: error), privacy: .private)"
             )
@@ -419,9 +421,7 @@ final class CmuxPluginProcessSupervisor {
             running.processID,
             identity: running.authorizationIdentity
         )
-        if running.process.isRunning {
-            running.process.terminate()
-        }
+        terminateProcess(running.process, processGroupID: running.processGroupID)
         Task { await snapshotter.remove(running.snapshot) }
         reportError(
             pluginID,
@@ -490,10 +490,19 @@ final class CmuxPluginProcessSupervisor {
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
         Task { await snapshotter.remove(running.snapshot) }
-        if running.process.isRunning {
-            running.process.terminate()
-        }
+        terminateProcess(running.process, processGroupID: running.processGroupID)
         pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
+    }
+
+    /// Revocation is a security boundary: terminate the private process group
+    /// and immediately escalate so descendants cannot retain the plugin token.
+    private func terminateProcess(_ process: Process, processGroupID: pid_t) {
+        guard process.isRunning, processGroupID > 1 else { return }
+        _ = Darwin.kill(-processGroupID, SIGTERM)
+        _ = Darwin.kill(-processGroupID, SIGKILL)
+        if process.isRunning {
+            process.terminate()
+        }
     }
 
     nonisolated private static func inheritedPluginEnvironment(
