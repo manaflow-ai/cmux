@@ -85,6 +85,10 @@ function base64NulSeparated(values: string[]): string {
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.AMP_API_KEY;
+  // Hook children resolve socket credentials through the scoped keychain or
+  // password file; never expose a bearer password/capability in their env.
+  delete env.CMUX_SOCKET_PASSWORD;
+  delete env.CMUX_SOCKET_CAPABILITY;
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "amp";
@@ -259,14 +263,25 @@ function workspaceArgs(): string[] {
   return ws ? ["--workspace", ws] : [];
 }
 
-// Sanitized environment for fire-and-forget cmux status subprocesses.
-// Strips Amp-provided secrets (`AMP_API_KEY`) so we never propagate them to
-// every spawned `cmux set-status` / `cmux log` / `cmux clear-status` child.
-// Mirrors the secret-stripping done in `hookEnvironment` without the launch-
-// metadata fields, which are only meaningful for lifecycle hook calls.
+// Minimal environment for cmux status/attention subprocesses. Socket
+// credentials are intentionally omitted: the child resolves them through the
+// scoped keychain/0600 password file using its explicit socket path, while
+// unrelated Amp/cloud credentials never enter the child process environment.
 function statusEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  delete env.AMP_API_KEY;
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of [
+    "HOME",
+    "PATH",
+    "TMPDIR",
+    "CMUX_TAG",
+    "CMUX_BUNDLE_ID",
+    "CMUX_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_CLI_SENTRY_DISABLED",
+  ]) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
   return env;
 }
 
@@ -1174,6 +1189,21 @@ export default function (amp: PluginAPI) {
 
     clearNativeStateObservation(state);
     const observationEpoch = state.nativeStateObservationEpoch;
+    const fallbackAfterNativeStateFailure = (): void => {
+      if (
+        state.retired
+        || turnStates.get(threadId) !== state
+        || state.nativeStateObservationEpoch !== observationEpoch
+      ) {
+        return;
+      }
+      // A present-but-failing native API is not authoritative. Drop the
+      // failed observer and use the bounded structured-tool fallback instead
+      // of retaining a pending end forever.
+      clearNativeStateObservation(state);
+      tryPublishSettledTurn(threadId, state);
+      if (turnStates.get(threadId) === state) publishAggregateStatus();
+    };
     const applyNativeState = (nativeState: AmpNativeThreadState): void => {
       if (
         state.retired
@@ -1238,11 +1268,14 @@ export default function (amp: PluginAPI) {
       }
     } catch (_) {
       state.nativeStateSubscription = null;
+      fallbackAfterNativeStateFailure();
+      return;
     }
     if (state.retired || turnStates.get(threadId) !== state) return;
     retainNativeStateObservation(threadId, state, observationEpoch);
 
     let acceptsInitialSnapshot = true;
+    let nativeSnapshotFailed = false;
     const snapshotState = Promise.resolve()
       .then(() => observable.get())
       .then((initialState) => {
@@ -1255,7 +1288,7 @@ export default function (amp: PluginAPI) {
         }
       })
       .catch(() => {
-        // A present-but-failing native state API is not evidence of settlement.
+        nativeSnapshotFailed = !didReceiveSubscriptionState;
       });
     let cancelSnapshotWait: (() => void) | null = null;
     const snapshotCancelled = new Promise<void>((resolve) => {
@@ -1277,7 +1310,13 @@ export default function (amp: PluginAPI) {
         snapshotTimedOut,
         snapshotCancelled,
       ]);
-      if (!state.retired && turnStates.get(threadId) === state) {
+      if (
+        nativeSnapshotFailed
+        && !didReceiveSubscriptionState
+        && state.nativeThreadState === null
+      ) {
+        fallbackAfterNativeStateFailure();
+      } else if (!state.retired && turnStates.get(threadId) === state) {
         tryPublishSettledTurn(threadId, state);
       }
     } finally {

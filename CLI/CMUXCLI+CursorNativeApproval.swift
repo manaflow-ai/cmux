@@ -15,8 +15,7 @@ extension CMUXCLI {
         sessionId: String,
         workspaceId: String?,
         surfaceId: String?,
-        socketPath: String?,
-        socketPassword: String?
+        socketPath: String?
     ) {
         guard let socketPath = normalizedHookValue(socketPath),
               let workspaceId = normalizedHookValue(workspaceId),
@@ -82,19 +81,23 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
         process.arguments = arguments
-        // The observer only needs stable path/keychain context plus the
-        // explicit socket credential. Do not copy the hook's full environment
-        // into a longer-lived child, where unrelated API/cloud credentials
-        // would be visible to same-user process inspection.
+        // The observer only needs stable path/keychain context. Do not place
+        // the socket password (or the hook's unrelated credentials) in a
+        // longer-lived child environment; the child resolves the password
+        // through the scoped keychain/0600 password file using --socket.
         let parentEnvironment = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
-        for key in ["HOME", "TMPDIR", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
+        for key in [
+            "HOME",
+            "TMPDIR",
+            "PATH",
+            "CMUX_TAG",
+            "CMUX_BUNDLE_ID",
+            "CMUX_CLI_SENTRY_DISABLED",
+        ] {
             if let value = parentEnvironment[key] {
                 environment[key] = value
             }
-        }
-        if let socketPassword = normalizedHookValue(socketPassword) {
-            environment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }
         process.environment = environment
         process.standardInput = FileHandle.nullDevice

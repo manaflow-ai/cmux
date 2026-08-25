@@ -36644,8 +36644,7 @@ export default CMUXSessionRestore;
                         in: stdinObj,
                         keys: ["surface_id", "surfaceId"]
                     ) ?? env["CMUX_SURFACE_ID"],
-                    socketPath: client?.socketPath ?? socketPath,
-                    socketPassword: socketPassword
+                    socketPath: client?.socketPath ?? socketPath
                 )
             } else if rawEvent == "postToolUse"
                 || rawEvent == "postToolUseFailure" {
