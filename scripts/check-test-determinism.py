@@ -3925,6 +3925,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_assignment_env_split_network.sh",
+            'API_URL=https://api.openai.com/v1/items env -S "curl $API_URL"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_while_curl_network.sh",
             "while curl -fsSL https://api.openai.com/v1/items; do :; done\n",
             {RULE_LIVE_NETWORK_HOST},
