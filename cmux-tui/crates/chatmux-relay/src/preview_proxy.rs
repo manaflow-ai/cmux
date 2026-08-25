@@ -476,7 +476,8 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         }
         connections.abort_all();
         while connections.join_next().await.is_some() {}
-        let upgrades = shared.upgrades.lock().map(|mut tasks| tasks.drain(..).collect()).unwrap_or_default();
+        let upgrades =
+            shared.upgrades.lock().map(|mut tasks| tasks.drain(..).collect()).unwrap_or_default();
         for task in upgrades {
             task.abort();
             let _ = task.await;
@@ -939,6 +940,9 @@ async fn forward_upgrade(
         let _ = tokio::io::copy_bidirectional(&mut server_io, &mut client_io).await;
     });
     if let Ok(mut upgrades) = shared.upgrades.lock() {
+        // Finished handles no longer need to be retained. Tokio guarantees
+        // task destruction has completed once `is_finished` is true.
+        upgrades.retain(|task| !task.is_finished());
         upgrades.push(task);
     } else {
         task.abort();
