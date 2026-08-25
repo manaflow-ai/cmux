@@ -21,6 +21,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
     private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactReadCopyURL: URL?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -118,6 +119,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.artifactFile = artifactFile
+        self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
+            maximumBytes: 16 * 1024 * 1024
+        )
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -262,6 +266,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
+        if let artifactReadCopyURL {
+            try? FileManager.default.removeItem(at: artifactReadCopyURL)
+            self.artifactReadCopyURL = nil
+        }
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
@@ -362,7 +370,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - File I/O
 
     private func loadFileContent(replacingDirtyContent: Bool = true) {
-        let readPath = artifactFile?.readURL.path ?? filePath
+        if artifactFile != nil, artifactReadCopyURL == nil {
+            isFileUnavailable = true
+            return
+        }
+        let readPath = artifactReadCopyURL?.path ?? filePath
         switch Self.loadMarkdownFile(
             at: readPath,
             maximumBytes: artifactFile == nil

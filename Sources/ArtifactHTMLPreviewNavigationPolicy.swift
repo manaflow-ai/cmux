@@ -9,10 +9,20 @@ struct ArtifactHTMLPreviewNavigationPolicy {
         switch targetIsMainFrame {
         case true:
             return url == documentURL
+                || Self.withoutFragment(url) == Self.withoutFragment(documentURL)
         case false:
-            return url.absoluteString == "about:srcdoc" || url.absoluteString == "about:blank"
+            let base = Self.withoutFragment(url).absoluteString
+            return base == "about:srcdoc" || base == "about:blank"
         case nil:
             return false
         }
+    }
+
+    private static func withoutFragment(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.fragment = nil
+        return components.url ?? url
     }
 }

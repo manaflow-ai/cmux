@@ -274,11 +274,10 @@ actor AgentArtifactCaptureCoordinator {
             return false
         case .skipped(let reason):
             switch reason {
-            case .notARegularFile, .automaticCaptureDisabled,
-                 .candidateLimitReached, .gitPrivacyUnavailable,
+            case .automaticCaptureDisabled, .candidateLimitReached, .gitPrivacyUnavailable,
                  .storeBusy, .corruptProvenance:
                 return true
-            case .provenanceNotEligible, .pathOutsideStore,
+            case .notARegularFile, .provenanceNotEligible, .pathOutsideStore,
                  .unsupportedExtension, .exceedsSizeLimit:
                 return false
             }

@@ -21,7 +21,10 @@ struct ArtifactSidebarFileAccess {
         /// descriptor namespace. The caller owns cleanup of the returned URL.
         func makeTemporaryPreviewURL(maximumBytes: Int64 = 8 * 1024 * 1024) -> URL? {
             let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
-            guard duplicate >= 0 else { return nil }
+            guard duplicate >= 0, Darwin.lseek(duplicate, 0, SEEK_SET) >= 0 else {
+                if duplicate >= 0 { _ = Darwin.close(duplicate) }
+                return nil
+            }
             defer { _ = Darwin.close(duplicate) }
             let handle = FileHandle(fileDescriptor: duplicate, closeOnDealloc: false)
             guard let data = try? handle.read(upToCount: Int(maximumBytes) + 1),

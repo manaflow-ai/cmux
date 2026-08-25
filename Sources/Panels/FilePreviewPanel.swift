@@ -981,6 +981,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let panelType: PanelType = .filePreview
     let filePath: String
     private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactReadCopyURL: URL?
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
@@ -1019,7 +1020,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     /// Descriptor-backed URL used for reads of an artifact sidebar file.
     var readURL: URL {
-        artifactFile?.readURL ?? fileURL
+        artifactReadCopyURL ?? fileURL
     }
 
     /// Artifact sidebar previews are read-only so a replaced pathname cannot
@@ -1052,6 +1053,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.artifactFile = artifactFile
+        self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
+            maximumBytes: 16 * 1024 * 1024
+        )
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1090,6 +1094,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
+        if let artifactReadCopyURL {
+            try? FileManager.default.removeItem(at: artifactReadCopyURL)
+            self.artifactReadCopyURL = nil
+        }
         focusCoordinator.unregisterAll()
     }
 
@@ -1201,6 +1209,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func reloadFromDisk() -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
         if artifactFile != nil {
+            guard artifactReadCopyURL != nil else {
+                isFileUnavailable = true
+                return Task {}
+            }
             if previewMode == .text {
                 return loadTextContent(replacingDirtyContent: false)
             }
@@ -1241,6 +1253,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     private func prepareContentForPreviewMode() -> Task<Void, Never>? {
+        if artifactFile != nil, artifactReadCopyURL == nil {
+            isFileUnavailable = true
+            return nil
+        }
         if previewMode == .text {
             return loadTextContent(replacingDirtyContent: false)
         } else {
