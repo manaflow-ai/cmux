@@ -27,10 +27,20 @@ extension GitMetadataService {
         var fallbackURLs: [URL] = []
         var urlRewrites: [GitRemoteURLRewrite] = []
         var configStatuses: [String: GitFileStatus?] = [:]
+        var worktreeConfigEnabled = false
+        let commonConfigPaths: Set<String>
         let fileStatusReader: any GitFileStatusReading
 
-        init(fileStatusReader: any GitFileStatusReading) {
+        init(
+            fileStatusReader: any GitFileStatusReading,
+            commonConfigURL: URL
+        ) {
             self.fileStatusReader = fileStatusReader
+            let standardized = commonConfigURL.standardizedFileURL
+            self.commonConfigPaths = Set([
+                standardized.path,
+                standardized.resolvingSymlinksInPath().path
+            ])
         }
 
         mutating func recordFallback(_ url: URL) {
@@ -42,10 +52,20 @@ extension GitMetadataService {
 
         mutating func read(_ url: URL) -> String? {
             guard !exceeded else { return nil }
+            let readURL = url.resolvingSymlinksInPath()
+            let dependencyPaths = Set([
+                url.standardizedFileURL.path,
+                readURL.path
+            ])
+            let statusesBefore = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
+                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            }
             guard FileManager.default.fileExists(atPath: url.path) else {
+                for (path, fileStatus) in statusesBefore {
+                    configStatuses.updateValue(fileStatus, forKey: path)
+                }
                 return nil
             }
-            let readURL = url.resolvingSymlinksInPath()
             guard fileCount < Self.maximumFileCount,
                   let attributes = try? FileManager.default.attributesOfItem(atPath: readURL.path),
                   let type = attributes[.type] as? FileAttributeType,
@@ -56,13 +76,6 @@ extension GitMetadataService {
                 exceeded = true
                 recordFallback(url)
                 return nil
-            }
-            let dependencyPaths = Set([
-                url.standardizedFileURL.path,
-                readURL.path
-            ])
-            let statusesBefore = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
-                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
             }
             let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
             guard descriptor >= 0 else { return nil }
@@ -111,6 +124,24 @@ extension GitMetadataService {
             return config
         }
 
+        mutating func recordWorktreeConfigSetting(_ value: String) {
+            let normalized = GitMetadataService.gitConfigUnquotedValue(value).lowercased()
+            switch normalized {
+            case "true", "yes", "on", "1":
+                worktreeConfigEnabled = true
+            case "false", "no", "off", "0":
+                worktreeConfigEnabled = false
+            default:
+                break
+            }
+        }
+
+        func isCommonConfig(_ url: URL) -> Bool {
+            let standardized = url.standardizedFileURL
+            return commonConfigPaths.contains(standardized.path)
+                || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
+        }
+
         mutating func appendOutput(_ line: String) -> Bool {
             let byteCount = line.utf8.count
             guard outputByteCount <= Self.maximumByteCount - byteCount else {
@@ -139,10 +170,26 @@ extension GitMetadataService {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         var configURLs: [URL] = []
-        var budget = GitConfigTraversalBudget(fileStatusReader: fileStatusReader)
+        let commonConfigURL = URL(fileURLWithPath: repository.commonDirectory)
+            .appendingPathComponent("config")
+        var budget = GitConfigTraversalBudget(
+            fileStatusReader: fileStatusReader,
+            commonConfigURL: commonConfigURL
+        )
         for configURL in gitRootConfigURLs(repository: repository, environment: environment) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                configURLs: &configURLs,
+                lines: &lines,
+                budget: &budget,
+                depth: 0
+            )
+        }
+        if budget.worktreeConfigEnabled {
+            appendGitRemoteVLines(
+                fromConfigURL: gitWorktreeConfigURL(repository: repository),
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
                 configURLs: &configURLs,
@@ -172,10 +219,6 @@ extension GitMetadataService {
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ])
-        let worktreeConfig = gitWorktreeConfigURL(repository: repository)
-        if FileManager.default.fileExists(atPath: worktreeConfig.path) {
-            urls.append(worktreeConfig)
-        }
         return urls
     }
 
@@ -205,6 +248,7 @@ extension GitMetadataService {
         return urls
     }
 
+    /// Returns the per-worktree config path for a resolved checkout.
     nonisolated static func gitWorktreeConfigURL(repository: ResolvedGitRepository) -> URL {
         URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config.worktree")
     }
@@ -291,6 +335,7 @@ extension GitMetadataService {
         var currentRemoteName: String?
         var currentURLRewriteReplacement: String?
         var currentSectionAllowsIncludePath = false
+        var currentSectionIsExtensions = false
 
         for rawLine in config.components(separatedBy: .newlines) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
@@ -300,6 +345,8 @@ extension GitMetadataService {
                 currentURLRewriteReplacement = gitConfigURLRewriteReplacement(
                     fromSectionHeader: line
                 )
+                currentSectionIsExtensions = budget.isCommonConfig(configURL)
+                    && line.lowercased() == "[extensions]"
                 if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
@@ -316,6 +363,11 @@ extension GitMetadataService {
 
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
+            }
+
+            if currentSectionIsExtensions,
+               parts.first?.lowercased() == "worktreeconfig" {
+                budget.recordWorktreeConfigSetting(parts.count == 2 ? parts[1] : "true")
             }
 
             if let currentRemoteName,

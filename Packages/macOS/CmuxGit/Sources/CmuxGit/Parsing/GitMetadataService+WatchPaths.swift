@@ -184,6 +184,39 @@ extension GitMetadataService {
             }
             return nativeStandardizedPath(candidate.path)
         }
+
+        // A missing path outside the repository gets at most its immediate,
+        // already-existing parent. Walking farther upward can turn a missing
+        // global config file (for example ~/.config/git/config) into a recursive
+        // watch of an unrelated user directory.
+        let normalizedPath = nativeStandardizedPath(path)
+        guard !isSameOrInside(normalizedPath, root: repository.workTreeRoot),
+              !isSameOrInside(normalizedPath, root: repository.gitDirectory),
+              !isSameOrInside(normalizedPath, root: repository.commonDirectory) else {
+            return existingRepositoryScopedWatchRoot(
+                for: candidate,
+                repository: repository
+            )
+        }
+        let parent = candidate.deletingLastPathComponent()
+        guard parent.path != candidate.path,
+              FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        let normalizedParent = nativeStandardizedPath(parent.path)
+        guard isAllowedDirectoryWatchRoot(normalizedParent, repository: repository) else {
+            return nil
+        }
+        return normalizedParent
+    }
+
+    private nonisolated static func existingRepositoryScopedWatchRoot(
+        for initialCandidate: URL,
+        repository: ResolvedGitRepository
+    ) -> String? {
+        var candidate = initialCandidate
+        var isDirectory: ObjCBool = false
         while true {
             if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
                 let normalized = nativeStandardizedPath(candidate.path)
