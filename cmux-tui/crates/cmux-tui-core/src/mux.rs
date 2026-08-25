@@ -9064,8 +9064,8 @@ impl Mux {
                 if remaining.is_zero() {
                     // Kitty graphics are optional. Keep the terminal admission
                     // alive when an existing host does not acknowledge its
-                    // quota update in time. The worker can promote this
-                    // surface after the outstanding update recovers.
+                    // quota update in time. The worker can apply the target
+                    // limits after the outstanding update recovers.
                     let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
                         anyhow::anyhow!("Kitty image budget reservation disappeared")
                     })?;
