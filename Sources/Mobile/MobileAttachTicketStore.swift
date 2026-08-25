@@ -72,9 +72,15 @@ final class MobileAttachTicketStore {
         now: Date = Date()
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
+        let payloadTicket: CmxAttachTicket
+        if case .some(.ticketOnly) = target {
+            payloadTicket = try ticketOnlyCompatibilityTicket(disclosedTicket)
+        } else {
+            payloadTicket = disclosedTicket
+        }
         var payload: [String: Any] = [
-            "ticket": try Self.jsonObject(disclosedTicket),
-            "routes": disclosedTicket.routes.mobileHostJSONObjects(
+            "ticket": try Self.jsonObject(payloadTicket),
+            "routes": payloadTicket.routes.mobileHostJSONObjects(
                 for: .authenticated,
                 at: now
             )
@@ -419,6 +425,30 @@ final class MobileAttachTicketStore {
             routes: routes,
             expiresAt: nil,
             authToken: nil
+        )
+    }
+
+    /// Keeps the authenticated ticket contract intact while omitting the new
+    /// LAN route kind from the legacy full-ticket response consumed by released
+    /// iOS decoders. Token, expiry, account binding, and all other fields remain
+    /// unchanged; current clients can rediscover LAN through authenticated Iroh.
+    private func ticketOnlyCompatibilityTicket(
+        _ ticket: CmxAttachTicket
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: ticket.version,
+            workspaceID: ticket.workspaceID,
+            terminalID: ticket.terminalID,
+            macDeviceID: ticket.macDeviceID,
+            macDisplayName: ticket.macDisplayName,
+            macUserEmail: ticket.macUserEmail,
+            macUserID: ticket.macUserID,
+            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+            macAppVersion: ticket.macAppVersion,
+            macAppBuild: ticket.macAppBuild,
+            routes: ticket.routes.filter { $0.kind != .lan },
+            expiresAt: ticket.expiresAt,
+            authToken: ticket.authToken
         )
     }
 

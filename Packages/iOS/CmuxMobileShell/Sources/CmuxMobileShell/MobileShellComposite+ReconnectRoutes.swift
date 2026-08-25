@@ -318,7 +318,9 @@ extension MobileShellComposite {
             // that has no Iroh identity still retains its authenticated raw
             // route rather than becoming permanently unreachable.
             let irohRoutes = modeRoutes.filter { $0.kind == .iroh }
-            return irohRoutes.isEmpty ? modeRoutes : irohRoutes
+            if irohRoutes.isEmpty { return modeRoutes }
+            let loopbackRoutes = modeRoutes.filter { $0.kind == .debugLoopback }
+            return irohRoutes + loopbackRoutes
         case .lan:
             // LAN Only is represented by the encrypted Iroh peer route; its
             // context provider narrows the private plan to LAN hints.
