@@ -11,7 +11,15 @@ import ObjectiveC.runtime
 #endif
 
 private var cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = false
-private var cmuxUnitTestCmuxWebViewKeyDownHook: ((CmuxWebView, NSEvent) -> Bool)?
+private var cmuxUnitTestCmuxWebViewKeyDownHookAssociationKey: UInt8 = 0
+
+private final class CmuxUnitTestCmuxWebViewKeyDownHookBox: NSObject {
+    let hook: (CmuxWebView, NSEvent) -> Bool
+
+    init(_ hook: @escaping (CmuxWebView, NSEvent) -> Bool) {
+        self.hook = hook
+    }
+}
 
 private final class FakeWKInspectorUndoResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
@@ -28,7 +36,11 @@ private final class BrowserUndoMenuActionSpy: NSObject {
 
 extension CmuxWebView {
     @objc func cmuxUnitTest_keyDown(with event: NSEvent) {
-        if cmuxUnitTestCmuxWebViewKeyDownHook?(self, event) == true {
+        if let hookBox = objc_getAssociatedObject(
+            self,
+            &cmuxUnitTestCmuxWebViewKeyDownHookAssociationKey
+        ) as? CmuxUnitTestCmuxWebViewKeyDownHookBox,
+           hookBox.hook(self, event) {
             return
         }
         cmuxUnitTest_keyDown(with: event)
@@ -51,9 +63,15 @@ func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
 }
 
 func setCmuxUnitTestCmuxWebViewKeyDownHook(
-    _ hook: ((CmuxWebView, NSEvent) -> Bool)?
+    _ hook: ((CmuxWebView, NSEvent) -> Bool)?,
+    for webView: CmuxWebView
 ) {
-    cmuxUnitTestCmuxWebViewKeyDownHook = hook
+    objc_setAssociatedObject(
+        webView,
+        &cmuxUnitTestCmuxWebViewKeyDownHookAssociationKey,
+        hook.map(CmuxUnitTestCmuxWebViewKeyDownHookBox.init),
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
 }
 
 @Suite(.serialized)
@@ -251,15 +269,15 @@ final class CmuxWebViewKeyDownReentryTests {
         container.addSubview(webView)
 
         var keyDownEvents: [NSEvent] = []
-        cmuxUnitTestCmuxWebViewKeyDownHook = { currentWebView, event in
-            guard currentWebView === webView else { return false }
-            keyDownEvents.append(event)
-            return true
-        }
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ currentWebView, event in
+                guard currentWebView === webView else { return false }
+                keyDownEvents.append(event)
+                return true
+            }, for: webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
-            cmuxUnitTestCmuxWebViewKeyDownHook = nil
+            setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: webView)
             window.orderOut(nil)
         }
 

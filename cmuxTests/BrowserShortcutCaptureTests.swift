@@ -53,13 +53,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook { webView, _ in
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
                 if webView === harness.webView {
                     browserKeyDownCount += 1
                 }
                 return false
-            }
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil) }
+            }, for: harness.webView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
 
             let commandR = try #require(makeKeyDownEvent(
                 key: "r",
@@ -79,13 +79,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook { webView, _ in
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
                 if webView === harness.webView {
                     browserKeyDownCount += 1
                 }
                 return false
-            }
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil) }
+            }, for: harness.webView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
 
             let previousMainMenu = NSApp.mainMenu
             let menuProbe = BrowserCaptureMenuActionProbe()
@@ -163,13 +163,6 @@ final class BrowserShortcutCaptureTests {
     @Test
     func capturePreservesWebContentUndoWhenPageDeclines() throws {
         try withCaptureEnabled { harness in
-            installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
-            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, _ in
-                guard currentWebView === harness.webView else { return nil }
-                return false
-            }
-            defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
-
             let spy = BrowserCaptureUndoSpy()
             let undoManager = try #require(harness.webView.undoManager)
             undoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
@@ -181,7 +174,10 @@ final class BrowserShortcutCaptureTests {
                 windowNumber: harness.window.windowNumber
             ))
 
-            #expect(harness.window.performKeyEquivalent(with: commandZ))
+            // Exercise the keyDown fallback directly. The regular WebKit
+            // decline/replay path is covered by CmuxWebViewWebContentUndoTests;
+            // this assertion keeps capture's precedence from bypassing it.
+            harness.webView.keyDown(with: commandZ)
             #expect(spy.undoCount == 1)
         }
     }
