@@ -2224,7 +2224,6 @@ def test_non_codex_structured_work_replays_deferred_stop(
                 "cmux_turn_boundary": "turn_end",
             },
         )
-        time.sleep(0.1)
         provisional_commands = raw_commands_after(fake, stop_start)
         if any(
             "set_agent_lifecycle pi idle" in command

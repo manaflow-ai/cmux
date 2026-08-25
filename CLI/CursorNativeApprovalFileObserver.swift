@@ -41,7 +41,7 @@ final class CursorNativeApprovalFileObserver {
             .addingReportingOverflow(timeoutNanoseconds)
         guard !deadline.overflow else { return .unavailable }
         guard processIdentity.liveness == .live,
-              let logPath = discoverLogPath(
+              let logPath = waitForLogPath(
                   deadlineUptimeNanoseconds: deadline.partialValue
               ) else {
             return .unavailable
@@ -175,6 +175,100 @@ final class CursorNativeApprovalFileObserver {
             return nil
         }
         return candidate
+    }
+
+    /// Waits for Cursor to create the exact-generation log without polling.
+    /// The native policy record is often written after `preToolUse` launches
+    /// this child, so a one-shot directory scan can otherwise miss a real
+    /// approval forever. A kqueue watch keeps the retry bounded by the same
+    /// observation deadline and wakes only when the directory changes.
+    private func waitForLogPath(
+        deadlineUptimeNanoseconds: UInt64
+    ) -> String? {
+        if let existing = discoverLogPath(
+            deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+        ) {
+            return existing
+        }
+        guard let watchDirectory = existingWatchDirectoryPath() else {
+            return nil
+        }
+        let watchDescriptor = open(
+            watchDirectory,
+            O_EVTONLY | O_CLOEXEC
+        )
+        guard watchDescriptor >= 0 else { return nil }
+        defer { close(watchDescriptor) }
+        let eventQueue = kqueue()
+        guard eventQueue >= 0 else { return nil }
+        defer { close(eventQueue) }
+        var registration = kevent(
+            ident: UInt(watchDescriptor),
+            filter: Int16(EVFILT_VNODE),
+            flags: UInt16(EV_ADD | EV_CLEAR),
+            fflags: UInt32(
+                NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB
+                    | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE
+            ),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(eventQueue, &registration, 1, nil, 0, nil) == 0 else {
+            return nil
+        }
+
+        while true {
+            guard processIdentity.liveness == .live else { return nil }
+            // Re-scan immediately after registering to close the race between
+            // the initial scan and the watch becoming active.
+            if let existing = discoverLogPath(
+                deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+            ) {
+                return existing
+            }
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadlineUptimeNanoseconds else { return nil }
+            let remaining = deadlineUptimeNanoseconds - now
+            var timeout = timespec(
+                tv_sec: Int(remaining / Self.nanosecondsPerSecond),
+                tv_nsec: Int(remaining % Self.nanosecondsPerSecond)
+            )
+            var event = kevent()
+            let eventCount = kevent(
+                eventQueue,
+                nil,
+                0,
+                &event,
+                1,
+                &timeout
+            )
+            if eventCount < 0, errno == EINTR { continue }
+            guard eventCount > 0,
+                  event.flags & UInt16(EV_ERROR) == 0 else {
+                return nil
+            }
+            if event.fflags & Self.terminalVnodeEvents != 0 {
+                // The parent itself was replaced; a fresh observer launch will
+                // resolve the new directory rather than following stale state.
+                return nil
+            }
+        }
+    }
+
+    private func existingWatchDirectoryPath() -> String? {
+        var candidate = logDirectory
+        while true {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(
+                atPath: candidate.path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue {
+                return candidate.path
+            }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path { return nil }
+            candidate = parent
+        }
     }
 
     private func consumeAvailableLines(

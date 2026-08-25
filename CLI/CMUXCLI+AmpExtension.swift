@@ -621,12 +621,13 @@ export default function (amp: PluginAPI) {
   const turnStates = new Map<string, AmpTurnState>();
   // Evicted turns remain conservative even after their exact observer is
   // released. The bounded map prevents unbounded retention; once its bound is
-  // exhausted, the process-wide unknown latch keeps all untracked turns from
-  // being recreated until an authoritative process cleanup.
+  // exhausted, an unknown latch keeps untracked turns conservative until an
+  // authoritative session boundary records a recovery token for that owner.
   const turnStateOverflowTombstones = new Map<
     string,
     AmpTurnStateOverflowTombstone
   >();
+  const turnStateOverflowRecoverySessions = new Map<string, true>();
   let turnStateOverflowedUnknown = false;
   let turnSequence = 0;
   let activeToolStatusSequence = 0;
@@ -684,6 +685,19 @@ export default function (amp: PluginAPI) {
   const maximumRetainedTurnStateCount = 128;
   const maximumTurnStateOverflowTombstones = 128;
 
+  const rememberTurnStateOverflowRecovery = (threadId: string): void => {
+    turnStateOverflowRecoverySessions.delete(threadId);
+    turnStateOverflowRecoverySessions.set(threadId, true);
+    while (
+      turnStateOverflowRecoverySessions.size
+        > maximumTurnStateOverflowTombstones
+    ) {
+      const oldest = turnStateOverflowRecoverySessions.keys().next().value;
+      if (oldest === undefined) break;
+      turnStateOverflowRecoverySessions.delete(oldest);
+    }
+  };
+
   const markTurnStateOverflow = (
     threadId: string,
     state: AmpTurnState,
@@ -694,6 +708,7 @@ export default function (amp: PluginAPI) {
         >= maximumTurnStateOverflowTombstones
     ) {
       turnStateOverflowedUnknown = true;
+      turnStateOverflowRecoverySessions.delete(threadId);
       return;
     }
     turnStateOverflowTombstones.set(threadId, {
@@ -705,15 +720,23 @@ export default function (amp: PluginAPI) {
   const clearTurnStateOverflow = (threadId?: string): void => {
     if (threadId) {
       turnStateOverflowTombstones.delete(threadId);
+      if (turnStateOverflowedUnknown) {
+        // The session boundary is authoritative for this owner even when the
+        // bounded table previously lost its exact tombstone.
+        rememberTurnStateOverflowRecovery(threadId);
+      }
       return;
     }
     turnStateOverflowTombstones.clear();
+    turnStateOverflowRecoverySessions.clear();
     turnStateOverflowedUnknown = false;
   };
 
-  const hasTurnStateOverflow = (threadId: string): boolean =>
-    turnStateOverflowedUnknown
-      || turnStateOverflowTombstones.has(threadId);
+  const hasTurnStateOverflow = (threadId: string): boolean => {
+    if (turnStateOverflowTombstones.has(threadId)) return true;
+    return turnStateOverflowedUnknown
+      && !turnStateOverflowRecoverySessions.has(threadId);
+  };
 
   const refreshNativeAttentionStatusOwnership = (
     state: AmpTurnState,

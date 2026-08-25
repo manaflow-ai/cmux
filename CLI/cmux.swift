@@ -28926,6 +28926,93 @@ struct CMUXCLI {
             return false
         }
 
+        return runAcknowledgedDeferredTurnSettlementReplay(
+            agentName: "codex",
+            commandArguments: replay.commandArguments,
+            payload: replay.payload,
+            settlement: settlement,
+            socketPath: socketPath,
+            socketPassword: socketPassword,
+            telemetry: telemetry
+        )
+    }
+
+    private func makeGenericDeferredTurnSettlementReplay(
+        def: AgentHookDef,
+        sessionId: String,
+        settlement: AgentDeferredTurnSettlement
+    ) -> (commandArguments: [String], payload: String)? {
+        var object: [String: Any] = [
+            "session_id": sessionId,
+            "hook_event_name": "Stop",
+            "stop_hook_active": false,
+            "cmux_turn_boundary": AgentTurnBoundary.settled.rawValue,
+            "cmux_deferred_settlement_id": settlement.id.uuidString,
+        ]
+        if let turnId = settlement.turnId, !turnId.isEmpty {
+            object["turn_id"] = turnId
+        }
+        if let transcriptPath = settlement.transcriptPath,
+           !transcriptPath.isEmpty {
+            object["transcript_path"] = transcriptPath
+        }
+        if let lastAssistantMessage = settlement.lastAssistantMessage,
+           !lastAssistantMessage.isEmpty {
+            object["last_assistant_message"] = lastAssistantMessage
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let payload = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        var commandArguments = ["stop"]
+        if let workspaceId = settlement.workspaceId,
+           !workspaceId.isEmpty {
+            commandArguments += ["--workspace", workspaceId]
+        }
+        if let surfaceId = settlement.surfaceId,
+           !surfaceId.isEmpty {
+            commandArguments += ["--surface", surfaceId]
+        }
+        guard !def.name.isEmpty else { return nil }
+        return (commandArguments, payload)
+    }
+
+    private func runGenericDeferredTurnSettlementReplay(
+        def: AgentHookDef,
+        sessionId: String,
+        settlement: AgentDeferredTurnSettlement,
+        socketPath: String?,
+        socketPassword: String?,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        guard let replay = makeGenericDeferredTurnSettlementReplay(
+            def: def,
+            sessionId: sessionId,
+            settlement: settlement
+        ) else {
+            return false
+        }
+        return runAcknowledgedDeferredTurnSettlementReplay(
+            agentName: def.name,
+            commandArguments: replay.commandArguments,
+            payload: replay.payload,
+            settlement: settlement,
+            socketPath: socketPath,
+            socketPassword: socketPassword,
+            telemetry: telemetry
+        )
+    }
+
+    private func runAcknowledgedDeferredTurnSettlementReplay(
+        agentName: String,
+        commandArguments: [String],
+        payload: String,
+        settlement: AgentDeferredTurnSettlement,
+        socketPath: String?,
+        socketPassword: String?,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+
         let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
         var processArguments: [String] = []
         if let socketPath = normalizedHookValue(socketPath) {
@@ -28949,15 +29036,14 @@ struct CMUXCLI {
         if let socketPassword = normalizedHookValue(socketPassword) {
             replayEnvironment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }
-        processArguments += ["hooks", "codex"] + replay.commandArguments
+        processArguments += ["hooks", agentName] + commandArguments
         let result = CLIProcessRunner.runProcess(
             executablePath: executablePath,
             arguments: processArguments,
-            stdinText: replay.payload,
+            stdinText: payload,
             environment: replayEnvironment,
-            // Codex gives Feed hooks five seconds. Leave time for a failed
-            // replay to restore its claimed boundary before Codex kills the
-            // parent hook process.
+            // Leave time for a failed replay to restore its claimed boundary
+            // before the originating agent kills the parent hook process.
             timeout: 3
         )
         let acknowledgedSettlementID: UUID? = {
@@ -28975,19 +29061,19 @@ struct CMUXCLI {
         }()
         if acknowledgedSettlementID == settlement.id {
             telemetry.breadcrumb(
-                "codex-hook.settlement.replayed",
+                "\(agentName)-hook.settlement.replayed",
                 data: ["has_turn_id": settlement.turnId != nil]
             )
             return true
         }
         telemetry.captureError(
-            stage: "codex-settlement-replay",
+            stage: "\(agentName)-settlement-replay",
             error: CLIError(
                 message: result.timedOut
-                    ? "Codex settlement replay timed out"
+                    ? "\(agentName) settlement replay timed out"
                     : result.status == 0
-                        ? "Codex settlement replay was not acknowledged"
-                        : "Codex settlement replay exited \(result.status)"
+                        ? "\(agentName) settlement replay was not acknowledged"
+                        : "\(agentName) settlement replay exited \(result.status)"
             ),
             data: [
                 "has_turn_id": settlement.turnId != nil,
@@ -33269,8 +33355,7 @@ export default CMUXSessionRestore;
                         mapped?.terminalPromptTurnIds ?? []
                 )
             let structuredBackgroundWorkCount: Int
-            if def.integration == .codex,
-               !sessionId.isEmpty,
+            if !sessionId.isEmpty,
                turnFreshness != .superseded,
                processLiveness != .exited {
                 do {
@@ -33311,7 +33396,7 @@ export default CMUXSessionRestore;
                             )
                 } catch {
                     telemetry.captureError(
-                        stage: "codex-turn-settlement-reconcile",
+                        stage: "\(def.name)-turn-settlement-reconcile",
                         error: error,
                         data: [
                             "has_turn_id":
@@ -33359,11 +33444,11 @@ export default CMUXSessionRestore;
                 return
             case .terminateWithoutCompletion:
                 if !sessionId.isEmpty {
+                    try? store.clearDeferredTurnSettlement(
+                        sessionId: sessionId,
+                        matchingTurnId: input.turnId
+                    )
                     if def.integration == .codex {
-                        try? store.clearDeferredTurnSettlement(
-                            sessionId: sessionId,
-                            matchingTurnId: input.turnId
-                        )
                         if let stopTurnId = normalizedHookValue(input.turnId) {
                             retireCodexMonitorLeases(
                                 sessionId: sessionId,
@@ -33389,14 +33474,15 @@ export default CMUXSessionRestore;
             case .settle, .settleTurnKeepingProcessRunning:
                 break
             }
-            if def.integration == .codex, !sessionId.isEmpty {
+            if !sessionId.isEmpty {
                 if deferredSettlementReplayID == nil {
                     try? store.clearDeferredTurnSettlement(
                         sessionId: sessionId,
                         matchingTurnId: input.turnId
                     )
                 }
-                if let stopTurnId = normalizedHookValue(input.turnId) {
+                if def.integration == .codex,
+                   let stopTurnId = normalizedHookValue(input.turnId) {
                     retireCodexMonitorLeases(
                         sessionId: sessionId,
                         turnId: stopTurnId,
@@ -36787,15 +36873,28 @@ export default CMUXSessionRestore;
                                 ?? "",
                         cwd: eventDict["cwd"] as? String
                     )
-                if source == "codex",
-                   let settlement = update.deferredSettlement {
-                    let replayed = runCodexDeferredTurnSettlementReplay(
-                        sessionId: sessionId,
-                        settlement: settlement,
-                        socketPath: client?.socketPath ?? socketPath,
-                        socketPassword: socketPassword,
-                        telemetry: telemetry
-                    )
+                if let settlement = update.deferredSettlement {
+                    let replayed: Bool
+                    if source == "codex" {
+                        replayed = runCodexDeferredTurnSettlementReplay(
+                            sessionId: sessionId,
+                            settlement: settlement,
+                            socketPath: client?.socketPath ?? socketPath,
+                            socketPassword: socketPassword,
+                            telemetry: telemetry
+                        )
+                    } else if let def = Self.agentDef(named: source) {
+                        replayed = runGenericDeferredTurnSettlementReplay(
+                            def: def,
+                            sessionId: sessionId,
+                            settlement: settlement,
+                            socketPath: client?.socketPath ?? socketPath,
+                            socketPassword: socketPassword,
+                            telemetry: telemetry
+                        )
+                    } else {
+                        replayed = false
+                    }
                     if replayed {
                         try sessionStore
                             .acknowledgeDeferredTurnSettlementReplay(
