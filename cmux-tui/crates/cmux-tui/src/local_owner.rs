@@ -39,6 +39,7 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) struct OwnerSpec {
     pub session: String,
     pub socket: PathBuf,
+    pub socket_is_derived: bool,
     pub state: Option<PathBuf>,
     pub term: Option<String>,
 }
@@ -90,6 +91,8 @@ pub(crate) fn ensure_owner(
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Ensured, EnsureError> {
+    cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
+        .map_err(EnsureError::Spawn)?;
     if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
         return Ok(Ensured::Running(ready));
     }
@@ -246,7 +249,6 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 
 /// Spawn the headless owner detached from this process's terminal.
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
-    std::fs::create_dir_all(socket_parent(&spec.socket))?;
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
     command.arg("--headless");
@@ -317,7 +319,6 @@ struct SpawnLock {
 
 impl SpawnLock {
     fn acquire(socket: &Path, deadline: Instant) -> io::Result<Self> {
-        std::fs::create_dir_all(socket_parent(socket))?;
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);

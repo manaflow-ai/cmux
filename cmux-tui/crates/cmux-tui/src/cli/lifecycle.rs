@@ -72,7 +72,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     let socket_output = socket.to_string_lossy().into_owned();
     if matches!(plan.action, ServerAction::Ensure) {
-        return run_ensure(expected_session, socket, socket_output, global.output);
+        return run_ensure(
+            expected_session,
+            socket,
+            socket_output,
+            global.socket.is_none(),
+            global.output,
+        );
     }
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
@@ -297,12 +303,14 @@ fn run_ensure(
     expected_session: Option<String>,
     socket: std::path::PathBuf,
     socket_output: String,
+    socket_is_derived: bool,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
     let spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
+        socket_is_derived,
         state: None,
         term: None,
     };

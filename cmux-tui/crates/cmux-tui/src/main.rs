@@ -2259,6 +2259,7 @@ fn start_detached_owner_session(
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),
+        socket_is_derived: args.socket.is_none(),
         state: args.state.clone(),
         term: args.term.clone(),
     };

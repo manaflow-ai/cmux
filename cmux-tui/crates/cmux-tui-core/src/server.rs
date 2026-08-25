@@ -4834,6 +4834,20 @@ fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Prepare the parent directory before any client creates coordination files.
+/// Derived runtime paths receive the daemon-owned private-directory checks;
+/// explicit paths keep their caller-managed permissions.
+pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()> {
+    if is_derived {
+        if let Some(dir) = path.parent() {
+            prepare_runtime_socket_directory(dir)?;
+        }
+    } else {
+        prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let (path, is_derived) = match path {
@@ -4843,13 +4857,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     // Only harden directories selected by the daemon. An explicit socket path
     // is authoritative, so its parent may be a shared or pre-configured path
     // such as /tmp and must not be chmod'ed or ownership-checked.
-    if is_derived {
-        if let Some(dir) = path.parent() {
-            prepare_runtime_socket_directory(dir)?;
-        }
-    } else {
-        prepare_explicit_socket_directory(&path)?;
-    }
+    prepare_socket_parent(&path, is_derived)?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         match transport::connect(&path) {
