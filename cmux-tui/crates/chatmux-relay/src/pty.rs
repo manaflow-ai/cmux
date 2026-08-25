@@ -2256,7 +2256,7 @@ impl TerminalSizing {
     }
 
     fn leave(self: &Arc<Self>, key: &SizingKey, viewer_id: u64) {
-        self.leave_inner(key, viewer_id, None);
+        self.leave_inner(key, viewer_id, None, None);
     }
 
     /// Remove a viewer only when the endpoint that was used for the failed
@@ -2269,7 +2269,20 @@ impl TerminalSizing {
         viewer_id: u64,
         endpoint: &Arc<OrderedControlEndpoint>,
     ) {
-        self.leave_inner(key, viewer_id, Some(endpoint));
+        self.leave_inner(key, viewer_id, Some(endpoint), None);
+    }
+
+    /// Remove an endpoint only if the worker's generation is still current.
+    /// Timeout/error responses otherwise can detach a healthy same-pointer
+    /// endpoint after an update advanced its generation.
+    fn leave_endpoint_at_generation(
+        self: &Arc<Self>,
+        key: &SizingKey,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        generation: u64,
+    ) {
+        self.leave_inner(key, viewer_id, Some(endpoint), Some(generation));
     }
 
     fn leave_inner(
@@ -2277,6 +2290,7 @@ impl TerminalSizing {
         key: &SizingKey,
         viewer_id: u64,
         expected_endpoint: Option<&Arc<OrderedControlEndpoint>>,
+        expected_generation: Option<u64>,
     ) {
         let (target, should_start) = {
             let mut targets = self.targets.lock().expect("terminal sizing targets lock");
@@ -2287,6 +2301,11 @@ impl TerminalSizing {
             // report/claim or owner resize is enqueued.
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
+            if expected_generation
+                .is_some_and(|expected| Self::current_generation(&target) != expected)
+            {
+                return;
+            }
             let Some(current) = state.viewers.get(&viewer_id) else {
                 return;
             };
@@ -2982,7 +3001,12 @@ impl TerminalSizing {
                     // This worker has no request id to report. Detach the
                     // candidate and freeze authority rather than leaving a
                     // claim fence that can never drain.
-                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                    self.leave_endpoint_at_generation(
+                        &target.key,
+                        viewer_id,
+                        &endpoint,
+                        generation,
+                    );
                     return;
                 }
                 CandidatePrepareOutcome::Ready(token) => token,
@@ -3029,7 +3053,12 @@ impl TerminalSizing {
                         target, viewer_id, &endpoint, grid, generation, token,
                     );
                 } else {
-                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                    self.leave_endpoint_at_generation(
+                        &target.key,
+                        viewer_id,
+                        &endpoint,
+                        generation,
+                    );
                 }
                 return;
             }
@@ -3038,7 +3067,7 @@ impl TerminalSizing {
                 // still be queued in the control writer. Close this endpoint
                 // before reserving a replacement so the late request cannot
                 // steal authority after the survivor fence.
-                self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                self.leave_endpoint_at_generation(&target.key, viewer_id, &endpoint, generation);
                 return;
             }
             if !control_response_ok(reported.as_ref()) {
@@ -3078,12 +3107,17 @@ impl TerminalSizing {
                         target, viewer_id, &endpoint, grid, generation, token,
                     );
                 } else {
-                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                    self.leave_endpoint_at_generation(
+                        &target.key,
+                        viewer_id,
+                        &endpoint,
+                        generation,
+                    );
                 }
                 return;
             }
             if claimed.is_none() {
-                self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                self.leave_endpoint_at_generation(&target.key, viewer_id, &endpoint, generation);
                 return;
             }
             if !control_response_ok(claimed.as_ref()) {
@@ -3098,7 +3132,12 @@ impl TerminalSizing {
                         target, viewer_id, &endpoint, grid, generation, token,
                     );
                 } else {
-                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                    self.leave_endpoint_at_generation(
+                        &target.key,
+                        viewer_id,
+                        &endpoint,
+                        generation,
+                    );
                 }
                 return;
             }
@@ -3129,7 +3168,7 @@ impl TerminalSizing {
                 // authority transition. `apply_target` is an internal
                 // observation with no request ID; its fixed failure is the
                 // frozen state and a new explicit attachment event.
-                self.leave_endpoint(&target.key, owner_id, endpoint);
+                self.leave_endpoint_at_generation(&target.key, owner_id, endpoint, generation);
                 return;
             }
             OwnerResizeRequestOutcome::Reply(response) => response,
@@ -3145,7 +3184,7 @@ impl TerminalSizing {
             // writer. Close that endpoint before reserving a survivor so a
             // late command cannot regain authority.
             if let Some(endpoint) = owner_queue.as_ref() {
-                self.leave_endpoint(&target.key, owner_id, endpoint);
+                self.leave_endpoint_at_generation(&target.key, owner_id, endpoint, generation);
             } else {
                 self.freeze_after_owner_loss(target, owner_id, generation);
             }
@@ -3212,6 +3251,11 @@ struct SizingLeaseState {
     joining: bool,
     joined: bool,
     released: bool,
+    /// Once setup may have installed a coordinator endpoint, teardown stays
+    /// queue-owned for the rest of the lease lifetime. This survives the
+    /// joining-cancel rollback, which can enqueue a FIFO close after `joining`
+    /// becomes false but before the cleanup guard is dropped.
+    queue_owned: bool,
     // Keep only a non-owning identity. The endpoint owns the control handle,
     // whose callbacks retain the lease; an owning Arc here would form a
     // lease -> endpoint -> control -> callback -> lease cycle.
@@ -3234,6 +3278,7 @@ impl TerminalSizingLease {
                 joining: false,
                 joined: false,
                 released: false,
+                queue_owned: false,
                 endpoint: None,
             }),
         })
@@ -3288,6 +3333,7 @@ impl TerminalSizingLease {
                     true
                 } else {
                     state.joined = true;
+                    state.queue_owned = true;
                     state.endpoint = endpoint.as_ref().map(Arc::downgrade);
                     false
                 }
@@ -3344,17 +3390,18 @@ impl TerminalSizingLease {
                 // proxy's Drop path runs. Preserve the queue-owned marker so
                 // the second path cannot bypass the FIFO close with a direct
                 // `control.end()`.
-                (state.joined || state.joining, None)
+                let queue_owned = state.queue_owned || state.joined || state.joining;
+                state.queue_owned = queue_owned;
+                (queue_owned, None)
             } else {
                 state.released = true;
                 // Clone only the endpoint needed for the immediate ordered
                 // removal, then drop the owning reference from the lease.
                 // Control callbacks may retain the lease, so retaining this
                 // Arc after release would keep the whole control cycle alive.
-                (
-                    state.joined || state.joining,
-                    state.endpoint.take().and_then(|endpoint| endpoint.upgrade()),
-                )
+                let queue_owned = state.queue_owned || state.joined || state.joining;
+                state.queue_owned = queue_owned;
+                (queue_owned, state.endpoint.take().and_then(|endpoint| endpoint.upgrade()))
             }
         };
         if queue_owned && let Some(endpoint) = endpoint {
@@ -7942,6 +7989,56 @@ mod tests {
         // still waiting. It must not call control.end() directly.
         drop(guard);
         assert!(!control.ended(), "cleanup bypassed the queued sizing close");
+        control.release_end();
+        control.wait_for_end().await;
+    }
+
+    #[tokio::test]
+    async fn joining_cancel_persists_queue_owned_cleanup_through_rollback() {
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-joining-cancel.sock"),
+            surface_id: 43,
+        };
+        let control = SizingControl::new(12, &[]);
+        control.block_end();
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let lease = TerminalSizingLease::new(&coordinator, key.clone(), 1, 43);
+        let mut guard = ControlCleanupGuard::new(Arc::clone(&control_handle));
+        guard.set_sizing(Arc::clone(&lease));
+
+        // Model the cancellation point inside TerminalSizingLease::join:
+        // the coordinator endpoint has been created, but the lease has not
+        // yet transferred to `joined`.
+        let (waiter, endpoint) = coordinator
+            .join_with_endpoint(
+                key.clone(),
+                1,
+                43,
+                control_handle,
+                SizingGrid { cols: 80, rows: 24 },
+            )
+            .expect("coordinator endpoint");
+        waiter.await.expect("initial sizing worker");
+        {
+            let mut state = lease.state.lock().unwrap();
+            state.joining = true;
+        }
+        assert!(lease.leave(), "cancellation during join must reserve queue teardown");
+        {
+            let mut state = lease.state.lock().unwrap();
+            // This is the rollback transition after join observes released.
+            state.joining = false;
+            state.joined = false;
+        }
+        coordinator.leave_endpoint(&key, 1, &endpoint);
+        control.wait_for_end_started().await;
+
+        // The rollback close is now in flight, but the lease no longer says
+        // `joining` or `joined`. The persistent queue-owned marker must still
+        // prevent the cleanup guard from directly ending the socket.
+        drop(guard);
+        assert!(!control.ended(), "joining-cancel cleanup bypassed FIFO close");
         control.release_end();
         control.wait_for_end().await;
     }
