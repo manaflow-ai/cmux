@@ -1,3 +1,4 @@
+import Foundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
