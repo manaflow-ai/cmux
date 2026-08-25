@@ -9,8 +9,14 @@ public enum TerminalPointerStyleEvent {
     /// The current native surface lifetime ended and must ignore later callbacks.
     case runtimeEnded(UUID?)
 
+    /// The child process exited while the native surface lifetime remains live.
+    case runtimeReset(UUID)
+
     /// Ghostty requested a base pointer shape, including OSC 22 requests.
     case ghosttyShape(ghostty_action_mouse_shape_e, runtimeLifetimeId: UUID)
+
+    /// Ghostty began or ended its OSC 8 hyperlink hover affordance.
+    case ghosttyLinkHoverChanged(Bool, runtimeLifetimeId: UUID)
 
     /// The terminal surface gained or lost focus.
     case focusChanged(Bool)

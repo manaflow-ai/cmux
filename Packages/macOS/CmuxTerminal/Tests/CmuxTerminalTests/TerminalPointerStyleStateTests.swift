@@ -211,8 +211,8 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.iBeam)
     }
 
-    @Test("exited runtime ignores a retained native pointer shape")
-    func exitedRuntimeIgnoresRetainedNativePointerShape() {
+    @Test("child exit resets pointer intent without ending the runtime")
+    func childExitResetsPointerIntentWithoutEndingRuntime() {
         var state = TerminalPointerStyleState()
         let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
@@ -225,13 +225,69 @@ struct TerminalPointerStyleStateTests {
             runtimeLifetimeId: runtimeLifetimeId
         ))
 
-        state.apply(.runtimeEnded(runtimeLifetimeId))
+        state.apply(.runtimeReset(runtimeLifetimeId))
         state.apply(.ghosttyShape(
             GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
             runtimeLifetimeId: runtimeLifetimeId
         ))
 
+        #expect(state.effectiveCursor == NSCursor.crosshair)
+    }
+
+    @Test("hyperlink hover restores an unsupported OSC 22 base shape")
+    func hyperlinkHoverRestoresUnsupportedBaseShape() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_HELP,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            true,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
+
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_HELP,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            false,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+
         #expect(state.effectiveCursor == NSCursor.iBeam)
+    }
+
+    @Test("hyperlink hover preserves an explicit OSC 22 pointer base")
+    func hyperlinkHoverPreservesPointerBaseShape() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            true,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            false,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
     @Test("stale runtime callbacks cannot mutate a replacement lifetime")
