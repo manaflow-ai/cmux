@@ -159,15 +159,21 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
 
         hosted.setBackgroundColor(.clear, excludesSharedRootBackdrop: false)
-        await Task.yield()
-        #expect(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root))
+        try await waitForRootMask(
+            atWindowPoint: movedPoint,
+            in: root,
+            showsBackdrop: true
+        )
 
         hosted.setBackgroundColor(
             .systemOrange.withAlphaComponent(0.42),
             excludesSharedRootBackdrop: true
         )
-        await Task.yield()
-        #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
+        try await waitForRootMask(
+            atWindowPoint: movedPoint,
+            in: root,
+            showsBackdrop: false
+        )
 
         portal.hideEntry(forHostedId: ObjectIdentifier(hosted))
         #expect(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root))
@@ -251,6 +257,26 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         let mask = try #require(root.layer?.mask as? CAShapeLayer)
         let path = try #require(mask.path)
         return path.contains(root.convert(point, from: nil), using: .evenOdd)
+    }
+
+    @MainActor
+    private func waitForRootMask(
+        atWindowPoint point: NSPoint,
+        in root: WindowRootBackdropView,
+        showsBackdrop expected: Bool
+    ) async throws {
+        for _ in 0..<32 {
+            let isShowingBackdrop = try rootMaskShowsBackdrop(atWindowPoint: point, in: root)
+            if isShowingBackdrop == expected {
+                return
+            }
+            await Task.yield()
+        }
+        let isShowingBackdrop = try rootMaskShowsBackdrop(atWindowPoint: point, in: root)
+        #expect(
+            isShowingBackdrop == expected,
+            "Deferred root-mask publication did not reach the expected state"
+        )
     }
 
     private func makeSnapshot(
