@@ -2043,8 +2043,7 @@
           "required": ["pane"],
           "properties": {
             "pane": { "$ref": "#/$defs/cmuxPaneDefinition" }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "type": "object",
@@ -2061,8 +2060,7 @@
               "maxItems": 2,
               "items": { "$ref": "#/$defs/cmuxLayoutNode" }
             }
-          },
-          "additionalProperties": false
+          }
         }
       ]
     },
@@ -2075,8 +2073,7 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/cmuxSurfaceDefinition" }
         }
-      },
-      "additionalProperties": false
+      }
     },
     "cmuxSurfaceDefinition": {
       "type": "object",
@@ -2095,8 +2092,7 @@
         },
         "url": { "type": "string" },
         "focus": { "type": "boolean" }
-      },
-      "additionalProperties": false
+      }
     },
     "cmuxIcon": {
       "oneOf": [
@@ -2106,8 +2102,7 @@
           "properties": {
             "type": { "type": "string", "enum": ["symbol", "sfSymbol", "systemImage"] },
             "name": { "type": "string", "minLength": 1, "pattern": "\\S" }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "type": "object",
@@ -2116,8 +2111,7 @@
             "type": { "const": "emoji" },
             "value": { "type": "string", "minLength": 1, "pattern": "\\S" },
             "scale": { "type": "number", "exclusiveMinimum": 0 }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "type": "object",
@@ -2125,8 +2119,7 @@
           "properties": {
             "type": { "type": "string", "enum": ["image", "file"] },
             "path": { "type": "string", "minLength": 1, "pattern": "\\S" }
-          },
-          "additionalProperties": false
+          }
         }
       ]
     },

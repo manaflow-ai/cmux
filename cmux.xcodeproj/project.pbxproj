@@ -762,6 +762,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1065301D1065301D1065301 /* CmuxConfigValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065302D1065302D1065302 /* CmuxConfigValidation.swift */; };
 		D1065303D1065303D1065303 /* CmuxConfigValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065302D1065302D1065302 /* CmuxConfigValidation.swift */; };
 		A5FB1205 /* CmuxConfigWorkspaceActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */; };
+		D1065308D1065308D1065308 /* CmuxConfigWorkspaceColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */; };
+		D1065309D1065309D1065309 /* CmuxConfigWorkspaceColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */; };
 		A79840010000000000000003 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C79470010000000000000005 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
@@ -3648,6 +3650,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEF0A10000000000000002 /* CmuxConfigUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigUI.swift; sourceTree = "<group>"; };
 		D1065302D1065302D1065302 /* CmuxConfigValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigValidation.swift; sourceTree = "<group>"; };
 		A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigWorkspaceActionTests.swift; sourceTree = "<group>"; };
+		D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigWorkspaceColorPalette.swift; sourceTree = "<group>"; };
 		9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxDiffViewerURLSchemeHandler.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CmuxDockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDurableDeepLinkRestoreTests.swift; sourceTree = "<group>"; };
@@ -7555,6 +7558,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001651 /* CmuxConfig.swift */,
 				D1065302D1065302D1065302 /* CmuxConfigValidation.swift */,
 				D1065305D1065305D1065305 /* CmuxConfigFileTolerantDecoding.swift */,
+				D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */,
 				468110000000000000000002 /* CmuxNotificationHookCache.swift */,
 				468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */,
 				468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */,
@@ -9507,6 +9511,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
 				D1065301D1065301D1065301 /* CmuxConfigValidation.swift in Sources */,
+				D1065308D1065308D1065308 /* CmuxConfigWorkspaceColorPalette.swift in Sources */,
 				9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */,
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
@@ -11028,6 +11033,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D1065303D1065303D1065303 /* CmuxConfigValidation.swift in Sources */,
+				D1065309D1065309D1065309 /* CmuxConfigWorkspaceColorPalette.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,

@@ -242,9 +242,7 @@ struct CmuxConfigValidator: Sendable {
         let trimmed = color.trimmingCharacters(in: .whitespacesAndNewlines)
         let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
         if hex.count == 6, UInt64(hex, radix: 16) != nil { return }
-        let defaultNames = ["Red", "Crimson", "Orange", "Amber", "Olive", "Green", "Teal", "Aqua", "Blue", "Navy", "Indigo", "Purple", "Magenta", "Rose", "Brown", "Charcoal"]
-        let customNames: [String] = (UserDefaults.standard.dictionary(forKey: "workspaceTabColor.colors") as? [String: String])?.keys.map { $0 } ?? []
-        if (defaultNames + customNames).contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return }
+        if CmuxConfigWorkspaceColorPalette.containsName(trimmed) { return }
         issues.append(issue(path, "must be a six-digit hex color or a known workspace color name"))
     }
 
