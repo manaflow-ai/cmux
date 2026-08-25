@@ -11611,7 +11611,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
-        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
+        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)-\(renderContext.tabs.flatMap { $0.panels.keys }.sorted { $0.uuidString < $1.uuidString }.map(\.uuidString).joined(separator: ","))") {
             guard isPresented,
                   renderContext.showsAgentActivity,
                   CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(

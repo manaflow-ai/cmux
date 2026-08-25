@@ -194,7 +194,9 @@ extension Workspace {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
-            SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
+            if !isRemoteWorkspace {
+                SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(pid: Int(pid))
+            }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime

@@ -574,20 +574,25 @@ final class SharedLiveAgentIndex {
         }
 
         for processID in panelKeysByPID.keys {
-            guard sidebarProcessExitWatchers[processID] == nil else { continue }
-            let source = DispatchSource.makeProcessSource(
-                identifier: pid_t(processID),
-                eventMask: .exit,
-                queue: watchQueue
-            )
-            source.setEventHandler { [weak self] in
-                Task { @MainActor in
-                    self?.sidebarAgentProcessDidExit(processID)
-                }
-            }
-            sidebarProcessExitWatchers[processID] = source
-            source.resume()
+            armSidebarProcessExitWatcher(pid: processID)
         }
+    }
+
+    /// Arms a watcher immediately for a newly reported local agent PID.
+    func armSidebarProcessExitWatcher(pid: Int) {
+        guard pid > 0, sidebarProcessExitWatchers[pid] == nil else { return }
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: .exit,
+            queue: watchQueue
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.sidebarAgentProcessDidExit(pid)
+            }
+        }
+        sidebarProcessExitWatchers[pid] = source
+        source.resume()
     }
 
     private func sidebarAgentProcessDidExit(_ processID: Int) {
