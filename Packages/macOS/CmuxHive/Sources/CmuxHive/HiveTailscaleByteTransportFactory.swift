@@ -34,7 +34,7 @@ public struct HiveTailscaleByteTransportFactory: CmxByteTransportFactory {
                 request.authorizationMode
             )
         }
-        try makeVerifiedTransport(route: request.route)
+        return try makeVerifiedTransport(route: request.route)
     }
 
     private func makeVerifiedTransport(route: CmxAttachRoute) throws -> any CmxByteTransport {
