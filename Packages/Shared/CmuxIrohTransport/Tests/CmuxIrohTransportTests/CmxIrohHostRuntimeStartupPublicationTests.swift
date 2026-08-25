@@ -189,4 +189,103 @@ extension CmxIrohHostRuntimeTests {
         #expect(await runtime.snapshot().state == .active)
         await runtime.stop()
     }
+
+    /// A relay-readiness timeout must never publish. The gate keeps retrying
+    /// the readiness wait on the injected clock; once the relay becomes
+    /// usable, exactly one publication follows.
+    @Test("readiness timeouts keep the binding unpublished until the relay succeeds")
+    func readinessTimeoutsKeepBindingUnpublishedUntilRelaySucceeds() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let bindings = HostRuntimeBindingRecorder()
+        let routes = HostRuntimeRouteRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            relayReadinessTimeout: .milliseconds(20),
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
+        )
+
+        try await runtime.start()
+        #expect(await bindings.count() == 0)
+
+        // First readiness timeout: still unpublished, backoff armed.
+        await clock.waitUntilSleepCount(1)
+        #expect(await bindings.count() == 0)
+        #expect(await routes.values().isEmpty)
+        clock.advance(to: try #require(clock.observedSleepDeadlines().last))
+
+        // Second readiness timeout: still unpublished.
+        await clock.waitUntilSleepCount(2)
+        #expect(await bindings.count() == 0)
+
+        // The home relay comes up. Publication must follow, exactly once.
+        await endpoint.emit(.online)
+
+        #expect(await bindings.waitForCount(1, timeout: .seconds(5)))
+        #expect(!(await bindings.waitForCount(2, timeout: .milliseconds(300))))
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// A relay that never becomes usable must leave the endpoint permanently
+    /// unpublished: no handleBinding, no handleRoute, no extra broker rounds.
+    @Test("readiness that never succeeds never publishes")
+    func readinessThatNeverSucceedsNeverPublishes() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let bindings = HostRuntimeBindingRecorder()
+        let routes = HostRuntimeRouteRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            relayReadinessTimeout: .milliseconds(20),
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
+        )
+
+        try await runtime.start()
+
+        for cycle in 1 ... 3 {
+            await clock.waitUntilSleepCount(cycle)
+            #expect(await bindings.count() == 0)
+            #expect(await routes.values().isEmpty)
+            clock.advance(to: try #require(clock.observedSleepDeadlines().last))
+        }
+
+        #expect(await bindings.count() == 0)
+        #expect(await routes.values().isEmpty)
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
 }

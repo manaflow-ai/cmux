@@ -74,6 +74,9 @@ public actor CmxIrohHostRuntime {
     let registrationClock: any CmxIrohRelayClock
     let registrationRetrySchedule: CmxIrohRetrySchedule
     let registrationRetryJitter: @Sendable () -> Double
+    /// One bounded signal-or-deadline window for the startup relay-readiness
+    /// wait. A timeout keeps the endpoint unpublished and retries the wait.
+    let relayReadinessTimeout: Duration
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
     let handleRoute: RouteHandler
@@ -139,6 +142,7 @@ public actor CmxIrohHostRuntime {
         registrationRetryJitter: @escaping @Sendable () -> Double = {
             Double.random(in: 0 ... 1)
         },
+        relayReadinessTimeout: Duration = .seconds(15),
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleRoute: @escaping RouteHandler = { _, _ in },
@@ -157,6 +161,7 @@ public actor CmxIrohHostRuntime {
         self.registrationClock = registrationClock
         self.registrationRetrySchedule = registrationRetrySchedule
         self.registrationRetryJitter = registrationRetryJitter
+        self.relayReadinessTimeout = relayReadinessTimeout
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleRoute = handleRoute
@@ -666,15 +671,54 @@ public actor CmxIrohHostRuntime {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               !Task.isCancelled else { return }
-        if let connectivityEngine, await connectivityEngine.hasConfiguredRelay() {
-            do {
-                try await connectivityEngine.waitForUsableHomeRelay()
-            } catch is CancellationError {
-                return
-            } catch {
-                // The bounded readiness window elapsed or the generation moved
-                // on. Publication proceeds so a relay outage cannot leave this
-                // Mac permanently unpublished on its LAN and direct paths.
+        guard let connectivityEngine else { return }
+        let relayExpected: Bool
+        if relayCoordinator != nil {
+            relayExpected = true
+        } else {
+            relayExpected = await connectivityEngine.hasConfiguredRelay()
+        }
+        if relayExpected {
+            // The Mac must never be discoverable-but-undialable: a readiness
+            // timeout keeps the endpoint unpublished and retries the wait with
+            // bounded backoff on the injected clock until a verified usable
+            // relay path exists or this lifecycle revision is superseded.
+            var readinessFailureCount = 0
+            while true {
+                guard lifecyclePhase == .active,
+                      lifecycleRevision == revision,
+                      !Task.isCancelled else { return }
+                do {
+                    try await connectivityEngine.waitForUsableHomeRelay(
+                        timeout: relayReadinessTimeout
+                    )
+                    break
+                } catch is CancellationError {
+                    return
+                } catch CmxIrohEndpointSupervisorError.relayReadinessTimedOut {
+                    // Retry below after bounded backoff.
+                } catch {
+                    // The endpoint generation was replaced or deactivated. The
+                    // successor lifecycle owns publication; this one stays
+                    // unpublished and existing failure handling surfaces state.
+                    return
+                }
+                guard lifecyclePhase == .active,
+                      lifecycleRevision == revision,
+                      !Task.isCancelled else { return }
+                let delay = registrationRetrySchedule.delay(
+                    failureCount: readinessFailureCount,
+                    retryAfterSeconds: nil,
+                    jitterUnitInterval: registrationRetryJitter()
+                )
+                readinessFailureCount = min(readinessFailureCount + 1, 20)
+                do {
+                    try await registrationClock.sleep(
+                        until: registrationClock.now().addingTimeInterval(delay)
+                    )
+                } catch {
+                    return
+                }
             }
         }
         guard lifecyclePhase == .active,
