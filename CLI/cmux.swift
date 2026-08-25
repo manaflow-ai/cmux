@@ -280,14 +280,14 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         command: String,
         toolUseId: String? = nil
-    ) throws -> Bool {
+    ) throws -> TimeInterval? {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return false
+            return nil
         }
         return try withLockedState { state in
-            guard var record = state.sessions[normalizedSession] else { return false }
+            guard var record = state.sessions[normalizedSession] else { return nil }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
             pending.removeAll {
@@ -304,7 +304,7 @@ final class ClaudeHookSessionStore {
             record.pendingCursorShellApprovals = pending
             record.updatedAt = now
             state.sessions[normalizedSession] = record
-            return true
+            return now
         }
     }
 
@@ -322,7 +322,9 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
-        toolUseId: String? = nil
+        toolUseId: String? = nil,
+        expectedCreatedAt: TimeInterval? = nil,
+        onlyIfExpired: Bool = false
     ) throws -> CursorShellResolution {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
@@ -338,10 +340,19 @@ final class ClaudeHookSessionStore {
             let beforePruneCount = pending.count
             pending.removeAll {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+                    && $0.createdAt != expectedCreatedAt
             }
             let expired = pending.count != beforePruneCount
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             guard let matchIndex = pending.firstIndex(where: { pendingApproval in
+                if let expectedCreatedAt,
+                   abs(pendingApproval.createdAt - expectedCreatedAt) > 0.01 {
+                    return false
+                }
+                if onlyIfExpired,
+                   now - pendingApproval.createdAt <= Self.maxPendingCursorShellApprovalAgeSeconds {
+                    return false
+                }
                 if let normalizedToolUseId {
                     if let pendingToolUseId = pendingApproval.toolUseId {
                         return normalizedToolUseId == pendingToolUseId
@@ -387,6 +398,26 @@ final class ClaudeHookSessionStore {
             state.sessions[normalizedSession] = record
             return CursorShellResolution(matched: true, hasRemaining: hasRemaining, expired: expired)
         }
+    }
+
+    /// Resolves a pending Cursor shell approval after its owned deadline.
+    @discardableResult
+    func expireCursorShellApproval(
+        sessionId: String,
+        command: String,
+        createdAt: TimeInterval,
+        workspaceId: String,
+        surfaceId: String
+    ) throws -> CursorShellResolution {
+        try resolveCursorShellApproval(
+            sessionId: sessionId,
+            command: command,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: nil,
+            expectedCreatedAt: createdAt,
+            onlyIfExpired: true
+        )
     }
 
     /// Drops all pending Cursor shell approvals when a session stops or starts
@@ -28613,7 +28644,8 @@ struct CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         cwd: String?,
         env: [String: String],
-        sessionId: String?
+        sessionId: String?,
+        cursorApprovalRequested: Bool = false
     ) -> AgentHookNotificationSummary {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
@@ -28629,8 +28661,7 @@ struct CMUXCLI {
             return classifyAgentHookNotification(def: def, signal: "", message: "", isFallback: true)
         }
 
-        if def.name == "cursor",
-           AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(payload: parsedInput.rawObject) {
+        if def.name == "cursor", cursorApprovalRequested {
             let command = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["command"])
             }
@@ -29849,6 +29880,53 @@ struct CMUXCLI {
         return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
             .appendingPathComponent(filename, isDirectory: false)
             .path
+    }
+
+    /// Owns the one-shot deadline for a Cursor approval that may never emit a
+    /// terminal hook callback. The shell sleep is a genuine deadline (not
+    /// polling); the detached worker re-enters the same atomic store path and
+    /// exits immediately when the approval was already resolved.
+    private func spawnDetachedCursorShellExpiry(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        command: String,
+        createdAt: TimeInterval,
+        env: [String: String]
+    ) {
+        let expirySeconds = max(
+            1,
+            Int(Double(env["CMUX_CURSOR_SHELL_APPROVAL_EXPIRY_SECONDS"] ?? "") ?? 3_600)
+        )
+        let selfPath: String = {
+            if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            if let executable = resolvedExecutableURL()?.path,
+               FileManager.default.isExecutableFile(atPath: executable) {
+                return executable
+            }
+            return ProcessInfo.processInfo.arguments.first ?? "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "sleep \"$1\"; \"$0\" hooks cursor shell-expire --session \"$2\" --workspace \"$3\" --surface \"$4\" --command \"$5\" --created-at \"$6\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            String(expirySeconds),
+            sessionId,
+            workspaceId,
+            surfaceId,
+            command,
+            String(createdAt),
+        ]
+        process.environment = env
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
     }
 
     private func sanitizedAgentLaunchArguments(
@@ -31627,7 +31705,9 @@ export default CMUXSessionRestore;
         let hookCwd = input.cwd
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let explicitHookSessionId = normalizedHookValue(optionValue(hookArgs, name: "--session"))
+        let sessionId = explicitHookSessionId
+            ?? resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let mappedSessionForPolicy = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
         let cursorApprovalSettings: (mode: String?, allowedShellCommands: [String]) = {
             guard def.name == "cursor" else { return (nil, []) }
@@ -32297,6 +32377,45 @@ export default CMUXSessionRestore;
             let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
             _ = try? sendV1Command(
                 "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
+
+        func expireCursorShellHook() {
+            didSendFeedTelemetry = true
+            guard def.name == "cursor",
+                  let command = optionValue(hookArgs, name: "--command"),
+                  let createdAtRaw = optionValue(hookArgs, name: "--created-at"),
+                  let createdAt = Double(createdAtRaw) else {
+                return
+            }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                return
+            }
+            guard let resolution = try? store.expireCursorShellApproval(
+                sessionId: sessionId,
+                command: command,
+                createdAt: createdAt,
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId
+            ), resolution.matched, !resolution.hasRemaining else {
+                return
+            }
+            emitJournal(
+                .stateChanged,
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId,
+                declaredPhase: .running,
+                detail: "cursor-shell-expired"
+            )
+            _ = try? sendV1Command(
+                "clear_notifications --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId))",
+                client: client
+            )
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId))",
                 client: client
             )
         }
@@ -33178,6 +33297,9 @@ export default CMUXSessionRestore;
         case .shellFailed:
             resolveCursorShellHook(failed: true)
 
+        case .shellExpire:
+            expireCursorShellHook()
+
         case .approvalResponse:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -33308,7 +33430,8 @@ export default CMUXSessionRestore;
                 parsedInput: input,
                 cwd: notificationCwd,
                 env: env,
-                sessionId: input.sessionId ?? sessionId
+                sessionId: input.sessionId ?? sessionId,
+                cursorApprovalRequested: cursorShellNeedsApproval
             )
             var rebuiltFromStoredSummary = false
             if summary.body.isEmpty, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
@@ -33486,11 +33609,21 @@ export default CMUXSessionRestore;
 
             if cursorShellNeedsApproval, !sessionId.isEmpty {
                 if let command = cursorShellCommand(from: input) {
-                    _ = try? store.rememberCursorShellApproval(
+                    let createdAt = try? store.rememberCursorShellApproval(
                         sessionId: sessionId,
                         command: command,
                         toolUseId: cursorShellToolUseId(from: input)
                     )
+                    if let createdAt {
+                        spawnDetachedCursorShellExpiry(
+                            sessionId: sessionId,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            command: command,
+                            createdAt: createdAt,
+                            env: env
+                        )
+                    }
                 } else {
                     telemetry.breadcrumb("\(def.name)-hook.shell-exec.missing-command")
                 }
