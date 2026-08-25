@@ -22,7 +22,10 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
             guard byteCount <= remainingByteCount else { return nil }
             remainingByteCount -= byteCount
             return contents
-        case .oversized, .unavailable:
+        case .oversized:
+            remainingByteCount = 0
+            return nil
+        case .unavailable:
             return nil
         }
     }

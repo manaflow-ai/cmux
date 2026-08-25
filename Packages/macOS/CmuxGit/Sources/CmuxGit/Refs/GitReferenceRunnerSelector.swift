@@ -76,4 +76,10 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
 
     /// Returns the injected runner without requiring a repository probe.
     var firstRunner: (any WorkspaceChangesGitRunning)? { runners.first }
+
+    /// The bounded ordered candidates used by status fallback.
+    var candidateRunners: [any WorkspaceChangesGitRunning] { runners }
+
+    /// The aggregate wall-time budget for candidate status probes.
+    var candidateWallTimeLimit: TimeInterval { wallTimeLimit }
 }

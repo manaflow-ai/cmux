@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 /// Bounded fallback for repositories whose index is unsafe to scan entry by entry.
 protocol GitDirtyStatusReading: Sendable {
@@ -22,35 +23,37 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
 
     func isDirty(workTreeRoot: String) -> Bool? {
         do {
-            let repository = GitMetadataService.resolveGitRepository(containing: workTreeRoot)
-            let runner = if let repository {
-                runnerSelector.select(repository: repository)
-            } else {
-                runnerSelector.firstRunner
+            let candidates = runnerSelector.candidateRunners
+            let deadline = DispatchTime.now() + runnerSelector.candidateWallTimeLimit
+            for runner in candidates.prefix(4) {
+                let now = DispatchTime.now()
+                guard deadline > now else { break }
+                let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                    / 1_000_000_000
+                let result = try runner.run(
+                    arguments: [
+                        "status",
+                        "--porcelain=v1",
+                        "-z",
+                        "--untracked-files=no",
+                        "--ignore-submodules=dirty",
+                        "--no-renames",
+                    ],
+                    in: URL(fileURLWithPath: workTreeRoot, isDirectory: true),
+                    maximumOutputByteCount: 1,
+                    wallTimeLimit: remaining
+                )
+                // A dirty repository may intentionally terminate once the one-byte
+                // output bound is crossed. Any byte is therefore authoritative even
+                // when the bounded runner reports truncation or a signal exit.
+                if !result.output.isEmpty {
+                    return true
+                }
+                if result.exitCode == 0, !result.standardOutputWasTruncated {
+                    return false
+                }
             }
-            guard let runner else { return nil }
-            let result = try runner.run(
-                arguments: [
-                    "status",
-                    "--porcelain=v1",
-                    "-z",
-                    "--untracked-files=no",
-                    "--ignore-submodules=dirty",
-                    "--no-renames",
-                ],
-                in: URL(fileURLWithPath: workTreeRoot, isDirectory: true),
-                maximumOutputByteCount: 1
-            )
-            // A dirty repository may intentionally terminate once the one-byte
-            // output bound is crossed. Any byte is therefore authoritative even
-            // when the bounded runner reports truncation or a signal exit.
-            if !result.output.isEmpty {
-                return true
-            }
-            guard result.exitCode == 0, !result.standardOutputWasTruncated else {
-                return nil
-            }
-            return false
+            return nil
         } catch {
             return nil
         }
