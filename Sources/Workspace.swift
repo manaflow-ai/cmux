@@ -1507,6 +1507,10 @@ extension Workspace {
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
             let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+            let stablePanelHasLiveProcess = restoreAgentIndex?.entryForStablePanel(
+                workspaceId: id,
+                panelId: snapshot.id
+            )?.processIDs.isEmpty == false
             let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
                 workspaceId: id,
                 panelId: snapshot.id,
@@ -1522,6 +1526,7 @@ extension Workspace {
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 restoreOwnershipAmbiguous ||
+                stablePanelHasLiveProcess ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
@@ -1546,6 +1551,7 @@ extension Workspace {
                 !restoresRemoteWorkspaceTerminalSnapshot
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
                 if !restoreOwnershipAmbiguous,
+                   !stablePanelHasLiveProcess,
                    canAttemptLocalBindingResume,
                    let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
@@ -1583,6 +1589,7 @@ extension Workspace {
             }()
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = !restoreOwnershipAmbiguous &&
+                !stablePanelHasLiveProcess &&
                 restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil

@@ -226,6 +226,10 @@ extension DockSplitStore {
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+        let stablePanelHasLiveProcess = restoreAgentIndex?.entryForStablePanel(
+            workspaceId: workspaceId,
+            panelId: snapshot.id
+        )?.processIDs.isEmpty == false
         let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
             workspaceId: workspaceId,
             panelId: snapshot.id,
@@ -240,6 +244,7 @@ extension DockSplitStore {
         )
         let resumeBindingForStartup = hibernation != nil ||
             restoreOwnershipAmbiguous ||
+            stablePanelHasLiveProcess ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil
             : resumeBinding
@@ -254,11 +259,13 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = restoreOwnershipAmbiguous ? nil : approvedResumeBinding.flatMap {
-            policy.surfaceResumeStartupLaunch(
-                forApprovedBinding: $0
-            )
-        }
+        let unresolvedBindingLaunch = restoreOwnershipAmbiguous || stablePanelHasLiveProcess
+            ? nil
+            : approvedResumeBinding.flatMap {
+                policy.surfaceResumeStartupLaunch(
+                    forApprovedBinding: $0
+                )
+            }
         let resumeSessionWorkingDirectory: String? = {
             if unresolvedBindingLaunch != nil {
                 return approvedResumeBinding?.cwd ?? workingDirectory
@@ -272,7 +279,8 @@ extension DockSplitStore {
                 ?? workingDirectory
         }()
         let bindingLaunch = unresolvedBindingLaunch
-        let tmuxStartCommand = !restoreOwnershipAmbiguous && restorableAgent == nil && bindingLaunch == nil
+        let tmuxStartCommand = !restoreOwnershipAmbiguous && !stablePanelHasLiveProcess &&
+            restorableAgent == nil && bindingLaunch == nil
             ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
             : nil
         let tmuxLauncher = tmuxStartCommand.flatMap {
