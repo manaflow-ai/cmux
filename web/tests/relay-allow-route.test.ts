@@ -265,6 +265,24 @@ describe("relay allow admission concurrency cap", () => {
     // Slots free once lookups settle.
     expect(await withRelayAllowAdmissionSlot(async () => "allow")).toBe("allow");
   });
+
+  test("slot leases expire so never-settling operations cannot brick admissions", async () => {
+    // Saturate every slot with operations that never settle, under a short
+    // lease. Recovery must not depend on the operations.
+    const stuck = Array.from(
+      { length: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS },
+      () =>
+        withRelayAllowAdmissionSlot(() => new Promise<never>(() => {}), 20),
+    );
+    for (const promise of stuck) promise.catch(() => undefined);
+    await expect(
+      withRelayAllowAdmissionSlot(async () => "allow", 20),
+    ).rejects.toThrow(RelayAllowAdmissionSaturatedError);
+    // After the lease bound the instance admits again even though the stuck
+    // operations are still pending.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(await withRelayAllowAdmissionSlot(async () => "allow")).toBe("allow");
+  });
 });
 
 describe("relay allow HMAC helpers", () => {

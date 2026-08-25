@@ -76,6 +76,18 @@ export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
  */
 export const RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS = 16;
 
+/**
+ * Upper bound on how long one admission holds its slot. A slot is released
+ * when its operation settles OR when this lease expires, whichever comes
+ * first, so operations that never settle cannot keep the instance saturated
+ * after the database recovers. The lease sits above every legitimate settle
+ * path (2.5 s statement_timeout, the drivers' ~30 s connect timeouts), so it
+ * only fires for operations that are already stuck; those keep at most one
+ * pooled connection each, which the pool's own max bounds, while admission
+ * capacity comes back within one lease.
+ */
+export const RELAY_ALLOW_ADMISSION_SLOT_TTL_MS = 45_000;
+
 export class RelayAllowAdmissionSaturatedError extends Error {
   constructor() {
     super("relay allow admission concurrency saturated");
@@ -85,18 +97,33 @@ export class RelayAllowAdmissionSaturatedError extends Error {
 
 let inFlightAdmissions = 0;
 
-/** Runs one admission under the concurrency cap; rejects when saturated. */
+/**
+ * Runs one admission under the concurrency cap; rejects when saturated. The
+ * slot lease is settle-or-expiry: release is idempotent, so an operation that
+ * settles after its lease expired does not double-free another slot.
+ */
 export async function withRelayAllowAdmissionSlot<T>(
   operation: () => Promise<T>,
+  slotTtlMs: number = RELAY_ALLOW_ADMISSION_SLOT_TTL_MS,
 ): Promise<T> {
   if (inFlightAdmissions >= RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS) {
     throw new RelayAllowAdmissionSaturatedError();
   }
   inFlightAdmissions += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    inFlightAdmissions -= 1;
+  };
+  const lease = setTimeout(release, slotTtlMs);
+  // Do not keep a long-lived process alive just for a lease backstop.
+  lease.unref?.();
   try {
     return await operation();
   } finally {
-    inFlightAdmissions -= 1;
+    clearTimeout(lease);
+    release();
   }
 }
 
