@@ -293,9 +293,7 @@ enum AgentHookNotificationPolicy {
         let patternStart = trimmedEntry.index(trimmedEntry.startIndex, offsetBy: 6)
         let patternEnd = trimmedEntry.index(before: trimmedEntry.endIndex)
         let pattern = String(trimmedEntry[patternStart..<patternEnd])
-        let normalizedCommand = command
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !pattern.isEmpty, !normalizedCommand.isEmpty else { return false }
 
         let commandParts = normalizedCommand.split(
@@ -313,7 +311,7 @@ enum AgentHookNotificationPolicy {
             )
             guard let basePattern = components.first.map(String.init),
                   let argumentPattern = components.dropFirst().first.map(String.init),
-                  basePattern == commandBase else {
+                  globMatches(basePattern, value: commandBase) else {
                 return false
             }
             return globMatches(argumentPattern, value: commandArguments)

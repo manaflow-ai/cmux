@@ -249,6 +249,20 @@ struct AgentHookNotificationPolicyTests {
         )
         #expect(
             AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": false],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(g*:status)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "printf 'a  b'", "sandbox": false],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(printf:'a b')"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: ["command": "git status --short", "sandbox": true]
             ) == false
         )
