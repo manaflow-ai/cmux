@@ -16,11 +16,12 @@ As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Se
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
-PTY relay clients must use the typed `pty_error` contract and terminal outcome
-ordering in [transports.md](../spec/transports.md#pty-lifecycle-errors-and-terminal_gone).
-In particular, `terminal_gone` is a definitive missing-terminal result, while a
-closed or saturated control connection is transient and must be retried only
-after a new transport generation is established.
+PTY relay clients must use the `pty_error` contract and terminal lookup rule in
+[transports.md](../spec/transports.md#pty-lifecycle-errors-and-terminal_gone).
+`terminal_gone` is definitive only after a successful workspace listing proves
+that the requested resource is absent. A closed or saturated control connection
+is not proof that the terminal is gone; retry only after a new authenticated
+transport generation is established.
 
 For shell use, prefer the noun-first public CLI, such as
 `cmux workspace list --json`.
