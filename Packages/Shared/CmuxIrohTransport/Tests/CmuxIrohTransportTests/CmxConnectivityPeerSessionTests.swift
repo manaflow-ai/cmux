@@ -626,7 +626,8 @@ struct CmxConnectivityPeerSessionTests {
         let session = TestConnectivitySession(
             continuityID: 45,
             keepsSelectedPathStreamOpen: true,
-            initialPath: .privateNetwork(address: "192.168.1.20:58465")
+            initialPath: .privateNetwork(address: "192.168.1.20:58465"),
+            rejectsRelayPaths: true
         )
         let builder = SequencedConnectivitySessionBuilder(sessions: [session])
         let peer = CmxConnectivityPeerSession(
@@ -873,6 +874,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
+    private let rejectsRelayPaths: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
@@ -896,11 +898,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         keepsSelectedPathStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
         gatesFirstClose: Bool = false,
-        initialPath: CmxIrohObservedConnectionPath = .direct(address: nil)
+        initialPath: CmxIrohObservedConnectionPath = .direct(address: nil),
+        rejectsRelayPaths: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        self.rejectsRelayPaths = rejectsRelayPaths
         selectedPath = initialPath
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
@@ -990,6 +994,12 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         }
         selectedPathContinuation = pair.continuation
         return pair.stream
+    }
+
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) -> Bool {
+        guard rejectsRelayPaths else { return true }
+        if case .relay = path { return false }
+        return true
     }
 
     func hasSelectedPathObserver() -> Bool {
