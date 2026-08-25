@@ -308,6 +308,9 @@ class TabManager: ObservableObject {
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
+            if let previousTabId {
+                workspacesById[previousTabId]?.clearSplitZoom()
+            }
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
                 lastFocusedPanelByTab[previousTabId] = previousPanelId
