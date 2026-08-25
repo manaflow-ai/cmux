@@ -269,6 +269,8 @@ struct VMSummary {
 struct VMPlanLimits {
     let maxActiveVms: Int
     let planId: String
+    /// Days a free-plan machine stays reachable after creation; 0 = no window.
+    let freeAccessWindowDays: Int
 }
 
 struct VMListPage {
@@ -445,7 +447,10 @@ actor VMClient {
         if let rawLimits = obj["limits"] as? [String: Any],
            let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue,
            let planId = rawLimits["planId"] as? String {
-            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId)
+            let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
+                ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
+                ?? 0
+            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId, freeAccessWindowDays: freeAccessWindowDays)
         }
         let vms = try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {

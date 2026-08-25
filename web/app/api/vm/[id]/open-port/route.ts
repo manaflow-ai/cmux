@@ -1,12 +1,13 @@
 import {
   jsonResponse,
   notFoundVm,
+  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
+import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openVmPort, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
@@ -59,12 +60,16 @@ export async function POST(
         const endpoint = await runVmWorkflow(openVmPort({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           port,
         }));
         return jsonResponse(endpoint);
       } catch (err) {
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }

@@ -21,10 +21,12 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
+  vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
   imageUsesBakedFreestyleSignedAdmin,
@@ -109,8 +111,14 @@ export async function GET(request: Request): Promise<Response> {
           listEntitlements = null;
         }
       }
+      // freeAccessWindowDays is 0 for paid plans (no window) so clients can
+      // render countdowns/locks from the payload without hardcoding policy.
       const limits = listEntitlements
-        ? { maxActiveVms: listEntitlements.maxActiveVms, planId: listEntitlements.planId }
+        ? {
+          maxActiveVms: listEntitlements.maxActiveVms,
+          planId: listEntitlements.planId,
+          freeAccessWindowDays: isPaidVmPlan(listEntitlements.planId) ? 0 : vmFreeAccessWindowDays(),
+        }
         : undefined;
       return jsonResponse({ vms, limits });
     },

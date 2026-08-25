@@ -1,22 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
   defaultMemoryMbForPlan,
+  isVmFreeAccessExpired,
   maxActiveVmsForPlan,
   maxMemoryMbForPlan,
+  vmFreeAccessWindowDays,
 } from "../services/vms/entitlements";
-import { vmActiveLimitExceededResponse } from "../services/vms/routeHelpers";
+import { vmActiveLimitExceededResponse, vmFreeAccessExpiredResponse } from "../services/vms/routeHelpers";
 
 async function body(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
 describe("free plan VM allowance", () => {
-  test("free users get 3 Cloud VMs by default", () => {
-    expect(maxActiveVmsForPlan("free", {})).toBe(3);
+  test("free users get one full-size Cloud VM by default", () => {
+    expect(maxActiveVmsForPlan("free", {})).toBe(1);
   });
 
-  test("paid plans keep a higher default allowance", () => {
-    expect(maxActiveVmsForPlan("pro", {})).toBe(15);
+  test("pro gets five machines by default", () => {
+    expect(maxActiveVmsForPlan("pro", {})).toBe(5);
   });
 
   test("the free allowance stays env-overridable", () => {
@@ -25,13 +27,13 @@ describe("free plan VM allowance", () => {
 });
 
 describe("Cloud VM memory allowance", () => {
-  test("free defaults to 4 GB and caps at 4 GB", () => {
-    expect(defaultMemoryMbForPlan("free", {})).toBe(4096);
-    expect(maxMemoryMbForPlan("free", {})).toBe(4096);
+  test("free defaults to 24 GB and caps at 24 GB", () => {
+    expect(defaultMemoryMbForPlan("free", {})).toBe(24576);
+    expect(maxMemoryMbForPlan("free", {})).toBe(24576);
   });
 
-  test("paid plans default to 8 GB and cap at 32 GB", () => {
-    expect(defaultMemoryMbForPlan("pro", {})).toBe(8192);
+  test("paid plans default to 24 GB and cap at 32 GB", () => {
+    expect(defaultMemoryMbForPlan("pro", {})).toBe(24576);
     expect(maxMemoryMbForPlan("pro", {})).toBe(32768);
   });
 
@@ -84,5 +86,44 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(payload.message).toContain("1 Cloud VM.");
+  });
+});
+
+describe("free access window", () => {
+  const days = (n: number) => n * 24 * 60 * 60 * 1000;
+  const now = 1_800_000_000_000;
+
+  test("defaults to 5 days and stays env-overridable", () => {
+    expect(vmFreeAccessWindowDays({})).toBe(5);
+    expect(vmFreeAccessWindowDays({ CMUX_VM_FREE_ACCESS_WINDOW_DAYS: "14" })).toBe(14);
+  });
+
+  test("a free machine expires after the window and not before", () => {
+    expect(isVmFreeAccessExpired("free", now - days(6), {}, now)).toBe(true);
+    expect(isVmFreeAccessExpired("free", new Date(now - days(6)), {}, now)).toBe(true);
+    expect(isVmFreeAccessExpired("free", now - days(4), {}, now)).toBe(false);
+  });
+
+  test("a paid plan never expires, even for machines created on free", () => {
+    expect(isVmFreeAccessExpired("pro", now - days(400), {}, now)).toBe(false);
+    expect(isVmFreeAccessExpired("team", now - days(400), {}, now)).toBe(false);
+  });
+
+  test("window 0 disables the gate; unknown createdAt fails open", () => {
+    expect(isVmFreeAccessExpired("free", now - days(400), { CMUX_VM_FREE_ACCESS_WINDOW_DAYS: "0" }, now)).toBe(false);
+    expect(isVmFreeAccessExpired("free", null, {}, now)).toBe(false);
+  });
+
+  test("the expired response is the upgrade prompt, with delete as the out", async () => {
+    const response = vmFreeAccessExpiredResponse({ vmId: "noble-wren", windowDays: 5 });
+    expect(response.status).toBe(402);
+    const payload = await body(response);
+    expect(payload.error).toBe("vm_access_requires_pro");
+    expect(payload.message).toContain("5 days");
+    expect(payload.message).toContain("preserved");
+    expect(String(payload.action)).toContain("https://cmux.com/pricing");
+    expect(String(payload.action)).toContain("cmux vm rm noble-wren");
+    expect(payload.upgradeRequired).toBe(true);
+    expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
   });
 });
