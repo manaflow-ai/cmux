@@ -697,13 +697,12 @@ fn send_typed_pty_error(
     code: RelayPtyErrorCode,
     message: &str,
 ) {
-    let wire_code = match code {
-        RelayPtyErrorCode::BadRequest => "bad_request",
-        RelayPtyErrorCode::TrustRefused => "trust_refused",
-        RelayPtyErrorCode::SessionLimit => "session_limit",
-        RelayPtyErrorCode::TerminalGone => "terminal_gone",
-        RelayPtyErrorCode::Failed => "failed",
-    };
+    // Keep the hand-written frame path aligned with the generated serde
+    // contract. A second string mapping can silently drift when a variant is
+    // added to RelayPtyErrorCode.
+    let encoded =
+        serde_json::to_value(code).expect("RelayPtyErrorCode serialization is infallible");
+    let wire_code = encoded.as_str().expect("RelayPtyErrorCode serializes as a string");
     send_pty_error(context, pty_id, wire_code, message);
 }
 
@@ -3203,6 +3202,23 @@ mod tests {
         assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
+    }
+
+    #[test]
+    fn typed_pty_error_codes_use_the_generated_wire_names() {
+        let harness = harness(None, None);
+        let context = harness.context("supervised", harness.owner.clone());
+        let cases = [
+            (RelayPtyErrorCode::BadRequest, "bad_request"),
+            (RelayPtyErrorCode::TrustRefused, "trust_refused"),
+            (RelayPtyErrorCode::SessionLimit, "session_limit"),
+            (RelayPtyErrorCode::TerminalGone, "terminal_gone"),
+            (RelayPtyErrorCode::Failed, "failed"),
+        ];
+        for (code, expected) in cases {
+            send_typed_pty_error(&context, "p1", code, "test");
+            assert_eq!(harness.sent().pop().expect("error frame")["code"], expected);
+        }
     }
 
     struct InvalidListControl {
