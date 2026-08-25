@@ -3999,3 +3999,254 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
+
+// ---------------------------------------------------------------------------
+// `attach --pipe-io`: renderer-less byte relay for embedder-fed surfaces.
+//
+// Contract under test (GUI-frontend migration, manual-IO surface):
+//   stdout  = raw VT bytes (daemon replay first, then live output),
+//   stdin   = JSON lines ({"input":"<b64>"} | {"resize":{"cols":N,"rows":N}}),
+//   stderr  = one final JSON line {"exit":{"reason":...}},
+//   exit 0  = terminal ended (or parent closed stdin) — do not respawn,
+//   exit 2  = daemon connection lost — the embedder may respawn to resync.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+struct PipeIoRelay {
+    child: Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+#[cfg(unix)]
+impl PipeIoRelay {
+    fn start(server: &HeadlessServer, terminal: &str, cols: u16, rows: u16) -> Self {
+        let mut child = Command::new(bin())
+            .args(["attach", "--socket"])
+            .arg(&server.socket)
+            .args([
+                "--terminal",
+                terminal,
+                "--pipe-io",
+                "--cols",
+                &cols.to_string(),
+                "--rows",
+                &rows.to_string(),
+            ])
+            .env_remove("CMUX_TUI_SOCKET")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take();
+        let stdout = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let out = child.stdout.take().unwrap();
+        let err = child.stderr.take().unwrap();
+        let stdout_sink = stdout.clone();
+        std::thread::spawn(move || drain_into(out, stdout_sink));
+        let stderr_sink = stderr.clone();
+        std::thread::spawn(move || drain_into(err, stderr_sink));
+        Self { child, stdin, stdout, stderr }
+    }
+
+    fn send_input(&mut self, bytes: &[u8]) {
+        use base64::Engine as _;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let line = format!("{}\n", serde_json::json!({ "input": encoded }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
+    fn send_resize(&mut self, cols: u16, rows: u16) {
+        let line =
+            format!("{}\n", serde_json::json!({ "resize": { "cols": cols, "rows": rows } }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
+    fn stdout_text(&self) -> String {
+        String::from_utf8_lossy(&self.stdout.lock().unwrap()).into_owned()
+    }
+
+    fn wait_for_stdout(&mut self, needle: &str, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if self.stdout_text().contains(needle) {
+                return;
+            }
+            if let Some(status) = self.child.try_wait().unwrap() {
+                panic!(
+                    "pipe-io relay exited ({status}) before {what}\nstdout:\n{}\nstderr:\n{}",
+                    self.stdout_text(),
+                    String::from_utf8_lossy(&self.stderr.lock().unwrap())
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("timed out waiting for {what}\nstdout:\n{}", self.stdout_text());
+    }
+
+    fn wait_for_exit(&mut self) -> (i32, serde_json::Value) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                // Let the drain threads observe EOF.
+                std::thread::sleep(Duration::from_millis(100));
+                let stderr_text =
+                    String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
+                let exit_line = stderr_text
+                    .lines()
+                    .rev()
+                    .find(|line| line.trim_start().starts_with('{'))
+                    .unwrap_or_else(|| {
+                        panic!("pipe-io relay printed no JSON exit line\nstderr:\n{stderr_text}")
+                    })
+                    .to_string();
+                let value: serde_json::Value = serde_json::from_str(&exit_line).unwrap();
+                return (status.code().unwrap_or(-1), value);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("pipe-io relay did not exit\nstdout:\n{}", self.stdout_text());
+    }
+}
+
+#[cfg(unix)]
+fn drain_into(mut source: impl Read, sink: std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+    let mut buffer = [0u8; 4096];
+    loop {
+        match source.read(&mut buffer) {
+            Ok(0) | Err(_) => return,
+            Ok(count) => sink.lock().unwrap().extend_from_slice(&buffer[..count]),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn pipe_io_terminal(server: &HeadlessServer) -> String {
+    let created = json_cli(server, &["workspace", "create", "--name", "pipe-io"]);
+    assert_success(&created);
+    json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string()
+}
+
+/// Count literal `^[[<digits>;<digits>R` runs, the form `cat -v` uses to
+/// render a cursor-position report that reached the inner process.
+#[cfg(unix)]
+fn visible_cursor_position_reports(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut index = 0;
+    while let Some(offset) = text[index..].find("^[[") {
+        let mut cursor = index + offset + 3;
+        let mut digits_then_semicolon = false;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+            cursor += 1;
+        }
+        if cursor < bytes.len() && bytes[cursor] == b';' {
+            cursor += 1;
+            let row_end = cursor;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+            digits_then_semicolon = cursor > row_end;
+        }
+        if digits_then_semicolon && cursor < bytes.len() && bytes[cursor] == b'R' {
+            count += 1;
+        }
+        index += offset + 3;
+    }
+    count
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_attach_streams_output_and_replays_on_reconnect() {
+    let server = HeadlessServer::start("pipe-io-basic");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
+    first.send_input(b"printf 'PIPEIO-%s\\n' FIRST\n");
+    first.wait_for_stdout("PIPEIO-FIRST", "live output of the typed marker");
+
+    // Dropping stdin tells the relay its embedder is gone: clean exit 0.
+    first.stdin = None;
+    let (code, exit) = first.wait_for_exit();
+    assert_eq!(code, 0, "stdin EOF must be a clean detach, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "parent-closed");
+
+    // A fresh relay must serve the daemon replay before live bytes: the
+    // marker typed through the first relay is visible without retyping.
+    let mut second = PipeIoRelay::start(&server, &terminal, 80, 24);
+    second.wait_for_stdout("PIPEIO-FIRST", "replayed marker after reconnect");
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_exit_distinguishes_terminal_end_from_daemon_loss() {
+    let mut server = HeadlessServer::start("pipe-io-exits");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    relay.send_input(b"printf 'PIPEIO-%s\\n' READY\n");
+    relay.wait_for_stdout("PIPEIO-READY", "shell readiness marker");
+    let closed = json_cli(&server, &["terminal", &terminal, "close"]);
+    assert_success(&closed);
+    let (code, exit) = relay.wait_for_exit();
+    assert_eq!(code, 0, "terminal close must exit 0, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "terminal-ended");
+
+    let second_terminal = pipe_io_terminal(&server);
+    let mut survivor = PipeIoRelay::start(&server, &second_terminal, 80, 24);
+    survivor.send_input(b"printf 'PIPEIO-%s\\n' TWO\n");
+    survivor.wait_for_stdout("PIPEIO-TWO", "second shell readiness marker");
+    server.child.kill().unwrap();
+    let (code, exit) = survivor.wait_for_exit();
+    assert_eq!(code, 2, "daemon loss must exit 2, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "daemon-lost");
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_resize_reaches_the_daemon_pty() {
+    let server = HeadlessServer::start("pipe-io-resize");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    relay.send_input(b"printf 'PIPEIO-%s\\n' SIZED\n");
+    relay.wait_for_stdout("PIPEIO-SIZED", "shell readiness marker");
+    relay.send_resize(100, 30);
+    relay.send_input(b"stty size\n");
+    relay.wait_for_stdout("30 100", "stty report of the resized PTY");
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_inner_query_is_answered_exactly_once() {
+    let server = HeadlessServer::start("pipe-io-reply-authority");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    // The inner program emits a DSR cursor-position query and then renders
+    // its own stdin visibly. Exactly one authority (the daemon-side
+    // terminal) must answer; the relay and any embedder mirror stay silent.
+    relay.send_input(b"sh -c 'printf \"\\033[6n\"; exec cat -v'\n");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut seen = 0;
+    while Instant::now() < deadline {
+        seen = visible_cursor_position_reports(&relay.stdout_text());
+        if seen >= 1 {
+            // Give a duplicated reply time to surface before asserting.
+            std::thread::sleep(Duration::from_millis(500));
+            seen = visible_cursor_position_reports(&relay.stdout_text());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(
+        seen,
+        1,
+        "inner DSR query must be answered exactly once\nstdout:\n{}",
+        relay.stdout_text()
+    );
+}
