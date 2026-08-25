@@ -65,8 +65,7 @@ const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
 const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
 const GIT_STDOUT_DRAIN_TIMEOUT_MS: u64 = 5_000;
-const GIT_CHILD_REAP_TIMEOUT_MS: u64 = 1_000;
-const GIT_PROCESS_WAIT_TIMEOUT_MS: u64 = 5_000;
+const GIT_STOP_TIMEOUT_MS: u64 = 1_000;
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1554,33 +1553,9 @@ impl Drop for GitProcessGuard {
             // The direct child is also killed by Tokio's kill_on_drop guard.
             // killpg covers helpers which inherited stdout/stderr.
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-            // A cancelled future cannot await Child::wait from Drop. Reap
-            // the leader in a finite supervisor instead. WNOHANG plus the
-            // deadline prevents an unbounded detached reaper if another
-            // owner has already collected the child or the runtime is gone.
-            let _ = std::thread::Builder::new().name("chatmux-relay-git-reaper".to_owned()).spawn(
-                move || {
-                    let deadline = std::time::Instant::now()
-                        + std::time::Duration::from_millis(GIT_CHILD_REAP_TIMEOUT_MS);
-                    let mut status = 0;
-                    loop {
-                        let result = libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG);
-                        if result == pid as libc::pid_t {
-                            break;
-                        }
-                        if result < 0 {
-                            let error = std::io::Error::last_os_error();
-                            if error.raw_os_error() != Some(libc::EINTR) {
-                                break;
-                            }
-                        }
-                        if std::time::Instant::now() >= deadline {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(5));
-                    }
-                },
-            );
+            // Drop cannot await Child::wait. All owned paths above await it;
+            // cancellation relies on Tokio's documented best-effort reaper,
+            // without starting an unbounded thread or risking a reused PID.
         }
         #[cfg(windows)]
         {
@@ -1601,7 +1576,17 @@ async fn stop_git(child: &mut tokio::process::Child) {
     }
     // `kill` is start_kill + wait in Tokio. It is intentionally awaited on
     // every owned error path, rather than relying on Child's best-effort Drop.
-    let _ = child.kill().await;
+    let _ =
+        tokio::time::timeout(std::time::Duration::from_millis(GIT_STOP_TIMEOUT_MS), child.kill())
+            .await;
+}
+
+fn remaining_git_time(
+    deadline: std::time::Instant,
+    cap: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+    Some(remaining.min(cap))
 }
 
 /// Await the direct child with a deadline. A process can close both pipes and
@@ -1622,9 +1607,22 @@ async fn wait_git_with_timeout(
     }
 }
 
-async fn wait_git(child: &mut tokio::process::Child) -> Result<std::process::ExitStatus, Refusal> {
-    wait_git_with_timeout(child, std::time::Duration::from_millis(GIT_PROCESS_WAIT_TIMEOUT_MS))
-        .await
+async fn wait_git_until(
+    child: &mut tokio::process::Child,
+    deadline: std::time::Instant,
+) -> Result<std::process::ExitStatus, Refusal> {
+    let Some(remaining) = remaining_git_time(deadline, std::time::Duration::from_secs(300)) else {
+        stop_git(child).await;
+        return Err(Refusal::failed("git operation deadline exceeded"));
+    };
+    match tokio::time::timeout(remaining, child.wait()).await {
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(error)) => Err(Refusal::failed(format!("could not wait for git: {error}"))),
+        Err(_) => {
+            stop_git(child).await;
+            Err(Refusal::failed("git operation deadline exceeded"))
+        }
+    }
 }
 
 impl Drop for GitStderrDrain {
@@ -1698,6 +1696,17 @@ fn porcelain_v1_xy(xy: &str) -> String {
 }
 
 async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
+    run_git_status_until(
+        scope,
+        std::time::Instant::now() + std::time::Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_status_until(
+    scope: &Scope,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
     let mut child = git_command(
         &root,
@@ -1715,15 +1724,24 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
     let mut stdout_bytes = Vec::new();
     let read_limit = STATUS_MAX_BYTES.saturating_add(1);
-    let read_result = tokio::time::timeout(
+    let read_result = match remaining_git_time(
+        deadline,
         std::time::Duration::from_millis(GIT_STDOUT_DRAIN_TIMEOUT_MS),
-        stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes),
-    )
-    .await
-    .map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::TimedOut, "git status stdout drain timed out")
-    })
-    .and_then(|result| result);
+    ) {
+        Some(timeout) => tokio::time::timeout(
+            timeout,
+            stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "git status stdout drain timed out")
+        })
+        .and_then(|result| result),
+        None => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "git operation deadline exceeded",
+        )),
+    };
     if let Err(error) = read_result {
         stop_git(&mut child).await;
         if let Some(task) = stderr_task.take() {
@@ -1741,7 +1759,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         stdout_bytes.truncate(STATUS_MAX_BYTES);
         stop_git(&mut child).await;
     }
-    let status = wait_git(&mut child).await?;
+    let status = wait_git_until(&mut child, deadline).await?;
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -1848,6 +1866,19 @@ async fn run_git_diff(
     scope: &Scope,
     op: &wire::GitDiffOp,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
+    run_git_diff_until(
+        scope,
+        op,
+        std::time::Instant::now() + std::time::Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_diff_until(
+    scope: &Scope,
+    op: &wire::GitDiffOp,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
     let base = op.base.as_deref().unwrap_or("HEAD");
     if base.is_empty() || base.starts_with('-') {
@@ -1893,29 +1924,41 @@ async fn run_git_diff(
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;
     loop {
-        let line = match tokio::time::timeout(
+        let line = match remaining_git_time(
+            deadline,
             std::time::Duration::from_millis(GIT_STDOUT_DRAIN_TIMEOUT_MS),
-            read_bounded_git_diff_line(&mut reader, &mut line_bytes, GIT_DIFF_LINE_MAX_BYTES),
-        )
-        .await
-        {
-            Ok(result) => match result {
-                Ok(Some(line)) => line,
-                Ok(None) => break,
-                Err(error) => {
+        ) {
+            Some(timeout) => match tokio::time::timeout(
+                timeout,
+                read_bounded_git_diff_line(&mut reader, &mut line_bytes, GIT_DIFF_LINE_MAX_BYTES),
+            )
+            .await
+            {
+                Ok(result) => match result {
+                    Ok(Some(line)) => line,
+                    Ok(None) => break,
+                    Err(error) => {
+                        stop_git(&mut child).await;
+                        if let Some(task) = stderr_task.take() {
+                            let _ = task.finish().await;
+                        }
+                        return Err(Refusal::failed(format!("could not read git diff: {error}")));
+                    }
+                },
+                Err(_) => {
                     stop_git(&mut child).await;
                     if let Some(task) = stderr_task.take() {
                         let _ = task.finish().await;
                     }
-                    return Err(Refusal::failed(format!("could not read git diff: {error}")));
+                    return Err(Refusal::failed("git diff stdout drain timed out"));
                 }
             },
-            Err(_) => {
+            None => {
                 stop_git(&mut child).await;
                 if let Some(task) = stderr_task.take() {
                     let _ = task.finish().await;
                 }
-                return Err(Refusal::failed("git diff stdout drain timed out"));
+                return Err(Refusal::failed("git operation deadline exceeded"));
             }
         };
         if line.starts_with("diff --git ") {
@@ -1941,7 +1984,7 @@ async fn run_git_diff(
             }
         }
     }
-    let status = wait_git(&mut child).await?;
+    let status = wait_git_until(&mut child, deadline).await?;
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -2227,7 +2270,8 @@ async fn execute(
     // the timeout an honest response-time diagnostic and preserves operation
     // ordering and permit ownership.
     let started = std::time::Instant::now();
-    let outcome = run_op(runtime, request, permit).await;
+    let deadline = started + std::time::Duration::from_millis(timeout_ms as u64);
+    let outcome = run_op(runtime, request, permit, deadline).await;
     if started.elapsed() > std::time::Duration::from_millis(timeout_ms.unsigned_abs()) {
         Err(Refusal::new(
             wire::WorkspaceErrorCode::Timeout,
@@ -2242,6 +2286,7 @@ async fn run_op(
     runtime: &Arc<SharedRuntime>,
     request: wire::RelayWorkspaceRequest,
     permit: OwnedSemaphorePermit,
+    deadline: std::time::Instant,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
     match request.op {
@@ -2251,8 +2296,8 @@ async fn run_op(
         wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op), permit).await,
         wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op), permit).await,
         wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op), permit).await,
-        wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
-        wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
+        wire::WorkspaceOp::GitStatus(_) => run_git_status_until(&scope, deadline).await,
+        wire::WorkspaceOp::GitDiff(op) => run_git_diff_until(&scope, &op, deadline).await,
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
         wire::WorkspaceOp::PreviewConsoleTail(op) => runtime.preview.tail(op.max_events),
     }
@@ -2859,6 +2904,26 @@ mod tests {
         let result = wait_git_with_timeout(&mut child, std::time::Duration::from_millis(50)).await;
         assert!(result.is_err(), "a child that closes pipes must still hit the wait deadline");
         assert!(child.id().is_none(), "the timeout path must reap the direct child");
+    }
+
+    #[tokio::test]
+    async fn git_diff_refuses_an_expired_operation_deadline() {
+        let (root, scope) = seeded_repo("git-diff-expired-deadline");
+        let result = run_git_diff_until(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+            std::time::Instant::now() - std::time::Duration::from_millis(1),
+        )
+        .await;
+        let refusal = result.expect_err("expired deadline");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::Failed);
+        assert!(refusal.message.contains("deadline"));
+        let _ = root;
     }
 
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
