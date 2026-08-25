@@ -58,6 +58,16 @@ final class HistoryMenuCoordinator {
             }
         })
         observers.append(center.addObserver(
+            forName: .closedItemHistoryRevisionDidChange,
+            object: closedItemHistoryStore,
+            queue: .main
+        ) { [weak self] _ in
+            // Closed-item history is MainActor-owned and posts after its revision changes.
+            MainActor.assumeIsolated {
+                self?.refreshIfNeeded()
+            }
+        })
+        observers.append(center.addObserver(
             forName: NSMenu.didBeginTrackingNotification,
             object: nil,
             queue: .main
@@ -142,8 +152,7 @@ final class HistoryMenuCoordinator {
     func navigate(to item: FocusHistoryMenuItem) -> Bool {
         guard let manager = activeManagerForAction(),
               projectedManager === manager,
-              state.managerIdentity == ObjectIdentifier(manager),
-              state.recentlyFocusedItems.contains(item) else {
+              state.managerIdentity == ObjectIdentifier(manager) else {
             return false
         }
         return manager.navigateToFocusHistoryMenuItem(item)
