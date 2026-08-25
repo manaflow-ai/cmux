@@ -60,6 +60,14 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var refreshCompletionGeneration = 0
+    private var ownershipRefreshWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    private var ownershipRefreshWaiterTimers: [UUID: DispatchSourceTimer] = [:]
+    private enum OwnershipRefreshTaskKind: Equatable {
+        case full
+        case fork
+    }
+    private var ownershipRefreshWaiterKinds: [UUID: OwnershipRefreshTaskKind] = [:]
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -285,6 +293,12 @@ final class SharedLiveAgentIndex {
                 waiter.continuation.resume()
             }
         }
+        for timer in ownershipRefreshWaiterTimers.values {
+            timer.cancel()
+        }
+        for continuation in ownershipRefreshWaiters.values {
+            continuation.resume(returning: false)
+        }
     }
 
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
@@ -465,8 +479,7 @@ final class SharedLiveAgentIndex {
         while true {
             guard !Task.isCancelled else { return nil }
             if let refreshTask {
-                guard await awaitOwnershipRefreshTask(refreshTask) else {
-                    refreshTask.cancel()
+                guard await awaitOwnershipRefreshTask(refreshTask, kind: .full) else {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
@@ -485,8 +498,7 @@ final class SharedLiveAgentIndex {
                 continue
             }
             if let forkAvailabilityRefreshTask {
-                guard await awaitOwnershipRefreshTask(forkAvailabilityRefreshTask) else {
-                    forkAvailabilityRefreshTask.cancel()
+                guard await awaitOwnershipRefreshTask(forkAvailabilityRefreshTask, kind: .fork) else {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
@@ -612,6 +624,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
+            self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
@@ -628,6 +641,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             _ = await self.reload(forcePublish: true)
             self.refreshTask = nil
+            self.noteOwnershipRefreshCompleted(kind: .full, success: !Task.isCancelled)
             self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
@@ -638,34 +652,66 @@ final class SharedLiveAgentIndex {
     }
 
     /// Waits for one refresh without allowing an uncooperative loader to hold
-    /// a restored terminal behind startup admission indefinitely.
-    private func awaitOwnershipRefreshTask(_ task: Task<Void, Never>) async -> Bool {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                let gate = AgentForkTimeoutResumeGate(continuation)
-                let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-                timer.schedule(
-                    deadline: .now() + .nanoseconds(
-                        Int(Self.ownershipRefreshTimeoutNanoseconds)
-                    )
+    /// a restored terminal behind startup admission indefinitely. Completion is
+    /// broadcast by the shared refresh task, so a timed-out waiter never owns a
+    /// detached task that can retain the index or its caller.
+    private func awaitOwnershipRefreshTask(
+        _ task: Task<Void, Never>,
+        kind: OwnershipRefreshTaskKind
+    ) async -> Bool {
+        guard !task.isCancelled else { return false }
+        let minimumGeneration = refreshCompletionGeneration + 1
+        guard refreshTask != nil || forkAvailabilityRefreshTask != nil else {
+            return !task.isCancelled
+        }
+        let waiterID = UUID()
+        return await withCheckedContinuation { continuation in
+            ownershipRefreshWaiters[waiterID] = continuation
+            ownershipRefreshWaiterMinimumGenerations[waiterID] = minimumGeneration
+            ownershipRefreshWaiterKinds[waiterID] = kind
+            let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+            timer.schedule(
+                deadline: .now() + .nanoseconds(
+                    Int(Self.ownershipRefreshTimeoutNanoseconds)
                 )
-                timer.setEventHandler {
-                    timer.setEventHandler {}
-                    timer.cancel()
-                    task.cancel()
-                    gate.resume(returning: false)
-                }
-                timer.resume()
-                Task.detached(priority: .utility) {
-                    await task.value
-                    timer.setEventHandler {}
-                    timer.cancel()
-                    gate.resume(returning: true)
+            )
+            timer.setEventHandler { [weak self] in
+                Task { @MainActor in
+                    self?.finishOwnershipRefreshWaiter(waiterID, result: false)
                 }
             }
-        } onCancel: {
-            task.cancel()
+            ownershipRefreshWaiterTimers[waiterID] = timer
+            timer.resume()
+            if refreshCompletionGeneration >= minimumGeneration {
+                finishOwnershipRefreshWaiter(waiterID, result: !task.isCancelled)
+            }
         }
+    }
+
+    private func noteOwnershipRefreshCompleted(
+        kind: OwnershipRefreshTaskKind,
+        success: Bool
+    ) {
+        refreshCompletionGeneration += 1
+        let waiterIDs = ownershipRefreshWaiters.keys.filter { waiterID in
+            ownershipRefreshWaiterKinds[waiterID] == kind &&
+                ownershipRefreshWaiterMinimumGenerations[waiterID, default: 0] <= refreshCompletionGeneration
+        }
+        for waiterID in waiterIDs {
+            finishOwnershipRefreshWaiter(waiterID, result: success)
+        }
+    }
+
+    private var ownershipRefreshWaiterMinimumGenerations: [UUID: Int] = [:]
+
+    private func finishOwnershipRefreshWaiter(_ waiterID: UUID, result: Bool) {
+        guard let continuation = ownershipRefreshWaiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        ownershipRefreshWaiterMinimumGenerations.removeValue(forKey: waiterID)
+        ownershipRefreshWaiterKinds.removeValue(forKey: waiterID)
+        ownershipRefreshWaiterTimers.removeValue(forKey: waiterID)?.cancel()
+        continuation.resume(returning: result)
     }
 
     private func preservePendingHookChangeAfterOwnershipRefreshFailure() {

@@ -32,8 +32,9 @@ extension TerminalSurface {
     }
 
     @MainActor
-    func cancelStartupRestoreAdmissionForExplicitInput() {
-        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
+    @discardableResult
+    func cancelStartupRestoreAdmissionForExplicitInput() -> Bool {
+        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return false }
         nextRuntimeInitialInput = nil
         suppressConfiguredInitialInput = true
         startupRestoreAdmissionPhase = .admitted
@@ -44,5 +45,6 @@ extension TerminalSurface {
             source: .inputDemand
         )
         onStartupRestoreAdmissionCancelled?()
+        return true
     }
 }

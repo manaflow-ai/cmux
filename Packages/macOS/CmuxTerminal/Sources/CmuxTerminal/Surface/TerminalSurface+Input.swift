@@ -26,12 +26,15 @@ extension TerminalSurface {
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
-    public func didReceiveExplicitInput() {
+    @discardableResult
+    public func didReceiveExplicitInput() -> Bool {
+        var cancelledDeferredAdmission = false
         if cancelsStartupRestoreAdmissionOnExplicitInput,
            startupRestoreAdmissionPhase == .awaitingAdmission {
-            cancelStartupRestoreAdmissionForExplicitInput()
+            cancelledDeferredAdmission = cancelStartupRestoreAdmissionForExplicitInput()
         }
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+        return cancelledDeferredAdmission
     }
 
     /// Routes programmatic input through the view-owned clipboard sequencer.

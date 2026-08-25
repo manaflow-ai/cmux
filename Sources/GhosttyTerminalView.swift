@@ -3835,6 +3835,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
+    /// Key-down events that cancelled deferred restore while the input-demand
+    /// runtime was still being created. Replay them once Ghostty is ready so
+    /// the user's opt-out keystroke is never lost.
+    private var pendingExplicitKeyDownEvents: [NSEvent] = []
+    private static let maximumPendingExplicitKeyDownEvents = 32
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -4139,6 +4144,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
+    }
+
+    private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
+        guard pendingExplicitKeyDownEvents.count < Self.maximumPendingExplicitKeyDownEvents else {
+            return
+        }
+        pendingExplicitKeyDownEvents.append(event)
+    }
+
+    fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
+        guard surface != nil, !pendingExplicitKeyDownEvents.isEmpty else { return }
+        let pendingEvents = pendingExplicitKeyDownEvents
+        pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
+        for event in pendingEvents {
+            keyDown(with: event)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -5688,7 +5709,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        terminalSurface?.didReceiveExplicitInput()
+        let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -5720,6 +5741,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
+            if cancelledDeferredAdmission {
+                queueExplicitKeyDownForInputDemand(event)
+                requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface.afterRestoreCancel")
+                return
+            }
             requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
@@ -8971,6 +8997,7 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
+            self.surfaceView.replayPendingExplicitKeyDownEventsIfReady()
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
