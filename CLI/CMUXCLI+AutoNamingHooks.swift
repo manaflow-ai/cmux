@@ -16,7 +16,7 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("claude-hook.auto-name.disabled")
             return
@@ -77,6 +77,8 @@ extension CMUXCLI {
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,
+            expectedWorkspaceTitle: probe["workspace_title"] as? String,
+            expectedPanelTitle: probe["panel_title"] as? String,
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
@@ -157,7 +159,7 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.disabled")
             return
@@ -246,7 +248,7 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return
@@ -285,6 +287,8 @@ extension CMUXCLI {
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,
+            expectedWorkspaceTitle: probe["workspace_title"] as? String,
+            expectedPanelTitle: probe["panel_title"] as? String,
             telemetryKey: "codex-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in

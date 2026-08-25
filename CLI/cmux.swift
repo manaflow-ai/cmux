@@ -1983,6 +1983,11 @@ final class ClaudeHookSessionStore {
                 guard let existing,
                       existing.workspaceId == expectedRecord.workspaceId,
                       existing.surfaceId == expectedRecord.surfaceId,
+                      compactProcessIdentityMatches(
+                          existing: existing,
+                          expected: expectedRecord,
+                          incomingPID: pid
+                      ),
                       compactSessionStillOwnsTarget(
                           state: state,
                           record: existing,
@@ -2061,6 +2066,37 @@ final class ClaudeHookSessionStore {
             state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
             return true
         }
+    }
+
+    private func compactProcessIdentityMatches(
+        existing: ClaudeHookSessionRecord,
+        expected: ClaudeHookSessionRecord,
+        incomingPID: Int?
+    ) -> Bool {
+        if let expectedSeconds = expected.pidStartSeconds,
+           let expectedMicroseconds = expected.pidStartMicroseconds,
+           let existingSeconds = existing.pidStartSeconds,
+           let existingMicroseconds = existing.pidStartMicroseconds {
+            guard (expectedSeconds, expectedMicroseconds) == (existingSeconds, existingMicroseconds) else {
+                return false
+            }
+        } else if let expectedPID = expected.pid,
+                  let existingPID = existing.pid,
+                  expectedPID != existingPID {
+            return false
+        }
+        if let incomingPID,
+           let existingPID = existing.pid,
+           incomingPID != existingPID {
+            guard let incomingIdentity = processStartIdentity(pid: incomingPID),
+                  let existingSeconds = existing.pidStartSeconds,
+                  let existingMicroseconds = existing.pidStartMicroseconds else {
+                return false
+            }
+            return (incomingIdentity.seconds, incomingIdentity.microseconds)
+                == (existingSeconds, existingMicroseconds)
+        }
+        return true
     }
 
     private func compactSessionStillOwnsTarget(

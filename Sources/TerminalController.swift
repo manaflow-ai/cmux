@@ -4113,11 +4113,24 @@ class TerminalController {
             if let workspaceId = v2UUID(params, "workspace_id"),
                let tabManager = v2ResolveTabManager(params: params) {
                 var userOwned: Bool?
+                var workspaceTitle: String?
+                var panelTitle: String?
                 v2MainSync {
                     guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                     userOwned = workspace.effectiveCustomTitleSource == .user
+                    workspaceTitle = workspace.title.nilIfEmpty
+                    if let panelId = v2UUID(params, "panel_id") {
+                        let resolvedPanelId = workspace.panels[panelId] != nil
+                            ? panelId
+                            : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
+                        panelTitle = resolvedPanelId.flatMap {
+                            workspace.panelTitle(panelId: $0)?.nilIfEmpty
+                        }
+                    }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
+                result["workspace_title"] = v2OrNull(workspaceTitle)
+                result["panel_title"] = v2OrNull(panelTitle)
             }
             return .ok(result)
         }
@@ -4211,7 +4224,7 @@ class TerminalController {
             }()
             if workspace.effectiveCustomTitleSource == .user ||
                (expectedWorkspaceTitle != nil &&
-                workspace.customTitle != expectedWorkspaceTitle) ||
+                workspace.title != expectedWorkspaceTitle) ||
                remotePanelOwnershipBlocked {
                 // Manual ownership, a newer sibling-session auto-title, or an
                 // authoritative remote panel wins. Reconciliation may still
@@ -4226,6 +4239,12 @@ class TerminalController {
             }
             if let resolvedPanelId {
                 if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.panelTitle(panelId: resolvedPanelId) != expectedPanelTitle {
+                    // The panel changed between the naming probe and this
+                    // apply. Preserve the newer title as a compare-and-set
+                    // failure, regardless of whether it is local or remote.
                     panelApplySkipped = true
                 } else if remotePanelOwnershipBlocked {
                     panelApplySkipped = true

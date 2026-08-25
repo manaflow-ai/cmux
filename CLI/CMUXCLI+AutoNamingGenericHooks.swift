@@ -146,7 +146,7 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
             return
@@ -206,6 +206,8 @@ extension CMUXCLI {
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,
+            expectedWorkspaceTitle: probe["workspace_title"] as? String,
+            expectedPanelTitle: probe["panel_title"] as? String,
             telemetryKey: "\(def.name)-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
@@ -237,6 +239,8 @@ extension CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         allowSummarization: Bool,
+        expectedWorkspaceTitle: String? = nil,
+        expectedPanelTitle: String? = nil,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
@@ -250,6 +254,8 @@ extension CMUXCLI {
             sessionStore: sessionStore,
             client: client,
             allowSummarization: allowSummarization,
+            expectedWorkspaceTitle: expectedWorkspaceTitle,
+            expectedPanelTitle: expectedPanelTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -265,6 +271,8 @@ extension CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         allowSummarization: Bool,
+        expectedWorkspaceTitle: String? = nil,
+        expectedPanelTitle: String? = nil,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
@@ -278,6 +286,8 @@ extension CMUXCLI {
             sessionStore: sessionStore,
             client: client,
             allowSummarization: allowSummarization,
+            expectedWorkspaceTitle: expectedWorkspaceTitle,
+            expectedPanelTitle: expectedPanelTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -364,6 +374,8 @@ extension CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         allowSummarization: Bool,
+        expectedWorkspaceTitle: String? = nil,
+        expectedPanelTitle: String? = nil,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
@@ -457,6 +469,8 @@ extension CMUXCLI {
             sanitized,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            expectedWorkspaceTitle: expectedWorkspaceTitle,
+            expectedPanelTitle: expectedPanelTitle,
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry
