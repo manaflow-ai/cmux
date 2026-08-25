@@ -378,16 +378,13 @@ extension CMUXCLI {
     }
 
     private func normalizedExecutableSearchDirectories(_ directories: [String]) -> [String] {
-        var seen: Set<String> = []
-        return directories.compactMap { directory in
-            guard !directory.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: directory, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        // Validate raw components before URL normalization. In particular,
+        // `missing-directory/..` must not collapse into the current directory
+        // and accidentally shadow a real executable there.
+        let normalized = AgentExecutableSearchPathResolver(
+            currentDirectoryPath: FileManager.default.currentDirectoryPath
+        ).normalizedDirectories(from: directories)
+        return normalized.filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {
