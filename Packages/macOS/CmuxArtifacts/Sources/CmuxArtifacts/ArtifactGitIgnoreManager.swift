@@ -17,7 +17,7 @@ struct ArtifactGitIgnoreManager {
             }
             return
         }
-        let ignoreEntries = relativeIgnoreEntries(
+        let ignoreEntries = try relativeIgnoreEntries(
             projectRoot: projectRoot,
             worktreeRoot: repository.worktreeRoot
         )
@@ -325,12 +325,17 @@ struct ArtifactGitIgnoreManager {
         return values.isSymbolicLink != true
     }
 
-    private func relativeIgnoreEntries(projectRoot: URL, worktreeRoot: URL) -> [String] {
+    private func relativeIgnoreEntries(projectRoot: URL, worktreeRoot: URL) throws -> [String] {
         guard let relativePath = ArtifactPathResolver(fileManager: fileManager).relativePath(
             projectRoot,
             root: worktreeRoot
         ) else {
             return Self.ignoreEntries
+        }
+        guard !relativePath.unicodeScalars.contains(where: { scalar in
+            scalar.value == 0x0A || scalar.value == 0x0D
+        }) else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(worktreeRoot.path)
         }
         let prefix = escapedGitPattern(relativePath) + "/"
         return Self.ignoreEntries.map { entry in

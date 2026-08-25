@@ -54,17 +54,26 @@ struct ArtifactSidebarThumbnailView: View {
             return
         }
         let openedFile: ArtifactSidebarFileAccess.OpenedFile?
+        let temporaryURL: URL?
         if let artifactRoot {
             openedFile = ArtifactSidebarFileAccess().openedFile(
                 for: fileURL,
                 artifactRoot: artifactRoot
             )
             guard let openedFile else { return }
+            temporaryURL = openedFile.makeTemporaryPreviewURL()
+            guard let temporaryURL else { return }
         } else {
             openedFile = nil
+            temporaryURL = nil
+        }
+        defer {
+            if let temporaryURL {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            }
         }
         let request = QLThumbnailGenerator.Request(
-            fileAt: openedFile?.readURL ?? fileURL,
+            fileAt: temporaryURL ?? openedFile?.sourceURL ?? fileURL,
             size: CGSize(width: 48, height: 48),
             scale: NSScreen.main?.backingScaleFactor ?? 2,
             representationTypes: [.thumbnail, .icon]

@@ -232,10 +232,15 @@ struct TranscriptBatchAssembler {
             return
         }
         var byteCount = artifactReferences.reduce(0) { $0 + $1.path.utf8.count }
-        while artifactReferences.count > Self.maxArtifactReferenceCount
+        var dropCount = 0
+        while artifactReferences.count - dropCount > Self.maxArtifactReferenceCount
                 || byteCount > Self.maxArtifactReferenceBytes {
-            guard !artifactReferences.isEmpty else { break }
-            byteCount -= artifactReferences.removeFirst().path.utf8.count
+            guard dropCount < artifactReferences.count else { break }
+            byteCount -= artifactReferences[dropCount].path.utf8.count
+            dropCount += 1
+        }
+        if dropCount > 0 {
+            artifactReferences.removeFirst(dropCount)
         }
     }
 

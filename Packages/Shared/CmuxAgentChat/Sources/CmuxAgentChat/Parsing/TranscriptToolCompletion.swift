@@ -45,6 +45,11 @@ struct TranscriptToolCompletion: Sendable {
     var succeeded: Bool {
         guard isError != true else { return false }
         if let exitCode { return exitCode == 0 }
+        guard isError == false,
+              let output,
+              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
         return !reportsFailureWithoutExitStatus
     }
 
