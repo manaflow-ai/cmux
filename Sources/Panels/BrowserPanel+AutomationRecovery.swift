@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxSettings
 import WebKit
 
 extension BrowserPanel {
