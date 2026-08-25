@@ -76,7 +76,7 @@ describe("product-update template", () => {
     const { html, subject } = await renderTemplate("product-update", {
       locale: "ja",
     });
-    expect(html).toContain('<html lang="ja"');
+    expect(html).toMatch(/<html[^>]*lang="ja"/);
     expect(html).toContain("cmux の Austin です");
     expect(html).not.toContain("Austin from cmux here.");
     expect(subject).toContain("cmux アップデート");
