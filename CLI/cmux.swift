@@ -404,27 +404,41 @@ final class ClaudeHookSessionStore {
     func rememberCursorShellApproval(
         sessionId: String,
         command: String,
-        toolUseId: String? = nil
+        toolUseId: String? = nil,
+        deadline: Date? = nil
     ) throws -> Bool {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
             return false
         }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession] else { return false }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
             let pendingCountBeforePrune = pending.count
+            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
+                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
+            }
+            let expiredApprovals = pending.filter {
+                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+            }
+            for approval in expiredApprovals {
+                recentlyCleared[approval.commandFingerprint] = now
+            }
+            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                recentlyCleared = Dictionary(
+                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
+                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
+                        .map { ($0.key, $0.value) }
+                )
+            }
+            let hadExpiredApprovals = !expiredApprovals.isEmpty
             pending.removeAll {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            var recentlyCleared = record.recentlyClearedCursorShellCommandFingerprints ?? [:]
-            recentlyCleared = recentlyCleared.filter {
-                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
-            }
             let requiresToolUseId = normalizedToolUseId == nil
                 && recentlyCleared[commandIdentity.fingerprint].map {
                     now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
@@ -446,9 +460,10 @@ final class ClaudeHookSessionStore {
                         requiresToolUseId: existing.requiresToolUseId
                     )
                 }
-                if pending.count != pendingCountBeforePrune
+                if hadExpiredApprovals || pending.count != pendingCountBeforePrune
                     || existing.commandFingerprint != commandIdentity.fingerprint
                     || existing.commandLength != commandIdentity.length {
+                    record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
                     record.pendingCursorShellApprovals = pending
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
@@ -456,6 +471,12 @@ final class ClaudeHookSessionStore {
                 return true
             }
             guard pending.count < Self.maxPendingCursorShellApprovals else {
+                if hadExpiredApprovals {
+                    record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
+                    record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
+                    record.updatedAt = now
+                    state.sessions[normalizedSession] = record
+                }
                 return false
             }
             pending.append(CursorPendingShellApproval(
@@ -464,13 +485,6 @@ final class ClaudeHookSessionStore {
                 createdAt: now,
                 requiresToolUseId: requiresToolUseId
             ))
-            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                recentlyCleared = Dictionary(
-                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
-                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
-                        .map { ($0.key, $0.value) }
-                )
-            }
             record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
             record.pendingCursorShellApprovals = pending
             record.updatedAt = now
@@ -495,24 +509,44 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
-        toolUseId: String? = nil
+        toolUseId: String? = nil,
+        deadline: Date? = nil
     ) throws -> CursorShellApprovalResolution {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
             return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
         }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
                 return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
             }
             let now = Date().timeIntervalSince1970
             let beforePruneCount = pending.count
+            let expiredApprovals = pending.filter {
+                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+            }
             pending.removeAll {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
             }
             let expired = pending.count != beforePruneCount
+            if !expiredApprovals.isEmpty {
+                var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
+                    now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
+                }
+                for approval in expiredApprovals {
+                    recentlyCleared[approval.commandFingerprint] = now
+                }
+                if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                    recentlyCleared = Dictionary(
+                        uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
+                            .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
+                            .map { ($0.key, $0.value) }
+                    )
+                }
+                record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
+            }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
             guard let matchIndex = pending.firstIndex(where: { pendingApproval in
@@ -2022,7 +2056,10 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
-    func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    func withLockedState<T>(
+        deadline: Date? = nil,
+        _ body: (inout ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -2030,14 +2067,27 @@ final class ClaudeHookSessionStore {
         }
         defer { Darwin.close(fd) }
 
-        if flock(fd, LOCK_EX) != 0 {
+        if let deadline {
+            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK || errno == EAGAIN, Date.now < deadline else {
+                    throw CLIError(message: "Timed out locking Claude hook state: \(lockPath)")
+                }
+                usleep(5_000)
+            }
+        } else if flock(fd, LOCK_EX) != 0 {
             throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
         }
         defer { _ = flock(fd, LOCK_UN) }
 
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         var state = loadUnlocked()
         pruneExpired(&state)
         let result = try body(&state)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         try saveUnlocked(state)
         return result
     }
@@ -2094,6 +2144,11 @@ final class ClaudeHookSessionStore {
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
+            return ClaudeHookSessionStoreFile()
+        }
+        guard let fileSize = try? URL(fileURLWithPath: statePath)
+            .resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              fileSize <= 8 * 1024 * 1024 else {
             return ClaudeHookSessionStoreFile()
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
@@ -33130,7 +33185,7 @@ export default CMUXSessionRestore;
             func reconcileCursorShellUI(
                 _ resolution: ClaudeHookSessionStore.CursorShellApprovalResolution
             ) {
-                if resolution.matched, resolution.hasRemaining {
+                if (resolution.matched || resolution.expired), resolution.hasRemaining {
                     let pendingSubtitle = String(
                         localized: "agent.generic.notification.subtitle.permission",
                         defaultValue: "Permission"
@@ -33188,10 +33243,24 @@ export default CMUXSessionRestore;
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                 pid: pid,
                 launchCommand: resumeLaunchCommand,
-                toolUseId: cursorShellToolUseId(from: input)
+                toolUseId: cursorShellToolUseId(from: input),
+                deadline: cursorShellDeadline
             )
             if let resolution {
                 reconcileCursorShellUI(resolution)
+            }
+            if let resolution, !resolution.matched, resolution.expired, resolution.hasRemaining {
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    declaredPhase: .needsInput,
+                    detail: failed ? "cursor-shell-failed-expired-remaining" : "cursor-shell-completed-expired-remaining",
+                    responseTimeout: cursorCriticalTimeout()
+                )
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
+                return
             }
             if let resolution, !resolution.matched, resolution.expired, !resolution.hasRemaining {
                 emitJournal(
@@ -34363,7 +34432,8 @@ export default CMUXSessionRestore;
                       (try? store.rememberCursorShellApproval(
                           sessionId: sessionId,
                           command: command,
-                          toolUseId: cursorShellToolUseId(from: input)
+                          toolUseId: cursorShellToolUseId(from: input),
+                          deadline: cursorShellDeadline
                       )) == true else {
                     emitJournal(
                         .stateChanged,
