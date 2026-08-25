@@ -23,6 +23,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     ]
 
     private let executableURL: URL
+    private let fallbackExecutableURLs: [URL]
     private let environment: [String: String]
     private let boundedCommandWallTimeLimit: TimeInterval
 
@@ -31,9 +32,13 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
-        self.executableURL = executableURL
-            ?? SystemGitExecutableResolver(environment: environment).executableURLs().first
-            ?? URL(fileURLWithPath: "/usr/bin/git")
+        let candidates = if let executableURL {
+            [executableURL]
+        } else {
+            SystemGitExecutableResolver(environment: environment).executableURLs()
+        }
+        self.executableURL = candidates.first ?? URL(fileURLWithPath: "/usr/bin/git")
+        self.fallbackExecutableURLs = Array(candidates.dropFirst().prefix(3))
         var scopedEnvironment = environment
         for key in Self.repositorySelectionEnvironmentKeys {
             scopedEnvironment.removeValue(forKey: key)
@@ -130,6 +135,41 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     }
 
     private func execute(
+        arguments: [String],
+        directory: URL,
+        maximumOutputByteCount: Int64,
+        wallTimeLimit: TimeInterval,
+        prepareAttempt: () throws -> Void,
+        consume: (Data) throws -> Void
+    ) throws -> (exitCode: Int32, wasTruncated: Bool) {
+        let candidates = [executableURL] + fallbackExecutableURLs
+        var lastResult: (exitCode: Int32, wasTruncated: Bool)?
+        for candidate in candidates {
+            do {
+                let result = try executeOnce(
+                    executableURL: candidate,
+                    arguments: arguments,
+                    directory: directory,
+                    maximumOutputByteCount: maximumOutputByteCount,
+                    wallTimeLimit: wallTimeLimit,
+                    prepareAttempt: prepareAttempt,
+                    consume: consume
+                )
+                lastResult = result
+                // Retry only the unmistakable unsupported/fatal Git exit with
+                // no output; ordinary successful/expected nonzero results stop.
+                if result.exitCode != 128 || result.wasTruncated {
+                    return result
+                }
+            } catch {
+                continue
+            }
+        }
+        return lastResult ?? (exitCode: 128, wasTruncated: true)
+    }
+
+    private func executeOnce(
+        executableURL: URL,
         arguments: [String],
         directory: URL,
         maximumOutputByteCount: Int64,

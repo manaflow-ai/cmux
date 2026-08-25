@@ -221,14 +221,15 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
+            let submoduleConfigPaths = configPathsByRepository?[submoduleRepository.workTreeRoot]
+                ?? GitConfigBranchTraversal(
+                    repository: submoduleRepository,
+                    branchContext: .resolved(nil),
+                    includeConditionalPathsForWatch: true
+                ).watchPaths()
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
                 repository: submoduleRepository,
-                configPathsByRepository: configPathsByRepository
-                    ?? [submoduleRepository.workTreeRoot: GitConfigBranchTraversal(
-                        repository: submoduleRepository,
-                        branchContext: .resolved(nil),
-                        includeConditionalPathsForWatch: true
-                    ).watchPaths()]
+                configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths]
             ))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(

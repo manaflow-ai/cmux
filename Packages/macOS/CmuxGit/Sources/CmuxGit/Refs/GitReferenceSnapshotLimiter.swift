@@ -5,7 +5,6 @@ actor GitReferenceSnapshotLimiter {
     private let limit: Int
     private var activeCount = 0
     private var waiters: [GitReferenceSnapshotLimiterWaiter] = []
-    private var cancelledWaiterIDs: Set<UUID> = []
 
     init(limit: Int = 4) {
         self.limit = max(1, limit)
@@ -20,7 +19,7 @@ actor GitReferenceSnapshotLimiter {
         }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if cancelledWaiterIDs.remove(id) != nil {
+                if Task.isCancelled {
                     continuation.resume(returning: false)
                 } else {
                     waiters.append(GitReferenceSnapshotLimiterWaiter(id: id, continuation: continuation))
@@ -34,10 +33,6 @@ actor GitReferenceSnapshotLimiter {
     func release() {
         while !waiters.isEmpty {
             let waiter = waiters.removeFirst()
-            if cancelledWaiterIDs.remove(waiter.id) != nil {
-                waiter.continuation.resume(returning: false)
-                continue
-            }
             waiter.continuation.resume(returning: true)
             return
         }
@@ -48,8 +43,6 @@ actor GitReferenceSnapshotLimiter {
         if let index = waiters.firstIndex(where: { $0.id == id }) {
             let waiter = waiters.remove(at: index)
             waiter.continuation.resume(returning: false)
-        } else {
-            cancelledWaiterIDs.insert(id)
         }
     }
 }
