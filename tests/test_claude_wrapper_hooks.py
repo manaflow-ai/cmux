@@ -726,7 +726,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "TaskCompleted", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,
