@@ -4688,9 +4688,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
-        if let runtimeLifetimeId {
-            pointerStyleIngress?.retire(runtimeLifetimeId: runtimeLifetimeId)
-        }
+        pointerStyleIngress?.retire(runtimeLifetimeId: runtimeLifetimeId)
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 
