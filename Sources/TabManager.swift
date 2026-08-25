@@ -6259,10 +6259,12 @@ extension TabManager {
                 workspaceGroups.enumerated().map { ($1.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
-            var memberIdsByGroupId: [UUID: [UUID]] = [:]
+            var nextMemberIndexByGroupId: [UUID: Int] = [:]
+            var memberIndexByWorkspaceId: [UUID: Int] = [:]
             for tab in tabs {
                 if let groupId = tab.groupId {
-                    memberIdsByGroupId[groupId, default: []].append(tab.id)
+                    memberIndexByWorkspaceId[tab.id] = nextMemberIndexByGroupId[groupId, default: 0]
+                    nextMemberIndexByGroupId[groupId, default: 0] += 1
                 }
             }
             var placements: [RemoteTmuxSidebarPlacementSnapshot] = []
@@ -6271,7 +6273,6 @@ extension TabManager {
                 var group: RemoteTmuxSidebarGroupPlacementSnapshot?
                 if let gid = tab.groupId,
                    let g = groupById[gid] {
-                    let members = memberIdsByGroupId[gid] ?? []
                     group = RemoteTmuxSidebarGroupPlacementSnapshot(
                         id: g.id,
                         name: g.name,
@@ -6279,7 +6280,7 @@ extension TabManager {
                         isPinned: g.isPinned,
                         customColor: g.customColor,
                         iconSymbol: g.iconSymbol,
-                        memberIndex: members.firstIndex(of: tab.id) ?? 0,
+                        memberIndex: memberIndexByWorkspaceId[tab.id] ?? 0,
                         groupOrderIndex: groupOrderIndexById[gid]
                     )
                 }

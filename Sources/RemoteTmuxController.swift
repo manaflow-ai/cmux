@@ -656,13 +656,22 @@ final class RemoteTmuxController {
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
         let ids = Set(workspaceIds)
         var affectedHosts: [String: RemoteTmuxHost] = [:]
+        var capturesByManager: [ObjectIdentifier: (TabManager, [(String, Workspace)])] = [:]
+        for (key, mirror) in sessionMirrors {
+            guard let workspace = mirror.mirroredWorkspace,
+                  ids.contains(workspace.id),
+                  let manager = workspace.owningTabManager else { continue }
+            let managerId = ObjectIdentifier(manager)
+            var capture = capturesByManager[managerId] ?? (manager, [])
+            capture.1.append((key, workspace))
+            capturesByManager[managerId] = capture
+        }
+        for (manager, captures) in capturesByManager.values {
+            captureSidebarPlacements(captures, manager: manager)
+        }
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
-            if let workspace = mirror.mirroredWorkspace,
-               let manager = workspace.owningTabManager {
-                captureSidebarPlacement(connectionKey: key, workspace: workspace, manager: manager)
-            }
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
             removeCachedConnection(forKey: key)?.stop()
@@ -851,27 +860,55 @@ extension RemoteTmuxController {
     /// Records a mirror's current sidebar group + order before it leaves the
     /// sidebar (disconnect/detach), keyed by the stable `connectionKey`.
     func captureSidebarPlacement(connectionKey: String, workspace: Workspace, manager: TabManager) {
-        guard let sidebarIndex = manager.tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
-        var group: RemoteTmuxSidebarGroupPlacementSnapshot?
-        if let gid = workspace.groupId,
-           let g = manager.workspaceGroups.first(where: { $0.id == gid }) {
-            let members = manager.tabs.filter { $0.groupId == gid }.map(\.id)
-            group = RemoteTmuxSidebarGroupPlacementSnapshot(
-                id: g.id,
-                name: g.name,
-                isCollapsed: g.isCollapsed,
-                isPinned: g.isPinned,
-                customColor: g.customColor,
-                iconSymbol: g.iconSymbol,
-                memberIndex: members.firstIndex(of: workspace.id) ?? 0,
-                groupOrderIndex: manager.workspaceGroups.firstIndex(where: { $0.id == gid })
+        captureSidebarPlacements([(connectionKey, workspace)], manager: manager)
+    }
+
+    private func captureSidebarPlacements(
+        _ captures: [(connectionKey: String, workspace: Workspace)],
+        manager: TabManager
+    ) {
+        let sidebarIndexByWorkspaceId = Dictionary(
+            manager.tabs.enumerated().map { ($1.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let groupById = Dictionary(
+            manager.workspaceGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let groupOrderIndexById = Dictionary(
+            manager.workspaceGroups.enumerated().map { ($1.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var nextMemberIndexByGroupId: [UUID: Int] = [:]
+        var memberIndexByWorkspaceId: [UUID: Int] = [:]
+        for workspace in manager.tabs {
+            guard let groupId = workspace.groupId else { continue }
+            memberIndexByWorkspaceId[workspace.id] = nextMemberIndexByGroupId[groupId, default: 0]
+            nextMemberIndexByGroupId[groupId, default: 0] += 1
+        }
+
+        for (connectionKey, workspace) in captures {
+            guard let sidebarIndex = sidebarIndexByWorkspaceId[workspace.id] else { continue }
+            var group: RemoteTmuxSidebarGroupPlacementSnapshot?
+            if let groupId = workspace.groupId,
+               let liveGroup = groupById[groupId] {
+                group = RemoteTmuxSidebarGroupPlacementSnapshot(
+                    id: liveGroup.id,
+                    name: liveGroup.name,
+                    isCollapsed: liveGroup.isCollapsed,
+                    isPinned: liveGroup.isPinned,
+                    customColor: liveGroup.customColor,
+                    iconSymbol: liveGroup.iconSymbol,
+                    memberIndex: memberIndexByWorkspaceId[workspace.id] ?? 0,
+                    groupOrderIndex: groupOrderIndexById[groupId]
+                )
+            }
+            sidebarPlacementByConnectionKey[connectionKey] = RemoteTmuxSidebarPlacementSnapshot(
+                connectionKey: connectionKey,
+                sidebarIndex: sidebarIndex,
+                group: group
             )
         }
-        sidebarPlacementByConnectionKey[connectionKey] = RemoteTmuxSidebarPlacementSnapshot(
-            connectionKey: connectionKey,
-            sidebarIndex: sidebarIndex,
-            group: group
-        )
     }
 
     /// Returns a reconnected mirror to its remembered group + sidebar order.
