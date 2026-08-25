@@ -473,6 +473,7 @@ extension RightSidebarPanelView {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            featureFlags: .shared,
             titlebarHeight: titlebarHeight,
             windowAppearance: windowAppearance,
             workspaceId: workspaceId,

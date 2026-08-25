@@ -88,7 +88,12 @@ extension LocalArtifactRepository: NoteStoring {
         } else {
             finalData = incoming
         }
-        try CmuxNoteAtomicWriter().write(finalData, to: plan.destination)
+        let notePathResolver = ArtifactPathResolver(fileManager: fileManager)
+        try CmuxNoteAtomicWriter(fileManager: fileManager).write(
+            finalData,
+            to: plan.destination,
+            expectedParentPath: notePathResolver.canonicalPath(parent)
+        )
 
         guard let relativePath = ArtifactPathResolver(fileManager: fileManager).relativePath(
             plan.destination,

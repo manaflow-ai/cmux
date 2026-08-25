@@ -8,6 +8,8 @@ extension LocalArtifactRepository {
         capturedAt: Date,
         existingByDigest: inout [String: URL],
         captureDirectory: inout URL?,
+        mutationLease: ArtifactStoreMutationLease,
+        expectedSourceParentPath: String,
         plannedDestination: URL?,
         plannedResolution: ArtifactCaptureDirectoryResolution?
     ) throws -> ArtifactImportOutcome {
@@ -81,11 +83,21 @@ extension LocalArtifactRepository {
             captureDirectory = resolution.directory
         }
 
-        try fileManager.moveItem(at: prepared.snapshot.url, to: destination)
+        guard let destinationRelativePath = pathResolver.relativePath(
+            destination,
+            root: paths.filesystemRoot
+        ) else {
+            throw ArtifactStoreError.pathOutsideStore(destination.path)
+        }
+        try mutationLease.moveFile(
+            from: prepared.snapshot.url,
+            toRelativePath: destinationRelativePath,
+            expectedSourceParentPath: expectedSourceParentPath
+        )
         var keepsDestination = false
         defer {
             if !keepsDestination {
-                try? fileManager.removeItem(at: destination)
+                try? mutationLease.unlink(relativePath: destinationRelativePath)
             }
         }
         guard let relativePath = pathResolver.relativePath(destination, root: paths.filesystemRoot) else {

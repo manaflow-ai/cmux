@@ -31,6 +31,10 @@ extension LocalArtifactRepository {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.importStagingRoot.path)) }
         }
         defer { stagingLease.finish() }
+        let expectedStagingDirectoryPath = stagingLease.directory
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
         let stagedURLs = candidates.map { _ in stagingLease.makeStagedURL() }
         let candidateValidator = ArtifactGitIgnoreManager(fileManager: fileManager)
             .writeValidator(
@@ -212,6 +216,8 @@ extension LocalArtifactRepository {
                     capturedAt: capturedAt,
                     existingByDigest: &existingByDigest,
                     captureDirectory: &captureDirectory,
+                    mutationLease: mutationLease,
+                    expectedSourceParentPath: expectedStagingDirectoryPath,
                     plannedDestination: writePlan.copyDestination(for: prepared),
                     plannedResolution: writePlan.captureResolution
                 ))

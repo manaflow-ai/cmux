@@ -3,23 +3,44 @@ import Foundation
 
 /// Atomically replaces a regular note without following the destination entry.
 struct CmuxNoteAtomicWriter {
-    func write(_ data: Data, to destination: URL) throws {
-        let temporary = destination.deletingLastPathComponent().appendingPathComponent(
-            ".cmux-note-\(UUID().uuidString).tmp",
-            isDirectory: false
+    let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    func write(
+        _ data: Data,
+        to destination: URL,
+        expectedParentPath: String? = nil
+    ) throws {
+        let parent = destination.deletingLastPathComponent()
+        let parentDescriptor = try openParentDirectory(
+            parent,
+            expectedCanonicalPath: expectedParentPath
         )
-        let descriptor = Darwin.open(
-            temporary.path,
-            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-            S_IRUSR | S_IWUSR
-        )
+        defer { _ = Darwin.close(parentDescriptor) }
+        let temporaryName = ".cmux-note-\(UUID().uuidString).tmp"
+        let destinationName = destination.lastPathComponent
+        let descriptor = temporaryName.withCString { name in
+            Darwin.openat(
+                parentDescriptor,
+                name,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
         guard descriptor >= 0 else {
-            throw CmuxNoteStoreError.pathOutsideStore(temporary.path)
+            throw CmuxNoteStoreError.pathOutsideStore(destination.path)
         }
         var keepsTemporary = true
         defer {
             _ = Darwin.close(descriptor)
-            if keepsTemporary { _ = Darwin.unlink(temporary.path) }
+            if keepsTemporary {
+                _ = temporaryName.withCString { name in
+                    Darwin.unlinkat(parentDescriptor, name, 0)
+                }
+            }
         }
         try data.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return }
@@ -38,9 +59,58 @@ struct CmuxNoteAtomicWriter {
             }
         }
         guard Darwin.fsync(descriptor) == 0,
-              Darwin.rename(temporary.path, destination.path) == 0 else {
+              temporaryName.withCString({ sourceName in
+                  destinationName.withCString { targetName in
+                      Darwin.renameat(
+                          parentDescriptor,
+                          sourceName,
+                          parentDescriptor,
+                          targetName
+                      )
+                  }
+              }) == 0 else {
             throw CmuxNoteStoreError.pathOutsideStore(destination.path)
         }
+        _ = Darwin.fsync(parentDescriptor)
         keepsTemporary = false
+    }
+
+    private func openParentDirectory(
+        _ parent: URL,
+        expectedCanonicalPath: String?
+    ) throws -> Int32 {
+        let descriptor = Darwin.open(
+            parent.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            throw CmuxNoteStoreError.pathOutsideStore(parent.path)
+        }
+        var status = stat()
+        guard Darwin.fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFDIR else {
+            _ = Darwin.close(descriptor)
+            throw CmuxNoteStoreError.pathOutsideStore(parent.path)
+        }
+        if let expectedCanonicalPath {
+            let resolver = ArtifactPathResolver(fileManager: fileManager)
+            let openedCanonicalPath = openedPath(for: descriptor).map {
+                resolver.canonicalPath(URL(fileURLWithPath: $0))
+            }
+            guard openedCanonicalPath == expectedCanonicalPath else {
+                _ = Darwin.close(descriptor)
+                throw CmuxNoteStoreError.pathOutsideStore(parent.path)
+            }
+        }
+        return descriptor
+    }
+
+    private func openedPath(for descriptor: Int32) -> String? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        }
+        guard result == 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
     }
 }

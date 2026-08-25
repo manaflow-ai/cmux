@@ -5417,7 +5417,7 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
-        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+        if !allowsNavigationURL(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)
             return nil
@@ -5467,7 +5467,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         cancelHiddenWebViewDiscard()
-        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+        guard allowsNavigationURL(url) else {
             onNavigationStarted?(nil)
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
@@ -5494,6 +5494,17 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
+    }
+
+    /// App-owned artifact documents use the trusted-internal scheme policy;
+    /// page-initiated navigations still pass through the delegate's ordinary
+    /// allowlist and artifact-document policy.
+    private func allowsNavigationURL(_ url: URL) -> Bool {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        guard contentMode.artifactDocumentURL != nil else {
+            return policy.allows(url)
+        }
+        return policy.allowsTrustedInternalURL(url)
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
