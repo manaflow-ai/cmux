@@ -32638,10 +32638,22 @@ export default CMUXSessionRestore;
                 }
             }
             let codexFailure: CodexHookFailureSummary?
+            let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
                 codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+                if subagentNotificationSuppressionEnabled(env: env),
+                   let transcriptPath = normalizedHookValue(input.transcriptPath)
+                    ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    codexSubagentSignals = readCodexTranscriptSubagentSignals(
+                        path: transcriptPath,
+                        turnId: input.turnId
+                    )
+                } else {
+                    codexSubagentSignals = CodexTranscriptSubagentSignals()
+                }
             } else {
                 codexFailure = nil
+                codexSubagentSignals = CodexTranscriptSubagentSignals()
             }
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
