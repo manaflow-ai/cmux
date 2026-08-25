@@ -59,6 +59,34 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	}
 }
 
+type invalidCountWriter struct {
+	count int
+}
+
+func (w invalidCountWriter) Write([]byte) (int, error) {
+	return w.count, nil
+}
+
+func TestWriteAllRejectsInvalidWriterCounts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+	}{
+		{name: "negative", count: -1},
+		{name: "oversized", count: len([]byte("payload")) + 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := writeAll(invalidCountWriter{count: test.count}, []byte("payload"))
+			if err == nil {
+				t.Fatal("writeAll returned nil for invalid writer count")
+			}
+			if err.Error() != "writer returned an invalid count" {
+				t.Fatalf("writeAll error = %q, want invalid count error", err)
+			}
+		})
+	}
+}
+
 func TestResizeResponseRequiresNullableReservationID(t *testing.T) {
 	var result ResizeSurfaceResult
 	if err := json.Unmarshal([]byte(`{"accepted":true}`), &result); err == nil {
