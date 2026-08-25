@@ -4,6 +4,78 @@ import Testing
 @Suite("Terminal configuration apply scheduler")
 struct TerminalConfigurationApplySchedulerTests {
     @Test @MainActor
+    func boundsImmediatePriorityBeforeYielding() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 2,
+            schedule: manualScheduler.schedule
+        )
+        let snapshot = Snapshot(id: 8)
+        var applied: [Int] = []
+        var didFinish = false
+
+        scheduler.replacePendingWork(
+            snapshot: snapshot,
+            prioritizedIDs: [1, 2, 3, 4],
+            nextID: { .exhausted },
+            apply: { id, _ in
+                applied.append(id)
+                return .complete
+            },
+            completion: {
+                didFinish = true
+            }
+        )
+
+        #expect(applied == [1, 2])
+        #expect(manualScheduler.pendingCount == 1)
+        #expect(!didFinish)
+
+        while manualScheduler.pendingCount > 0 {
+            manualScheduler.fireNext()
+        }
+
+        #expect(applied == [1, 2, 3, 4])
+        #expect(didFinish)
+    }
+
+    @Test @MainActor
+    func skippedTraversalEntriesConsumeTheDeferredTurnBudget() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 2,
+            schedule: manualScheduler.schedule
+        )
+        let snapshot = Snapshot(id: 10)
+        var source = [
+            TerminalConfigurationApplyScheduler<Int, Snapshot>.NextIDResult.skipped,
+            .skipped,
+            .id(9),
+            .exhausted,
+        ].makeIterator()
+        var applied: [Int] = []
+
+        scheduler.replacePendingWork(
+            snapshot: snapshot,
+            prioritizedIDs: [],
+            nextID: { source.next() ?? .exhausted },
+            apply: { id, _ in
+                applied.append(id)
+                return .complete
+            }
+        )
+
+        #expect(manualScheduler.pendingCount == 1)
+        manualScheduler.fireNext()
+        #expect(applied.isEmpty)
+        #expect(manualScheduler.pendingCount == 1)
+
+        manualScheduler.fireNext()
+        #expect(applied == [9])
+        #expect(manualScheduler.pendingCount == 0)
+    }
+
+    @Test @MainActor
     func appliesEveryVisibleSurfaceImmediatelyAndBoundsDeferredDrainTurns() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
@@ -18,7 +90,10 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: snapshot,
             prioritizedIDs: [3, 1],
-            nextID: { source.next() },
+            nextID: {
+                guard let id = source.next() else { return .exhausted }
+                return .id(id)
+            },
             apply: { id, receivedSnapshot in
                 #expect(receivedSnapshot === snapshot)
                 applied.append(id)
@@ -60,7 +135,10 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: firstSnapshot,
             prioritizedIDs: [],
-            nextID: { firstSource.next() },
+            nextID: {
+                guard let id = firstSource.next() else { return .exhausted }
+                return .id(id)
+            },
             apply: { id, snapshot in
                 applied.append((id, snapshot.id))
                 return .complete
@@ -72,7 +150,10 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: secondSnapshot,
             prioritizedIDs: [20],
-            nextID: { secondSource.next() },
+            nextID: {
+                guard let id = secondSource.next() else { return .exhausted }
+                return .id(id)
+            },
             apply: { id, snapshot in
                 applied.append((id, snapshot.id))
                 return .complete
@@ -105,7 +186,7 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: firstSnapshot,
             prioritizedIDs: [11],
-            nextID: { nil },
+            nextID: { .exhausted },
             apply: { id, snapshot in
                 events.append("apply:\(id):\(snapshot.id)")
                 return .retry
@@ -118,7 +199,7 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: secondSnapshot,
             prioritizedIDs: [22],
-            nextID: { nil },
+            nextID: { .exhausted },
             apply: { id, snapshot in
                 events.append("apply:\(id):\(snapshot.id)")
                 return .complete
@@ -153,7 +234,10 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: snapshot,
             prioritizedIDs: [1],
-            nextID: { source.next() },
+            nextID: {
+                guard let id = source.next() else { return .exhausted }
+                return .id(id)
+            },
             apply: { _, receivedSnapshot in
                 receivedSnapshots.append(receivedSnapshot)
                 return .complete
@@ -186,7 +270,10 @@ struct TerminalConfigurationApplySchedulerTests {
         scheduler.replacePendingWork(
             snapshot: snapshot,
             prioritizedIDs: [],
-            nextID: { source.next() },
+            nextID: {
+                guard let id = source.next() else { return .exhausted }
+                return .id(id)
+            },
             apply: { _, _ in
                 attemptCount += 1
                 return .retry

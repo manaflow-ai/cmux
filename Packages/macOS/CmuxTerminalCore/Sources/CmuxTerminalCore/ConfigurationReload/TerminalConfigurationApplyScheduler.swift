@@ -11,8 +11,20 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     public typealias Scheduler =
         @MainActor @Sendable (@escaping ScheduledAction) -> Void
 
-    /// Pulls the next surface identity from a fixed traversal snapshot.
-    public typealias NextID = @MainActor () -> ID?
+    /// Describes one bounded pull from a fixed traversal snapshot.
+    public enum NextIDResult {
+        /// A live identity is ready to apply.
+        case id(ID)
+
+        /// One released or otherwise skipped registration was consumed.
+        case skipped
+
+        /// The fixed traversal has reached its endpoint.
+        case exhausted
+    }
+
+    /// Pulls one bounded visit from a fixed traversal snapshot.
+    public typealias NextID = @MainActor () -> NextIDResult
 
     /// Applies the shared snapshot to one currently live surface identity.
     public typealias Apply =
@@ -45,14 +57,14 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     /// Creates a scheduler with explicit per-turn work limits.
     ///
-    /// Every focused or visible identity supplied to ``replacePendingWork(
-    /// snapshot:prioritizedIDs:nextID:apply:abandon:completion:)`` is applied in
-    /// the accepting turn. All other identities are visited through later
-    /// main-actor turns.
+    /// Up to `maximumVisitsPerDrain` focused or visible identities supplied to
+    /// ``replacePendingWork(snapshot:prioritizedIDs:nextID:apply:abandon:completion:)``
+    /// are applied in the accepting turn. Remaining identities, including
+    /// skipped traversal entries, are visited through later main-actor turns.
     ///
     /// - Parameters:
-    ///   - maximumVisitsPerDrain: Maximum identities visited in one scheduled
-    ///     turn, including duplicates that are skipped.
+    ///   - maximumVisitsPerDrain: Maximum traversal visits in one scheduled
+    ///     turn, including duplicates and skipped entries.
     ///   - maximumAttemptsPerID: Maximum attempts before `abandon` runs.
     ///   - schedule: Scheduling seam. The default yields to a later main-actor
     ///     executor turn through ``MainActorDeferredActionScheduler``.
@@ -87,6 +99,8 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     ///   - snapshot: Immutable configuration-derived state shared by every apply.
     ///   - prioritizedIDs: Focused and visible identities in application order.
     ///   - nextID: Pull-based fixed traversal for all remaining identities.
+    ///     Return ``NextIDResult/skipped`` for a consumed dead entry and
+    ///     ``NextIDResult/exhausted`` only at the traversal endpoint.
     ///   - apply: Applies `snapshot` to a currently live identity.
     ///   - abandon: Rolls back surface-specific state after retry exhaustion or
     ///     replacement by a newer snapshot.
@@ -120,9 +134,12 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     private func drainImmediatePriority() {
         guard let snapshot, let apply else { return }
-        while prioritizedIndex < prioritizedIDs.count {
+        var visits = 0
+        while prioritizedIndex < prioritizedIDs.count,
+              visits < maximumVisitsPerDrain {
             let id = prioritizedIDs[prioritizedIndex]
             prioritizedIndex += 1
+            visits += 1
             guard visitedIDs.insert(id).inserted else { continue }
             attempt(id, snapshot: snapshot, apply: apply)
         }
@@ -154,32 +171,39 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
         var visits = 0
         while visits < maximumVisitsPerDrain {
-            let id: ID
-            let isRetry: Bool
             if prioritizedIndex < prioritizedIDs.count {
-                id = prioritizedIDs[prioritizedIndex]
+                let id = prioritizedIDs[prioritizedIndex]
                 prioritizedIndex += 1
-                isRetry = false
-            } else if !sourceIsExhausted,
-                      let next = nextID?() {
-                id = next
-                isRetry = false
-            } else if !sourceIsExhausted {
-                sourceIsExhausted = true
-                continue
-            } else if retryIndex < retryIDs.count {
-                id = retryIDs[retryIndex]
-                retryIndex += 1
-                isRetry = true
-            } else {
-                finish()
-                return
-            }
-            visits += 1
-            if !isRetry {
+                visits += 1
                 guard visitedIDs.insert(id).inserted else { continue }
+                attempt(id, snapshot: snapshot, apply: apply)
+                continue
             }
-            attempt(id, snapshot: snapshot, apply: apply)
+
+            if !sourceIsExhausted {
+                switch nextID?() ?? .exhausted {
+                case .id(let id):
+                    visits += 1
+                    guard visitedIDs.insert(id).inserted else { continue }
+                    attempt(id, snapshot: snapshot, apply: apply)
+                case .skipped:
+                    visits += 1
+                case .exhausted:
+                    sourceIsExhausted = true
+                }
+                continue
+            }
+
+            if retryIndex < retryIDs.count {
+                let id = retryIDs[retryIndex]
+                retryIndex += 1
+                visits += 1
+                attempt(id, snapshot: snapshot, apply: apply)
+                continue
+            }
+
+            finish()
+            return
         }
         scheduleDrain()
     }
