@@ -275,6 +275,11 @@ final class WorkspaceSwitchCoordinator {
         WorkspaceSwitchSignposts.end(transaction.portalHideInterval)
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
+        // Source retirement is the authoritative end of the mount handoff.
+        // A cold destination may never produce a drawable frame, so do not
+        // keep its observer or local render-demand lease alive for the rest of
+        // the window. The remaining intervals are diagnostic only.
+        finishFrameObservation(&transaction)
         // Once mount reconciliation has made the destination authoritative,
         // normal portal visibility owns renderer reclamation again. Visual
         // diagnostics may continue without extending the switch-path lease.

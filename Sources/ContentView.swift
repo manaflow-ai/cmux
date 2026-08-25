@@ -3610,6 +3610,7 @@ struct ContentView: View {
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
+            tabManager.cancelPendingWorkspaceHandoffRetirement()
             tabManager.workspaceSwitchCoordinator.cancel()
             return nil
         }
@@ -3655,9 +3656,12 @@ struct ContentView: View {
             lastReconciledPortalRenderingStatesByWorkspaceId[workspace.id] = false
         }
 
-        tabManager.completePendingWorkspaceUnfocus(reason: reason)
-        tabManager.workspaceSwitchCoordinator.sourceDidRetire(
-            workspaceID: retiringWorkspaceID
+        // TabManager's focus pass is deferred. Record the retirement now so
+        // it is completed after that pass creates the source panel's unfocus
+        // target, including coalesced selection changes.
+        tabManager.requestWorkspaceHandoffRetirement(
+            workspaceID: retiringWorkspaceID,
+            reason: reason
         )
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {

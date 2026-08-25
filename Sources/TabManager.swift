@@ -388,6 +388,7 @@ class TabManager: ObservableObject {
 #endif
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration
+            workspaceHandoffRetirementGate.reset(forSelectionGeneration: generation)
             if !shouldRecordFocusHistory {
                 focusHistoryNavigation.markSuppressedSelectionSideEffectGeneration(generation)
             }
@@ -409,6 +410,11 @@ class TabManager: ObservableObject {
                     self.focusHistoryNavigation.withFocusHistoryRecordingSuppressed(applySelectionSideEffects)
                 } else {
                     applySelectionSideEffects()
+                }
+                if let retirement = self.workspaceHandoffRetirementGate.markFocusPassCompleted(
+                    generation: generation
+                ) {
+                    self.completeWorkspaceHandoffRetirement(retirement)
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -481,6 +487,7 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
     private var selectionSideEffectsGeneration: UInt64 = 0
+    private var workspaceHandoffRetirementGate = WorkspaceHandoffRetirementGate()
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -3596,14 +3603,19 @@ class TabManager: ObservableObject {
             return
         }
 
-        // Defer unfocusing the previous workspace's panel until ContentView confirms handoff
-        // completion (new workspace has focus or timeout fallback), to avoid a visible freeze gap.
-        if let previousTabId,
-           let previousTab = tabs.first(where: { $0.id == previousTabId }),
+        // ContentView's mounted-workspace reconciliation is authoritative for
+        // the retiring workspace. It can differ from the model's previous
+        // selection when SwiftUI coalesces A -> B -> C, so prefer the pending
+        // handoff request's source over the callback's previous ID.
+        let retiringTabId = workspaceHandoffRetirementGate.pendingRequest?.selectionGeneration == selectionSideEffectsGeneration
+            ? workspaceHandoffRetirementGate.pendingRequest?.workspaceID
+            : previousTabId
+        if let retiringTabId,
+           let previousTab = tabs.first(where: { $0.id == retiringTabId }),
            let previousPanelId = previousTab.focusedPanelId,
            previousTab.panels[previousPanelId] != nil {
             replacePendingWorkspaceUnfocusTarget(
-                with: (tabId: previousTabId, panelId: previousPanelId)
+                with: (tabId: retiringTabId, panelId: previousPanelId)
             )
         }
 
@@ -3644,6 +3656,33 @@ class TabManager: ObservableObject {
             )
         }
 #endif
+    }
+
+    /// Records a mount-authoritative handoff retirement until the matching
+    /// deferred focus pass has established the source panel's unfocus target.
+    func requestWorkspaceHandoffRetirement(workspaceID: UUID, reason: String) {
+        guard selectedTabId != workspaceID else {
+            workspaceHandoffRetirementGate.cancel()
+            return
+        }
+        if let retirement = workspaceHandoffRetirementGate.request(
+            workspaceID: workspaceID,
+            reason: reason,
+            selectionGeneration: selectionSideEffectsGeneration
+        ) {
+            completeWorkspaceHandoffRetirement(retirement)
+        }
+    }
+
+    func cancelPendingWorkspaceHandoffRetirement() {
+        workspaceHandoffRetirementGate.cancel()
+    }
+
+    private func completeWorkspaceHandoffRetirement(
+        _ retirement: WorkspaceHandoffRetirementGate.Request
+    ) {
+        completePendingWorkspaceUnfocus(reason: retirement.reason)
+        workspaceSwitchCoordinator.sourceDidRetire(workspaceID: retirement.workspaceID)
     }
 
     private func replacePendingWorkspaceUnfocusTarget(with next: (tabId: UUID, panelId: UUID)) {
