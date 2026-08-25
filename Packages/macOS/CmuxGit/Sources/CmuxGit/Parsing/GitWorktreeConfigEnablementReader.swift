@@ -14,7 +14,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
 
     func rootConfigURLs(
         repository: ResolvedGitRepository,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        branchContext: GitConfigBranchContext = .fileBacked
     ) -> [URL] {
         let rootURLs = [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
@@ -22,7 +23,12 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         ]
         let effectiveDeadline = deadline
             ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
-        guard isEnabled(repository: repository, rootURLs: rootURLs, deadline: effectiveDeadline) else {
+        guard isEnabled(
+            repository: repository,
+            rootURLs: rootURLs,
+            deadline: effectiveDeadline,
+            branchContext: branchContext
+        ) else {
             return rootURLs
         }
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
@@ -40,7 +46,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
     func isEnabled(
         repository: ResolvedGitRepository,
         rootURLs: [URL],
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        branchContext: GitConfigBranchContext = .fileBacked
     ) -> Bool {
         var seenPaths: Set<String> = []
         var remainingPathCount = Self.maximumPathCount
@@ -60,6 +67,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
                 deadline: effectiveDeadline,
+                branchContext: branchContext,
                 failed: &failed
             )
             if failed { return false }
@@ -70,8 +78,9 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
     func isSHA256ObjectFormat(
         repository: ResolvedGitRepository,
         rootURLs: [URL],
-        deadline: DispatchTime? = nil
-    ) -> Bool {
+        deadline: DispatchTime? = nil,
+        branchContext: GitConfigBranchContext = .fileBacked
+    ) -> Bool? {
         var seenPaths: Set<String> = []
         var remainingPathCount = Self.maximumPathCount
         var remainingByteCount = Self.maximumByteCount
@@ -90,9 +99,10 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                 enabled: &enabled,
                 objectFormatSHA256: &objectFormatSHA256,
                 deadline: effectiveDeadline,
+                branchContext: branchContext,
                 failed: &failed
             )
-            if failed { return false }
+            if failed { return nil }
         }
         return objectFormatSHA256
     }
@@ -106,6 +116,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         enabled: inout Bool,
         objectFormatSHA256: inout Bool,
         deadline: DispatchTime?,
+        branchContext: GitConfigBranchContext,
         failed: inout Bool
     ) {
         let configURL = rawURL.standardizedFileURL
@@ -148,7 +159,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                         includeSection = GitMetadataService.gitConfigIncludeIfConditionMatches(
                             condition,
                             repository: repository,
-                            configURL: configURL
+                            configURL: configURL,
+                            branchContext: branchContext
                         )
                     } else {
                         includeSection = false
@@ -190,6 +202,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                     enabled: &enabled,
                     objectFormatSHA256: &objectFormatSHA256,
                     deadline: deadline,
+                    branchContext: branchContext,
                     failed: &failed
                 )
                 if failed { return }

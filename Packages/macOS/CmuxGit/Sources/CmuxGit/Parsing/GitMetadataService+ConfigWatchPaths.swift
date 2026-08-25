@@ -43,7 +43,13 @@ extension GitMetadataService {
             return ([:], [:], [], visitedRoots, remainingRepositoryCount)
         }
         guard DispatchTime.now() < deadline else {
-            return ([:], [:], [], visitedRoots, remainingRepositoryCount)
+            return (
+                [repository.workTreeRoot: [repository.gitDirectory, repository.commonDirectory]],
+                [:],
+                [],
+                visitedRoots,
+                remainingRepositoryCount
+            )
         }
         var visitedRoots = visitedRoots
         visitedRoots.insert(repository.workTreeRoot)
@@ -59,6 +65,10 @@ extension GitMetadataService {
         guard references.checkedOutBranch != .unreadable else {
             // Keep the root metadata paths so a later HEAD/index/config event
             // can trigger a fresh plan instead of dropping the existing watcher.
+            pathsByRepository[repository.workTreeRoot] = [
+                repository.gitDirectory,
+                repository.commonDirectory,
+            ]
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
@@ -75,7 +85,11 @@ extension GitMetadataService {
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
-        if repositoryUsesSHA256ObjectIDs(repository: repository, deadline: deadline) {
+        if repositoryUsesSHA256ObjectIDs(
+            repository: repository,
+            deadline: deadline,
+            branchContext: branchContext
+        ) != false {
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }

@@ -49,7 +49,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         if !result.isComplete {
             paths = GitWorktreeConfigEnablementReader().rootConfigURLs(
                 repository: repository,
-                deadline: deadline
+                deadline: deadline,
+                branchContext: branchContext
             ).map(\.path)
                 + [repository.gitDirectory, repository.commonDirectory]
                 + paths
@@ -88,7 +89,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         ))
         for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
             repository: repository,
-            deadline: deadline
+            deadline: deadline,
+            branchContext: branchContext
         ) {
             processConfig(at: configURL, state: &state)
         }
@@ -269,7 +271,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         )
         for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
             repository: repository,
-            deadline: deadline
+            deadline: deadline,
+            branchContext: branchContext
         ) {
             appendRemoteVLines(
                 fromConfigURL: configURL,

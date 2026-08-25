@@ -336,7 +336,8 @@ extension GitMetadataService {
     nonisolated static func gitConfigIncludeIfConditionMatches(
         _ condition: String,
         repository: ResolvedGitRepository,
-        configURL: URL
+        configURL: URL,
+        branchContext: GitConfigBranchContext = .fileBacked
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
         if lowercasedCondition.hasPrefix("gitdir/i:") {
@@ -358,7 +359,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = gitBranchName(repository: repository) else { return false }
+            guard let branch = branchContext.branchName(for: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false

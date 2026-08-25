@@ -54,7 +54,7 @@ extension GitMetadataService {
     ) -> GitTrackedChangesResolution {
         let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexURL = URL(fileURLWithPath: indexPath)
-        if repositoryUsesSHA256ObjectIDs(repository: repository) {
+        if repositoryUsesSHA256ObjectIDs(repository: repository) != false {
             return gitStatusFallbackSnapshot(
                 repository: repository,
                 indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),

@@ -315,17 +315,20 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     : path)
             } else if name == "reftable" {
                 let marker = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-                switch configReader.read(at: marker, maximumByteCount: 1 * 1_024) {
+                switch configReader.read(
+                    at: marker,
+                    maximumByteCount: 1 * 1_024,
+                    deadline: deadline
+                ) {
                 case .contents, .oversized:
                     paths.append(marker.path)
                 case .missing, .unavailable:
                     break
                 }
-            } else if name == "refs", storageProbe.isDirectory(atPath: path) {
-                paths.append(path)
-            } else if name == "packed-refs",
-                      configReader.read(at: URL(fileURLWithPath: path), maximumByteCount: 1).isAvailable {
-                paths.append(path)
+            } else if name == "refs" || name == "packed-refs" {
+                // External custom stores are deliberately not probed here;
+                // a network/FUSE stat could outlive the shared snapshot deadline.
+                continue
             }
         }
         return paths
