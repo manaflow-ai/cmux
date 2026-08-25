@@ -48,14 +48,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     let socket = match super::wire::resolve_socket(&global) {
         Ok(socket) => socket,
-        Err(error) => {
+        Err(_error) => {
             if let Some(session) = global.session.as_deref()
                 && cmux_tui_core::server::validate_session_name(session).is_err()
             {
                 return local_error_with_details(
                     "usage.invalid",
                     crate::localization::catalog().local_server.invalid_session,
-                    json!({"reason": error.to_string()}),
+                    json!({"reason": "invalid_session"}),
                     global.output,
                     2,
                 );
@@ -63,7 +63,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return local_error_with_details(
                 "server.unavailable",
                 crate::localization::catalog().local_server.connect_failed,
-                json!({"reason": error.to_string()}),
+                json!({"reason": "socket_path_unavailable"}),
                 global.output,
                 3,
             );
