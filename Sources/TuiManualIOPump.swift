@@ -518,7 +518,12 @@ final class TuiManualIOPump {
         process = nil
         let exit = forcedExit
             ?? TuiManualIOPumpPolicy.relayExit(status: status ?? -1, stderrText: stderrBox.text())
+#if DEBUG
+        let stderrTail = (stderrBox.text() ?? "").suffix(300).replacingOccurrences(of: "\n", with: " | ")
+        log("relay exit \(exit) terminal=\(terminalID.prefix(12)) status=\(status.map(String.init) ?? "nil") stderr=\(stderrTail)")
+#else
         log("relay exit \(exit)")
+#endif
         switch TuiManualIOPumpPolicy.nextAction(after: exit) {
         case .end:
             state = .ended
