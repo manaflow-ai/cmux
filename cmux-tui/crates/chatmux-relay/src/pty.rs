@@ -567,6 +567,22 @@ struct SizingViewer {
     grid: SizingGrid,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ClaimFence {
+    /// The target-state generation that reserved this fence. A late worker
+    /// from an older generation must not clear a newer fence with the same
+    /// viewer and grid.
+    generation: u64,
+    viewer_id: u64,
+    grid: SizingGrid,
+    /// Monotonic queue reservation token. A stale worker must not clear a
+    /// newer fence even when the viewer id and grid are unchanged.
+    token: u64,
+    /// Endpoint identity prevents a late worker from touching a replacement
+    /// attachment that reused the same viewer id.
+    endpoint_ptr: usize,
+}
+
 struct OrderedControlQueue {
     surface_id: i64,
     state: Mutex<OrderedControlQueueState>,
@@ -574,11 +590,14 @@ struct OrderedControlQueue {
 
 struct OrderedControlQueueState {
     pending_resize: Option<(Arc<OrderedControlEndpoint>, SizingGrid, bool)>,
-    last_resize: Option<(u64, SizingGrid, bool)>,
+    /// The last flushed resize is keyed by endpoint identity as well as
+    /// viewer id. A reconnect that reuses an id must receive its own fence.
+    last_resize: Option<(u64, usize, SizingGrid, bool)>,
     /// A report/claim pair already reserved on the wire for a candidate.
     /// `apply_target` consumes this marker instead of queueing a duplicate
     /// pair. A failed verified claim clears the marker before a real retry.
-    claim_fence: Option<(u64, SizingGrid)>,
+    claim_fence: Option<ClaimFence>,
+    next_claim_token: u64,
     worker_running: bool,
     closed: bool,
 }
@@ -591,6 +610,7 @@ impl OrderedControlQueue {
                 pending_resize: None,
                 last_resize: None,
                 claim_fence: None,
+                next_claim_token: 0,
                 worker_running: false,
                 closed: false,
             }),
@@ -607,6 +627,7 @@ impl OrderedControlQueue {
             viewer_id,
             control,
             active: AtomicBool::new(true),
+            request_gate: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -635,7 +656,7 @@ impl OrderedControlQueue {
         // an already-enqueued grid.
         if !claim
             && state.pending_resize.is_none()
-            && state.last_resize == Some((endpoint.viewer_id, grid, false))
+            && state.last_resize == Some((endpoint.viewer_id, endpoint_ptr(endpoint), grid, false))
         {
             return false;
         }
@@ -661,15 +682,19 @@ impl OrderedControlQueue {
         state: &mut OrderedControlQueueState,
         endpoint: &Arc<OrderedControlEndpoint>,
         grid: SizingGrid,
+        generation: u64,
     ) -> bool {
         if state.closed || !endpoint.is_active() {
             return false;
         }
-        if let Some((fenced_viewer_id, fenced_grid)) = state.claim_fence {
-            if fenced_viewer_id != endpoint.viewer_id {
+        if let Some(fence) = state.claim_fence {
+            if fence.viewer_id != endpoint.viewer_id {
                 return false;
             }
-            if fenced_grid != grid {
+            if fence.generation != generation
+                || fence.grid != grid
+                || fence.endpoint_ptr != endpoint_ptr(endpoint)
+            {
                 // The same viewer advanced the state generation. Replace its
                 // old unverified fence with the newer canonical grid rather
                 // than leaving the worker stuck behind stale geometry.
@@ -683,13 +708,39 @@ impl OrderedControlQueue {
                 }
             }
         }
-        if state.claim_fence == Some((endpoint.viewer_id, grid))
-            && state.pending_resize.is_none()
-            && state.last_resize == Some((endpoint.viewer_id, grid, true))
+        if state.claim_fence.is_some_and(|fence| {
+            fence.generation == generation
+                && fence.viewer_id == endpoint.viewer_id
+                && fence.grid == grid
+                && fence.endpoint_ptr == endpoint_ptr(endpoint)
+        }) && state.pending_resize.is_none()
+            && state.last_resize == Some((endpoint.viewer_id, endpoint_ptr(endpoint), grid, true))
         {
             return false;
         }
-        state.claim_fence = Some((endpoint.viewer_id, grid));
+        let token = state
+            .claim_fence
+            .filter(|fence| {
+                fence.generation == generation
+                    && fence.viewer_id == endpoint.viewer_id
+                    && fence.grid == grid
+                    && fence.endpoint_ptr == endpoint_ptr(endpoint)
+            })
+            .map_or_else(
+                || {
+                    let token = state.next_claim_token;
+                    state.next_claim_token = state.next_claim_token.wrapping_add(1);
+                    token
+                },
+                |fence| fence.token,
+            );
+        state.claim_fence = Some(ClaimFence {
+            generation,
+            viewer_id: endpoint.viewer_id,
+            grid,
+            token,
+            endpoint_ptr: endpoint_ptr(endpoint),
+        });
         self.enqueue_resize_locked(state, endpoint, grid, true)
     }
 
@@ -704,47 +755,25 @@ impl OrderedControlQueue {
     fn clear_stale_claim_fence_locked(
         &self,
         state: &mut OrderedControlQueueState,
-        candidate: Option<(u64, SizingGrid)>,
+        candidate: Option<(u64, u64, SizingGrid, usize)>,
     ) {
         let Some(fence) = state.claim_fence else { return };
-        if candidate == Some(fence) {
+        if candidate.is_some_and(|(generation, viewer_id, grid, endpoint_ptr)| {
+            generation == fence.generation
+                && viewer_id == fence.viewer_id
+                && grid == fence.grid
+                && endpoint_ptr == fence.endpoint_ptr
+        }) {
             return;
         }
         state.claim_fence = None;
-        if state
-            .pending_resize
-            .as_ref()
-            .is_some_and(|(endpoint, _, claim)| *claim && endpoint.viewer_id == fence.0)
-        {
+        if state.pending_resize.as_ref().is_some_and(|(endpoint, _, claim)| {
+            *claim
+                && endpoint.viewer_id == fence.viewer_id
+                && endpoint_ptr(endpoint) == fence.endpoint_ptr
+        }) {
             state.pending_resize = None;
         }
-    }
-
-    fn consume_claim_fence_locked(
-        &self,
-        state: &mut OrderedControlQueueState,
-        endpoint: &Arc<OrderedControlEndpoint>,
-        grid: SizingGrid,
-    ) -> bool {
-        if state.closed || !endpoint.is_active() {
-            return false;
-        }
-        if state.claim_fence == Some((endpoint.viewer_id, grid)) {
-            state.claim_fence = None;
-            true
-        } else {
-            false
-        }
-    }
-
-    #[cfg(test)]
-    fn consume_claim_fence(
-        &self,
-        endpoint: &Arc<OrderedControlEndpoint>,
-        grid: SizingGrid,
-    ) -> bool {
-        let mut state = self.state.lock().expect("ordered control queue lock");
-        self.consume_claim_fence_locked(&mut state, endpoint, grid)
     }
 
     fn start_drain(self: &Arc<Self>, should_start: bool) {
@@ -795,7 +824,9 @@ impl OrderedControlQueue {
         {
             state.pending_resize = None;
         }
-        if state.claim_fence.is_some_and(|(candidate, _)| candidate == endpoint.viewer_id) {
+        if state.claim_fence.is_some_and(|fence| {
+            fence.viewer_id == endpoint.viewer_id && fence.endpoint_ptr == endpoint_ptr(endpoint)
+        }) {
             state.claim_fence = None;
         }
     }
@@ -839,7 +870,7 @@ impl OrderedControlQueue {
         if !endpoint.is_active() {
             return;
         }
-        state.last_resize = Some((endpoint.viewer_id, grid, claim));
+        state.last_resize = Some((endpoint.viewer_id, endpoint_ptr(&endpoint), grid, claim));
         endpoint.control.send(
             "resize-surface",
             json!({ "surface": self.surface_id, "cols": grid.cols, "rows": grid.rows }),
@@ -858,6 +889,14 @@ struct OrderedControlEndpoint {
     viewer_id: u64,
     control: Arc<dyn ControlHandle>,
     active: AtomicBool,
+    /// Serializes candidate request initiation with the endpoint's own
+    /// report/claim round. Leave closes the control while this gate is held;
+    /// the request then resolves as a transport failure before replacement.
+    request_gate: tokio::sync::Mutex<()>,
+}
+
+fn endpoint_ptr(endpoint: &Arc<OrderedControlEndpoint>) -> usize {
+    Arc::as_ptr(endpoint) as usize
 }
 
 impl OrderedControlEndpoint {
@@ -895,6 +934,11 @@ struct SizingRetryState {
     generation: u64,
     used: bool,
     scheduled: bool,
+}
+
+enum CandidateRequestOutcome {
+    Stale,
+    Reply(Option<Value>),
 }
 
 struct SizingTarget {
@@ -944,11 +988,12 @@ impl TerminalSizing {
 
     /// Advance the viewer state generation after an external join/update/
     /// leave. This grants the next failed sizing round one bounded retry.
-    fn advance_generation(&self, target: &Arc<SizingTarget>) {
+    fn advance_generation(&self, target: &Arc<SizingTarget>) -> u64 {
         let mut retry = target.retry.lock().expect("terminal sizing retry lock");
         retry.generation = retry.generation.saturating_add(1);
         retry.used = false;
         retry.scheduled = false;
+        retry.generation
     }
 
     /// Schedule at most one delayed retry for the current state generation.
@@ -1000,6 +1045,8 @@ impl TerminalSizing {
         viewer_id: u64,
         endpoint: &Arc<OrderedControlEndpoint>,
         grid: SizingGrid,
+        generation: u64,
+        token: u64,
     ) {
         // Abandon the failed verification and reserve the next candidate in
         // one queue -> state critical section. Input cannot slip between
@@ -1007,15 +1054,88 @@ impl TerminalSizing {
         let (should_start, has_candidate) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
-            if queue_state.claim_fence == Some((viewer_id, grid)) {
-                queue_state.claim_fence = None;
+            let generation_current = Self::current_generation(target) == generation;
+            let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+            });
+            if !generation_current {
+                (false, false)
+            } else {
+                if endpoint_current
+                    && queue_state.claim_fence
+                        == Some(ClaimFence {
+                            generation,
+                            viewer_id,
+                            grid,
+                            token,
+                            endpoint_ptr: endpoint_ptr(endpoint),
+                        })
+                {
+                    queue_state.claim_fence = None;
+                }
+                self.enqueue_candidate_locked(target, &mut queue_state, &state, generation)
             }
-            self.enqueue_candidate_locked(target, &mut queue_state, &state)
         };
         target.queue.start_drain(should_start);
         if has_candidate {
             self.schedule_bounded_retry(Arc::clone(target));
         }
+    }
+
+    fn current_generation(target: &Arc<SizingTarget>) -> u64 {
+        target.retry.lock().expect("terminal sizing retry lock").generation
+    }
+
+    /// Check the endpoint and viewer generation immediately before a
+    /// candidate request is started. The endpoint is closed by leave and by
+    /// timeout handling, so a stale worker cannot start a new request after a
+    /// replacement has been reserved.
+    fn candidate_is_current(
+        &self,
+        target: &Arc<SizingTarget>,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        generation: u64,
+    ) -> bool {
+        // Do not hold the retry lock while taking target state. Generation
+        // transitions may run inside the queue/state critical section; the
+        // final endpoint and fence identity checks below handle a concurrent
+        // transition without creating a lock inversion.
+        if Self::current_generation(target) != generation {
+            return false;
+        }
+        let state = target.state.lock().expect("terminal sizing state lock");
+        Self::current_generation(target) == generation
+            && !state.retired
+            && state.owner.is_none()
+            && candidate_viewer_id(&state) == Some(viewer_id)
+            && smallest_sizing_grid(&state.viewers) == Some(grid)
+            && state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+            })
+    }
+
+    async fn candidate_request(
+        &self,
+        target: &Arc<SizingTarget>,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        generation: u64,
+        control: &Arc<dyn ControlHandle>,
+        command: &str,
+        params: Value,
+    ) -> CandidateRequestOutcome {
+        // The gate covers the request's first poll and its response wait. A
+        // concurrent leave marks the endpoint inactive and calls `end()`;
+        // UnixControl then resolves this future without writing a queued late
+        // command. Replacement work starts only after this guard is dropped.
+        let _gate = endpoint.request_gate.lock().await;
+        if !self.candidate_is_current(target, viewer_id, endpoint, grid, generation) {
+            return CandidateRequestOutcome::Stale;
+        }
+        CandidateRequestOutcome::Reply(control.request(command, params).await)
     }
 
     fn join(
@@ -1026,7 +1146,7 @@ impl TerminalSizing {
         control: Arc<dyn ControlHandle>,
         grid: SizingGrid,
     ) -> Option<oneshot::Receiver<()>> {
-        let (target, immediate_endpoint, owner_endpoint, owner_id, owner_grid) = {
+        let (target, generation, immediate_endpoint, owner_endpoint, owner_id, owner_grid) = {
             let mut targets = self.targets.lock().expect("terminal sizing targets lock");
             let target_key = key.clone();
             let target = targets.entry(key).or_insert_with(|| {
@@ -1058,10 +1178,22 @@ impl TerminalSizing {
             // final leave and a concurrent join observe one linear order and
             // prevents a newly joined viewer from being removed with a
             // retired target.
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
             state.retired = false;
+            if let Some(previous) = state.viewers.remove(&viewer_id) {
+                target.queue.detach_locked(&mut queue_state, &previous.endpoint);
+                previous.endpoint.active.store(false, Ordering::Release);
+                previous.control.end();
+                if state.owner == Some(viewer_id) {
+                    state.owner = None;
+                    state.applied = None;
+                    state.blocked_viewer = Some(viewer_id);
+                }
+            }
             let endpoint = target.queue.endpoint(viewer_id, Arc::clone(&control));
             state.viewers.insert(viewer_id, SizingViewer { control, endpoint, grid });
+            let generation = self.advance_generation(&target);
             let immediate_claim =
                 state.owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
             let immediate_endpoint = immediate_claim
@@ -1072,9 +1204,8 @@ impl TerminalSizing {
                 if !immediate_claim && state.applied != owner_grid { state.owner } else { None };
             let owner_endpoint = owner_id
                 .and_then(|id| state.viewers.get(&id).map(|viewer| Arc::clone(&viewer.endpoint)));
-            (target, immediate_endpoint, owner_endpoint, owner_id, owner_grid)
+            (target, generation, immediate_endpoint, owner_endpoint, owner_id, owner_grid)
         };
-        self.advance_generation(&target);
         if let (Some(endpoint), Some(owner_id), Some(grid)) = (owner_endpoint, owner_id, owner_grid)
         {
             // A newly joined non-owner can lower the canonical grid. Establish
@@ -1086,6 +1217,7 @@ impl TerminalSizing {
                 &endpoint,
                 grid,
                 false,
+                generation,
             );
         }
         if let Some(endpoint) = immediate_endpoint {
@@ -1094,7 +1226,9 @@ impl TerminalSizing {
             // verification; these fire-and-forget copies are only the
             // non-blocking wire fence that prevents input overtaking the
             // initial geometry claim.
-            self.enqueue_update_if_current(&target, viewer_id, None, &endpoint, grid, true);
+            self.enqueue_update_if_current(
+                &target, viewer_id, None, &endpoint, grid, true, generation,
+            );
         }
         Some(self.request_reconcile_wait(target))
     }
@@ -1137,7 +1271,7 @@ impl TerminalSizing {
             };
             (endpoint, endpoint_viewer_id, owner, claim, effective_grid, should_enqueue)
         };
-        self.advance_generation(&target);
+        let generation = self.advance_generation(&target);
         if should_enqueue && let Some((endpoint_viewer_id, endpoint)) = endpoint {
             self.enqueue_update_if_current(
                 &target,
@@ -1146,12 +1280,35 @@ impl TerminalSizing {
                 &endpoint,
                 effective_grid,
                 claim,
+                generation,
             );
         }
         self.request_reconcile(target);
     }
 
     fn leave(self: &Arc<Self>, key: &SizingKey, viewer_id: u64) {
+        self.leave_inner(key, viewer_id, None);
+    }
+
+    /// Remove a viewer only when the endpoint that was used for the failed
+    /// sizing round is still attached. A viewer id can be reused after a
+    /// reconnect; pointer identity prevents a late timeout from removing the
+    /// healthy replacement.
+    fn leave_endpoint(
+        self: &Arc<Self>,
+        key: &SizingKey,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+    ) {
+        self.leave_inner(key, viewer_id, Some(endpoint));
+    }
+
+    fn leave_inner(
+        self: &Arc<Self>,
+        key: &SizingKey,
+        viewer_id: u64,
+        expected_endpoint: Option<&Arc<OrderedControlEndpoint>>,
+    ) {
         let (target, should_start, remove_target, should_reconcile) = {
             let mut targets = self.targets.lock().expect("terminal sizing targets lock");
             let Some(target) = targets.get(key).cloned() else { return };
@@ -1161,11 +1318,19 @@ impl TerminalSizing {
             // report/claim or owner resize is enqueued.
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
-            let Some(removed) = state.viewers.remove(&viewer_id) else {
+            let Some(current) = state.viewers.get(&viewer_id) else {
                 return;
             };
+            if expected_endpoint.is_some_and(|expected| !Arc::ptr_eq(&current.endpoint, expected)) {
+                return;
+            }
+            let Some(removed) = state.viewers.remove(&viewer_id) else { return };
             target.queue.detach_locked(&mut queue_state, &removed.endpoint);
             removed.endpoint.active.store(false, Ordering::Release);
+            // Close the control before reserving a replacement. UnixControl
+            // marks the writer closed before shutdown, so queued stale
+            // requests cannot execute after the survivor fence is emitted.
+            removed.control.end();
             let removed_owner = state.owner == Some(viewer_id);
             if state.blocked_viewer == Some(viewer_id) {
                 state.blocked_viewer = None;
@@ -1175,6 +1340,7 @@ impl TerminalSizing {
                 state.applied = None;
                 state.blocked_viewer = Some(viewer_id);
             }
+            let generation = self.advance_generation(&target);
             if state.viewers.is_empty() {
                 state.retired = true;
                 let remove_target = !target.worker_running.load(Ordering::Acquire);
@@ -1190,7 +1356,14 @@ impl TerminalSizing {
                 } else {
                     None
                 };
-                target.queue.clear_stale_claim_fence_locked(&mut queue_state, candidate);
+                target.queue.clear_stale_claim_fence_locked(
+                    &mut queue_state,
+                    candidate.as_ref().and_then(|(viewer_id, grid)| {
+                        state.viewers.get(viewer_id).map(|viewer| {
+                            (generation, *viewer_id, *grid, endpoint_ptr(&viewer.endpoint))
+                        })
+                    }),
+                );
                 let (should_start, has_transition) = if removed_owner || state.owner.is_none() {
                     if let (Some(viewer_id), Some(grid)) = (candidate_viewer_id(&state), grid) {
                         if let Some(viewer) = state.viewers.get(&viewer_id)
@@ -1201,6 +1374,7 @@ impl TerminalSizing {
                                     &mut queue_state,
                                     &viewer.endpoint,
                                     grid,
+                                    generation,
                                 ),
                                 true,
                             )
@@ -1233,7 +1407,6 @@ impl TerminalSizing {
                 (target, should_start, false, has_transition)
             }
         };
-        self.advance_generation(&target);
         target.queue.start_drain(should_start);
         if should_reconcile && !remove_target {
             self.request_reconcile(target);
@@ -1352,6 +1525,7 @@ impl TerminalSizing {
         target: &Arc<SizingTarget>,
         queue_state: &mut OrderedControlQueueState,
         state: &SizingTargetState,
+        generation: u64,
     ) -> (bool, bool) {
         if state.retired || state.viewers.is_empty() {
             return (false, false);
@@ -1362,7 +1536,15 @@ impl TerminalSizing {
         } else {
             None
         };
-        target.queue.clear_stale_claim_fence_locked(queue_state, candidate);
+        target.queue.clear_stale_claim_fence_locked(
+            queue_state,
+            candidate.and_then(|(viewer_id, grid)| {
+                state
+                    .viewers
+                    .get(&viewer_id)
+                    .map(|viewer| (generation, viewer_id, grid, endpoint_ptr(&viewer.endpoint)))
+            }),
+        );
         if let Some(owner_id) = state.owner {
             let owner = state.viewers.get(&owner_id);
             if let (Some(owner), Some(grid)) = (owner, grid)
@@ -1378,8 +1560,12 @@ impl TerminalSizing {
         } else if let (Some(viewer_id), Some(grid)) = (candidate_viewer_id(state), grid) {
             match state.viewers.get(&viewer_id) {
                 Some(viewer) if viewer.endpoint.is_active() => {
-                    let should_start =
-                        target.queue.reserve_resize_locked(queue_state, &viewer.endpoint, grid);
+                    let should_start = target.queue.reserve_resize_locked(
+                        queue_state,
+                        &viewer.endpoint,
+                        grid,
+                        generation,
+                    );
                     (should_start, true)
                 }
                 _ => (false, false),
@@ -1393,7 +1579,8 @@ impl TerminalSizing {
         let (should_start, has_candidate) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
-            self.enqueue_candidate_locked(target, &mut queue_state, &state)
+            let generation = Self::current_generation(target);
+            self.enqueue_candidate_locked(target, &mut queue_state, &state, generation)
         };
         target.queue.start_drain(should_start);
         has_candidate
@@ -1411,11 +1598,18 @@ impl TerminalSizing {
         endpoint: &Arc<OrderedControlEndpoint>,
         grid: SizingGrid,
         claim: bool,
+        generation: u64,
     ) -> bool {
+        if Self::current_generation(target) != generation {
+            return false;
+        }
         let (should_start, current) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
-            if state.retired || state.owner != expected_owner {
+            if Self::current_generation(target) != generation
+                || state.retired
+                || state.owner != expected_owner
+            {
                 (false, false)
             } else {
                 let candidate = if state.owner.is_none() {
@@ -1425,7 +1619,19 @@ impl TerminalSizing {
                 } else {
                     None
                 };
-                target.queue.clear_stale_claim_fence_locked(&mut queue_state, candidate);
+                target.queue.clear_stale_claim_fence_locked(
+                    &mut queue_state,
+                    candidate.and_then(|(candidate_id, candidate_grid)| {
+                        state.viewers.get(&candidate_id).map(|viewer| {
+                            (
+                                generation,
+                                candidate_id,
+                                candidate_grid,
+                                endpoint_ptr(&viewer.endpoint),
+                            )
+                        })
+                    }),
+                );
                 let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
                     viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
                 });
@@ -1441,7 +1647,12 @@ impl TerminalSizing {
                     (false, false)
                 } else {
                     let should_start = if claim {
-                        target.queue.reserve_resize_locked(&mut queue_state, endpoint, grid)
+                        target.queue.reserve_resize_locked(
+                            &mut queue_state,
+                            endpoint,
+                            grid,
+                            generation,
+                        )
                     } else {
                         target.queue.enqueue_resize_locked(&mut queue_state, endpoint, grid, false)
                     };
@@ -1466,10 +1677,12 @@ impl TerminalSizing {
         viewer_id: u64,
         endpoint: &Arc<OrderedControlEndpoint>,
         grid: SizingGrid,
-    ) -> bool {
-        let (should_start, current) = {
+        generation: u64,
+    ) -> Option<u64> {
+        let (should_start, token) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
+            let generation_current = Self::current_generation(target) == generation;
             let endpoint_current = state.owner.is_none()
                 && candidate_viewer_id(&state) == Some(viewer_id)
                 && state.viewers.get(&viewer_id).is_some_and(|viewer| {
@@ -1477,55 +1690,69 @@ impl TerminalSizing {
                 })
                 && smallest_sizing_grid(&state.viewers) == Some(grid)
                 && !state.retired;
-            if !endpoint_current || queue_state.closed {
-                (false, false)
+            if !generation_current || !endpoint_current || queue_state.closed {
+                (false, None)
             } else {
-                target
-                    .queue
-                    .clear_stale_claim_fence_locked(&mut queue_state, Some((viewer_id, grid)));
-                if queue_state
-                    .claim_fence
-                    .is_some_and(|(fenced_viewer_id, _)| fenced_viewer_id != viewer_id)
-                {
-                    // Another candidate owns the reservation. Let its worker
-                    // finish or abandon the round; do not replace it from this
-                    // stale worker turn.
-                    (false, false)
-                } else {
-                    // Consume and re-establish the reservation in one queue
-                    // critical section. This is deliberately not a plain
-                    // `consume_claim_fence()` call: a stale owner update must not
-                    // acquire the queue after the marker is cleared and before
-                    // the survivor report/claim is flushed.
-                    let was_reserved =
-                        target.queue.consume_claim_fence_locked(&mut queue_state, endpoint, grid);
-                    if !was_reserved {
-                        queue_state.claim_fence = Some((viewer_id, grid));
-                    }
-                    let should_start = if queue_state.last_resize == Some((viewer_id, grid, true))
-                        && queue_state.pending_resize.is_none()
+                target.queue.clear_stale_claim_fence_locked(
+                    &mut queue_state,
+                    Some((generation, viewer_id, grid, endpoint_ptr(endpoint))),
+                );
+                // A fence for another endpoint or grid is stale. Clear it
+                // while the queue and target-state locks are held; a stale
+                // worker cannot replace the new candidate after this point.
+                if queue_state.claim_fence.is_some_and(|fence| {
+                    fence.generation != generation
+                        || fence.viewer_id != viewer_id
+                        || fence.grid != grid
+                        || fence.endpoint_ptr != endpoint_ptr(endpoint)
+                }) {
+                    queue_state.claim_fence = None;
+                    if queue_state
+                        .pending_resize
+                        .as_ref()
+                        .is_some_and(|(pending, _, claim)| *claim && pending.viewer_id == viewer_id)
                     {
-                        false
-                    } else {
-                        let should_start = target.queue.enqueue_resize_locked(
-                            &mut queue_state,
-                            endpoint,
-                            grid,
-                            true,
-                        );
-                        target.queue.flush_resize_locked(&mut queue_state);
-                        should_start
-                    };
-                    // Keep the fence live through the verified request. Normal
-                    // owner updates are rejected until finish_candidate_request
-                    // commits or abandons this candidate.
-                    queue_state.claim_fence = Some((viewer_id, grid));
-                    (should_start, true)
+                        queue_state.pending_resize = None;
+                    }
+                }
+                let (should_start, token) = if let Some(fence) = queue_state.claim_fence {
+                    (false, Some(fence.token))
+                } else {
+                    let should_start = target.queue.reserve_resize_locked(
+                        &mut queue_state,
+                        endpoint,
+                        grid,
+                        generation,
+                    );
+                    let token = queue_state.claim_fence.and_then(|fence| {
+                        (fence.generation == generation
+                            && fence.viewer_id == viewer_id
+                            && fence.grid == grid
+                            && fence.endpoint_ptr == endpoint_ptr(endpoint))
+                        .then_some(fence.token)
+                    });
+                    (should_start, token)
+                };
+                if let Some(token) = token {
+                    // `reserve_resize_locked` may have left the pair pending
+                    // behind a running worker. Flush it under the same queue
+                    // lock before the direct verification request is started.
+                    target.queue.flush_resize_locked(&mut queue_state);
+                    queue_state.claim_fence = Some(ClaimFence {
+                        generation,
+                        viewer_id,
+                        grid,
+                        token,
+                        endpoint_ptr: endpoint_ptr(endpoint),
+                    });
+                    (should_start, Some(token))
+                } else {
+                    (false, None)
                 }
             }
         };
         target.queue.start_drain(should_start);
-        current
+        token
     }
 
     /// Finish the candidate round-trip while preserving queue/state lock
@@ -1538,18 +1765,33 @@ impl TerminalSizing {
         viewer_id: u64,
         endpoint: &Arc<OrderedControlEndpoint>,
         grid: SizingGrid,
+        generation: u64,
+        token: u64,
         success: bool,
     ) -> bool {
+        // Read retry state before queue -> target-state locks. No path holds
+        // the retry mutex while taking either sizing lock.
         let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
         let mut state = target.state.lock().expect("terminal sizing state lock");
+        let generation_current = Self::current_generation(target) == generation;
         let current = !state.retired
             && state.owner.is_none()
             && candidate_viewer_id(&state) == Some(viewer_id)
             && smallest_sizing_grid(&state.viewers) == Some(grid)
+            && generation_current
             && state.viewers.get(&viewer_id).is_some_and(|viewer| {
                 viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
             });
-        if queue_state.claim_fence == Some((viewer_id, grid)) {
+        if generation_current
+            && queue_state.claim_fence
+                == Some(ClaimFence {
+                    generation,
+                    viewer_id,
+                    grid,
+                    token,
+                    endpoint_ptr: endpoint_ptr(endpoint),
+                })
+        {
             queue_state.claim_fence = None;
         }
         if success && current {
@@ -1575,7 +1817,7 @@ impl TerminalSizing {
         target: &Arc<SizingTarget>,
         lost_owner: u64,
     ) -> bool {
-        let (should_start, has_survivor) = {
+        let (should_start, has_candidate) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
             if state.retired || state.owner != Some(lost_owner) {
@@ -1584,6 +1826,10 @@ impl TerminalSizing {
                 let has_survivor = state.viewers.iter().any(|(viewer_id, viewer)| {
                     **viewer_id != lost_owner && viewer.endpoint.is_active()
                 });
+                state.blocked_viewer = Some(lost_owner);
+                state.owner = None;
+                state.applied = None;
+                let generation = self.advance_generation(target);
                 let candidate = smallest_sizing_grid(&state.viewers).and_then(|grid| {
                     if has_survivor {
                         state
@@ -1606,22 +1852,26 @@ impl TerminalSizing {
                 });
                 target.queue.clear_stale_claim_fence_locked(
                     &mut queue_state,
-                    candidate.as_ref().map(|(endpoint, grid)| (endpoint.viewer_id, *grid)),
+                    candidate.as_ref().map(|(endpoint, grid)| {
+                        (generation, endpoint.viewer_id, *grid, endpoint_ptr(endpoint))
+                    }),
                 );
                 let should_start = candidate
                     .as_ref()
                     .map(|(endpoint, grid)| {
-                        target.queue.reserve_resize_locked(&mut queue_state, endpoint, *grid)
+                        target.queue.reserve_resize_locked(
+                            &mut queue_state,
+                            endpoint,
+                            *grid,
+                            generation,
+                        )
                     })
                     .unwrap_or(false);
-                state.blocked_viewer = Some(lost_owner);
-                state.owner = None;
-                state.applied = None;
                 (should_start, candidate.is_some())
             }
         };
         target.queue.start_drain(should_start);
-        has_survivor
+        has_candidate
     }
 
     async fn apply_target(self: &Arc<Self>, target: &Arc<SizingTarget>) {
@@ -1662,52 +1912,131 @@ impl TerminalSizing {
         };
 
         if let Some((viewer_id, control, endpoint)) = candidate {
+            let generation = Self::current_generation(target);
             // A viewer elected after a leave must use the same ordered wire
             // fence as an initial join. Otherwise its first input could pass
             // the asynchronous report/claim pair.
-            if !self.prepare_candidate_request(target, viewer_id, &endpoint, grid) {
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
                 self.enqueue_candidate(target);
                 return;
             }
-            let reported = control
-                .request(
+            let Some(token) =
+                self.prepare_candidate_request(target, viewer_id, &endpoint, grid, generation)
+            else {
+                self.enqueue_candidate(target);
+                return;
+            };
+            // Leave/update can race the preparation above. Re-check the
+            // generation and endpoint immediately before starting the
+            // round-trip; an invalidated control is closed by leave and must
+            // not issue a late authority command.
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+                self.enqueue_candidate(target);
+                return;
+            }
+            let reported = match self
+                .candidate_request(
+                    target,
+                    viewer_id,
+                    &endpoint,
+                    grid,
+                    generation,
+                    &control,
                     "resize-surface",
                     json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
                 )
-                .await;
+                .await
+            {
+                CandidateRequestOutcome::Stale => {
+                    if endpoint.is_active() {
+                        self.retry_candidate_after_failure(
+                            target, viewer_id, &endpoint, grid, generation, token,
+                        );
+                    }
+                    return;
+                }
+                CandidateRequestOutcome::Reply(response) => response,
+            };
+            if reported.is_none() {
+                // A timeout or transport failure leaves a request that may
+                // still be queued in the control writer. Close this endpoint
+                // before reserving a replacement so the late request cannot
+                // steal authority after the survivor fence.
+                self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                return;
+            }
             if !control_response_ok(reported.as_ref()) {
-                self.retry_candidate_after_failure(target, viewer_id, &endpoint, grid);
+                self.retry_candidate_after_failure(
+                    target, viewer_id, &endpoint, grid, generation, token,
+                );
                 return;
             }
             // The viewer can detach while the report round-trip is pending.
             // Re-check liveness before claiming authority; otherwise a late
             // reply would let a dead attachment claim a surface after leave.
-            {
-                let state = target.state.lock().expect("terminal sizing state lock");
-                if state.retired
-                    || !state.viewers.contains_key(&viewer_id)
-                    || candidate_viewer_id(&state) != Some(viewer_id)
-                    || smallest_sizing_grid(&state.viewers) != Some(grid)
-                {
-                    drop(state);
-                    self.retry_candidate_after_failure(target, viewer_id, &endpoint, grid);
-                    return;
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+                if endpoint.is_active() {
+                    self.retry_candidate_after_failure(
+                        target, viewer_id, &endpoint, grid, generation, token,
+                    );
+                } else {
+                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
                 }
+                return;
             }
             // A passive report can return accepted:false while retaining the
             // report. Claiming immediately after that report is the protocol
             // sequence that makes this viewer authoritative.
-            let claimed = control
-                .request(
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+                self.enqueue_candidate(target);
+                return;
+            }
+            let claimed = match self
+                .candidate_request(
+                    target,
+                    viewer_id,
+                    &endpoint,
+                    grid,
+                    generation,
+                    &control,
                     "set-client-sizing",
                     json!({ "surface": surface_id, "enabled": true, "exclusive": true }),
                 )
-                .await;
-            if !control_response_ok(claimed.as_ref()) {
-                self.retry_candidate_after_failure(target, viewer_id, &endpoint, grid);
+                .await
+            {
+                CandidateRequestOutcome::Stale => {
+                    if endpoint.is_active() {
+                        self.retry_candidate_after_failure(
+                            target, viewer_id, &endpoint, grid, generation, token,
+                        );
+                    }
+                    return;
+                }
+                CandidateRequestOutcome::Reply(response) => response,
+            };
+            if claimed.is_none() {
+                self.leave_endpoint(&target.key, viewer_id, &endpoint);
                 return;
             }
-            if !self.finish_candidate_request(target, viewer_id, &endpoint, grid, true) {
+            if !control_response_ok(claimed.as_ref()) {
+                self.retry_candidate_after_failure(
+                    target, viewer_id, &endpoint, grid, generation, token,
+                );
+                return;
+            }
+            if !self.candidate_is_current(target, viewer_id, &endpoint, grid, generation) {
+                if endpoint.is_active() {
+                    self.retry_candidate_after_failure(
+                        target, viewer_id, &endpoint, grid, generation, token,
+                    );
+                } else {
+                    self.leave_endpoint(&target.key, viewer_id, &endpoint);
+                }
+                return;
+            }
+            if !self.finish_candidate_request(
+                target, viewer_id, &endpoint, grid, generation, token, true,
+            ) {
                 self.enqueue_candidate(target);
             }
             return;
@@ -1720,7 +2049,8 @@ impl TerminalSizing {
         // so input written on that connection cannot overtake this update.
         // `enqueue_resize` coalesces a resize already queued by the owner
         // update path, while still fencing a cross-viewer update here.
-        if let Some(endpoint) = owner_queue {
+        let generation = Self::current_generation(target);
+        if let Some(endpoint) = owner_queue.as_ref() {
             if !self.enqueue_update_if_current(
                 target,
                 owner_id,
@@ -1728,22 +2058,56 @@ impl TerminalSizing {
                 &endpoint,
                 grid,
                 false,
+                generation,
             ) {
                 self.enqueue_candidate(target);
                 return;
             }
             endpoint.flush_before_request();
         }
-        let resized = control
-            .request(
-                "resize-surface",
-                json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
-            )
-            .await;
+        let resized = if let Some(endpoint) = owner_queue.as_ref() {
+            // Serialize the verified owner request with endpoint invalidation.
+            // Leave marks the endpoint inactive and ends the control before a
+            // replacement is reserved, so a late owner request cannot regain
+            // authority after disconnect.
+            let _gate = endpoint.request_gate.lock().await;
+            if !endpoint.is_active() || Self::current_generation(target) != generation {
+                None
+            } else {
+                control
+                    .request(
+                        "resize-surface",
+                        json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
+                    )
+                    .await
+            }
+        } else {
+            control
+                .request(
+                    "resize-surface",
+                    json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
+                )
+                .await
+        };
+        if resized.is_none() {
+            // A timed-out owner request may still be queued in the control
+            // writer. Close that endpoint before reserving a survivor so a
+            // late command cannot regain authority.
+            if let Some(endpoint) = owner_queue.as_ref() {
+                self.leave_endpoint(&target.key, owner_id, endpoint);
+            } else {
+                self.reserve_candidate_after_owner_loss(target, owner_id);
+            }
+            return;
+        }
         if !control_response_ok(resized.as_ref()) {
             if self.reserve_candidate_after_owner_loss(target, owner_id) {
                 self.request_reconcile(Arc::clone(target));
             }
+            return;
+        }
+        if Self::current_generation(target) != generation {
+            self.enqueue_candidate(target);
             return;
         }
         if resized
@@ -2406,6 +2770,13 @@ impl Inner {
         opened_frame.insert("rows".to_owned(), Value::from(rows));
         (context.send)(Value::Object(opened_frame));
 
+        if opened.post_open_resize {
+            // Legacy protocol-5..9 daemons have no shared sizing lease. Send
+            // exactly one canonical resize after `pty_opened`, before output
+            // or input can reach the control writer.
+            opened.control.resize(cols, rows);
+        }
+
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
         (opened.start.take().expect("opened start callback"))();
@@ -2725,6 +3096,10 @@ struct Opened {
     created: bool,
     surface: Option<String>,
     control: Arc<dyn PtyControl>,
+    /// Legacy protocol-5..9 raw daemons need one canonical resize after the
+    /// `pty_opened` frame. Protocol-10 sizing queues perform that fence during
+    /// join and must not receive a duplicate direct resize here.
+    post_open_resize: bool,
     closing: Arc<AtomicBool>,
     start: Option<Box<dyn FnOnce() + Send>>,
     cleanup_armed: AtomicBool,
@@ -2883,6 +3258,7 @@ impl Inner {
             created: ensured.created,
             surface: None,
             control,
+            post_open_resize: false,
             closing: Arc::new(AtomicBool::new(false)),
             start: Some(Box::new(move || drive_handle(output, banner, on_data, on_exit))),
             cleanup_armed: AtomicBool::new(true),
@@ -3164,6 +3540,7 @@ impl Inner {
             created,
             surface: None,
             control: proxy,
+            post_open_resize: false,
             closing,
             start: Some(start),
             cleanup_armed: AtomicBool::new(true),
@@ -3886,6 +4263,7 @@ impl Inner {
             created: ensured.created,
             surface: Some(surface_ref.to_owned()),
             control: proxy,
+            post_open_resize: !shared_sizing && !attach_initial_size,
             closing: Arc::new(AtomicBool::new(false)),
             start: Some(Box::new(move || start_stream.go_live(on_data, on_exit))),
             cleanup_armed: AtomicBool::new(true),
@@ -5119,6 +5497,9 @@ mod tests {
         state: TestArc<StdMutex<SizingControlState>>,
         notify: TestArc<TestNotify>,
         sizing_release: TestArc<TestNotify>,
+        claim_dispatch_started: TestArc<TestNotify>,
+        claim_dispatch_release: TestArc<TestNotify>,
+        settled: TestArc<TestNotify>,
     }
 
     struct SizingControlState {
@@ -5127,6 +5508,7 @@ mod tests {
         claim_ok: bool,
         reject_next_resize: bool,
         block_sizing: bool,
+        block_claim_dispatch: bool,
         ended: bool,
         requests: Vec<(String, Value)>,
         sends: Vec<(String, Value)>,
@@ -5141,12 +5523,16 @@ mod tests {
                     claim_ok: true,
                     reject_next_resize: false,
                     block_sizing: false,
+                    block_claim_dispatch: false,
                     ended: false,
                     requests: Vec::new(),
                     sends: Vec::new(),
                 })),
                 notify: TestArc::new(TestNotify::new()),
                 sizing_release: TestArc::new(TestNotify::new()),
+                claim_dispatch_started: TestArc::new(TestNotify::new()),
+                claim_dispatch_release: TestArc::new(TestNotify::new()),
+                settled: TestArc::new(TestNotify::new()),
             }
         }
 
@@ -5165,6 +5551,15 @@ mod tests {
         fn release_sizing(&self) {
             self.state.lock().unwrap().block_sizing = false;
             self.sizing_release.notify_waiters();
+        }
+
+        fn block_claim_dispatch(&self) {
+            self.state.lock().unwrap().block_claim_dispatch = true;
+        }
+
+        fn release_claim_dispatch(&self) {
+            self.state.lock().unwrap().block_claim_dispatch = false;
+            self.claim_dispatch_release.notify_waiters();
         }
 
         fn requests(&self) -> Vec<(String, Value)> {
@@ -5208,6 +5603,20 @@ mod tests {
                 .await
                 .expect("terminal sizing send queue did not settle");
         }
+
+        async fn wait_for_settled(&self) {
+            let wait = self.settled.notified();
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing request did not settle");
+        }
+
+        async fn wait_for_claim_dispatch(&self) {
+            let wait = self.claim_dispatch_started.notified();
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing claim did not reach dispatch gate");
+        }
     }
 
     impl ControlHandle for SizingControl {
@@ -5216,42 +5625,62 @@ mod tests {
             cmd: &str,
             params: Value,
         ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
-            let (response, blocked) = {
-                let mut state = self.state.lock().unwrap();
-                state.requests.push((cmd.to_owned(), params));
-                let response = match cmd {
-                    "identify" => Some(json!({
-                        "ok": true,
-                        "data": {
-                            "protocol": state.protocol,
-                            "capabilities": state.capabilities.clone(),
-                        },
-                    })),
-                    "attach-surface" => Some(json!({ "ok": true, "data": {} })),
-                    "resize-surface" => {
-                        let accepted = !state.reject_next_resize;
-                        state.reject_next_resize = false;
-                        Some(json!({
-                            "ok": true,
-                            "data": { "accepted": accepted, "reservation_id": Value::Null },
-                        }))
-                    }
-                    "set-client-sizing" if state.claim_ok => {
-                        Some(json!({ "ok": true, "data": {} }))
-                    }
-                    "set-client-sizing" => Some(json!({ "ok": false, "error": "refused" })),
-                    _ => Some(json!({ "ok": true, "data": {} })),
-                };
-                let blocked =
-                    state.block_sizing && matches!(cmd, "resize-surface" | "set-client-sizing");
-                (response, blocked)
+            let dispatch_blocked = {
+                let state = self.state.lock().unwrap();
+                state.block_claim_dispatch && cmd == "set-client-sizing"
             };
-            self.notify.notify_waiters();
-            let release = TestArc::clone(&self.sizing_release);
+            let dispatch_release = TestArc::clone(&self.claim_dispatch_release);
+            let claim_dispatch_started = TestArc::clone(&self.claim_dispatch_started);
+            let settled = TestArc::clone(&self.settled);
+            let cmd = cmd.to_owned();
             Box::pin(async move {
+                if dispatch_blocked {
+                    claim_dispatch_started.notify_waiters();
+                    dispatch_release.notified().await;
+                    if self.ended() {
+                        settled.notify_waiters();
+                        return None;
+                    }
+                }
+                let (response, blocked) = {
+                    let mut state = self.state.lock().unwrap();
+                    if state.ended {
+                        return None;
+                    }
+                    state.requests.push((cmd.clone(), params));
+                    let response = match cmd.as_str() {
+                        "identify" => Some(json!({
+                            "ok": true,
+                            "data": {
+                                "protocol": state.protocol,
+                                "capabilities": state.capabilities.clone(),
+                            },
+                        })),
+                        "attach-surface" => Some(json!({ "ok": true, "data": {} })),
+                        "resize-surface" => {
+                            let accepted = !state.reject_next_resize;
+                            state.reject_next_resize = false;
+                            Some(json!({
+                                "ok": true,
+                                "data": { "accepted": accepted, "reservation_id": Value::Null },
+                            }))
+                        }
+                        "set-client-sizing" if state.claim_ok => {
+                            Some(json!({ "ok": true, "data": {} }))
+                        }
+                        "set-client-sizing" => Some(json!({ "ok": false, "error": "refused" })),
+                        _ => Some(json!({ "ok": true, "data": {} })),
+                    };
+                    let blocked = state.block_sizing
+                        && matches!(cmd.as_str(), "resize-surface" | "set-client-sizing");
+                    (response, blocked)
+                };
+                self.notify.notify_waiters();
+                let release = TestArc::clone(&self.sizing_release);
                 if blocked {
                     release.notified().await;
                 }
+                settled.notify_waiters();
                 response
             })
         }
@@ -5633,6 +6062,167 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn single_viewer_refused_resize_reclaims_without_a_new_event() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-single-refusal.sock"),
+            surface_id: 25,
+        };
+        let handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let joined = coordinator
+            .join(key.clone(), 1, 25, handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("initial sizing barrier");
+        control.wait_for_requests(2).await;
+        joined.await.expect("initial sizing worker");
+
+        // The owner reports a new grid, but the daemon refuses that resize.
+        // There is no survivor, so the same active viewer must be fenced and
+        // reclaimed automatically rather than waiting for another event.
+        control.reject_next_resize();
+        control.block_sizing();
+        coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 30 });
+        control.wait_for_requests(3).await;
+        control.release_sizing();
+
+        // The owner-loss path reserves and verifies a fresh report/claim pair
+        // without a second viewer event.
+        control.wait_for_requests(5).await;
+        let requests = control.requests();
+        assert_eq!(requests[2].0, "resize-surface");
+        assert_eq!(requests[3].0, "resize-surface");
+        assert_eq!(requests[4].0, "set-client-sizing");
+        assert_eq!(
+            coordinator.targets.lock().unwrap().get(&key).unwrap().state.lock().unwrap().owner,
+            Some(1)
+        );
+
+        let endpoint = coordinator.queue_for(&key, 1).expect("reclaimed endpoint");
+        endpoint.enqueue_input(b"after-single-viewer-reclaim");
+        let sends = control.sends();
+        let suffix: Vec<&str> =
+            sends.iter().rev().take(3).map(|(command, _)| command.as_str()).collect();
+        assert_eq!(suffix, vec!["send", "set-client-sizing", "resize-surface"]);
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn late_candidate_response_after_leave_cannot_claim_replacement() {
+        let owner = SizingControl::new(12, &[]);
+        let survivor = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-late-candidate.sock"),
+            surface_id: 26,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let survivor_handle: Arc<dyn ControlHandle> = Arc::new(survivor.clone());
+        coordinator
+            .join(key.clone(), 1, 26, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 26, survivor_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("survivor sizing barrier")
+            .await
+            .expect("survivor sizing worker");
+
+        // Refuse the owner resize and hold the survivor's replacement report.
+        // The report future is released only after the survivor leaves, which
+        // models a late response from a detached control connection.
+        owner.reject_next_resize();
+        owner.block_sizing();
+        survivor.block_sizing();
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        owner.wait_for_requests(3).await;
+        owner.release_sizing();
+        survivor.wait_for_requests(1).await;
+
+        coordinator.leave(&key, 2);
+        assert!(survivor.ended(), "detached candidate control must be closed");
+        survivor.release_sizing();
+        survivor.wait_for_settled().await;
+
+        // The late report must not be followed by a claim on the detached
+        // endpoint. The remaining owner may be retried separately, but the
+        // dead survivor cannot regain authority.
+        assert_eq!(
+            survivor
+                .requests()
+                .iter()
+                .filter(|(command, _)| command == "set-client-sizing")
+                .count(),
+            0
+        );
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn leave_during_claim_dispatch_cancels_late_claim() {
+        let owner = SizingControl::new(12, &[]);
+        let survivor = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-late-claim.sock"),
+            surface_id: 28,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let survivor_handle: Arc<dyn ControlHandle> = Arc::new(survivor.clone());
+        coordinator
+            .join(key.clone(), 1, 28, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 28, survivor_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("survivor sizing barrier")
+            .await
+            .expect("survivor sizing worker");
+
+        // Force a survivor claim and stop the control immediately before its
+        // request is dispatched. Leave must invalidate/end the endpoint; the
+        // delayed request then resolves without recording a late authority
+        // command or allowing the dead viewer to become owner.
+        survivor.block_claim_dispatch();
+        owner.reject_next_resize();
+        owner.block_sizing();
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        owner.wait_for_requests(3).await;
+        owner.release_sizing();
+        survivor.wait_for_claim_dispatch().await;
+        let claims_before = survivor
+            .requests()
+            .iter()
+            .filter(|(command, _)| command == "set-client-sizing")
+            .count();
+
+        coordinator.leave(&key, 2);
+        assert!(survivor.ended(), "leave must end the detached candidate control");
+        survivor.release_claim_dispatch();
+        survivor.wait_for_settled().await;
+        assert_eq!(
+            survivor
+                .requests()
+                .iter()
+                .filter(|(command, _)| command == "set-client-sizing")
+                .count(),
+            claims_before,
+            "a detached candidate must not dispatch a late claim"
+        );
+        assert_ne!(
+            coordinator.targets.lock().unwrap().get(&key).and_then(|target| target
+                .state
+                .lock()
+                .unwrap()
+                .owner),
+            Some(2),
+            "a detached candidate must not become owner"
+        );
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
     async fn owner_leave_fences_survivor_input_with_reclaim() {
         let owner = SizingControl::new(12, &[]);
         let survivor = SizingControl::new(12, &[]);
@@ -5753,8 +6343,92 @@ mod tests {
         coordinator.leave(&key, 2);
     }
 
+    #[tokio::test]
+    async fn stale_update_for_missing_viewer_keeps_claim_generation() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-update-generation.sock"),
+            surface_id: 29,
+        };
+        coordinator
+            .join(key.clone(), 1, 29, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 1).expect("active endpoint");
+        let generation = TerminalSizing::current_generation(&target);
+        {
+            let mut state = target.queue.state.lock().unwrap();
+            state.claim_fence = Some(ClaimFence {
+                generation,
+                viewer_id: 1,
+                grid: SizingGrid { cols: 80, rows: 24 },
+                token: 41,
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
+        }
+
+        // This update names no attached viewer. It must not advance the
+        // active generation or clear the current candidate fence.
+        coordinator.update(&key, 99, SizingGrid { cols: 100, rows: 30 });
+        assert_eq!(TerminalSizing::current_generation(&target), generation);
+        assert!(target.queue.state.lock().unwrap().claim_fence.is_some_and(|fence| {
+            fence.generation == generation
+                && fence.viewer_id == 1
+                && fence.token == 41
+                && fence.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_leave_cannot_remove_a_reconnected_endpoint_or_advance_generation() {
+        let old_control = SizingControl::new(12, &[]);
+        let new_control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-leave-generation.sock"),
+            surface_id: 30,
+        };
+        coordinator
+            .join(
+                key.clone(),
+                1,
+                30,
+                Arc::new(old_control.clone()),
+                SizingGrid { cols: 80, rows: 24 },
+            )
+            .expect("old sizing barrier")
+            .await
+            .expect("old sizing worker");
+        let old_endpoint = coordinator.queue_for(&key, 1).expect("old endpoint");
+        coordinator
+            .join(
+                key.clone(),
+                1,
+                30,
+                Arc::new(new_control.clone()),
+                SizingGrid { cols: 80, rows: 24 },
+            )
+            .expect("replacement sizing barrier")
+            .await
+            .expect("replacement sizing worker");
+        let new_endpoint = coordinator.queue_for(&key, 1).expect("replacement endpoint");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let generation = TerminalSizing::current_generation(&target);
+
+        coordinator.leave_endpoint(&key, 1, &old_endpoint);
+        assert_eq!(TerminalSizing::current_generation(&target), generation);
+        let current = coordinator.queue_for(&key, 1).expect("replacement remains attached");
+        assert!(Arc::ptr_eq(&current, &new_endpoint));
+        assert!(new_endpoint.is_active());
+        coordinator.leave(&key, 1);
+    }
+
     #[test]
-    fn delayed_claim_fence_is_consumed_before_survivor_input() {
+    fn delayed_claim_fence_is_preserved_before_survivor_input() {
         let control = SizingControl::new(12, &[]);
         let queue = OrderedControlQueue::new(18);
         let endpoint = queue.endpoint(2, Arc::new(control.clone()));
@@ -5768,6 +6442,7 @@ mod tests {
                 &mut state,
                 &endpoint,
                 SizingGrid { cols: 80, rows: 24 },
+                1,
             ));
         }
 
@@ -5785,7 +6460,13 @@ mod tests {
             ));
         }
         endpoint.enqueue_input(b"survivor-input");
-        assert!(queue.consume_claim_fence(&endpoint, SizingGrid { cols: 80, rows: 24 }));
+        let state = queue.state.lock().unwrap();
+        assert!(state.claim_fence.is_some_and(|fence| {
+            fence.viewer_id == endpoint.viewer_id
+                && fence.grid == SizingGrid { cols: 80, rows: 24 }
+                && fence.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+        drop(state);
         let commands: Vec<&str> =
             control.sends().iter().map(|(command, _)| command.as_str()).collect();
         assert_eq!(commands, vec!["resize-surface", "set-client-sizing", "send"]);
@@ -5803,21 +6484,69 @@ mod tests {
 
         {
             let mut state = queue.state.lock().unwrap();
-            state.claim_fence = Some((old_endpoint.viewer_id, old_grid));
+            state.claim_fence = Some(ClaimFence {
+                generation: 1,
+                viewer_id: old_endpoint.viewer_id,
+                grid: old_grid,
+                token: 7,
+                endpoint_ptr: endpoint_ptr(&old_endpoint),
+            });
             state.pending_resize = Some((Arc::clone(&old_endpoint), old_grid, true));
-            state.last_resize = Some((old_endpoint.viewer_id, old_grid, true));
+            state.last_resize =
+                Some((old_endpoint.viewer_id, endpoint_ptr(&old_endpoint), old_grid, true));
 
             // A lower-ID viewer becomes the canonical candidate. The old
             // failed claim must not block its report/claim pair.
             queue.clear_stale_claim_fence_locked(
                 &mut state,
-                Some((new_endpoint.viewer_id, new_grid)),
+                Some((1, new_endpoint.viewer_id, new_grid, endpoint_ptr(&new_endpoint))),
             );
             assert_eq!(state.claim_fence, None);
             assert!(state.pending_resize.is_none());
-            assert!(queue.reserve_resize_locked(&mut state, &new_endpoint, new_grid));
+            assert!(queue.reserve_resize_locked(&mut state, &new_endpoint, new_grid, 1));
             queue.flush_resize_locked(&mut state);
-            assert_eq!(state.claim_fence, Some((new_endpoint.viewer_id, new_grid)));
+            assert!(state.claim_fence.is_some_and(|fence| {
+                fence.viewer_id == new_endpoint.viewer_id
+                    && fence.grid == new_grid
+                    && fence.endpoint_ptr == endpoint_ptr(&new_endpoint)
+            }));
+        }
+
+        let commands: Vec<&str> =
+            new_control.sends().iter().map(|(command, _)| command.as_str()).collect();
+        assert_eq!(commands, vec!["resize-surface", "set-client-sizing"]);
+    }
+
+    #[test]
+    fn same_grid_replacement_gets_a_new_claim_token() {
+        let old_control = SizingControl::new(12, &[]);
+        let new_control = SizingControl::new(12, &[]);
+        let queue = OrderedControlQueue::new(27);
+        let old_endpoint = queue.endpoint(1, Arc::new(old_control));
+        let new_endpoint = queue.endpoint(1, Arc::new(new_control.clone()));
+        let grid = SizingGrid { cols: 80, rows: 24 };
+
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.next_claim_token = 9;
+            state.claim_fence = Some(ClaimFence {
+                generation: 1,
+                viewer_id: old_endpoint.viewer_id,
+                grid,
+                token: 8,
+                endpoint_ptr: endpoint_ptr(&old_endpoint),
+            });
+            state.pending_resize = Some((Arc::clone(&old_endpoint), grid, true));
+            state.last_resize =
+                Some((old_endpoint.viewer_id, endpoint_ptr(&old_endpoint), grid, true));
+            assert!(queue.reserve_resize_locked(&mut state, &new_endpoint, grid, 2));
+            let fence = state.claim_fence.expect("replacement claim fence");
+            assert_eq!(fence.generation, 2);
+            assert_eq!(fence.viewer_id, new_endpoint.viewer_id);
+            assert_eq!(fence.grid, grid);
+            assert_eq!(fence.endpoint_ptr, endpoint_ptr(&new_endpoint));
+            assert_ne!(fence.token, 8, "a replacement must not reuse a stale token");
+            queue.flush_resize_locked(&mut state);
         }
 
         let commands: Vec<&str> =
@@ -5839,7 +6568,13 @@ mod tests {
         // failed worker's atomic finish-and-reserve critical section: the
         // survivor cannot emit input until its replacement pair is flushed.
         let mut state = queue.state.lock().unwrap();
-        state.claim_fence = Some((old_endpoint.viewer_id, old_grid));
+        state.claim_fence = Some(ClaimFence {
+            generation: 1,
+            viewer_id: old_endpoint.viewer_id,
+            grid: old_grid,
+            token: 11,
+            endpoint_ptr: endpoint_ptr(&old_endpoint),
+        });
         state.pending_resize = None;
         state.worker_running = true;
         let arrived = TestArc::new(std::sync::atomic::AtomicBool::new(false));
@@ -5853,8 +6588,11 @@ mod tests {
             thread::yield_now();
         }
 
-        queue.clear_stale_claim_fence_locked(&mut state, Some((1, survivor_grid)));
-        assert!(queue.reserve_resize_locked(&mut state, &survivor_endpoint, survivor_grid));
+        queue.clear_stale_claim_fence_locked(
+            &mut state,
+            Some((1, survivor_endpoint.viewer_id, survivor_grid, endpoint_ptr(&survivor_endpoint))),
+        );
+        assert!(queue.reserve_resize_locked(&mut state, &survivor_endpoint, survivor_grid, 1));
         queue.flush_resize_locked(&mut state);
         drop(state);
         input_thread.join().expect("survivor input thread");
@@ -5979,6 +6717,7 @@ mod tests {
             created: false,
             surface: Some("12".to_owned()),
             control: proxy,
+            post_open_resize: false,
             closing: Arc::new(AtomicBool::new(false)),
             start: None,
             cleanup_armed: AtomicBool::new(true),

@@ -94,8 +94,10 @@ Every protocol-v8 and newer split layout node has a stable `split` id. Preserve 
 Initial surface dimensions and geometry ownership follow the consolidated
 [`Sizing`](commands.md#sizing) contract. Passive clients report their viewport
 without resizing the PTY. A client explicitly claims geometry for one terminal
-view, and the canonical grid stays frozen when that owner disconnects until a
-client makes another explicit claim.
+view. If that owner disconnects, releases, or receives an unsuccessful resize
+response, the server fences it and elects the lowest-id active eligible viewer.
+The replacement report and authority claim are sent before later input. The
+canonical grid stays frozen only when no eligible viewer remains.
 
 ## 4. Render A PTY Surface
 
