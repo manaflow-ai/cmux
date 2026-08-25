@@ -1628,6 +1628,7 @@
         },
         "lineHeight": {
           "type": "number",
+          "multipleOf": 0.1,
           "minimum": 0.5,
           "maximum": 3,
           "default": 1,
