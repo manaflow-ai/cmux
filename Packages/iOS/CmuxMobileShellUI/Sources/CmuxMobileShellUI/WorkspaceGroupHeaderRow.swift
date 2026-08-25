@@ -65,8 +65,8 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
         .accessibilityIdentifier("MobileWorkspaceGroupDisclosure-\(group.id.rawValue)")
     }
 
-    /// The group name plus icon. Tapping it opens the anchor workspace, mirroring
-    /// the desktop header whose body focuses the anchor.
+    /// The group name plus icon. Mobile tapping continues to focus the anchor;
+    /// macOS uses a fresh-workspace activation for its desktop header.
     private var nameLabel: some View {
         HStack(spacing: 6) {
             Image(systemName: group.iconSymbol ?? "folder.fill")

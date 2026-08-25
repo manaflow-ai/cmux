@@ -17318,7 +17318,7 @@ struct CMUXCLI {
             )
             let overview = String(
                 localized: "cli.workspaceGroup.help.overview",
-                defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+                defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; on macOS, clicking the group header opens a fresh workspace in the group while modifier-clicking selects the anchor for multi-selection. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
             )
             return """
             Usage: cmux workspace-group <subcommand> [flags]
