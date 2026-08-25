@@ -3677,13 +3677,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
     private var pointerStyleRuntimeLifetimeId: UUID?
     private var suppressGhosttyPointerUntilFreshShape = false
+    private var pointerStyleFocusGeneration: UInt64 = 0
 
-    func applyTerminalPointerStyle(_ event: TerminalPointerStyleEvent) {
+    func applyTerminalPointerStyle(
+        _ event: TerminalPointerStyleEvent,
+        focusGeneration: UInt64? = nil
+    ) {
+        if case .ghosttyShape = event,
+           let focusGeneration,
+           focusGeneration != pointerStyleFocusGeneration {
+            return
+        }
         if case .focusChanged(let focused) = event {
+            let didChangeFocus = terminalPointerStyle.focused != focused
+            if didChangeFocus {
+                pointerStyleFocusGeneration &+= 1
+            }
             if !focused, terminalPointerStyle.ghosttyLinkHoverActive {
                 suppressGhosttyPointerUntilFreshShape = true
             }
-            pointerStyleIngress?.focusChanged(focused)
+            if didChangeFocus {
+                pointerStyleIngress?.focusChanged(focused)
+            }
         }
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {

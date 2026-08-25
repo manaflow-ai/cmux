@@ -42,6 +42,9 @@ public struct TerminalPointerStyleState {
     /// Whether Ghostty's transient hyperlink pointer is active.
     public var ghosttyLinkHoverActive: Bool { isGhosttyLinkHoverActive }
 
+    /// Whether the terminal surface currently owns keyboard focus.
+    public var focused: Bool { isFocused }
+
     /// Applies one state transition and reports whether the effective cursor changed.
     ///
     /// Unsupported Ghostty shapes are ignored so an unknown or unavailable
