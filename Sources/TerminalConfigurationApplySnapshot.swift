@@ -11,7 +11,7 @@ final class TerminalConfigurationApplySnapshot {
         WorkspaceTerminalFontConfigurationSnapshot
 
     private var surfaceStates:
-        [ObjectIdentifier: TerminalConfigurationSurfaceApplyState] = [:]
+        [UUID: TerminalConfigurationSurfaceApplyState] = [:]
 
     init(
         source: String,
@@ -30,22 +30,22 @@ final class TerminalConfigurationApplySnapshot {
     }
 
     func surfaceState(
-        identity: ObjectIdentifier
+        lifecycleID: UUID
     ) -> TerminalConfigurationSurfaceApplyState? {
-        surfaceStates[identity]
+        surfaceStates[lifecycleID]
     }
 
     func recordSurfaceState(
         _ state: TerminalConfigurationSurfaceApplyState,
-        identity: ObjectIdentifier
+        lifecycleID: UUID
     ) {
-        surfaceStates[identity] = state
+        surfaceStates[lifecycleID] = state
     }
 
     @discardableResult
     func removeSurfaceState(
-        identity: ObjectIdentifier
+        lifecycleID: UUID
     ) -> TerminalConfigurationSurfaceApplyState? {
-        surfaceStates.removeValue(forKey: identity)
+        surfaceStates.removeValue(forKey: lifecycleID)
     }
 }

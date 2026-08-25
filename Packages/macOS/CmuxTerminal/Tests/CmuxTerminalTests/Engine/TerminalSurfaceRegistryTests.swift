@@ -77,16 +77,6 @@ struct TerminalSurfaceRegistryTests {
         registry.register(surface)
         #expect(registry.surface(id: surface.id) === surface)
         #expect(
-            registry.surface(
-                identity: ObjectIdentifier(surface)
-            ) === surface
-        )
-        #expect(
-            registry.surface(
-                identity: ObjectIdentifier(FakeSurface())
-            ) == nil
-        )
-        #expect(
             registry.terminalLifecycleID(surfaceID: surface.id)
                 == surface.terminalLifecycleID
         )
@@ -438,6 +428,33 @@ struct TerminalSurfaceRegistryTests {
         #expect(
             nextTraversedIds
                 == Set((initial + [late]).map(\.id))
+        )
+    }
+
+    @Test func traversalLifecycleTokenRejectsAReplacementRegistration() throws {
+        let registry = TerminalSurfaceRegistry()
+        let original = FakeSurface()
+        registry.register(original)
+
+        let traversal = registry.makeIncrementalTraversal()
+        let captured = try #require(
+            traversal.nextVisit()?.surface as? FakeSurface
+        )
+        let capturedLifecycleID = captured.terminalLifecycleID
+
+        registry.unregister(original)
+        let replacement = FakeSurface(id: original.id)
+        registry.register(replacement)
+
+        // A deferred configuration visit must never retarget a replacement
+        // registration. The lifecycle token authenticates the old generation.
+        #expect(
+            registry.surface(terminalLifecycleID: capturedLifecycleID) == nil
+        )
+        #expect(
+            registry.surface(
+                terminalLifecycleID: replacement.terminalLifecycleID
+            ) === replacement
         )
     }
 

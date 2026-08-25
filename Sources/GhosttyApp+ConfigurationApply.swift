@@ -29,41 +29,45 @@ extension GhosttyApp {
     ) {
         let traversal = Self.terminalSurfaceRegistry
             .makeIncrementalTraversal()
-        let prioritizedIDs = AppDelegate.shared?
-            .prioritizedTerminalSurfaceIdentitiesForConfigurationApply()
+        let prioritizedLifecycleIDs = AppDelegate.shared?
+            .prioritizedTerminalSurfaceLifecycleIDsForConfigurationApply()
             ?? []
         let completionBox =
             TerminalConfigurationApplyCompletion(completion)
 #if DEBUG
         cmuxDebugLog(
-            "reload.config.surfaceApply.begin source=\(snapshot.source) prioritized=\(prioritizedIDs.count)"
+            "reload.config.surfaceApply.begin source=\(snapshot.source) prioritized=\(prioritizedLifecycleIDs.count)"
         )
 #endif
         didCommit()
         terminalConfigurationApplyScheduler.replacePendingWork(
             snapshot: snapshot,
-            prioritizedIDs: prioritizedIDs,
+            prioritizedIDs: prioritizedLifecycleIDs,
             nextID: {
-                traversal.nextVisit()?.identity
+                guard let surface = traversal.nextVisit()?.surface
+                        as? TerminalSurface else {
+                    return nil
+                }
+                return surface.terminalLifecycleId
             },
-            apply: { [weak self] identity, snapshot in
+            apply: { [weak self] lifecycleID, snapshot in
                 self?.applyConfigurationSnapshot(
                     snapshot,
-                    to: identity
+                    to: lifecycleID
                 ) ?? .complete
             },
-            abandon: { [weak self] identity, snapshot, reason in
+            abandon: { [weak self] lifecycleID, snapshot, reason in
                 switch reason {
                 case .retryLimitReached:
                     self?.abandonConfigurationSnapshot(
                         snapshot,
-                        for: identity,
+                        for: lifecycleID,
                         reason: .retryLimitReached
                     )
                 case .pendingWorkReplaced:
                     self?.abandonConfigurationSnapshot(
                         snapshot,
-                        for: identity,
+                        for: lifecycleID,
                         reason: .pendingWorkReplaced
                     )
                 }
@@ -82,14 +86,14 @@ extension GhosttyApp {
     @MainActor
     private func applyConfigurationSnapshot(
         _ snapshot: TerminalConfigurationApplySnapshot,
-        to identity: ObjectIdentifier
+        to lifecycleID: UUID
     ) -> TerminalConfigurationApplyResult {
         guard let surface = Self.terminalSurfaceRegistry
-                .surface(identity: identity)
+                .surface(terminalLifecycleID: lifecycleID)
                 as? TerminalSurface else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity,
+                for: lifecycleID,
                 reason: .surfaceUnavailable
             )
             return .complete
@@ -97,13 +101,13 @@ extension GhosttyApp {
 
         let state: TerminalConfigurationSurfaceApplyState
         if let existing = snapshot.surfaceState(
-            identity: identity
+            lifecycleID: lifecycleID
         ), existing.surface === surface {
             state = existing
         } else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity,
+                for: lifecycleID,
                 reason: .surfaceReplaced
             )
             let fontReloadState = surface
@@ -123,7 +127,7 @@ extension GhosttyApp {
             )
             snapshot.recordSurfaceState(
                 state,
-                identity: identity
+                lifecycleID: lifecycleID
             )
         }
 
@@ -135,11 +139,13 @@ extension GhosttyApp {
             state.didApplyConfigurationStage = true
         }
 
-        guard Self.terminalSurfaceRegistry
-                .isRegistered(surface) else {
+        guard Self.terminalSurfaceRegistry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: lifecycleID
+        ) else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity,
+                for: lifecycleID,
                 reason: .surfaceUnregistered
             )
             return .complete
@@ -160,7 +166,7 @@ extension GhosttyApp {
             )
             return .retry
         }
-        snapshot.removeSurfaceState(identity: identity)
+        snapshot.removeSurfaceState(lifecycleID: lifecycleID)
         return .complete
     }
 
@@ -198,11 +204,11 @@ extension GhosttyApp {
     @MainActor
     private func abandonConfigurationSnapshot(
         _ snapshot: TerminalConfigurationApplySnapshot,
-        for identity: ObjectIdentifier,
+        for lifecycleID: UUID,
         reason: ConfigurationSnapshotAbandonReason
     ) {
         guard let state = snapshot.removeSurfaceState(
-            identity: identity
+            lifecycleID: lifecycleID
         ), let surface = state.surface else {
             return
         }

@@ -2,12 +2,16 @@ import AppKit
 import CmuxTerminal
 
 extension AppDelegate {
-    /// Focused and visible terminal identities that should observe a committed
-    /// configuration before offscreen registry traversal begins.
-    func prioritizedTerminalSurfaceIdentitiesForConfigurationApply()
-        -> [ObjectIdentifier] {
-        var result: [ObjectIdentifier] = []
-        var seenSurfaces: Set<ObjectIdentifier> = []
+    /// Focused and visible terminal lifecycle tokens that should observe a
+    /// committed configuration before offscreen registry traversal begins.
+    ///
+    /// A lifecycle token authenticates one surface-process generation. Unlike
+    /// `ObjectIdentifier`, it cannot resolve a newly allocated replacement
+    /// surface after a deferred main-actor turn.
+    func prioritizedTerminalSurfaceLifecycleIDsForConfigurationApply()
+        -> [UUID] {
+        var result: [UUID] = []
+        var seenSurfaces: Set<UUID> = []
         var seenManagers: Set<ObjectIdentifier> = []
 
         func append(_ surface: TerminalSurface?) {
@@ -16,11 +20,11 @@ extension AppDelegate {
                     .isRegistered(surface) else {
                 return
             }
-            let identity = ObjectIdentifier(surface)
-            guard seenSurfaces.insert(identity).inserted else {
+            let lifecycleID = surface.terminalLifecycleId
+            guard seenSurfaces.insert(lifecycleID).inserted else {
                 return
             }
-            result.append(identity)
+            result.append(lifecycleID)
         }
 
         append(
