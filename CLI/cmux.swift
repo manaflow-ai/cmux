@@ -2550,6 +2550,15 @@ final class SocketClient {
             try connect(deadline: operationDeadline)
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        var operationCompleted = false
+        defer {
+            if !operationCompleted {
+                // A timed-out/failed request may have a delayed reply queued
+                // on this stream. Close it so the next hook command cannot
+                // mistake that reply for its own response.
+                close()
+            }
+        }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {
             if shouldCloseAfterSend {
@@ -2647,6 +2656,7 @@ final class SocketClient {
         if response.hasSuffix("\n") {
             response.removeLast()
         }
+        operationCompleted = true
         return response
     }
 
@@ -32552,8 +32562,8 @@ export default CMUXSessionRestore;
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
-        func cursorCriticalTimeout() -> TimeInterval {
-            cursorShellRemainingTimeout() ?? 0.35
+        func cursorCriticalTimeout() -> TimeInterval? {
+            cursorShellRemainingTimeout()
         }
         var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
         defer { cursorLifecycleLease?.release() }
