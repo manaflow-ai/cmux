@@ -2616,9 +2616,7 @@ mod tests {
         let decoded: crate::relay_wire::RelayPtyError =
             serde_json::from_value(error.clone()).expect("generated pty_error fixture");
         assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
-        assert!(
-            error["message"].as_str().unwrap_or_default().contains("not found in session"),
-        );
+        assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
     }
