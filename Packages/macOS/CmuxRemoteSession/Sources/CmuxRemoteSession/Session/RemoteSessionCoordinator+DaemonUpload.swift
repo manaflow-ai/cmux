@@ -94,20 +94,33 @@ extension RemoteSessionCoordinator {
         watchdog_pid=
         temp_path=\(quotedRemoteTempPath)
         pid_path=\(quotedRemoteTempPIDPath)
-        printf '%s\\n' "$$" > "$pid_path"
         trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; exit 1' HUP INT TERM
         # POSIX shells give an asynchronous command /dev/null for stdin unless
         # the parent explicitly preserves the descriptor first. Without this
         # dup, cat exits 0 after writing an empty payload even though ssh had
         # a file-backed stdin stream to forward.
         exec 3<&0
-        cat <&3 > "$temp_path" &
+        # Keep the shell PID marker for stale-file detection. Recovery never
+        # signals a marker PID because numeric PIDs can be reused.
+        set -C
+        # Create the owner marker atomically after noclobber is enabled.
+        if ! printf '%s\\n' "$$" > "$pid_path"; then
+          printf '%s\\n' 'cmux daemon upload could not create a unique owner marker' >&2
+          exit 76
+        fi
+        # Open the payload once with noclobber, then write through the
+        # descriptor. This refuses a pre-existing payload symlink or file.
+        if ! exec 4> "$temp_path"; then
+          printf '%s\\n' 'cmux daemon upload could not create a unique temporary file' >&2
+          exit 76
+        fi
+        cat <&3 >&4 &
         cat_pid=$!
-        printf '%s\\n' "$cat_pid" > "$pid_path"
         (
           stall_checks=0
           previous_size=0
           while kill -0 "$cat_pid" 2>/dev/null; do
+            touch "$pid_path" 2>/dev/null || true
             current_size="$(wc -c < "$temp_path" 2>/dev/null || printf '0')"
             set -- $current_size
             current_size="${1:-0}"
@@ -132,6 +145,7 @@ extension RemoteSessionCoordinator {
         cat_status=$?
         cat_pid=
         exec 3<&-
+        exec 4>&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
         watchdog_pid=
         rm -f -- "$pid_path"
@@ -367,27 +381,41 @@ extension RemoteSessionCoordinator {
     ) -> String {
         let quotedRemotePath = remotePath.shellSingleQuoted
         let processCleanup = """
+        # Reclaim only markers whose owner is gone. A live marker belongs to a
+        # concurrent upload and must not be signaled or glob-deleted.
         for cmux_pid_file in \(quotedRemotePath).tmp-*.pid; do
           [ -r "$cmux_pid_file" ] || continue
           cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
           case "$cmux_pid" in
-            ''|0|1|*[!0-9]*) ;;
-            *) [ "$cmux_pid" = "$$" ] || kill "$cmux_pid" 2>/dev/null || true ;;
+            ''|0|1|*[!0-9]*) continue ;;
+            *)
+              if kill -0 "$cmux_pid" 2>/dev/null; then continue; fi
+              # Reclaim only markers that are older than the conservative
+              # recovery window. This avoids PID-reuse races.
+              if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
+              cmux_temp_path="${cmux_pid_file%.pid}"
+              rm -f -- "$cmux_temp_path" "$cmux_pid_file"
+              ;;
           esac
         done
         """
-        let specificRemoveTargets: String
+        let currentCleanup: String
         if let currentTemporaryPath {
             let quotedCurrentTemporaryPath = currentTemporaryPath.shellSingleQuoted
             let quotedCurrentPIDPath = "\(currentTemporaryPath).pid".shellSingleQuoted
-            specificRemoveTargets =
-                " \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)"
+            currentCleanup = """
+            # A numeric PID is not a process identity. It can be reused by an
+            # unrelated process between reading the marker and signaling it.
+            # Never signal from a marker; the upload owner's trap handles its
+            # own children, while recovery only removes its files.
+            rm -f -- \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)
+            """
         } else {
-            specificRemoveTargets = ""
+            currentCleanup = ":"
         }
         return """
         \(processCleanup)
-        rm -f -- \(quotedRemotePath).tmp-* \(quotedRemotePath).tmp-*.pid\(specificRemoveTargets)
+        \(currentCleanup)
         """
     }
 
