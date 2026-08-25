@@ -5,7 +5,9 @@ import Foundation
 /// OpenSSH accepts `-t` and `-T` after the destination until either a remote
 /// executable or `--` begins the literal remote command. This value preserves
 /// the exact recognized flag sequence for the live SSH invocation while
-/// exposing only the remaining command arguments to command wrappers.
+/// exposing only the remaining command arguments to command wrappers. It also
+/// accepts a same-token cluster of TTY flags with OpenSSH's no-argument short
+/// options, such as `-tq`.
 ///
 /// ```swift
 /// let command = SSHRemoteCommand(
@@ -26,9 +28,10 @@ public struct SSHRemoteCommand: Equatable, Sendable {
 
     /// Creates a remote command from arguments on both sides of an optional `--` separator.
     ///
-    /// Only a leading run of `-t`/`-T` tokens in `undelimitedArguments` is
-    /// interpreted as OpenSSH configuration. Tokens in `delimitedArguments`
-    /// are always literal remote-command arguments, including `-t` and `-T`.
+    /// Only a leading run of TTY-bearing short-option tokens in
+    /// `undelimitedArguments` is interpreted as OpenSSH configuration. Tokens
+    /// in `delimitedArguments` are always literal remote-command arguments,
+    /// including `-t`, `-T`, and `-tq`.
     ///
     /// - Parameters:
     ///   - undelimitedArguments: Arguments after the destination and before `--`.
@@ -38,11 +41,7 @@ public struct SSHRemoteCommand: Equatable, Sendable {
         undelimitedArguments: [String],
         delimitedArguments: [String]? = nil
     ) {
-        let ttyRequestCount = undelimitedArguments.prefix { argument in
-            argument.count > 1
-                && argument.first == "-"
-                && argument.dropFirst().allSatisfy { $0 == "t" || $0 == "T" }
-        }.count
+        let ttyRequestCount = undelimitedArguments.prefix(while: Self.isTTYRequestArgument).count
         ttyRequestArguments = Array(undelimitedArguments.prefix(ttyRequestCount))
         arguments = Array(undelimitedArguments.dropFirst(ttyRequestCount))
             + (delimitedArguments ?? [])
@@ -90,7 +89,7 @@ public struct SSHRemoteCommand: Equatable, Sendable {
             optionValue: resolver.optionValue(named: "RequestTTY", in: options)
         )
         for argument in ttyRequestArguments {
-            for flag in argument.dropFirst() {
+            for flag in argument.dropFirst() where flag == "t" || flag == "T" {
                 if flag == "T" {
                     request = .disabled
                 } else {
@@ -99,6 +98,16 @@ public struct SSHRemoteCommand: Equatable, Sendable {
             }
         }
         return request
+    }
+
+    private static let noArgumentShortOptions = Set("46AaCfGgKkMNnqsTtVvXxYy")
+
+    /// Returns whether a token is a TTY-bearing short-option cluster we can pass through safely.
+    private static func isTTYRequestArgument(_ argument: String) -> Bool {
+        guard argument.count > 1, argument.first == "-" else { return false }
+        let flags = argument.dropFirst()
+        guard flags.contains(where: { $0 == "t" || $0 == "T" }) else { return false }
+        return flags.allSatisfy { noArgumentShortOptions.contains($0) }
     }
 
 }
