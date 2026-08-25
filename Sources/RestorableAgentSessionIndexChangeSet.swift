@@ -13,8 +13,8 @@ struct RestorableAgentSessionIndexChangeSet: Sendable, Equatable {
         for fingerprint in previous.symmetricDifference(current) {
             let fields = fingerprint.split(separator: "|", maxSplits: 2)
             guard fields.count >= 2,
-                  let workspaceId = UUID(String(fields[0])),
-                  let panelId = UUID(String(fields[1])) else {
+                  let workspaceId = UUID(uuidString: String(fields[0])),
+                  let panelId = UUID(uuidString: String(fields[1])) else {
                 continue
             }
             changed[workspaceId, default: []].insert(panelId)
