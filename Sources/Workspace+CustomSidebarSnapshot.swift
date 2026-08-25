@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxSidebar
 import Foundation
 
@@ -43,8 +44,79 @@ extension Workspace {
             latestSubmittedMessage: latestSubmittedMessage,
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
+            agents: customSidebarAgentSnapshots(),
             groupId: groupId
         )
+    }
+
+    /// At most this many agent sessions are projected per workspace; the
+    /// registry returns most-recent-first, so the cap drops the oldest.
+    private static let customSidebarAgentLimit = 24
+
+    /// Projects the agent-chat session registry's records hosted by this
+    /// workspace's terminals into `workspaces[i].agents` snapshots.
+    ///
+    /// A record binds to this workspace when its hook-resolved surface id is
+    /// one of this workspace's live terminal panels. Records without a
+    /// surface binding fall back to their stored workspace id; records bound
+    /// to a panel that lives elsewhere (or was closed) are excluded even when
+    /// their stored workspace id matches, because that stored id goes stale
+    /// across relaunches while the panel binding stays authoritative.
+    private func customSidebarAgentSnapshots() -> [CustomSidebarAgentSnapshot] {
+        guard let service = TerminalController.shared.agentChatTranscriptService else { return [] }
+        let records = service.sessionRecords(workspaceID: nil)
+        guard !records.isEmpty else { return [] }
+        var surfaceIdByPanelId: [UUID: UUID] = [:]
+        for paneId in bonsplitController.allPaneIds {
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
+                surfaceIdByPanelId[panelId] = tab.id.uuid
+            }
+        }
+        let workspaceIdString = id.uuidString
+        var agents: [CustomSidebarAgentSnapshot] = []
+        for record in records {
+            let panelId = record.surfaceID.flatMap(UUID.init(uuidString:))
+            if let panelId {
+                guard surfaceIdByPanelId[panelId] != nil else { continue }
+            } else {
+                guard record.workspaceID == workspaceIdString else { continue }
+            }
+            let status: String
+            let stateSince: Date?
+            switch record.state {
+            case .idle:
+                status = "idle"
+                stateSince = nil
+            case .working(let since):
+                status = "working"
+                stateSince = since
+            case .needsInput(let since):
+                status = "needs_input"
+                stateSince = since
+            case .ended:
+                status = "ended"
+                stateSince = nil
+            }
+            agents.append(
+                CustomSidebarAgentSnapshot(
+                    sessionId: record.sessionID,
+                    kind: record.agentKind.sourceName,
+                    name: record.agentKind.displayName,
+                    status: status,
+                    stateSince: stateSince,
+                    lastActivityAt: record.lastActivityAt,
+                    title: record.title,
+                    panelId: panelId,
+                    surfaceId: panelId.flatMap { surfaceIdByPanelId[$0] },
+                    workingDirectory: record.workingDirectory,
+                    transcriptPath: record.transcriptPath,
+                    pid: record.pid
+                )
+            )
+            if agents.count >= Self.customSidebarAgentLimit { break }
+        }
+        return agents
     }
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {

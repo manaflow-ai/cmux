@@ -65,7 +65,9 @@ a Custom button to the right sidebar's mode bar. The panel gets the same data
 keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
 `panel-info` (selected-workspace overview with clickable ports and PRs),
 `panel-sessions` (every session with live search and a this-workspace/all
-scope toggle), `panel-todo` (an interactive scratch checklist), and
+scope toggle), `panel-todo` (an interactive scratch checklist),
+`panel-subagents` (every coding-agent session grouped by workspace with live
+status, elapsed time, and jump-to-terminal), and
 `kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
 examples.
 
@@ -261,7 +263,15 @@ with:
   the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
-  (`{ target, state, connected }`).
+  (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
+  the workspace's terminals, most recent first; omitted when none). Each
+  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
+  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
+  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
+  current working/needs-input state began), `title` (first user prompt),
+  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
+  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).

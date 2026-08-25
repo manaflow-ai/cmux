@@ -133,6 +133,45 @@ public struct CustomSidebarDataContextBuilder {
                 "connected": .bool(remote.isConnected),
             ])
         }
+        if !workspace.agents.isEmpty {
+            fields["agents"] = .array(workspace.agents.map(agentValue(_:)))
+        }
+        return .object(fields)
+    }
+
+    /// Projects one agent-session snapshot into the interpreter value tree
+    /// (`workspaces[i].agents[j]`). Optional fields are omitted when absent.
+    public func agentValue(_ agent: CustomSidebarAgentSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(agent.sessionId),
+            "kind": .string(agent.kind),
+            "name": .string(agent.name),
+            "status": .string(agent.status),
+            "lastActivityAt": .int(Int(agent.lastActivityAt.timeIntervalSince1970)),
+        ]
+        if let since = agent.stateSince {
+            fields["sinceEpoch"] = .int(Int(since.timeIntervalSince1970))
+        }
+        if let title = agent.title, !title.isEmpty {
+            fields["title"] = .string(title)
+        }
+        if let panelId = agent.panelId {
+            fields["panelId"] = .string(panelId.uuidString)
+        }
+        if let surfaceId = agent.surfaceId {
+            // The id surface.* verbs accept (surface.focus etc.); panelId
+            // above is the panel behind the tab.
+            fields["surfaceId"] = .string(surfaceId.uuidString)
+        }
+        if let directory = agent.workingDirectory, !directory.isEmpty {
+            fields["directory"] = .string(directory)
+        }
+        if let transcriptPath = agent.transcriptPath, !transcriptPath.isEmpty {
+            fields["transcriptPath"] = .string(transcriptPath)
+        }
+        if let pid = agent.pid {
+            fields["pid"] = .int(pid)
+        }
         return .object(fields)
     }
 

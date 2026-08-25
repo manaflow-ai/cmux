@@ -99,8 +99,8 @@ struct CustomSidebarValidationTests {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
 
-        #expect(report.names.sorted() == ["activity", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-todo", "ports", "status-board", "workspaces"])
-        #expect(report.validCount == 12)
+        #expect(report.names.sorted() == ["activity", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
+        #expect(report.validCount == 13)
         #expect(report.errorCount == 0)
     }
 
@@ -208,6 +208,39 @@ struct CustomSidebarValidationTests {
                     "target": .string("aws-m4pro-1"),
                     "state": .string("connected"),
                     "connected": .bool(true),
+                ]),
+                "agents": .array([
+                    .object([
+                        "id": .string("session-claude-1"),
+                        "kind": .string("claude"),
+                        "name": .string("Claude"),
+                        "status": .string("working"),
+                        "sinceEpoch": .int(1_779_999_900),
+                        "lastActivityAt": .int(1_779_999_960),
+                        "title": .string("Fix the crash and add coverage"),
+                        "panelId": .string("panel-terminal"),
+                        "surfaceId": .string("surface-terminal"),
+                        "directory": .string("/Users/me/src/cmux"),
+                        "transcriptPath": .string("/Users/me/.claude/projects/cmux/session-claude-1.jsonl"),
+                        "pid": .int(4242),
+                    ]),
+                    .object([
+                        "id": .string("session-codex-1"),
+                        "kind": .string("codex"),
+                        "name": .string("Codex"),
+                        "status": .string("needs_input"),
+                        "sinceEpoch": .int(1_779_999_800),
+                        "lastActivityAt": .int(1_779_999_800),
+                        "surfaceId": .string("surface-browser"),
+                    ]),
+                    .object([
+                        "id": .string("session-ended-1"),
+                        "kind": .string("claude"),
+                        "name": .string("Claude"),
+                        "status": .string("ended"),
+                        "lastActivityAt": .int(1_779_990_000),
+                        "title": .string("Earlier refactor"),
+                    ]),
                 ]),
                 "tabs": .array([
                     .object([
