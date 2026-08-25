@@ -27353,6 +27353,131 @@ struct CMUXCLI {
         return candidate
     }
 
+    private func readCodexTranscriptSubagentSignals(
+        path: String,
+        turnId: String?
+    ) -> CodexTranscriptSubagentSignals {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return CodexTranscriptSubagentSignals()
+        }
+
+        let normalizedTurnId = normalizedHookValue(turnId)
+        var signals = CodexTranscriptSubagentSignals()
+        var currentTurnId: String?
+        var currentTurnRelevant = normalizedTurnId == nil
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "session_meta",
+               let payload = object["payload"] as? [String: Any],
+               codexTranscriptSessionMetaIsSubagent(payload) {
+                signals.isSubagentSession = true
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                currentTurnId = payloadTurnId
+                currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
+                continue
+            }
+
+            if objectType == "event_msg",
+               let payload = object["payload"] as? [String: Any],
+               let eventType = payload["type"] as? String {
+                switch eventType {
+                case "task_started":
+                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    currentTurnId = payloadTurnId
+                    currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
+                case "task_complete", "turn_complete":
+                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    if let payloadTurnId {
+                        currentTurnId = payloadTurnId
+                    }
+                    if let normalizedTurnId {
+                        if payloadTurnId == normalizedTurnId
+                            || (payloadTurnId == nil && currentTurnRelevant) {
+                            currentTurnRelevant = false
+                        }
+                    } else {
+                        currentTurnRelevant = false
+                    }
+                default:
+                    break
+                }
+                continue
+            }
+
+            guard currentTurnRelevant || currentTurnId == nil else {
+                continue
+            }
+            guard codexTranscriptLineHasSubagentNotification(object) else {
+                continue
+            }
+            signals.hasSubagentNotificationRelay = true
+        }
+
+        return signals
+    }
+
+    private func codexTranscriptSessionMetaIsSubagent(
+        _ payload: [String: Any]
+    ) -> Bool {
+        if firstString(
+            in: payload,
+            keys: ["thread_source", "threadSource"]
+        )?.lowercased() == "subagent" {
+            return true
+        }
+        if let source = payload["source"] as? [String: Any],
+           source["subagent"] != nil {
+            return true
+        }
+        return false
+    }
+
+    private func codexTranscriptLineHasSubagentNotification(
+        _ object: [String: Any]
+    ) -> Bool {
+        guard (object["type"] as? String) == "response_item",
+              let payload = object["payload"] as? [String: Any],
+              (payload["type"] as? String) == "message",
+              (payload["role"] as? String) == "user" else {
+            return false
+        }
+        return codexTranscriptMessageText(payload)
+            .map { $0.contains("<subagent_notification>") }
+            ?? false
+    }
+
+    private func codexTranscriptMessageText(
+        _ payload: [String: Any]
+    ) -> String? {
+        if let content = payload["content"] as? String {
+            let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized.isEmpty ? nil : normalized
+        }
+        guard let content = payload["content"] as? [[String: Any]] else {
+            return nil
+        }
+        let parts = content.compactMap { block -> String? in
+            let text = (block["text"] as? String)
+                ?? (block["input_text"] as? String)
+            let normalized = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized?.isEmpty == false ? normalized : nil
+        }
+        let joined = parts.joined(separator: "\n")
+        return joined.isEmpty ? nil : joined
+    }
+
     private func codexUserInputEventCandidate(
         from payload: [String: Any],
         turnId: String?,
