@@ -31,6 +31,11 @@ jobs:
   build:
     permissions:
       contents: read
+      # The reusable package workflow declares an optional attestation job.
+      # Grant its permission ceiling even though this R2 lane disables npm
+      # package attestations.
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       # Raw R2 artifacts are not npm releases and must never claim that an

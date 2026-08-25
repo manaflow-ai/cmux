@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
+use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::relay_wire as wire;
 use crate::session::OutboundSink;
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
@@ -168,6 +169,17 @@ fn watch_root(
     frame: &wire::RelayFsWatchOpen,
     local_roots: Option<&[String]>,
 ) -> Result<PathBuf, Refusal> {
+    watch_root_with_capabilities(frame, local_roots, cfg!(unix))
+}
+
+fn watch_root_with_capabilities(
+    frame: &wire::RelayFsWatchOpen,
+    local_roots: Option<&[String]>,
+    supports_descriptor_scoping: bool,
+) -> Result<PathBuf, Refusal> {
+    let roots: RootLists<'_> = [local_roots, frame.allowed_roots.as_deref()];
+    ensure_scoped_file_roots_available(supports_descriptor_scoping, &roots)
+        .map_err(|message| Refusal::new(wire::WorkspaceErrorCode::UnsupportedVerb, message))?;
     let scope = Scope::build(frame.allowed_roots.as_deref(), local_roots)?;
     let root = match &frame.root {
         Some(raw) => scope.resolve(raw, false)?,
@@ -544,6 +556,7 @@ mod tests {
         serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_streams_debounced_changes_for_a_write() {
         let root = scratch("stream");
@@ -570,6 +583,7 @@ mod tests {
         registry.close("w1");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_refuses_typed_and_respects_the_session_cap() {
         let root = scratch("refuse");
@@ -594,6 +608,19 @@ mod tests {
         let capped = next_frame(&mut critical, &mut watch, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
         assert_eq!(capped["code"], "watch_limit");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn scoped_watch_answers_typed_unsupported() {
+        let root = scratch("unsupported-scope");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+        registry.open(open_frame("w-unsupported", &root), None);
+        let refusal = next_frame(&mut critical, &mut watch, "unsupported refusal").await;
+        assert_eq!(refusal["type"], "fs_watch_error");
+        assert_eq!(refusal["watchId"], "w-unsupported");
+        assert_eq!(refusal["code"], "unsupported_verb");
     }
 
     #[test]

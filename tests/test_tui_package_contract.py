@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
+import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -26,6 +29,8 @@ RELAY_TARGETS = {
     name.replace("cmux-tui", "cmux-relay"): value
     for name, value in NPM_TARGETS.items()
 }
+
+RELAY_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux-relay/bin/cmux-relay.js"
 
 
 def host_npm_target() -> str:
@@ -53,12 +58,14 @@ def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
 
 
 def write_relay_launcher_fixture(path: Path) -> None:
-    """Write a small launcher with the same npx autostart safety rule."""
+    """Write a launcher fixture that resolves and forwards to its platform binary."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         r'''#!/usr/bin/env node
 "use strict";
+
+const { spawnSync } = require("child_process");
 
 function isEphemeralNpxPath(value) {
   return value
@@ -66,6 +73,13 @@ function isEphemeralNpxPath(value) {
     .some((component) => component.toLowerCase() === "_npx");
 }
 
+const packages = {
+  "darwin-arm64": "cmux-relay-darwin-arm64",
+  "darwin-x64": "cmux-relay-darwin-x64",
+  "linux-x64": "cmux-relay-linux-x64",
+  "linux-arm64": "cmux-relay-linux-arm64",
+};
+const pkg = packages[`${process.platform}-${process.arch}`];
 const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
 if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
   console.error(
@@ -73,7 +87,52 @@ if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executab
   );
   process.exit(2);
 }
-process.stdout.write("cmux relay launcher 1.2.3\n");
+const binary = require.resolve(`${pkg}/bin/cmux-relay`);
+const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+if (result.signal) process.kill(process.pid, result.signal);
+process.exit(result.status === null ? 1 : result.status);
+''',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def write_relay_binary_fixture(path: Path) -> None:
+    """Write a deterministic stand-in for the generated Rust relay binary."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        r'''#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const args = process.argv.slice(2);
+
+if (args.includes("--version")) {
+  process.stdout.write("0.1.0\n");
+  process.exit(0);
+}
+
+if (args.includes("--status")) {
+  const configFlag = args.indexOf("--config");
+  const configPath = configFlag >= 0 ? args[configFlag + 1] : path.join(
+    process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || ".", ".config"),
+    "chatmux-relay",
+    "config.json",
+  );
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (!config.deviceId || !config.token) throw new Error("incomplete");
+    process.stdout.write(`Paired as ${config.name || ""} (${config.deviceId})\n`);
+    process.exit(0);
+  } catch {
+    process.stdout.write("Not paired\n");
+    process.exit(1);
+  }
+}
+
+process.exit(0);
 ''',
         encoding="utf-8",
     )
@@ -115,7 +174,7 @@ def make_npm_packages(root: Path) -> None:
             )
             + "\n"
         )
-        write_executable(package / "bin/cmux-relay", "cmux-relay 1.2.3")
+        write_relay_binary_fixture(package / "bin/cmux-relay")
 
     launcher = root / "cmux"
     launcher.mkdir()
@@ -216,6 +275,22 @@ def test_npm_contract_packs_and_installs_matching_platform(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+def test_npm_relay_contract_installs_and_runs_isolated_smoke(tmp_path: Path) -> None:
+    packages = tmp_path / "npm-packages"
+    make_npm_packages(packages)
+
+    result = run_validator(
+        "--npm-packages",
+        str(packages),
+        "--version",
+        VERSION,
+        "--install-npm-relay-package",
+        host_npm_target().replace("cmux-tui", "cmux-relay"),
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_host_npm_target_rejects_unknown_architecture() -> None:
     for system in ("Linux", "Darwin"):
         with mock.patch.object(platform, "system", return_value=system), mock.patch.object(
@@ -260,6 +335,39 @@ def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "mismatch" in result.stderr
+
+
+def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> None:
+    """The npm shim must die by the same signal as the native relay."""
+
+    if os.name == "nt":
+        return
+
+    launcher_root = tmp_path / "launcher"
+    launcher = launcher_root / "cmux-relay.js"
+    launcher_root.mkdir()
+    shutil.copy2(RELAY_LAUNCHER, launcher)
+    launcher.chmod(0o755)
+
+    relay_package = launcher_root / "node_modules" / host_npm_target().replace(
+        "cmux-tui", "cmux-relay"
+    )
+    relay_binary = relay_package / "bin" / "cmux-relay"
+    relay_binary.parent.mkdir(parents=True)
+    relay_binary.write_text(
+        "#!/usr/bin/env node\nprocess.kill(process.pid, 'SIGTERM');\n",
+        encoding="utf-8",
+    )
+    relay_binary.chmod(0o755)
+
+    result = subprocess.run(
+        ["node", str(launcher)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == -signal.SIGTERM, result.stderr
 
 
 def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> None:
@@ -315,9 +423,11 @@ def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
 def main() -> None:
     tests = (
         test_npm_contract_packs_and_installs_matching_platform,
+        test_npm_relay_contract_installs_and_runs_isolated_smoke,
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
+        test_relay_launcher_preserves_native_signal_exit_status,
         test_pypi_contract_requires_all_six_wheels_and_metadata,
         test_pypi_contract_rejects_non_executable_hook,
     )

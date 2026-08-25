@@ -29,6 +29,14 @@ pub struct ManagedIdentity {
     pub provider: String,
 }
 
+/// Runtime-only managed enrollment endpoint for session-journal forwarding.
+/// The token is never persisted or included in relay wire/config output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedEvents {
+    pub url: String,
+    pub token: String,
+}
+
 /// The saved pairing state. Field names are the wire/disk contract
 /// (camelCase, same keys the JS relay writes).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -65,6 +73,9 @@ pub struct Config {
     /// never saves its config, and personal configs never carry it.
     #[serde(skip)]
     pub managed: Option<ManagedIdentity>,
+    /// Managed enrollment v2 journal endpoint. Runtime-only and secret.
+    #[serde(skip)]
+    pub events: Option<ManagedEvents>,
     /// Managed mode: the one-shot enrollment token was accepted at least
     /// once this process lifetime. Runtime-only.
     #[serde(skip)]

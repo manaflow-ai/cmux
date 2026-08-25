@@ -151,6 +151,24 @@ pub struct ScopedPath {
 /// absent lists impose nothing; every NON-empty list must contain the path.
 pub type RootLists<'a> = [Option<&'a [String]>; 2];
 
+/// Windows does not yet have the handle-relative directory traversal needed
+/// to enforce a scoped file root across a symlink or rename race. Keep the
+/// refusal typed at the action boundary instead of treating this as a path
+/// error or silently using an unsafe path walk.
+pub(crate) const SCOPED_FILE_ROOTS_UNSUPPORTED: &str =
+    "scoped filesystem operations are unavailable on this relay platform";
+
+pub(crate) fn ensure_scoped_file_roots_available(
+    supports_descriptor_scoping: bool,
+    root_lists: &RootLists<'_>,
+) -> Result<(), &'static str> {
+    if supports_descriptor_scoping || !root_lists.iter().flatten().any(|roots| !roots.is_empty()) {
+        Ok(())
+    } else {
+        Err(SCOPED_FILE_ROOTS_UNSUPPORTED)
+    }
+}
+
 /// Resolve a request path and enforce every non-empty root list.
 pub fn resolve_scoped_path(
     raw_path: &str,
@@ -510,9 +528,7 @@ pub fn resolve_scoped_host_path(
         #[cfg(not(unix))]
         {
             if !roots.is_empty() {
-                return Err(HostError::Refusal(
-                    "scoped filesystem actions are unavailable on this platform".to_owned(),
-                ));
+                return Err(HostError::Refusal(SCOPED_FILE_ROOTS_UNSUPPORTED.to_owned()));
             }
             Ok(HostScopedPath { path, roots })
         }
@@ -655,10 +671,18 @@ struct ScopedDirEntry {
     is_dir: bool,
 }
 
-fn read_dir_scoped(
-    path: &HostScopedPath,
-    max_entries: usize,
-) -> Result<Vec<ScopedDirEntry>, HostError> {
+struct ScopedDirEntries {
+    entries: Vec<ScopedDirEntry>,
+    total: usize,
+}
+
+/// Read a bounded directory listing.
+///
+/// The caller needs the total count to report omitted entries, but must not
+/// retain an attacker-controlled number of directory entries in memory. Keep
+/// at most the response cap while continuing the directory walk only to count
+/// the remaining names.
+fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError> {
     #[cfg(unix)]
     {
         use std::ffi::CStr;
@@ -676,11 +700,9 @@ fn read_dir_scoped(
             unsafe { libc::close(fd) };
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
+        let mut total = 0_usize;
         loop {
-            if entries.len() >= max_entries {
-                break;
-            }
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
                 break;
@@ -690,40 +712,64 @@ fn read_dir_scoped(
             if name == b"." || name == b".." {
                 continue;
             }
-            entries.push(ScopedDirEntry {
-                name: std::ffi::OsString::from_vec(name.to_vec()),
-                is_dir: entry.d_type == libc::DT_DIR,
-            });
+            total = total.saturating_add(1);
+            if entries.len() < MAX_LISTING_ENTRIES {
+                entries.push(ScopedDirEntry {
+                    name: std::ffi::OsString::from_vec(name.to_vec()),
+                    is_dir: entry.d_type == libc::DT_DIR,
+                });
+            }
         }
         if unsafe { libc::closedir(stream) } != 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        Ok(entries)
+        Ok(ScopedDirEntries { entries, total })
     }
     #[cfg(not(unix))]
     {
-        let entries = std::fs::read_dir(&path.path).map_err(HostError::Io)?;
-        Ok(entries
-            .take(max_entries)
-            .flatten()
-            .map(|entry| ScopedDirEntry {
-                name: entry.file_name(),
-                is_dir: entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false),
-            })
-            .collect())
+        let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
+        let mut total = 0_usize;
+        for entry in std::fs::read_dir(&path.path).map_err(HostError::Io)? {
+            let entry = entry.map_err(HostError::Io)?;
+            total = total.saturating_add(1);
+            if entries.len() < MAX_LISTING_ENTRIES {
+                entries.push(ScopedDirEntry {
+                    name: entry.file_name(),
+                    is_dir: entry.file_type().map_err(HostError::Io)?.is_dir(),
+                });
+            }
+        }
+        Ok(ScopedDirEntries { entries, total })
     }
 }
 
 #[cfg(unix)]
-fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
+fn inherited_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
     use std::os::fd::AsRawFd as _;
     let target =
-        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
+        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_NONBLOCK, false)?;
+    let metadata = target.metadata()?;
+    let suffix = if metadata.is_dir() {
+        "/."
+    } else if metadata.is_file() {
+        ""
+    } else {
+        return Err(HostError::Refusal("path must be a regular file or directory".to_owned()));
+    };
     let fd = target.as_raw_fd();
     if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
         return Err(HostError::Io(std::io::Error::last_os_error()));
     }
-    Ok((target, format!("/dev/fd/{fd}/.")))
+    Ok((target, format!("/dev/fd/{fd}{suffix}")))
+}
+
+#[cfg(unix)]
+fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
+    let (guard, inherited) = inherited_path(path)?;
+    if !inherited.ends_with("/.") {
+        return Err(HostError::Refusal("working directory must be a directory".to_owned()));
+    }
+    Ok((guard, inherited))
 }
 
 // ---------------------------------------------------------------------------
@@ -1035,7 +1081,15 @@ async fn run_spec(
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
-        if exited.is_some() && !stdout_open && !stderr_open {
+        // A timed-out process group still needs its escalation pass even when
+        // the shell leader has already exited. Otherwise closing inherited
+        // pipes can make us return before SIGKILL reaches descendants.
+        if exited.is_some()
+            && !stdout_open
+            && !stderr_open
+            && kill_deadline.is_none()
+            && final_wait_deadline.is_none()
+        {
             break;
         }
         tokio::select! {
@@ -1070,11 +1124,11 @@ async fn run_spec(
                 }
             }
             status = child.wait(), if exited.is_none() => {
-                // The child is gone. Do not let a pending escalation signal
-                // fire against a PID that the OS may reuse while descendants
-                // keep the output pipes open.
-                kill_deadline = None;
-                if timed_out {
+                // The child is gone, but descendants may still own the output
+                // pipes. Preserve a timeout escalation that is already in
+                // flight, and bound the remaining drain after a timeout.
+                final_wait_deadline = None;
+                if timed_out && (stdout_open || stderr_open) && drain_deadline.is_none() {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
@@ -1090,7 +1144,21 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                signal_process_tree(pid, false);
+                if exited.is_some() {
+                    signal_process_group(pid, false);
+                } else {
+                    // The process group is the authoritative target. If the
+                    // group disappeared before we could signal it, use the
+                    // live Child handle instead of the numeric PID. A PID
+                    // can be reused by an unrelated process while this
+                    // invocation is still draining inherited pipes.
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, false) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
+                    signal_process_tree(pid, false);
+                }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
                     job.terminate();
@@ -1101,6 +1169,11 @@ async fn run_spec(
                 kill_deadline = Some(Box::pin(tokio::time::sleep(
                     std::time::Duration::from_millis(250),
                 )));
+                if exited.is_some() && (stdout_open || stderr_open) && drain_deadline.is_none() {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
             () = async {
                 match kill_deadline.as_mut() {
@@ -1108,15 +1181,28 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                signal_process_tree(pid, true);
+                if exited.is_some() {
+                    signal_process_group(pid, true);
+                } else {
+                    // See the timeout branch above: never fall back to a
+                    // numeric PID after a process-group signal fails.
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, true) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
+                    signal_process_tree(pid, true);
+                }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
                     job.terminate();
                 }
                 kill_deadline = None;
-                final_wait_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                if exited.is_none() {
+                    final_wait_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
             () = async {
                 match drain_deadline.as_mut() {
@@ -1137,9 +1223,11 @@ async fn run_spec(
                 let _ = child.start_kill();
                 final_wait_deadline = None;
                 exited = Some(1);
-                drain_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                if stdout_open || stderr_open {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
         }
     }
@@ -1157,21 +1245,41 @@ async fn run_spec(
 }
 
 #[cfg(unix)]
-fn signal_process_tree(pid: Option<u32>, kill: bool) {
+fn signal_process_tree(pid: Option<u32>, kill: bool) -> bool {
+    signal_process_group_id(pid, kill, |group, signal| {
+        // SAFETY: the process group id is owned by the child we spawned.
+        unsafe { libc::kill(group, signal) }
+    })
+}
+
+#[cfg(unix)]
+fn signal_process_group_id<F>(pid: Option<u32>, kill: bool, send: F) -> bool
+where
+    F: FnOnce(libc::pid_t, libc::c_int) -> libc::c_int,
+{
+    let Some(pid) = pid else { return false };
+    let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
+    let group = -(pid as i32);
+    send(group, signal) == 0
+}
+
+#[cfg(unix)]
+fn signal_process_group(pid: Option<u32>, kill: bool) {
     let Some(pid) = pid else { return };
     let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    // SAFETY: sending a signal to a process group id we spawned; failure is
-    // harmless (the group may have exited already).
-    let group = -(pid as i32);
+    // Once the leader has exited, never fall back to signalling its numeric
+    // PID: the operating system may have reused it while descendants keep
+    // the process group alive. The group id is the only safe target here.
     unsafe {
-        if libc::kill(group, signal) != 0 {
-            libc::kill(pid as i32, signal);
-        }
+        libc::kill(-(pid as i32), signal);
     }
 }
 
 #[cfg(not(unix))]
 fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
+
+#[cfg(not(unix))]
+fn signal_process_group(_pid: Option<u32>, _kill: bool) {}
 
 #[cfg(windows)]
 struct WindowsJob {
@@ -1319,6 +1427,21 @@ fn run_reply(
     }
 }
 
+#[cfg(unix)]
+fn find_regular_file_output(path: &HostScopedPath, pattern: Option<&str>) -> String {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let matches = pattern.is_none_or(|pattern| {
+        let Some(name) = path.path.file_name() else { return false };
+        let Ok(name) = CString::new(name.as_bytes()) else { return false };
+        let Ok(pattern) = CString::new(pattern) else { return false };
+        // SAFETY: both strings are NUL-terminated and contain no interior NUL.
+        unsafe { libc::fnmatch(pattern.as_ptr(), name.as_ptr(), 0) == 0 }
+    });
+    if matches { format!("{}\n", path.path.display()) } else { String::new() }
+}
+
 fn fail_result(version: i64, action_id: &str, code: &str, message: &str) -> Value {
     json!({
         "version": version,
@@ -1357,6 +1480,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         Err(message) => return fail("bad_request", message),
     };
     let root_lists: RootLists<'_> = [context.local_roots.as_deref(), server_roots.as_deref()];
+    if let Err(message) = ensure_scoped_file_roots_available(cfg!(unix), &root_lists) {
+        return fail("unsupported_verb", message);
+    }
     let empty_args = Map::new();
     let args = frame.get("args").and_then(Value::as_object).unwrap_or(&empty_args);
     let timeout_ms = clamp_timeout(frame.get("timeoutMs"));
@@ -1433,23 +1559,23 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            let entries = match read_dir_scoped(&path, MAX_LISTING_ENTRIES + 1) {
+            let entries = match read_dir_scoped(&path) {
                 Ok(entries) => entries,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
             };
             let mut names: Vec<String> = Vec::new();
-            let mut truncated = false;
-            for entry in entries.into_iter().take(MAX_LISTING_ENTRIES + 1) {
-                if names.len() == MAX_LISTING_ENTRIES {
-                    truncated = true;
-                    break;
-                }
+            let total = entries.total;
+            for entry in entries.entries {
                 let name = entry.name.to_string_lossy().into_owned();
                 names.push(if entry.is_dir { format!("{name}/") } else { name });
             }
             names.sort();
-            let more = if truncated { "\n…[more entries]".to_owned() } else { String::new() };
+            let more = if total > MAX_LISTING_ENTRIES {
+                format!("\n…[{} more entries]", total - MAX_LISTING_ENTRIES)
+            } else {
+                String::new()
+            };
             ok_result(
                 version,
                 &action_id,
@@ -1472,7 +1598,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "grep is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+            let (_path_guard, process_path) = match inherited_path(&path) {
                 Ok(value) => value,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
@@ -1532,11 +1658,26 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "find is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+            let (_path_guard, process_path) = match inherited_path(&path) {
                 Ok(value) => value,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
             };
+            #[cfg(unix)]
+            if path.path.is_file() {
+                let pattern = args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty());
+                return run_reply(
+                    version,
+                    &action_id,
+                    RunOutcome::Done {
+                        exit_code: 0,
+                        output: find_regular_file_output(&path, pattern),
+                    },
+                    args.get("limit"),
+                    Some(500),
+                    timeout_ms,
+                );
+            }
             #[cfg(not(unix))]
             let process_path = path.path.display().to_string();
             let command_cwd = match scoped(".", false) {
@@ -1646,6 +1787,19 @@ mod tests {
         std::fs::canonicalize(&dir).unwrap()
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn process_group_failure_does_not_fallback_to_numeric_pid() {
+        let mut targets = Vec::new();
+        let signalled = signal_process_group_id(Some(4_321), false, |target, _| {
+            targets.push(target);
+            -1
+        });
+
+        assert!(!signalled);
+        assert_eq!(targets, vec![-4_321]);
+    }
+
     #[cfg(windows)]
     #[test]
     fn create_parent_dirs_accepts_windows_drive_prefix() {
@@ -1710,6 +1864,19 @@ mod tests {
     }
 
     #[test]
+    fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
+        let roots = vec!["/srv/work".to_owned()];
+        let scoped: RootLists<'_> = [Some(roots.as_slice()), None];
+        assert!(ensure_scoped_file_roots_available(true, &scoped).is_ok());
+        assert_eq!(
+            ensure_scoped_file_roots_available(false, &scoped),
+            Err(SCOPED_FILE_ROOTS_UNSUPPORTED),
+        );
+        let unscoped: RootLists<'_> = [None, None];
+        assert!(ensure_scoped_file_roots_available(false, &unscoped).is_ok());
+    }
+
+    #[test]
     fn scrubbed_env_drops_secrets_keeps_path_home() {
         let base = HashMap::from([
             ("PATH".to_owned(), "/usr/bin".to_owned()),
@@ -1725,6 +1892,7 @@ mod tests {
         assert_eq!(env.get("TERM").map(String::as_str), Some("dumb"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn read_write_ls_round_trip_inside_allowed_roots() {
         let root = scratch("rw");
@@ -1756,6 +1924,69 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn grep_accepts_a_regular_file_path() {
+        let root = scratch("grep-file");
+        let file = root.join("note.txt");
+        std::fs::write(&file, "needle\n").unwrap();
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env =
+            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let grep = perform_action(
+            &json!({ "verb": "grep", "actionId": "a1", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "needle" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(grep["ok"], true, "{grep}");
+        assert!(grep["result"]["output"].as_str().unwrap().contains("needle"));
+        let find = perform_action(
+            &json!({ "verb": "find", "actionId": "a2", "allowedRoots": roots,
+                     "args": { "path": file }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(find["ok"], true, "{find}");
+        let matching_find = perform_action(
+            &json!({ "verb": "find", "actionId": "a3", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "note.txt" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(matching_find["ok"], true, "{matching_find}");
+        assert!(matching_find["result"]["output"].as_str().unwrap().contains("note.txt"));
+        let nonmatching_find = perform_action(
+            &json!({ "verb": "find", "actionId": "a4", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "other.txt" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(nonmatching_find["ok"], true, "{nonmatching_find}");
+        assert_eq!(nonmatching_find["result"]["output"], "");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn ls_bounds_retained_entries_and_reports_omitted_names() {
+        let root = scratch("ls-bound");
+        for index in 0..(MAX_LISTING_ENTRIES + 5) {
+            std::fs::write(root.join(format!("entry-{index:04}.txt")), "").unwrap();
+        }
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let ls = perform_action(
+            &json!({ "verb": "ls", "actionId": "a1", "allowedRoots": roots, "args": {} }),
+            &context,
+        )
+        .await;
+        assert_eq!(ls["ok"], true, "{ls}");
+        let listing = ls["result"]["listing"].as_str().unwrap();
+        assert!(listing.contains("…[5 more entries]"));
+        assert_eq!(listing.lines().count(), MAX_LISTING_ENTRIES + 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
     #[tokio::test]
     async fn oversized_regular_file_is_refused_before_reading() {
         let root = scratch("oversized-read");
@@ -1797,7 +2028,7 @@ mod tests {
         .await;
 
         let output = listing["result"]["listing"].as_str().unwrap();
-        assert!(output.ends_with("\n…[more entries]"));
+        assert!(output.ends_with("\n…[1 more entries]"));
         assert_eq!(output.matches(".txt").count(), MAX_LISTING_ENTRIES);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -1818,6 +2049,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn symlinks_cannot_escape_allowed_roots() {
         let root = scratch("symlink");
@@ -1895,6 +2127,7 @@ mod tests {
         std::fs::remove_dir_all(&outside).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn exec_runs_with_cwd_discipline_and_returns_exit_code_and_output() {
         let root = scratch("exec");
@@ -1916,6 +2149,18 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_escalates_after_shell_exits_with_open_descendant_pipe() {
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
+        )
+        .await
+        .expect("timeout cleanup must not wait for a descendant pipe");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+    }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
@@ -1934,6 +2179,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn observe_trust_refuses_mutating_verbs_allows_reads() {
         let root = scratch("observe");
@@ -1965,6 +2211,31 @@ mod tests {
                 .await;
         assert_eq!(result["ok"], false);
         assert_eq!(result["code"], "unsupported_verb");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn scoped_actions_answer_typed_unsupported() {
+        let root = scratch("unsupported-scope");
+        std::fs::write(root.join("file.txt"), "content").expect("write fixture");
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let result = perform_action(
+            &json!({
+                "version": 3,
+                "verb": "read",
+                "actionId": "a1",
+                "allowedRoots": roots,
+                "args": { "path": "file.txt" },
+            }),
+            &context,
+        )
+        .await;
+        assert_eq!(result["type"], "action_result");
+        assert_eq!(result["actionId"], "a1");
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["code"], "unsupported_verb");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[tokio::test]

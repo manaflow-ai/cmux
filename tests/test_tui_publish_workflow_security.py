@@ -77,6 +77,15 @@ def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
         assert required_paths <= set(paths)
 
 
+def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
+    tui = workflow("cmux-tui.yml")
+    test_job = workflow_job(tui, "test")
+
+    assert "name: Use short temporary directory for macOS socket tests" in test_job
+    assert "if: runner.os == 'macOS'" in test_job
+    assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
