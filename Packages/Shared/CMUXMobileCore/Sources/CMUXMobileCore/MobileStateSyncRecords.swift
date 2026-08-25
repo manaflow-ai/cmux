@@ -321,6 +321,22 @@ public struct GroupSyncRecord: MobileSyncRecord {
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
     }
 
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(isCollapsed, forKey: .isCollapsed)
+        try container.encode(isPinned, forKey: .isPinned)
+        try container.encodeIfPresent(iconSymbol, forKey: .iconSymbol)
+        if let anchorWorkspaceID {
+            try container.encode(anchorWorkspaceID, forKey: .anchorWorkspaceID)
+        } else {
+            try container.encodeNil(forKey: .anchorWorkspaceID)
+        }
+        try container.encode(isEmpty, forKey: .isEmpty)
+        try container.encode(sortIndex, forKey: .sortIndex)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

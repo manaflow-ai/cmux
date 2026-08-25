@@ -80,6 +80,7 @@ enum SidebarWorkspaceRenderItem {
         let ordered = orderedGroups
             ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
         let memberGroupIds = Set(tabs.compactMap(\.groupId))
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let emptyGroups = ordered.filter { !memberGroupIds.contains($0.id) }
         guard !emptyGroups.isEmpty else { return items }
 
@@ -120,7 +121,7 @@ enum SidebarWorkspaceRenderItem {
                 case .groupHeader(let groupId, _):
                     return groupsById[groupId]?.isPinned == false
                 case .workspace(let workspaceId):
-                    guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+                    guard let workspace = tabsById[workspaceId] else {
                         return false
                     }
                     if let groupId = workspace.groupId,

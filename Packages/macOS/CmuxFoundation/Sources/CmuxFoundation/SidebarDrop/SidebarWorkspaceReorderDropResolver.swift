@@ -131,15 +131,36 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let adjustedTargetIndex = currentIndex < rawTargetIndex
             ? rawTargetIndex - 1
             : rawTargetIndex
-        let clampedTargetIndex = max(0, min(adjustedTargetIndex, groupOrder.count - 1))
+        let sameTierIndices = groupOrder.indices.filter {
+            groupsById[groupOrder[$0]]?.isPinned == draggedGroup.isPinned
+        }
+        let lowerBound = sameTierIndices.first ?? currentIndex
+        let upperBound = sameTierIndices.last ?? currentIndex
+        let clampedTargetIndex = max(
+            lowerBound,
+            min(adjustedTargetIndex, upperBound)
+        )
+        // Paint the divider at the same tier-clamped slot the commit path will
+        // use. This avoids advertising a cross-tier drop that later snaps back
+        // to the source group's pin boundary.
+        var remainingGroupOrder = groupOrder
+        if let sourceIndex = remainingGroupOrder.firstIndex(of: draggedGroup.id) {
+            remainingGroupOrder.remove(at: sourceIndex)
+        }
+        let insertionIndex = min(
+            max(0, clampedTargetIndex),
+            remainingGroupOrder.count
+        )
         let indicator: SidebarDropIndicator = {
-            guard let target = context.target else {
-                return SidebarDropIndicator(tabId: nil, edge: .bottom)
+            if insertionIndex < remainingGroupOrder.count {
+                let targetGroupId = remainingGroupOrder[insertionIndex]
+                let targetId = groupsById[targetGroupId]?.anchorWorkspaceId
+                return SidebarDropIndicator(tabId: targetId, edge: .top)
             }
-            let targetId = target.groupId
-                .flatMap { groupsById[$0]?.anchorWorkspaceId }
-                ?? target.workspaceId
-            return SidebarDropIndicator(tabId: targetId, edge: context.edge)
+            return SidebarDropIndicator(
+                tabId: remainingGroupOrder.last.flatMap { groupsById[$0]?.anchorWorkspaceId },
+                edge: .bottom
+            )
         }()
         // Keep the source id in the plan as the stable empty-header identity;
         // the commit layer interprets the explicit group action, never a
