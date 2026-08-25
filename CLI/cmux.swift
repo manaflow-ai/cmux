@@ -362,7 +362,7 @@ final class ClaudeHookSessionStore {
     private static let maxPendingCursorShellApprovals = 16
     private static let maxPendingCursorShellCommandLength = 64 * 1024
     private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
-    private static let maxHookStateFileBytes = 64 * 1024 * 1024
+    private static let maxHookStateFileBytes = 8 * 1024 * 1024
     private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
     private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
     private static let maxRememberedTerminalPromptTurnIds = 32
@@ -396,7 +396,7 @@ final class ClaudeHookSessionStore {
     func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState(deadline: deadline) { state in
+        return try withLockedState(deadline: deadline, persist: false) { state in
             state.sessions[normalized]
         }
     }
@@ -447,11 +447,10 @@ final class ClaudeHookSessionStore {
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            // Cursor's terminal callbacks do not reliably carry a generation
-            // token. Keep the command-only fallback for ordinary sequential
-            // turns; only a bounded-fence overflow disables it globally for a
-            // session, which is the explicit fail-closed safety valve.
             let requiresToolUseId = record.cursorShellCommandOnlyCorrelationDisabled == true
+                || recentlyCleared[commandIdentity.fingerprint].map {
+                    now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
+                } == true
             // Only a repeated stable tool id is a retry. Without one, two
             // identical commands may be concurrent invocations; preserving
             // both records lets two terminal callbacks consume both waits.
@@ -2080,6 +2079,7 @@ final class ClaudeHookSessionStore {
 
     func withLockedState<T>(
         deadline: Date? = nil,
+        persist: Bool = true,
         _ body: (inout ClaudeHookSessionStoreFile) throws -> T
     ) throws -> T {
         let lockPath = statePath + ".lock"
@@ -2107,10 +2107,12 @@ final class ClaudeHookSessionStore {
         var state = try loadUnlocked()
         pruneExpired(&state)
         let result = try body(&state)
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        if persist {
+            if let deadline, Date.now >= deadline {
+                throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+            }
+            try saveUnlocked(state)
         }
-        try saveUnlocked(state)
         return result
     }
 
@@ -2174,8 +2176,8 @@ final class ClaudeHookSessionStore {
               let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
         }
-        if fileSize > Self.maxHookStateFileBytes {
-            return try quarantineOversizedState(at: stateURL)
+        guard fileSize <= Self.maxHookStateFileBytes else {
+            throw CLIError(message: "Claude hook state file exceeds the bounded limit: \(statePath)")
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
@@ -33195,6 +33197,9 @@ export default CMUXSessionRestore;
         }
 
         func cursorShellFailureIsApprovalDenial(from input: ClaudeHookParsedInput) -> Bool {
+            if cursorShellToolUseId(from: input) != nil {
+                return true
+            }
             guard let rawObject = input.rawObject else { return false }
             let values = [
                 firstString(in: rawObject, keys: ["failure_type", "failureType"]),
