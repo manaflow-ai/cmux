@@ -30,8 +30,11 @@ enum State {
     OscBody,
     /// Inside a DCS/APC/PM/SOS string body. Only ST terminates these.
     StringBody,
-    /// Saw ESC inside a string body (possible ST).
-    StringBodyEscape,
+    /// Saw ESC inside a string body (possible ST). The flag preserves the
+    /// body's terminator rules while the next byte is inspected.
+    StringBodyEscape {
+        osc: bool,
+    },
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -75,29 +78,32 @@ impl CursorStyleProvenance {
             },
             State::Escape => self.dispatch_escape(byte),
             State::Csi(csi) => self.step_csi(csi, byte),
-            State::OscBody => match byte {
-                0x07 | 0x9c => self.state = State::Ground,
-                0x1b => self.state = State::StringBodyEscape,
-                0x18 | 0x1a => self.state = State::Ground,
-                _ => {}
-            },
-            State::StringBody => match byte {
-                0x9c => self.state = State::Ground,
-                0x18 | 0x1a => self.state = State::Ground,
-                0x1b => self.state = State::StringBodyEscape,
-                _ => {}
-            },
-            State::StringBodyEscape => {
-                if byte == 0x18 || byte == 0x1a {
-                    self.state = State::Ground;
-                } else if byte == b'\\' {
+            State::OscBody => self.step_string_body(true, byte),
+            State::StringBody => self.step_string_body(false, byte),
+            State::StringBodyEscape { osc } => {
+                if byte == b'\\' {
                     // ST terminates the string.
                     self.state = State::Ground;
                 } else {
-                    // The ESC canceled the string; process the byte as an
-                    // ordinary escape dispatch (xterm behavior).
-                    self.dispatch_escape(byte);
+                    // An ESC that is not followed by '\\' is string data. Do
+                    // not dispatch the byte as a fresh terminal escape: doing
+                    // so would let payload bytes synthesize DECSCUSR.
+                    self.step_string_body(osc, byte);
                 }
+            }
+        }
+    }
+
+    /// Consume one byte in a string body, preserving OSC's BEL terminator
+    /// distinction from DCS/APC/PM/SOS bodies.
+    fn step_string_body(&mut self, osc: bool, byte: u8) {
+        match byte {
+            0x9c => self.state = State::Ground,
+            0x18 | 0x1a => self.state = State::Ground,
+            0x1b => self.state = State::StringBodyEscape { osc },
+            0x07 if osc => self.state = State::Ground,
+            _ => {
+                self.state = if osc { State::OscBody } else { State::StringBody };
             }
         }
     }
@@ -329,6 +335,13 @@ fn bell_only_terminates_osc_strings() {
     let mut p = CursorStyleProvenance::default();
     p.scan(b"\x1b]payload\x07\x1b[5 q");
     assert!(p.authored());
+
+    // An ESC that is not followed by ST does not change the body's
+    // terminator rules. BEL must still close an OSC body after such a byte.
+    let mut p = CursorStyleProvenance::default();
+    p.scan(b"\x1b]payload\x1b\x07\x1b[5 q");
+    assert!(p.authored(), "BEL must still close OSC after a non-ST ESC");
+
     for opener in [b'P', b'_', b'^', b'X'] {
         let mut p = CursorStyleProvenance::default();
         p.scan(&[0x1b, opener]);
