@@ -1293,16 +1293,17 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
         *,
         source: str,
         session_id: str,
-        turn_id: str,
+        turn_id: str | None,
         work_id: str | None,
         env: dict[str, str],
     ) -> None:
         payload = {
             "session_id": session_id,
-            "turn_id": turn_id,
             "cwd": str(root),
             "hook_event_name": "SubagentStart",
         }
+        if turn_id is not None:
+            payload["turn_id"] = turn_id
         if work_id is not None:
             payload["agent_id"] = work_id
         run_hook(
@@ -1322,16 +1323,17 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
         *,
         source: str,
         session_id: str,
-        turn_id: str,
+        turn_id: str | None,
         work_id: str | None,
         env: dict[str, str],
     ) -> None:
         payload = {
             "session_id": session_id,
-            "turn_id": turn_id,
             "cwd": str(root),
             "hook_event_name": "SubagentStop",
         }
+        if turn_id is not None:
+            payload["turn_id"] = turn_id
         if work_id is not None:
             payload["agent_id"] = work_id
         run_hook(
@@ -1518,6 +1520,67 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             raise AssertionError(
                 "A missing subagent id did not retain a provisional Stop: "
                 f"{unknown_stopped_state!r}"
+            )
+
+        uncorrelated_session_id = (
+            f"structured-background-work-uncorrelated-{os.getpid()}"
+        )
+        record_work(
+            source="codex",
+            session_id=uncorrelated_session_id,
+            turn_id=None,
+            work_id="uncorrelated-work-id",
+            env=bounds_env,
+        )
+        uncorrelated_state = session_state(
+            bounds_state_dir,
+            "codex",
+            uncorrelated_session_id,
+        )
+        if uncorrelated_state.get("hasBackgroundWorkTurnOverflow") is not True:
+            raise AssertionError(
+                "A work item without turn identity did not latch conservative state: "
+                f"{uncorrelated_state!r}"
+            )
+        uncorrelated_stop_turn = "uncorrelated-stop-turn"
+        uncorrelated_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": uncorrelated_session_id,
+                "turn_id": uncorrelated_stop_turn,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, uncorrelated_stop_start)
+        uncorrelated_stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[uncorrelated_stop_start:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in uncorrelated_stop_commands
+        ):
+            raise AssertionError(
+                "A turn-specific Stop settled work with no turn identity: "
+                f"{uncorrelated_stop_commands!r}"
+            )
+        uncorrelated_stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            uncorrelated_session_id,
+        )
+        if uncorrelated_stop_turn not in uncorrelated_stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "A turn-specific Stop did not remain provisional after an "
+                "uncorrelated start: "
+                f"{uncorrelated_stopped_state!r}"
             )
 
         before_stop = len(fake.frames)
