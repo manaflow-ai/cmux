@@ -33371,6 +33371,7 @@ export default CMUXSessionRestore;
                     let fields = line.split(separator: "|", omittingEmptySubsequences: false)
                     guard fields.count >= 7 else { return false }
                     return String(fields[2]) == surfaceId
+                        && fields[4] == "Cursor"
                         && fields[5] == "Permission"
                         && fields[6] == "Approval needed"
                 }

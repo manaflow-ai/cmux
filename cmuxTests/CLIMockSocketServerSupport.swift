@@ -432,6 +432,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func agentHookMockResponse(line: String, surfaceId: String) -> String {
         guard let payload = jsonObject(line) else {
+            if line == "list_notifications" {
+                return "0:notification-id|workspace-id|\(surfaceId)|unread|Cursor|Permission|Approval needed|2026-01-01T00:00:00Z|"
+            }
             return "OK"
         }
         guard let id = payload["id"] as? String, let method = payload["method"] as? String else {

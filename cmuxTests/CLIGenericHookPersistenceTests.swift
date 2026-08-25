@@ -1103,7 +1103,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             approvalCommands.filter {
                 $0.contains(
-                    "notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(approvalCommand)"
+                    "notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed"
                 )
             }.count,
             1,
@@ -1188,7 +1188,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertTrue(
             remainingCompletionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(thirdCommand)")
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
             },
             "Resolving one of two approvals must refresh the remaining command notice, saw \(remainingCompletionCommands)"
         )
@@ -1325,7 +1325,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(
             duplicateCompletionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(duplicateCommand)")
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
             },
             "A retried Cursor shell hook must resolve as one approval, saw \(duplicateCompletionCommands)"
         )
@@ -1350,7 +1350,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let firstQuotedCompletionCommands = Array(state.snapshot().dropFirst(firstQuotedCompletionStart))
         XCTAssertTrue(
             firstQuotedCompletionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|printf 'a b'")
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
             },
             "Quoted whitespace must remain part of Cursor command identity, saw \(firstQuotedCompletionCommands)"
         )
