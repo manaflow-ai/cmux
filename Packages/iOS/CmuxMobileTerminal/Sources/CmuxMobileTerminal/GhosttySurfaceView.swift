@@ -455,6 +455,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var loggedDisplayInfo = false
     }
     var debugScrollFrameRateStats = DebugScrollFrameRateStats()
+    /// When the previous display-link callback finished (hitch attribution).
+    var debugCallbackEndedAt: CFTimeInterval = 0
+    /// Rate-limits perf.hitch log lines.
+    var debugLastHitchLogAt: CFTimeInterval = 0
     /// Whether a scroll gesture or its deceleration currently owns the
     /// scroll mechanics view (narrow seam for the frame-rate audit).
     var scrollInteractionActive: Bool {
@@ -3808,6 +3812,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            now - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
         }
+        #if DEBUG
+        // Scroll-hitch attribution: lets the frame-rate recorder distinguish
+        // a long callback (our per-frame work) from a long gap outside the
+        // callback (other main-thread work) when a tick arrives late.
+        debugCallbackEndedAt = CACurrentMediaTime()
+        #endif
     }
 
     /// Drive one render through the surface's presentation gate.

@@ -77,6 +77,7 @@ extension GhosttySurfaceView {
             return
         }
         let gap = now - debugScrollFrameRateStats.lastTick
+        let prevTick = debugScrollFrameRateStats.lastTick
         debugScrollFrameRateStats.lastTick = now
         debugScrollFrameRateStats.ticks += 1
         debugScrollFrameRateStats.maxGapMs = max(
@@ -86,6 +87,18 @@ extension GhosttySurfaceView {
         let grantedDuration = displayLink?.duration ?? 0
         if grantedDuration > 0, gap > grantedDuration * 1.6 {
             debugScrollFrameRateStats.missed += 1
+            // Attribute the hitch: a long previous callback means the stall
+            // is inside our per-frame work; a short callback followed by a
+            // long dead gap means other main-thread work (or a system-level
+            // commit) delayed the next tick.
+            if now - debugLastHitchLogAt >= 0.25 {
+                debugLastHitchLogAt = now
+                let callbackMs = max(0, (debugCallbackEndedAt - prevTick) * 1000)
+                let deadMs = max(0, (now - max(debugCallbackEndedAt, prevTick)) * 1000)
+                MobileDebugLog.anchormux(
+                    "perf.hitch gap_ms=\(Int(gap * 1000)) prev_cb_ms=\(Int(callbackMs)) dead_ms=\(Int(deadMs))"
+                )
+            }
         }
         let windowElapsed = now - debugScrollFrameRateStats.windowStart
         guard windowElapsed >= 1.0 else { return }
