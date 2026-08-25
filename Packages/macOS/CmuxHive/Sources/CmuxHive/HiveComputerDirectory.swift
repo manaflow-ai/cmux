@@ -105,7 +105,9 @@ public final class HiveComputerDirectory {
                 self?.removeListener(id: id)
             }
         }
-        startPresenceIfNeeded()
+        if !listeners.isEmpty {
+            startPresenceIfNeeded()
+        }
         return stream
     }
 
@@ -186,7 +188,9 @@ public final class HiveComputerDirectory {
         for (_, continuation) in listeners {
             continuation.yield(computers)
         }
-        startPresenceIfNeeded()
+        if !listeners.isEmpty {
+            startPresenceIfNeeded()
+        }
         return scopeGeneration
     }
 
