@@ -91,12 +91,17 @@ public actor CmuxPluginExecutionSnapshotter {
     /// Creates a snapshotter with an injected private staging root.
     public init(
         rootDirectoryURL: URL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-plugin-snapshots", isDirectory: true),
+            .appendingPathComponent(
+                "cmux-plugin-snapshots-\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true
+            ),
         fileManager: FileManager = .default
     ) {
         self.rootDirectoryURL = rootDirectoryURL.standardizedFileURL
         self.fileManager = fileManager
-        pruneOrphanedSnapshots()
+        Task { [weak self] in
+            await self?.pruneOrphanedSnapshots()
+        }
     }
 
     /// Copies and revalidates one approved plugin artifact.
@@ -495,8 +500,9 @@ public actor CmuxPluginExecutionSnapshotter {
     }
 
     /// Recovers UUID-named snapshots left by a crashed or force-quit host.
-    /// Only roots older than a day are removed, leaving snapshots from another
-    /// currently-running cmux instance untouched while bounding disk retention.
+    /// The default root is process-scoped, and only roots older than a day are
+    /// removed, leaving snapshots from another currently-running host untouched
+    /// while bounding disk retention.
     private func pruneOrphanedSnapshots() {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: rootDirectoryURL,

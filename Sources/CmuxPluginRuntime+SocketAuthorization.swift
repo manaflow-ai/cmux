@@ -27,6 +27,9 @@ extension CmuxPluginRuntime {
                 == resolvedProcess.authorization else {
             return .denied(Self.pluginIdentityMismatchMessage)
         }
+        guard processIdentityIsCurrentLocked(rootProcessID: resolvedProcess.rootProcessID) else {
+            return .denied(Self.pluginIdentityMismatchMessage)
+        }
         guard let descriptor = snapshot.plugins.first(where: {
             $0.plugin.manifest.id == pluginID
         }) else {
@@ -101,6 +104,7 @@ extension CmuxPluginRuntime {
         lock.lock()
         guard processAuthorizations[resolvedProcess.rootProcessID]
                 == resolvedProcess.authorization,
+              processIdentityIsCurrentLocked(rootProcessID: resolvedProcess.rootProcessID),
               let expectedToken = sessionTokens[pluginID],
               Self.constantTimeEquals(expectedToken, token),
               snapshot.plugins.contains(where: {

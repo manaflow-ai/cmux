@@ -81,14 +81,25 @@ extension CmuxPluginRuntime {
         lock.lock()
         defer { lock.unlock() }
         guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
-            return nil
+            return .revoked
         }
-        guard let identity = processAuthorizationIdentities[resolved.rootProcessID],
-              let expectedStart = identity.startMicroseconds,
-              Self.processStartMicroseconds(resolved.rootProcessID) == expectedStart else {
-            return nil
+        guard processIdentityIsCurrentLocked(rootProcessID: resolved.rootProcessID) else {
+            // The peer reached a supervised root, but its process instance no
+            // longer matches. Treat it as revoked rather than an ordinary cmux
+            // client so it cannot fall through to unrestricted socket commands.
+            return .revoked
         }
         return resolved.authorization
+    }
+
+    /// Checks a resolved root while ``lock`` is held. Socket stream
+    /// registration uses the same check to close the PID-reuse window.
+    func processIdentityIsCurrentLocked(rootProcessID: pid_t) -> Bool {
+        guard let identity = processAuthorizationIdentities[rootProcessID],
+              let expectedStart = identity.startMicroseconds else {
+            return false
+        }
+        return Self.processStartMicroseconds(rootProcessID) == expectedStart
     }
 
     /// Detaches a plugin's streams while the caller holds ``lock``.
@@ -129,7 +140,7 @@ extension CmuxPluginRuntime {
         return result == expectedSize ? info : nil
     }
 
-    private static func processStartMicroseconds(_ processID: Int32) -> Int64? {
+    static func processStartMicroseconds(_ processID: Int32) -> Int64? {
         guard let info = processBSDInfo(processID) else { return nil }
         return Int64(info.pbi_start_tvsec) * 1_000_000
             + Int64(info.pbi_start_tvusec)

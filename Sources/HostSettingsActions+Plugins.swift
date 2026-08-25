@@ -48,7 +48,11 @@ extension HostSettingsActions {
     func pluginShortcutDescriptors() -> [PluginShortcutDescriptor] {
         let snapshot = pluginRuntime.currentSnapshot()
         let activeBindings = pluginRuntime.activePluginShortcutBindings()
-        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(in: activeBindings)
+        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(
+            in: activeBindings,
+            configuredCmuxShortcuts: AppDelegate.shared?
+                .configuredCmuxShortcutBindingsForPluginConflicts() ?? [:]
+        )
         return snapshot.plugins
             .filter { $0.isEnabled && $0.permissions.pluginScopes.contains(.paletteActions) }
             .flatMap { descriptor -> [PluginShortcutDescriptor] in
@@ -92,7 +96,9 @@ extension HostSettingsActions {
         guard KeyboardShortcutSettings.pluginShortcutConflict(
             appShortcut,
             excluding: actionID,
-            activePluginBindings: activeBindings
+            activePluginBindings: activeBindings,
+            configuredCmuxShortcuts: AppDelegate.shared?
+                .configuredCmuxShortcutBindingsForPluginConflicts() ?? [:]
         ) == nil else { return }
         pluginRuntime.setPluginShortcut(appShortcut, actionID: actionID)
     }
@@ -110,7 +116,9 @@ extension HostSettingsActions {
         let conflictID = KeyboardShortcutSettings.pluginShortcutConflict(
             StoredShortcut(cmuxSettingsStoredShortcut: shortcut),
             excluding: actionID,
-            activePluginBindings: pluginRuntime.activePluginShortcutBindings()
+            activePluginBindings: pluginRuntime.activePluginShortcutBindings(),
+            configuredCmuxShortcuts: AppDelegate.shared?
+                .configuredCmuxShortcutBindingsForPluginConflicts() ?? [:]
         )
         return conflictID.map { pluginShortcutConflictName(for: $0) }
     }

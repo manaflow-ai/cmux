@@ -2,6 +2,20 @@ import AppKit
 import CmuxExtensionKit
 
 extension AppDelegate {
+    /// Returns user-defined cmux shortcuts so plugin conflict checks match the
+    /// configured-action routing that runs before plugin shortcuts.
+    func configuredCmuxShortcutBindingsForPluginConflicts() -> [String: StoredShortcut] {
+        var bindings: [String: StoredShortcut] = [:]
+        for context in mainWindowContexts.values {
+            for action in context.cmuxConfigStore?.shortcutActions() ?? [] {
+                if let shortcut = action.shortcut {
+                    bindings[action.id] = shortcut
+                }
+            }
+        }
+        return bindings
+    }
+
     func configuredPluginShortcutBindings() -> [StoredShortcut] {
         guard let pluginRuntime else { return [] }
         return Array(pluginRuntime.routablePluginShortcutBindings().values)

@@ -29,16 +29,21 @@ extension KeyboardShortcutSettings {
     static func pluginShortcutConflict(
         _ proposed: StoredShortcut,
         excluding actionID: String,
-        activePluginBindings: [String: StoredShortcut]
+        activePluginBindings: [String: StoredShortcut],
+        configuredCmuxShortcuts: [String: StoredShortcut] = [:]
     ) -> String? {
         var bindings = activePluginBindings
         bindings[actionID] = proposed
-        return pluginShortcutConflicts(in: bindings)[actionID]
+        return pluginShortcutConflicts(
+            in: bindings,
+            configuredCmuxShortcuts: configuredCmuxShortcuts
+        )[actionID]
     }
 
     /// Returns every plugin-to-plugin conflict in one linear projection pass.
     static func pluginShortcutConflicts(
-        in bindings: [String: StoredShortcut]
+        in bindings: [String: StoredShortcut],
+        configuredCmuxShortcuts: [String: StoredShortcut] = [:]
     ) -> [String: String] {
         var singlesByFirstStroke: [ShortcutStroke: [String]] = [:]
         var chordsByFirstStroke: [ShortcutStroke: [String]] = [:]
@@ -68,6 +73,17 @@ extension KeyboardShortcutSettings {
                 )
             }) {
                 conflicts[actionID] = builtInConflict.rawValue
+                continue
+            }
+            if let configuredConflict = configuredCmuxShortcuts.first(where: { _, configured in
+                shortcutsConflict(
+                    shortcut,
+                    proposedUsesNumberedDigitMatching: false,
+                    configured,
+                    configuredUsesNumberedDigitMatching: false
+                )
+            }) {
+                conflicts[actionID] = configuredConflict.key
                 continue
             }
             if shortcut.hasChord {
