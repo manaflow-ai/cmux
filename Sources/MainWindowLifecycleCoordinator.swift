@@ -115,6 +115,14 @@ final class MainWindowLifecycleCoordinator {
             let scanBindings = windowlessRecoveryResumeIndexesBindings
             let indexes = await loader(scanBindings)
             guard !Task.isCancelled else { break }
+            guard let indexes else {
+                // An unavailable fresh scan must not immediately launch another
+                // worker; its handle remains coalesced until the worker exits.
+                windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
+                windowlessRecoveryTTYDeviceBindings = nil
+                windowlessRecoveryResumeIndexesTask = nil
+                return nil
+            }
             guard scanGeneration == windowlessRecoveryResumeIndexesGeneration else {
                 continue
             }

@@ -69,7 +69,12 @@ struct ProcessDetectedResumeIndexes: Sendable {
             }
             onWorkerCreated(worker)
             Task {
-                guard await sleepUntilDeadline(deadline) else { return }
+                guard await sleepUntilDeadline(deadline) else {
+                    // Cancellation must still release the continuation; otherwise
+                    // the owning recovery task can wait forever during teardown.
+                    _ = gate.resume(returning: nil)
+                    return
+                }
                 worker.cancel()
                 _ = gate.resume(returning: nil)
             }
