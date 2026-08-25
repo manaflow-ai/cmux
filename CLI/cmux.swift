@@ -362,6 +362,7 @@ final class ClaudeHookSessionStore {
     private static let maxPendingCursorShellApprovals = 16
     private static let maxPendingCursorShellCommandLength = 64 * 1024
     private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
+    private static let maxHookStateFileBytes = 64 * 1024 * 1024
     private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
     private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
     private static let maxRememberedTerminalPromptTurnIds = 32
@@ -446,10 +447,11 @@ final class ClaudeHookSessionStore {
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
+            // Cursor's terminal callbacks do not reliably carry a generation
+            // token. Keep the command-only fallback for ordinary sequential
+            // turns; only a bounded-fence overflow disables it globally for a
+            // session, which is the explicit fail-closed safety valve.
             let requiresToolUseId = record.cursorShellCommandOnlyCorrelationDisabled == true
-                || recentlyCleared[commandIdentity.fingerprint].map {
-                    now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
-                } == true
             // Only a repeated stable tool id is a retry. Without one, two
             // identical commands may be concurrent invocations; preserving
             // both records lets two terminal callbacks consume both waits.
@@ -2172,7 +2174,7 @@ final class ClaudeHookSessionStore {
               let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
         }
-        if fileSize > 8 * 1024 * 1024 {
+        if fileSize > Self.maxHookStateFileBytes {
             return try quarantineOversizedState(at: stateURL)
         }
         let data = try Data(contentsOf: stateURL)
