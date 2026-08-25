@@ -1176,6 +1176,9 @@ func readBoundedLine(reader *bufio.Reader, maximum int) ([]byte, error) {
 func writeAll(writer io.Writer, data []byte) error {
 	for len(data) > 0 {
 		written, err := writer.Write(data)
+		if written < 0 || written > len(data) {
+			return errors.New("writer returned an invalid count")
+		}
 		if err != nil {
 			return err
 		}
