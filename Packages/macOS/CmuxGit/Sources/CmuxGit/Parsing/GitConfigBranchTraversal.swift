@@ -36,6 +36,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     func watchPaths() -> [String] {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
+        if !result.isComplete {
+            paths.append(contentsOf: GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path))
+        }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
         return paths.filter { seen.insert($0).inserted }
@@ -182,6 +185,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 budget: &budget
             )
         }
+        guard !budget.didExhaustBudget else { return nil }
         return lines.isEmpty ? nil : lines.joined()
     }
 
