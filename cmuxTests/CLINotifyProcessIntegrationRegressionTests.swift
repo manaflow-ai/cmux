@@ -97,6 +97,74 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(close.stdout.contains("closed"), close.stdout)
     }
 
+    func testLocalTmuxCleanupPreservesRegistryWhenListingFails() throws {
+        let cliPath = try bundledCLIPath()
+        let stateRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-local-tmux-cleanup-\(UUID().uuidString)", isDirectory: true)
+        let fakeTmuxURL = stateRoot.appendingPathComponent("fake-tmux", isDirectory: false)
+        let sessionName = "cleanup-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: stateRoot) }
+
+        let fakeTmux = """
+        #!/bin/sh
+        case "$FAKE_TMUX_MODE:$*" in
+          start:*has-session*) exit 1 ;;
+          start:*) exit 0 ;;
+          fail:*) echo "tmux unavailable" >&2; exit 1 ;;
+          *) exit 1 ;;
+        esac
+        """
+        try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
+        XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
+        environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
+        environment["FAKE_TMUX_MODE"] = "start"
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_SOCKET")
+
+        let start = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "start", sessionName, "--cwd", stateRoot.path, "--detached"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        environment["FAKE_TMUX_MODE"] = "fail"
+        let cleanup = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "cleanup"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(cleanup.timedOut, cleanup.stderr)
+        XCTAssertNotEqual(cleanup.status, 0, cleanup.stdout)
+        XCTAssertTrue(cleanup.stderr.contains("tmux unavailable"), cleanup.stderr)
+
+        environment["FAKE_TMUX_MODE"] = "start"
+        let list = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "list", "--json"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(list.timedOut, list.stderr)
+        XCTAssertEqual(list.status, 0, list.stderr)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(list.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(payload["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?["session_name"] as? String, sessionName)
+        XCTAssertEqual(sessions.first?["managed"] as? Bool, true)
+        XCTAssertEqual(sessions.first?["live"] as? Bool, false)
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
