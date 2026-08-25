@@ -62,7 +62,7 @@ extension CMUXCLI {
                 mappedSession: mappedSession,
                 routing: taskRouting,
                 client: client
-            ) else {
+            ), resolvedTarget.isAuthoritative else {
                 telemetry.breadcrumb("claude-hook.task-sync.unresolved")
                 printClaudeHookAck()
                 return
@@ -1103,13 +1103,21 @@ extension CMUXCLI {
         if input?["status"] as? String == "deleted" {
             return nil
         }
-        guard let response = rawObject?["tool_response"] as? [String: Any],
-              let task = response["task"] as? [String: Any],
-              let id = task["id"] as? String,
+        let responseTask = (rawObject?["tool_response"] as? [String: Any])?["task"] as? [String: Any]
+        let eventTask = rawObject?["task"] as? [String: Any]
+        let id = responseTask?["id"] as? String
+            ?? eventTask?["id"] as? String
+            ?? input?["taskId"] as? String
+            ?? input?["task_id"] as? String
+            ?? rawObject?["taskId"] as? String
+            ?? rawObject?["task_id"] as? String
+        guard let id,
               !id.isEmpty else { return nil }
-        let responseSubject = task["subject"] as? String
+        let responseSubject = responseTask?["subject"] as? String
+        let eventSubject = eventTask?["subject"] as? String
         let inputSubject = input?["subject"] as? String
-        guard let subject = responseSubject ?? inputSubject,
+        let rawSubject = rawObject?["task_subject"] as? String
+        guard let subject = responseSubject ?? eventSubject ?? inputSubject ?? rawSubject,
               !subject.isEmpty else { return nil }
         return ClaudeTaskIdentity(id: id, subject: subject)
     }

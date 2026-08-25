@@ -26186,8 +26186,6 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
         )
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         if subcommand == "task-sync" {
             let deadlineUptime = client.enforceResponseDeadline(
@@ -26196,6 +26194,21 @@ struct CMUXCLI {
             )
             sessionStore.enforceLockDeadline(untilUptime: deadlineUptime)
         }
+        let rawInputData: Data
+        if subcommand == "task-sync" {
+            guard let boundedInput = Self.readBoundedFeedHookStdin(
+                maxBytes: Self.feedHookMaxStdinBytes
+            ) else {
+                telemetry.breadcrumb("claude-hook.task-sync.input-too-large")
+                printClaudeHookAck()
+                return
+            }
+            rawInputData = boundedInput
+        } else {
+            rawInputData = FileHandle.standardInput.readDataToEndOfFile()
+        }
+        let rawInput = String(data: rawInputData, encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
         // captured launch argv, and session restore re-applies it as
