@@ -51,8 +51,8 @@ struct SidebarGroupHeaderRowActions {
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     /// Defaults keep lightweight row fixtures source-compatible.
-    let onInsertDividerAbove: () -> Void = {}
-    let onInsertDividerBelow: () -> Void = {}
+    var onInsertDividerAbove: () -> Void = {}
+    var onInsertDividerBelow: () -> Void = {}
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void

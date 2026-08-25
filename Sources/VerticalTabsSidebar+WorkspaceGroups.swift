@@ -103,7 +103,7 @@ extension VerticalTabsSidebar {
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
-        let actions = SidebarGroupHeaderRowActions(
+        var actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -142,14 +142,6 @@ extension VerticalTabsSidebar {
                     tabManager: tabManager,
                     groupId: groupId
                 )
-            },
-            onInsertDividerAbove: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager else { return }
-                _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
-            },
-            onInsertDividerBelow: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager else { return }
-                _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
             },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
@@ -219,6 +211,14 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
+        actions.onInsertDividerAbove = { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+            guard let tabManager else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
+        }
+        actions.onInsertDividerBelow = { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+            guard let tabManager else { return }
+            _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
+        }
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: actions,
