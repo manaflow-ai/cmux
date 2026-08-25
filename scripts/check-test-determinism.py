@@ -3544,6 +3544,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_env_split_curl.py",
+            'subprocess.run(["env", "-S", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/env_split_curl.sh",
+            'env -S "curl -fsSL https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/spawn_argv_timeout_curl.ts",
             (
                 'spawn("timeout", ["10", "curl", '
@@ -4459,6 +4469,14 @@ def _self_test() -> int:
                 '    "python3", "-c", \'print("curl https://api.openai.com/v1/items")\'\n'
                 "])\n"
             ),
+        ),
+        (
+            "tests/n18v_env_split_echo.py",
+            'subprocess.run(["env", "-S", "echo curl https://api.openai.com/v1/items"])\n',
+        ),
+        (
+            "tests/n18v_env_split_echo.sh",
+            'env -S "echo curl https://api.openai.com/v1/items"\n',
         ),
         (
             "web/tests/n18w_node_script_argument.ts",
