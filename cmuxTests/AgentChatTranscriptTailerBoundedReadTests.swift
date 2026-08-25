@@ -235,7 +235,7 @@ struct AgentChatTranscriptTailerOwnershipTests {
             source: "claude",
             workspaceId: "workspace",
             surfaceId: nil,
-            transcriptPath: root.appendingPathComponent("session-(index).jsonl").path,
+            transcriptPath: root.appendingPathComponent("session-\(index).jsonl").path,
             cwd: root.path,
             ppid: nil,
             receivedAt: Date(timeIntervalSince1970: TimeInterval(index + 1))
@@ -243,18 +243,18 @@ struct AgentChatTranscriptTailerOwnershipTests {
     }
 
     private func makeTranscript(at root: URL, index: Int) throws -> URL {
-        let transcript = root.appendingPathComponent("session-(index).jsonl")
+        let transcript = root.appendingPathComponent("session-\(index).jsonl")
         try Data().write(to: transcript)
         return transcript
     }
 
     private func sessionID(index: Int) -> String {
-        "tailer-session-(index)"
+        "tailer-session-\(index)"
     }
 
     private func temporaryDirectory() throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-tailers-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-tailers-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }
