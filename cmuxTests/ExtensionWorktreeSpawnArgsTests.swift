@@ -178,6 +178,38 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(fileManager.fileExists(atPath: ignoredDirectory.appendingPathComponent("user-data.txt").path))
     }
 
+    @Test("rollback refuses a replacement checkout at the original path")
+    func rollbackRefusesReplacementCheckoutAtOriginalPath() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "replacement")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        try runGit([
+            "-C", projectRoot.path,
+            "worktree", "remove", "--force", result.worktreePath,
+        ])
+        try runGit([
+            "-C", projectRoot.path,
+            "worktree", "add", result.worktreePath, result.branchName,
+        ])
+        let replacementArtifact = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .appendingPathComponent(result.generatedArtifactRelativePath)
+        try fileManager.createDirectory(
+            at: replacementArtifact.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try result.generatedArtifactContents.write(to: replacementArtifact)
+
+        await expectRollbackRefused(result)
+
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+        #expect(try Data(contentsOf: replacementArtifact) == result.generatedArtifactContents)
+    }
+
     @Test("rollback retains checkout when generated artifact changes")
     func rollbackRetainsCheckoutWhenGeneratedArtifactChanges() async throws {
         let fileManager = FileManager.default

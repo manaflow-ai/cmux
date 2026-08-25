@@ -10,6 +10,10 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     let createdHead: String
     let generatedArtifactRelativePath: String
     let generatedArtifactContents: Data
+    /// Filesystem identity captured immediately after `git worktree add`.
+    /// Rollback refuses to touch a path whose checkout was replaced.
+    let worktreeDeviceID: UInt64? = nil
+    let worktreeFileID: UInt64? = nil
     /// A convenience command (e.g. a sample dev-server launcher) that should run
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
@@ -62,6 +66,17 @@ extension CmuxExtensionWorktreeCreationResult {
             try await Task.detached(priority: .utility) {
                 let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL
                 let projectRootURL = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+                guard let expectedDeviceID = worktreeDeviceID,
+                      let expectedFileID = worktreeFileID,
+                      try filesystemIdentityMatches(
+                          worktreeURL,
+                          deviceID: expectedDeviceID,
+                          fileID: expectedFileID
+                      ) else {
+                    throw rollbackRefused(
+                        "Worktree path no longer identifies the created checkout."
+                    )
+                }
                 let artifactURL = worktreeURL
                     .appendingPathComponent(generatedArtifactRelativePath, isDirectory: false)
                     .standardizedFileURL
@@ -178,6 +193,16 @@ extension CmuxExtensionWorktreeCreationResult {
                     throw rollbackRefused("Worktree is locked.")
                 }
 
+                guard try filesystemIdentityMatches(
+                    worktreeURL,
+                    deviceID: expectedDeviceID,
+                    fileID: expectedFileID
+                ) else {
+                    throw rollbackRefused(
+                        "Worktree path changed before rollback cleanup."
+                    )
+                }
+
                 let artifactBackupURL = worktreeURL
                     .deletingLastPathComponent()
                     .appendingPathComponent(".cmux-rollback-\(UUID().uuidString)", isDirectory: false)
@@ -203,11 +228,29 @@ extension CmuxExtensionWorktreeCreationResult {
                 }
 
                 do {
+                    guard try filesystemIdentityMatches(
+                        worktreeURL,
+                        deviceID: expectedDeviceID,
+                        fileID: expectedFileID
+                    ) else {
+                        throw rollbackRefused(
+                            "Worktree path changed before destructive cleanup."
+                        )
+                    }
                     try await CmuxExtensionWorktreePrototype.run(
                         "rmdir",
                         [artifactDirectory.path],
                         failureDescription: "Could not remove the unclaimed worktree."
                     )
+                    guard try filesystemIdentityMatches(
+                        worktreeURL,
+                        deviceID: expectedDeviceID,
+                        fileID: expectedFileID
+                    ) else {
+                        throw rollbackRefused(
+                            "Worktree path changed before branch cleanup."
+                        )
+                    }
                     try await CmuxExtensionWorktreePrototype.run(
                         "git",
                         ["-C", projectRootURL.path, "worktree", "remove", worktreeURL.path],
@@ -284,16 +327,26 @@ extension CmuxExtensionWorktreeCreationResult {
     }
 
     private func refersToSameFileSystemItem(_ lhs: URL, _ rhs: URL) throws -> Bool {
-        let fileManager = FileManager.default
-        let lhsAttributes = try fileManager.attributesOfItem(atPath: lhs.path)
-        let rhsAttributes = try fileManager.attributesOfItem(atPath: rhs.path)
-        guard let lhsSystemNumber = (lhsAttributes[.systemNumber] as? NSNumber)?.uint64Value,
-              let lhsFileNumber = (lhsAttributes[.systemFileNumber] as? NSNumber)?.uint64Value,
-              let rhsSystemNumber = (rhsAttributes[.systemNumber] as? NSNumber)?.uint64Value,
-              let rhsFileNumber = (rhsAttributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
-            return false
+        let lhsIdentity = try filesystemIdentity(at: lhs)
+        let rhsIdentity = try filesystemIdentity(at: rhs)
+        return lhsIdentity == rhsIdentity
+    }
+
+    private func filesystemIdentityMatches(
+        _ url: URL,
+        deviceID: UInt64,
+        fileID: UInt64
+    ) throws -> Bool {
+        try filesystemIdentity(at: url) == (deviceID: deviceID, fileID: fileID)
+    }
+
+    private func filesystemIdentity(at url: URL) throws -> (deviceID: UInt64, fileID: UInt64) {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let deviceID = (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let fileID = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            throw rollbackRefused("Could not resolve worktree filesystem identity.")
         }
-        return lhsSystemNumber == rhsSystemNumber && lhsFileNumber == rhsFileNumber
+        return (deviceID, fileID)
     }
 
     private func validateGeneratedArtifact(at artifactURL: URL) throws {
@@ -424,6 +477,19 @@ enum CmuxExtensionWorktreePrototype {
                     in: worktree,
                     projectName: projectRoot.lastPathComponent
                 )
+                let worktreeAttributes = try FileManager.default.attributesOfItem(
+                    atPath: worktree.path
+                )
+                guard let worktreeDeviceID =
+                        (worktreeAttributes[.systemNumber] as? NSNumber)?.uint64Value,
+                      let worktreeFileID =
+                        (worktreeAttributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+                    throw NSError(
+                        domain: "CmuxExtensionWorktreePrototype",
+                        code: 4,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                    )
+                }
 
                 let port = 4_100 + abs(branchName.hashValue % 800)
                 let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
@@ -435,6 +501,8 @@ enum CmuxExtensionWorktreePrototype {
                     createdHead: createdHead,
                     generatedArtifactRelativePath: generatedArtifact.relativePath,
                     generatedArtifactContents: generatedArtifact.contents,
+                    worktreeDeviceID: worktreeDeviceID,
+                    worktreeFileID: worktreeFileID,
                     setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
                 )
             }.value
