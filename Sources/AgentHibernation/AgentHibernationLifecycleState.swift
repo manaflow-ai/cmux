@@ -92,6 +92,7 @@ enum AgentHibernationLifecycleStatusKeys {
     static let allowedStatusKeys: Set<String> = [
         "amp",
         "antigravity",
+        "campfire",
         "claude_code",
         "codebuddy",
         "codex",
