@@ -289,11 +289,11 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
-        if let artifactHTMLPreviewPolicy,
-           !artifactHTMLPreviewPolicy.allowsNavigation(
-               to: navigationAction.request.url,
-               targetIsMainFrame: navigationAction.targetFrame?.isMainFrame
-           ) {
+        let artifactNavigationAllowed = artifactHTMLPreviewPolicy?.allowsNavigation(
+            to: navigationAction.request.url,
+            targetIsMainFrame: navigationAction.targetFrame?.isMainFrame
+        ) == true
+        if artifactHTMLPreviewPolicy != nil, !artifactNavigationAllowed {
             decisionHandler(.cancel)
             return
         }
@@ -308,7 +308,8 @@ import WebKit
         if let url = navigationAction.request.url {
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
-            if !isTrustedInternal,
+            if !artifactNavigationAllowed,
+               !isTrustedInternal,
                url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)
@@ -725,7 +726,12 @@ import WebKit
 
         if let url = navigationResponse.response.url {
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
-            if !isTrustedInternal,
+            let artifactNavigationAllowed = artifactHTMLPreviewPolicy?.allowsNavigation(
+                to: url,
+                targetIsMainFrame: navigationResponse.isForMainFrame
+            ) == true
+            if !artifactNavigationAllowed,
+               !isTrustedInternal,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)
                 if navigationResponse.isForMainFrame {
@@ -853,8 +859,14 @@ import WebKit
 
     /// Applies a newly changed policy to the currently displayed document.
     func enforceURLAllowlistPolicy(in webView: WKWebView, displayURL: URL? = nil) {
-        guard let url = displayURL ?? webView.url,
-              !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+        guard let url = displayURL ?? webView.url else { return }
+        if artifactHTMLPreviewPolicy?.allowsNavigation(
+            to: url,
+            targetIsMainFrame: true
+        ) == true {
+            return
+        }
+        guard !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
             return
         }
         blockURLAllowlistNavigation(url, in: webView)
