@@ -11579,6 +11579,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
+            armSidebarProcessExitWatchersForCurrentPanels()
             if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
                 var panelIdsWithoutCurrentWorkspace = Set<UUID>()
                 for (workspaceId, panelIds) in panelIdsByWorkspaceId {
@@ -11627,8 +11628,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             }
             guard isPresented, !Task.isCancelled else { return }
-            let panelIDs = Set(tabManager.tabs.flatMap { $0.panels.keys })
-            SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(panelIDs: panelIDs)
+            armSidebarProcessExitWatchersForCurrentPanels()
             if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
@@ -12603,6 +12603,30 @@ struct VerticalTabsSidebar: View, Equatable {
         workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
+    }
+
+    private func armSidebarProcessExitWatchersForCurrentPanels() {
+        guard CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+            effectiveProviderId: effectiveExtensionSidebarProviderId
+        ) else { return }
+        var ownerByPanelID: [UUID: UUID] = [:]
+        var ambiguousPanelIDs = Set<UUID>()
+        for workspace in tabManager.tabs {
+            for panelID in workspace.panels.keys {
+                if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
+                    ambiguousPanelIDs.insert(panelID)
+                } else {
+                    ownerByPanelID[panelID] = workspace.id
+                }
+            }
+        }
+        for panelID in ambiguousPanelIDs {
+            ownerByPanelID.removeValue(forKey: panelID)
+        }
+        SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(
+            panelIDs: Set(ownerByPanelID.keys),
+            workspaceIDByPanelID: ownerByPanelID
+        )
     }
 
     private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {

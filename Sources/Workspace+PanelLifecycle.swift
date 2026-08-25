@@ -197,10 +197,11 @@ extension Workspace {
             if !isRemoteWorkspace {
                 SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(
                     pid: Int(pid),
-                    panelID: panelId
+                    panelID: panelId,
+                    workspaceID: id
                 )
+                SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
             }
-            SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime

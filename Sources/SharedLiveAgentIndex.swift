@@ -95,7 +95,7 @@ final class SharedLiveAgentIndex {
     private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
-    private var sidebarActivePanelIDs = Set<UUID>()
+    private var sidebarProcessWorkspaceIDsByPID: [Int: [UUID: UUID]] = [:]
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -597,8 +597,10 @@ final class SharedLiveAgentIndex {
 
     /// Arms one kernel-backed exit source per active local agent PID.
     /// Process exit is the primary path for crash-without-hook liveness updates.
-    func armSidebarProcessExitWatchers(panelIDs: Set<UUID>) {
-        sidebarActivePanelIDs.formUnion(panelIDs)
+    func armSidebarProcessExitWatchers(
+        panelIDs: Set<UUID>,
+        workspaceIDByPanelID: [UUID: UUID] = [:]
+    ) {
         guard let index else { return }
         synchronizeSidebarProcessExitWatchers(
             index: index,
@@ -622,15 +624,27 @@ final class SharedLiveAgentIndex {
         for (processID, panelKeys) in panelKeysByPID {
             let panelIDs = Set(panelKeys.map(\.panelId))
             sidebarProcessPanelIDsByPID[processID, default: []].formUnion(panelIDs)
+            for panelID in panelIDs {
+                if let workspaceID = workspaceIDByPanelID[panelID] {
+                    sidebarProcessWorkspaceIDsByPID[processID, default: [:]][panelID] = workspaceID
+                }
+            }
             armSidebarProcessExitWatcher(pid: processID)
         }
     }
 
     /// Arms a watcher immediately for a newly reported local agent PID.
-    func armSidebarProcessExitWatcher(pid: Int, panelID: UUID? = nil) {
+    func armSidebarProcessExitWatcher(
+        pid: Int,
+        panelID: UUID? = nil,
+        workspaceID: UUID? = nil
+    ) {
         guard pid > 0 else { return }
         if let panelID {
             sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
+            if let workspaceID {
+                sidebarProcessWorkspaceIDsByPID[pid, default: [:]][panelID] = workspaceID
+            }
         }
         guard let identity = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
             sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
@@ -673,9 +687,13 @@ final class SharedLiveAgentIndex {
         panelIDs.remove(panelID)
         if panelIDs.isEmpty {
             sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
+            sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
             sidebarProcessExitWatchers.removeValue(forKey: pid)?.source.cancel()
         } else {
             sidebarProcessPanelIDsByPID[pid] = panelIDs
+            sidebarProcessWorkspaceIDsByPID[pid] = sidebarProcessWorkspaceIDsByPID[pid]?.filter {
+                panelIDs.contains($0.key)
+            }
         }
     }
 
@@ -686,15 +704,23 @@ final class SharedLiveAgentIndex {
         if let expectedIdentity,
            let currentIdentity = AgentPIDProcessIdentity(pid: pid_t(processID)),
            currentIdentity != expectedIdentity {
+            let panelIDs = sidebarProcessPanelIDsByPID[processID] ?? []
+            let workspaceIDs = sidebarProcessWorkspaceIDsByPID[processID] ?? [:]
             sidebarProcessExitWatchers.removeValue(forKey: processID)?.source.cancel()
             armSidebarProcessExitWatcher(pid: processID)
+            refreshCachedProcessLivenessForSidebar(
+                panelIDs: panelIDs,
+                currentWorkspaceIDByPanelID: workspaceIDs,
+                force: true
+            )
             return
         }
         sidebarProcessExitWatchers.removeValue(forKey: processID)?.source.cancel()
         let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
+        let workspaceIDs = sidebarProcessWorkspaceIDsByPID.removeValue(forKey: processID) ?? [:]
         refreshCachedProcessLivenessForSidebar(
             panelIDs: panelIDs,
-            currentWorkspaceIDByPanelID: [:],
+            currentWorkspaceIDByPanelID: workspaceIDs,
             force: true
         )
     }
@@ -1372,12 +1398,6 @@ final class SharedLiveAgentIndex {
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
         lastSidebarLivenessRefreshAt = loadedAt
-        if !sidebarActivePanelIDs.isEmpty {
-            synchronizeSidebarProcessExitWatchers(
-                index: newIndex,
-                panelIDs: sidebarActivePanelIDs
-            )
-        }
     }
 
     private func applyPendingForkValidations(
