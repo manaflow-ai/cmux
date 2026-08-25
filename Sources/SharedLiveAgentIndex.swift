@@ -87,7 +87,7 @@ final class SharedLiveAgentIndex {
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let sidebarLivenessRefreshInterval: TimeInterval = 30.0
+    private static let sidebarLivenessRefreshInterval: TimeInterval = 5.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
