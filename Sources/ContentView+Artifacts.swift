@@ -23,20 +23,23 @@ extension ContentView {
         guard let workspace = tabManager.selectedWorkspace,
               let paneId = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first else { return }
+        guard let projectRoot = artifact.projectRoot,
+              let safeURL = ArtifactSidebarFileAccess().validatedFileURL(
+                  for: artifact.fileURL,
+                  artifactRoot: projectRoot.appendingPathComponent(".cmux", isDirectory: true)
+              ) else {
+            NSSound.beep()
+            return
+        }
         sidebarSelectionState.selection = .tabs
         switch artifact.fileKind {
         case .html:
-            let sourceURL = artifact.fileURL
             let workspaceID = workspace.id
-            guard let projectRoot = artifact.projectRoot else {
-                NSSound.beep()
-                return
-            }
             Task { @MainActor in
                 do {
                     let artifactRoot = projectRoot.appendingPathComponent(".cmux", isDirectory: true)
                     let document = try await ArtifactHTMLPreviewDocument.load(
-                        sourceURL: sourceURL,
+                        sourceURL: safeURL,
                         allowedRoot: artifactRoot
                     )
                     guard tabManager.selectedWorkspace?.id == workspaceID else { return }
@@ -53,13 +56,13 @@ extension ContentView {
                 }
             }
         case .patch:
-            if AppDelegate.shared?.openArtifactPatch(artifact.fileURL, for: tabManager) != true {
+            if AppDelegate.shared?.openArtifactPatch(safeURL, for: tabManager) != true {
                 NSSound.beep()
             }
         case .image, .video, .markdown, .text, .other, nil:
             _ = workspace.openFileSurfaces(
                 inPane: paneId,
-                filePaths: [artifact.fileURL.path],
+                filePaths: [safeURL.path],
                 focus: true,
                 reuseExisting: true
             )

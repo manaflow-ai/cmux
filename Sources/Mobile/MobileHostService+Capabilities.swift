@@ -147,6 +147,9 @@ extension MobileHostService {
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
             ),
+            includingArtifacts: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.artifactsFlag
+            ),
             // Managed policy only: under it every browser pane is closed, so
             // no browser affordance can work. A user-level disable keeps live
             // panes (session restore re-materializes them), and iOS must
@@ -170,7 +173,8 @@ extension MobileHostService {
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
         includingTaskComposer: Bool = true,
-        includingBrowser: Bool = true
+        includingBrowser: Bool = true,
+        includingArtifacts: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -265,6 +269,15 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingArtifacts {
+            let artifactCapabilities: Set<String> = [
+                "chat.artifact.v1",
+                "chat.artifact.save.v1",
+                "chat.artifact.folders.v1",
+                "chat.artifact.gallery.v1",
+            ]
+            capabilities.removeAll { artifactCapabilities.contains($0) }
         }
         if !includingBrowser {
             // The embedded browser is disabled by MDM policy: every pane is

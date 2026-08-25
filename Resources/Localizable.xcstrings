@@ -140229,6 +140229,23 @@
         }
       }
     },
+    "mobile.chat.artifact.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts are disabled for this project."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトではArtifactsが無効です。"
+          }
+        }
+      }
+    },
     "mobile.chat.artifact.error.fileNotFound": {
       "extractionState": "manual",
       "localizations": {
