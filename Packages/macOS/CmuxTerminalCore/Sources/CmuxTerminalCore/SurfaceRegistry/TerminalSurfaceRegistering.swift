@@ -133,6 +133,7 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     func allSurfaces() -> [any TerminalSurfacing]
 }
 
+/// Compatibility defaults for the surface registry placement API.
 public extension TerminalSurfaceRegistering {
     /// Bridges the exact-registration update to the legacy id-only method so
     /// existing conformers remain source-compatible during the migration.
