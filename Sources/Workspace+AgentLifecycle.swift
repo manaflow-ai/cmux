@@ -586,6 +586,12 @@ extension Workspace {
         )
     }
 
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: agentLifecycleStatesByPanelId[panelId] ?? [:]
+        )
+    }
+
     private func recordAgentLifecycleChange(panelId: UUID) {
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,

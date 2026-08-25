@@ -302,6 +302,12 @@ extension DockSplitStore {
         )
     }
 
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:]
+        )
+    }
+
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
         var didClear = false

@@ -30,7 +30,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
         let states = statusKeyedStates
-            .filter { AgentHibernationLifecycleStatusKeys.isAllowed($0.key) }
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
             .map(\.value)
         guard !states.isEmpty else {
             return fallback ?? .unknown
@@ -40,6 +40,21 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
+    }
+
+    /// Aggregates only built-in agent keys for TextBox Escape authorization.
+    /// Hibernation uses `aggregate` so Feed overlays and registered Vault agents
+    /// remain part of its safety state; Escape passthrough intentionally fails
+    /// closed for keys that have not been validated as built-in agents.
+    static func aggregateForTextBoxEscape(
+        statusKeyedStates: [String: AgentHibernationLifecycleState]
+    ) -> AgentHibernationLifecycleState {
+        aggregate(
+            statusKeyedStates: statusKeyedStates.filter {
+                AgentHibernationLifecycleStatusKeys.isAllowed($0.key)
+            },
+            fallback: nil
+        )
     }
 
     private static func parse(_ rawValue: String) -> AgentHibernationLifecycleState? {
