@@ -60,13 +60,27 @@ struct RemotePTYBridgeSessionErrorCodeTests {
         #expect(payload["code"] as? String == "unavailable")
     }
 
-    @Test("generic attach failures omit the bridge error code")
-    func genericFailureOmitsCode() throws {
+    @Test("generic attach failures carry a stable fatal bridge error code")
+    func genericFailureCarriesStableCode() throws {
         let payload = try bridgeErrorPayload(for: "some generic failure")
 
         #expect(payload["type"] as? String == "error")
         #expect(payload["message"] as? String == "test-attach-failed")
-        #expect(payload["code"] == nil)
+        #expect(payload["code"] as? String == "remote_pty_attach_failed")
+    }
+
+    @Test("timeout metadata wins over a non-diagnostic daemon message")
+    func timeoutMetadataCarriesStableCode() throws {
+        let payload = try bridgeErrorPayload(for: NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.attach failed (remote_pty_timeout): RPC connection closed",
+                "cmux.remote.daemon.rpc.error_code": "remote_pty_timeout",
+            ]
+        ))
+
+        #expect(payload["code"] as? String == "remote_pty_timeout")
     }
 
     private func connect(endpoint: RemotePTYBridgeServer.Endpoint) throws -> Int32 {
