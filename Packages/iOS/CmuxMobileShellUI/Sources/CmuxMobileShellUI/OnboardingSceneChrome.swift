@@ -66,10 +66,7 @@ struct OnboardingSceneChrome: Equatable {
                         "mobile.onboarding.connect.primary",
                         defaultValue: "Check Again"
                     )
-                    secondaryTitle = L10n.string(
-                        "mobile.onboarding.connect.fallback",
-                        defaultValue: "Use QR Code Instead"
-                    )
+                    secondaryTitle = nil
                 }
             case .ready:
                 primaryTitle = L10n.string(

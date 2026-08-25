@@ -1,6 +1,6 @@
 # Machine Provider Contract
 
-This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v11, while a machine provider decides which machines exist and how to open that protocol transport.
+This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v12, while a machine provider decides which machines exist and how to open that protocol transport.
 
 ## Versions
 
@@ -35,7 +35,7 @@ The app owns focus, selection, the shared rail renderer, terminal mirrors, and m
 - `Connect machine` accepts `host` or `user@host`, creates a process-local SSH target with default session `main`, and does not persist it.
 - Catalog changes, cloud VM creation, wake/suspend, team membership, quotas, and billing are outside v0.
 
-The static connector validates the selected server through the normal protocol-v11 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
+The static connector validates the selected server through the normal protocol-v12 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
 
 ## Implemented v1
 
@@ -93,7 +93,9 @@ durability boundary. A later snapshot refresh failure must not turn an
 accepted mutation into a failed mutation or cause the client to issue it
 again.
 
-The provider emits `snapshot_changed`, `connection_closed`, and `notice` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
+The provider emits `snapshot_changed`, `connection_closed`, `notice`, and `connection_progress` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
+
+When the client offers `connection-progress-v1` in `negotiate_client_capabilities` and the provider accepts it, the provider may emit `connection_progress` events while an `open_machine` request is in flight. Each event carries the machine id and a short human-readable stage ("resuming the machine", "waiting for sshd") that the client renders on the connection interstitial. The events are advisory and additive: they never replace the `open_machine` response, arrive only between the request and its response for that machine, and a client that did not negotiate the capability receives none. Ordering within one open is the provider's narration order; a client must tolerate zero events, and must clear rendered progress when the open settles either way.
 
 When `durable-notices-v1` is negotiated, each durable `notice` event includes additive outer `delivery` metadata with the stable notice id and the consumer's monotonic sequence. Legacy clients ignore the outer field and continue decoding the unchanged notice payload. After capability negotiation, a durable-notice client persists one random consumer id per workspace state root, holds exclusive ownership of that identity for the rest of its process lifetime, reuses it across control reconnects and process restarts, subscribes once per generation, and accepts only exact sequence order. A second live client using the same state root fails before subscribing so it cannot advance the shared cursor. Clients connected to providers without this capability do not access or lease durable notice identity state. The `subscribe_notices` response reports the consumer's last acknowledged sequence. Replayed deliveries may precede that response, so the client buffers them without exposing them until it can validate the first replay as the next sequence after the reported cursor. The provider keeps at most one notice in flight for each consumer until the matching id and sequence are acknowledged.
 
@@ -103,7 +105,7 @@ Snapshots contain provider-stable opaque ids. Scopes distinguish personal and te
 
 `connect_external_machine` carries the selected `scope_id`, a provider-opaque `specifier`, and an opaque `mutation_id`. The specifier may be a host address or a human-readable pairing code. cmux trims only surrounding prompt whitespace, retains internal whitespace and punctuation, never passes it to a shell, and limits it to 512 UTF-8 bytes without control bytes. Providers validate its domain meaning and authorize enrollment against the exact scope in the request. A provider must bind `mutation_id` to that scope and the exact request, select the enrolled machine before replying, and return the same result for an exact replay. Reusing one mutation id with a different scope or specifier must fail with `conflict`.
 
-`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v11 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
+`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v12 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
 
 When a machine declares provider-owned workspaces, the provider must advertise `workspace-mirror-authority-v1`. After seeing that capability, the client sets `workspace_mirror_authority: true` in `open_machine`; the provider includes the result field only for that opt-in request. An older client omits the request field, so a new provider can return an upgrade-required error without sending a result that the strict v1 client cannot decode. An updated client connected to a legacy or rolled-back provider sees no capability and refuses to open a provider-owned machine before sending an incompatible request.
 

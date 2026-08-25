@@ -82,6 +82,89 @@ public final class Options {
     public record SessionEvents(Stream stream, Optional<Cursor> cursor) {
         public SessionEvents { stream = Options.stream(stream); cursor = opt(cursor); }
     }
+    public enum JournalStart { TAIL, BEGINNING;
+        public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
+    }
+    public record JournalSubjectFilter(
+        Optional<String> kind,
+        Optional<String> id
+    ) {
+        public JournalSubjectFilter { kind = opt(kind); id = opt(id); }
+    }
+    public enum JournalRegexField { KIND, SUBJECTS, PAYLOAD, RECORD, TERMINAL_OUTPUT;
+        public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
+    }
+    public record JournalRegexFilter(
+        String pattern,
+        JournalRegexField field,
+        boolean caseSensitive
+    ) {
+        public JournalRegexFilter(String pattern) {
+            this(pattern, JournalRegexField.RECORD, true);
+        }
+
+        public JournalRegexFilter {
+            Objects.requireNonNull(pattern, "pattern");
+            field = field == null ? JournalRegexField.RECORD : field;
+            if (pattern.isEmpty() || pattern.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1024) {
+                throw new IllegalArgumentException("journal regex must contain 1 to 1024 UTF-8 bytes");
+            }
+        }
+    }
+    public record JournalFilter(
+        List<String> kinds,
+        List<SessionJournalRecord.JournalClass> classes,
+        List<JournalSubjectFilter> subjects,
+        Optional<SessionJournalRecord.Sensitivity> maxSensitivity,
+        Optional<JournalRegexFilter> regex
+    ) {
+        public JournalFilter(
+            List<String> kinds,
+            List<SessionJournalRecord.JournalClass> classes,
+            List<JournalSubjectFilter> subjects,
+            Optional<SessionJournalRecord.Sensitivity> maxSensitivity
+        ) {
+            this(kinds, classes, subjects, maxSensitivity, Optional.empty());
+        }
+
+        public JournalFilter {
+            kinds = kinds == null ? List.of() : List.copyOf(kinds);
+            classes = classes == null ? List.of() : List.copyOf(classes);
+            subjects = subjects == null ? List.of() : List.copyOf(subjects);
+            maxSensitivity = opt(maxSensitivity);
+            regex = opt(regex);
+            if (maxSensitivity.orElse(null) == SessionJournalRecord.Sensitivity.SECRET) {
+                throw new IllegalArgumentException("secret journal records are unavailable in v1");
+            }
+        }
+    }
+    public record SessionJournal(
+        Stream stream,
+        Optional<Cursor> cursor,
+        Optional<JournalStart> start,
+        Optional<Boolean> follow,
+        Optional<JournalFilter> filter
+    ) {
+        public SessionJournal(
+            Stream stream,
+            Optional<Cursor> cursor,
+            Optional<JournalStart> start,
+            Optional<JournalFilter> filter
+        ) {
+            this(stream, cursor, start, Optional.empty(), filter);
+        }
+
+        public SessionJournal {
+            stream = Options.stream(stream);
+            cursor = opt(cursor);
+            start = opt(start);
+            follow = opt(follow);
+            filter = opt(filter);
+            if (cursor.isPresent() && start.isPresent()) {
+                throw new IllegalArgumentException("journal cursor and start are mutually exclusive");
+            }
+        }
+    }
     public record CreationResolve(Read read, String correlationKey) {
         public CreationResolve {
             read = Options.read(read);
@@ -144,10 +227,21 @@ public final class Options {
             Objects.requireNonNull(decision, "decision");
         }
     }
-    public record ProjectionPut(Mutation mutation, Map<String, Object> projection) {
+    public record ProjectionPut(
+        Mutation mutation,
+        String frontendId,
+        String windowId,
+        String generation,
+        Map<String, Object> projection,
+        Optional<Decimal> expectedProjectionRevision
+    ) {
         public ProjectionPut {
             mutation = mut(mutation);
+            Objects.requireNonNull(frontendId, "frontendId");
+            Objects.requireNonNull(windowId, "windowId");
+            Objects.requireNonNull(generation, "generation");
             projection = copy(projection);
+            expectedProjectionRevision = opt(expectedProjectionRevision);
         }
     }
     public record WorkspaceCreate(
@@ -355,12 +449,34 @@ public final class Options {
         Optional<String> cwd,
         Optional<Integer> columns,
         Optional<Integer> rows,
+        Optional<Double> viewportWidth,
         Optional<String> correlationKey
     ) {
         public PaneSplit {
             mutation = mut(mutation); Objects.requireNonNull(direction, "direction");
             ratio = opt(ratio); cwd = opt(cwd); columns = opt(columns); rows = opt(rows);
+            viewportWidth = opt(viewportWidth);
             correlationKey = correlation(correlationKey);
+        }
+        public PaneSplit(
+            Mutation mutation,
+            Direction direction,
+            Optional<Double> ratio,
+            Optional<String> cwd,
+            Optional<Integer> columns,
+            Optional<Integer> rows,
+            Optional<String> correlationKey
+        ) {
+            this(
+                mutation,
+                direction,
+                ratio,
+                cwd,
+                columns,
+                rows,
+                Optional.empty(),
+                correlationKey
+            );
         }
         public PaneSplit(
             Mutation mutation,
@@ -377,6 +493,7 @@ public final class Options {
                 cwd,
                 columns,
                 rows,
+                Optional.empty(),
                 Optional.empty()
             );
         }
@@ -544,8 +661,26 @@ public final class Options {
             });
         }
     }
-    public record ViewerSize(Control control, int width, int height) {
-        public ViewerSize { control = Options.control(control); nonnegative(width, "width"); nonnegative(height, "height"); }
+    public record ViewerSize(
+        Control control,
+        String attachmentLease,
+        int width,
+        int height
+    ) {
+        public ViewerSize {
+            control = Options.control(control);
+            Objects.requireNonNull(attachmentLease, "attachmentLease");
+            bounded(attachmentLease, "attachmentLease", 1, 128);
+            nonnegative(width, "width");
+            nonnegative(height, "height");
+        }
+    }
+    public record ViewAttachment(Control control, String attachmentLease) {
+        public ViewAttachment {
+            control = Options.control(control);
+            Objects.requireNonNull(attachmentLease, "attachmentLease");
+            bounded(attachmentLease, "attachmentLease", 1, 128);
+        }
     }
     public record Scroll(Mutation mutation, long delta) {
         public Scroll { mutation = mut(mutation); }

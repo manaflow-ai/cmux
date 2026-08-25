@@ -43,6 +43,11 @@ public struct SSHRetryBackoffScriptBuilder: Sendable {
         "elif [ -n \"${\(backoffPIDVariable):-}\" ]; then /bin/kill -TERM \"$\(backoffPIDVariable)\" >/dev/null 2>&1 || true; wait \"$\(backoffPIDVariable)\" 2>/dev/null || true; \(backoffPIDVariable)=; elif [ \"${\(backoffLaunchingVariable):-0}\" = 1 ]; then \(pendingSignalVariable)=\"$\(signalStatusVariable)\"; \(pendingSignalNameVariable)=\"$\(signalNameVariable)\"; return;"
     }
 
+    /// Shell line that restores traditional terminal input before a retry prompt.
+    public var terminalInputModeResetLine: String {
+        "if [ -t 2 ]; then printf '\\033[?1004l\\033[>m\\033[<8u' >&2 || true; fi"
+    }
+
     /// Shell lines that wait without consuming terminal input and retire promptly on signals.
     public var waitLines: [String] {
         [

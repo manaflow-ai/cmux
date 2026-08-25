@@ -23,7 +23,7 @@ struct SimulatorTextInputTools: View {
             .overlay { RoundedRectangle(cornerRadius: 4).stroke(.separator) }
 
             HStack {
-                Button(simulatorStrings.typeText) {
+                SimulatorLocalizedButton(simulatorStrings.typeText) {
                     isTyping = true
                     if case .failure = coordinator.beginTypeText(text, completion: { succeeded in
                         isTyping = false

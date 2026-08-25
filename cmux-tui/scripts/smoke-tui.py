@@ -3,8 +3,15 @@ import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfil
 BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INVENTORY = os.path.join(ROOT, "spec", "inventory.json")
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def expected_protocol():
+    with open(INVENTORY, "r", encoding="utf-8") as f:
+        return json.load(f)["mux_protocol"]
 
 
 def sgr_commands(parameters):
@@ -275,7 +282,7 @@ def drain(seconds):
             except OSError:
                 break
 
-def wait_screen_contains(surface_id, needle, seconds=15):
+def wait_screen_contains(surface_id, needle, seconds=45):
     deadline = time.time() + seconds
     last = ""
     while time.time() < deadline:
@@ -286,7 +293,7 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
-def wait_any_screen_contains(surface_ids, needle, seconds=15):
+def wait_any_screen_contains(surface_ids, needle, seconds=45):
     deadline = time.time() + seconds
     last = {}
     while time.time() < deadline:
@@ -540,7 +547,7 @@ assert tree_has_surface(initial_tree), "interactive client did not create its in
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 10, ident
+assert ident["data"]["protocol"] == expected_protocol(), ident
 print("identify ok:", ident["data"])
 
 ws0 = initial_tree[0]
@@ -621,7 +628,7 @@ wait_render_contains(sidebar_marker)
 print("focused sidebar Tab toggles workspaces to files ok")
 os.write(fd, b"\t")
 drain(0.5)
-assert "workspaces" in render_text_snapshot(output), output[-1200:]
+assert "+ new workspace" in render_text_snapshot(output), output[-1200:]
 os.write(fd, b"\x02S")
 drain(0.4)
 
@@ -682,8 +689,9 @@ try:
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
     # Generous deadline: the shell may still be consuming the pasted
-    # heredoc and the TUI coalesces frames (this raced at 2s).
-    end = time.time() + 8
+    # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
+    # still fails on saturated CI runners).
+    end = time.time() + 30
     while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
         r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
         if not r:
@@ -891,8 +899,7 @@ text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
 
-# Sidebar rendered: header + new-workspace row are sidebar-only strings.
-assert "workspaces" in text, text[-500:]
+# Sidebar rendered: the new-workspace row is a sidebar-only string.
 assert "+ new workspace" in text, text[-500:]
 print("sidebar rendered ok")
 

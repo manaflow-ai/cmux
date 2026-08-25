@@ -199,6 +199,7 @@ impl MachineAgentMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
+    pub copy_message: &'static str,
     pub maximize_pane: &'static str,
     pub restore_pane_layout: &'static str,
     pub show_sidebar: &'static str,
@@ -206,6 +207,10 @@ pub(crate) struct MenuMessages {
     pub compact_sidebar: &'static str,
     pub full_sidebar: &'static str,
     pub focus_sidebar: &'static str,
+    pub sidebar_layout: &'static str,
+    pub sidebar_profiles: &'static str,
+    pub show_sidebar_view: &'static str,
+    pub hide_sidebar_view: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -344,6 +349,7 @@ impl LayoutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
+    pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
     signal_handlers_failed: &'static str,
@@ -382,6 +388,7 @@ pub(crate) struct RemoteClientMessages {
     pub remote_link_help: &'static str,
     pub install_self_help: &'static str,
     pub command_help: &'static str,
+    pub remote_lifecycle_help: &'static str,
     option_needs_value: &'static str,
     invalid_option_value: &'static str,
     option_must_be_positive: &'static str,
@@ -716,9 +723,17 @@ impl AttachMessages {
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
+    pub panes: &'static str,
+    pub tabs: &'static str,
+    pub agents: &'static str,
+    pub projection_path_separator: &'static str,
     pub new_machine: &'static str,
     pub connect_machine: &'static str,
     pub no_machines: &'static str,
+    pub no_workspaces: &'static str,
+    pub no_panes: &'static str,
+    pub no_tabs: &'static str,
+    pub no_agents: &'static str,
     pub recoverable_machine: &'static str,
     pub rename_machine: &'static str,
     pub delete_machine: &'static str,
@@ -742,11 +757,26 @@ pub(crate) struct SidebarMessages {
     pub managed_workspace_operation_not_allowed: &'static str,
     pub running: &'static str,
     pub connecting: &'static str,
+    pub waking: &'static str,
+    pub sleeping_wake_hint: &'static str,
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
+    pub working: &'static str,
+    pub blocked: &'static str,
+    pub idle: &'static str,
+    pub done: &'static str,
+    pub unknown: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
+    pub connecting_to: &'static str,
+    pub starting_on: &'static str,
+    pub failed_to_connect: &'static str,
+    pub retry_connection: &'static str,
+    pub close_dialog: &'static str,
+    pub ssh_hosts: &'static str,
+    pub type_to_filter: &'static str,
+    pub other_host: &'static str,
     pub personal_scope: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
@@ -787,6 +817,10 @@ pub(crate) struct SidebarMessages {
     pub machine_managed_authority_unsupported: &'static str,
     pub machine_managed_authority_invalid: &'static str,
     pub machine_catalog_create_unsupported: &'static str,
+    pub machine_creation_source_unavailable: &'static str,
+    pub machine_name_required: &'static str,
+    pub client_machine_unavailable: &'static str,
+    pub prototype_machine_added: &'static str,
     pub machine_catalog_provider_actions_unsupported: &'static str,
     pub machine_catalog_updates_failed: &'static str,
     pub machine_catalog_restart_failed: &'static str,
@@ -795,9 +829,22 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_stale: &'static str,
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
+    pub managed_ssh_requires_unix: &'static str,
 }
 
 impl SidebarMessages {
+    pub(crate) fn connecting_to_message(&self, target: &str) -> String {
+        self.connecting_to.replace("{target}", target)
+    }
+
+    pub(crate) fn starting_on_message(&self, target: &str) -> String {
+        self.starting_on.replace("{target}", target)
+    }
+
+    pub(crate) fn failed_to_connect_message(&self, target: &str) -> String {
+        self.failed_to_connect.replace("{target}", target)
+    }
+
     pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
         match action_id {
             provider_action_id::LIST_WORKSPACE_PORTS => Some(self.action_list_workspace_ports),
@@ -885,6 +932,67 @@ pub(crate) struct StartupMessages {
     pub start_separate_session: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LocalServerMessages {
+    pub startup_lifecycle_usage: &'static str,
+    pub root_remote_usage: &'static str,
+    pub root_server_usage: &'static str,
+    pub root_server_scope: &'static str,
+    pub session_stop_help: &'static str,
+    pub help: &'static str,
+    pub start_help: &'static str,
+    pub status_help: &'static str,
+    pub stop_help: &'static str,
+    pub reload_config_help: &'static str,
+    pub running: &'static str,
+    pub stopped: &'static str,
+    pub not_running: &'static str,
+    pub reloaded: &'static str,
+    pub connect_failed: &'static str,
+    pub starting: &'static str,
+    pub identity_failed: &'static str,
+    pub communication_failed: &'static str,
+    pub invalid_response: &'static str,
+    pub reload_rejected: &'static str,
+    pub reload_owner_stopped: &'static str,
+    pub stop_rejected: &'static str,
+    pub wrong_owner: &'static str,
+    pub different_session: &'static str,
+    pub invalid_identity: &'static str,
+    pub force_unsupported: &'static str,
+    pub session_conflict: &'static str,
+    pub machine_not_supported: &'static str,
+    pub session_name_required: &'static str,
+    pub invalid_action_syntax: &'static str,
+    pub start_options_after_action: &'static str,
+    pub start_rejects_output_mode: &'static str,
+    pub unknown_scope: &'static str,
+    pub unknown_server_action: &'static str,
+    pub suggestion: &'static str,
+    pub daemon_removed: &'static str,
+    pub unexpected_after_stop: &'static str,
+    pub stop_timeout: &'static str,
+}
+
+impl LocalServerMessages {
+    pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
+        self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
+    }
+
+    pub(crate) fn unknown_server_action(&self, action: &str, suggestion: Option<&str>) -> String {
+        self.with_suggestion(self.unknown_server_action.replace("{action}", action), suggestion)
+    }
+
+    fn with_suggestion(&self, message: String, suggestion: Option<&str>) -> String {
+        match suggestion {
+            Some(candidate) => {
+                format!("{message} {}", self.suggestion.replace("{candidate}", candidate))
+            }
+            None => message,
+        }
+    }
+}
+
 impl StartupMessages {
     pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
         self.schema_too_new.replace("{version}", version).replace("{session}", session)
@@ -895,6 +1003,7 @@ impl StartupMessages {
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
+    pub local_server: LocalServerMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
@@ -935,6 +1044,46 @@ static ENGLISH: Catalog = Catalog {
         server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
         saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
+    },
+    local_server: LocalServerMessages {
+        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
+        root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
+        root_server_scope: "  server        Manage one named local durable session owner",
+        session_stop_help: "  cmux session <name>|current stop",
+        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
+        start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
+        status_help: "USAGE\n  cmux server status [--session <name>] [--socket <path>]\n",
+        stop_help: "USAGE\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n",
+        reload_config_help: "USAGE\n  cmux server reload-config [--session <name>] [--socket <path>]\n",
+        running: "local server is running",
+        stopped: "local server stopped; durable session topology was preserved",
+        not_running: "local server is not running; nothing needed to be stopped",
+        reloaded: "local server configuration reloaded",
+        connect_failed: "cannot connect to the local server; check that the named session is running and retry",
+        starting: "the local server is still starting; retry the lifecycle command",
+        identity_failed: "cannot verify the local server identity; retry with the cmux build that started the session",
+        communication_failed: "communication with the local server failed; verify that it is running and retry",
+        invalid_response: "the local server returned an invalid lifecycle response; retry with the cmux build that started the session",
+        reload_rejected: "the local server rejected the configuration reload; inspect its diagnostics and retry",
+        reload_owner_stopped: "the local server stopped before it applied the configuration reload; start the session and retry",
+        stop_rejected: "the local server rejected the stop request; retry with --force only when active clients can disconnect",
+        wrong_owner: "the selected socket is not owned by a cmux local server",
+        different_session: "the selected socket belongs to a different session",
+        invalid_identity: "the local server returned an incomplete lifecycle identity",
+        force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
+        session_conflict: "the session name conflicts with --session",
+        machine_not_supported: "--machine cannot target a local server; use the machine resource commands",
+        session_name_required: "session stop requires an exact session name or current",
+        invalid_action_syntax: "unknown or incomplete server action; use --help",
+        start_options_after_action: "server start options must appear after `server start`",
+        start_rejects_output_mode: "server start does not support output modes",
+        unknown_scope: "unknown resource scope \"{scope}\".",
+        unknown_server_action: "unknown server action \"{action}\".",
+        suggestion: "Did you mean `{candidate}`?",
+        daemon_removed: "`cmux daemon` was renamed to `cmux server start`; run `cmux server start --help`",
+        unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
+        stop_timeout: "timed out waiting for the local server to stop",
     },
     pairing: PairingMessages {
         title: "Approve browser?",
@@ -1053,6 +1202,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "Copy message",
         maximize_pane: "Maximize pane",
         restore_pane_layout: "Restore pane layout",
         show_sidebar: "Show sidebar",
@@ -1060,6 +1210,10 @@ edits shell files. Authenticate with the configured host before retrying.
         compact_sidebar: "Use compact sidebar",
         full_sidebar: "Use full sidebar",
         focus_sidebar: "Focus sidebar",
+        sidebar_layout: "Sidebar",
+        sidebar_profiles: "Layouts",
+        show_sidebar_view: "Show {view}",
+        hide_sidebar_view: "Hide {view}",
     },
     shortcuts: ShortcutMessages {
         title: "Keyboard shortcuts",
@@ -1116,13 +1270,14 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     runtime: RuntimeMessages {
         unknown_panic: "unknown panic",
+        terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     remote_client: RemoteClientMessages {
-        connect_help: r#"USAGE: cmux-tui connect [ROUTE] [OPTIONS]
+        connect_help: r#"USAGE: cmux remote connect [ROUTE] [OPTIONS]
 
 ROUTES:
   unix:///ABSOLUTE/PATH | ssh://[USER@]HOST[:PORT] | ws:// | wss:// | iroh://
@@ -1155,7 +1310,7 @@ RECONNECT:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
-        ssh_help: r#"USAGE: cmux-tui ssh [USER@]HOST[:PORT] [OPTIONS]
+        ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
 
 Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
 to multiple carriers. The remote binary is probed and, unless --no-install is
@@ -1174,14 +1329,14 @@ OPTIONS:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
-        forward_help: r#"USAGE: cmux-tui forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
+        forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
   --host HOST  --listen ADDR  --scheme http|https
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
+  `cmux remote connect` are also accepted.
 "#,
-        rpc_help: r#"USAGE: cmux-tui rpc [ROUTE] [OPTIONS]
+        rpc_help: r#"USAGE: cmux remote rpc [ROUTE] [OPTIONS]
 
 Reads one WorkspaceRequest JSON object per stdin line and writes one response
 per line. --request JSON sends one request and exits.
@@ -1189,9 +1344,9 @@ per line. --request JSON sends one request and exits.
 OPTIONS:
   --request WORKSPACE_REQUEST_JSON
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
+  `cmux remote connect` are also accepted.
 "#,
-        enroll_help: r#"USAGE: cmux-tui enroll ACTION [OPTIONS]
+        enroll_help: r#"USAGE: cmux remote enroll ACTION [OPTIONS]
 
 ACTIONS:
   status | create | pending | approve ID | deny ID | devices | connections
@@ -1203,13 +1358,14 @@ OPTIONS:
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
     --relay-ticket-file PATH, in occurrence order,
     for up to two relay fallbacks
-  connect accepts every option documented by `cmux-tui connect`.
+  connect accepts every option documented by `cmux remote connect`.
 "#,
-        known_daemons_help: "USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]\n       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+        known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
         remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
         remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
         install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-        command_help: "USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux-tui COMMAND --help` for command-specific routes and options.\n",
+        command_help: "USAGE: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+        remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
         option_must_be_positive: "{option} must be positive",
@@ -1271,21 +1427,21 @@ OPTIONS:
         known_daemon_auth_carrier: "carrier",
     },
     remote: RemoteMessages {
-        remote_stop_help: "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
-        remote_stop_unknown_option: "unknown option {option} for remote-stop",
-        remote_stop_no_positional: "remote-stop accepts no positional arguments",
+        remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+        remote_stop_unknown_option: "unknown option {option} for cmux remote stop",
+        remote_stop_no_positional: "cmux remote stop accepts no positional arguments",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
-        invalid_runtime_metadata: "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization ({path})",
+        invalid_runtime_metadata: "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization ({path})",
         inspect_runtime_metadata: "could not inspect remote daemon runtime metadata ({path})",
-        inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization",
+        inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization",
         refuse_live_invalid_lifecycle: "refusing to stop a live daemon without valid lifecycle metadata",
-        embedded_daemon_stop_refused: "refusing to upgrade an embedded daemon because stopping it would terminate its workspaces; stop and restart it explicitly",
+        embedded_daemon_stop_refused: "cmux remote stop manages only replaceable SSH sidecars; this remote listener belongs to the local server, so use `cmux server stop --session <name>` to stop its owner and workspaces",
         daemon_shutdown_failed: "daemon shutdown failed",
         observe_daemon_exit: "could not observe remote daemon process exit",
         daemon_stop_timeout: "remote daemon did not stop within 20 seconds",
         verify_previous_finalization_path: "could not verify previous remote daemon authorization finalization ({path})",
         verify_previous_finalization: "could not verify previous remote daemon authorization finalization",
-        previous_finalization_failed_ack: "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun remote-stop with --acknowledge-failed-finalization",
+        previous_finalization_failed_ack: "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun cmux remote stop with --acknowledge-failed-finalization",
         verify_finalization: "could not verify remote daemon authorization finalization",
         finalization_wrong_lifecycle: "could not verify remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle",
         finalization_failed: "remote daemon authorization finalization failed",
@@ -1293,13 +1449,13 @@ OPTIONS:
         confirm_lifecycle_fence_durability: "could not confirm remote daemon lifecycle fence durability",
         inspect_authorization_state: "could not inspect remote daemon authorization state",
         inspect_authorization_schema: "could not inspect remote daemon authorization schema",
-        legacy_authorization_requires_migration: "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization",
+        legacy_authorization_requires_migration: "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run cmux remote stop --acknowledge-legacy-finalization",
         prepare_lifecycle_state: "could not prepare remote daemon lifecycle state",
         verify_previous_lifecycle_metadata: "could not verify previous remote daemon lifecycle metadata",
         modern_predecessor_missing_outcome: "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome",
         runtime_empty_lifecycle: "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id",
-        state_predates_lifecycle_fence: "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with remote-stop before reconnecting",
-        state_missing_lifecycle_fence: "previous remote daemon state has no lifecycle fence; stop the legacy daemon with remote-stop before reconnecting",
+        state_predates_lifecycle_fence: "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with cmux remote stop before reconnecting",
+        state_missing_lifecycle_fence: "previous remote daemon state has no lifecycle fence; stop the legacy daemon with cmux remote stop before reconnecting",
         authorization_finalization_failed: "authorization finalization failed",
         lifecycle_fence_version_unsupported: "remote daemon lifecycle fence version {version} is unsupported",
         inspect_stopped_authorization_state: "could not inspect stopped daemon authorization state",
@@ -1356,9 +1512,17 @@ OPTIONS:
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
-        new_machine: "new machine",
-        connect_machine: "connect machine",
+        panes: "panes",
+        tabs: "tabs",
+        agents: "agents",
+        projection_path_separator: " › ",
+        new_machine: "new vm",
+        connect_machine: "ssh host",
         no_machines: "no machines",
+        no_workspaces: "no workspaces",
+        no_panes: "no panes",
+        no_tabs: "no tabs",
+        no_agents: "no agents",
         recoverable_machine: "recoverable",
         rename_machine: "Rename machine",
         delete_machine: "Delete machine",
@@ -1382,11 +1546,26 @@ OPTIONS:
         managed_workspace_operation_not_allowed: "The provider does not allow this operation for this workspace; use an action shown in its menu",
         running: "running",
         connecting: "connecting",
+        waking: "waking",
+        sleeping_wake_hint: "sleeping — press any key to wake",
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
+        working: "working",
+        blocked: "blocked",
+        idle: "idle",
+        done: "done",
+        unknown: "unknown",
         connect_prompt: "Host address or pairing code",
-        connect_host_prompt: "Host address",
+        connect_host_prompt: "SSH host or user@host",
+        connecting_to: "Connecting to {target}…",
+        starting_on: "Starting a session on {target}…",
+        failed_to_connect: "Could not connect to {target}",
+        retry_connection: "Retry",
+        close_dialog: "Close",
+        ssh_hosts: "SSH hosts",
+        type_to_filter: "type to filter",
+        other_host: "Add SSH host…",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -1427,6 +1606,10 @@ OPTIONS:
         machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
         machine_catalog_create_unsupported: "This machine catalog cannot create machines",
+        machine_creation_source_unavailable: "This machine creation source is unavailable",
+        machine_name_required: "Enter a machine name",
+        client_machine_unavailable: "This client-owned machine is unavailable",
+        prototype_machine_added: "Added prototype machine",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
         machine_catalog_restart_failed: "Machine switched without live catalog updates",
@@ -1435,6 +1618,7 @@ OPTIONS:
         machine_replacement_stale: "Machine replacement decision is stale",
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
+        managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
     },
 };
 
@@ -1452,6 +1636,46 @@ static JAPANESE: Catalog = Catalog {
         server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
         saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
+    local_server: LocalServerMessages {
+        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
+        root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
+        root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
+        session_stop_help: "  cmux session <名前>|current stop",
+        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
+        start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
+        status_help: "使用方法\n  cmux server status [--session <名前>] [--socket <パス>]\n",
+        stop_help: "使用方法\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n",
+        reload_config_help: "使用方法\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n",
+        running: "ローカルサーバーは実行中です",
+        stopped: "ローカルサーバーを停止しました。永続セッションの構成は保持されています",
+        not_running: "ローカルサーバーは実行されていません。停止は不要でした",
+        reloaded: "ローカルサーバーの設定を再読み込みしました",
+        connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",
+        starting: "ローカルサーバーは起動中です。ライフサイクルコマンドを再試行してください",
+        identity_failed: "ローカルサーバーの識別情報を確認できません。セッションを起動した cmux ビルドで再試行してください",
+        communication_failed: "ローカルサーバーとの通信に失敗しました。実行中であることを確認して再試行してください",
+        invalid_response: "ローカルサーバーが無効なライフサイクル応答を返しました。セッションを起動した cmux ビルドで再試行してください",
+        reload_rejected: "ローカルサーバーが設定の再読み込みを拒否しました。診断情報を確認して再試行してください",
+        reload_owner_stopped: "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください",
+        stop_rejected: "ローカルサーバーが停止要求を拒否しました。アクティブなクライアントを切断できる場合のみ --force で再試行してください",
+        wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
+        different_session: "選択したソケットは別のセッションに属しています",
+        invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
+        force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
+        session_conflict: "セッション名が --session と競合しています",
+        machine_not_supported: "--machine でローカルサーバーを対象にすることはできません。machine リソースコマンドを使用してください",
+        session_name_required: "session stop には正確なセッション名または current が必要です",
+        invalid_action_syntax: "サーバー操作が不明または不完全です。--help を使用してください",
+        start_options_after_action: "server start のオプションは `server start` の後に指定してください",
+        start_rejects_output_mode: "server start では出力モードを使用できません",
+        unknown_scope: "不明なリソーススコープ \"{scope}\"。",
+        unknown_server_action: "不明なサーバー操作 \"{action}\"。",
+        suggestion: "`{candidate}` のことですか？",
+        daemon_removed: "`cmux daemon` は `cmux server start` に名前が変更されました。`cmux server start --help` を実行してください",
+        unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
+        stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
     },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
@@ -1570,6 +1794,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "メッセージをコピー",
         maximize_pane: "ペインを最大化",
         restore_pane_layout: "ペイン配置を復元",
         show_sidebar: "サイドバーを表示",
@@ -1577,6 +1802,10 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         compact_sidebar: "サイドバーをコンパクト表示",
         full_sidebar: "サイドバーを通常表示",
         focus_sidebar: "サイドバーにフォーカス",
+        sidebar_layout: "サイドバー",
+        sidebar_profiles: "レイアウト",
+        show_sidebar_view: "{view}を表示",
+        hide_sidebar_view: "{view}を非表示",
     },
     shortcuts: ShortcutMessages {
         title: "キーボードショートカット",
@@ -1633,13 +1862,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     runtime: RuntimeMessages {
         unknown_panic: "不明なパニック",
+        terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     remote_client: RemoteClientMessages {
-        connect_help: r#"使用方法: cmux-tui connect [ルート] [オプション]
+        connect_help: r#"使用方法: cmux remote connect [ルート] [オプション]
 
 ルート:
   unix:///絶対パス | ssh://[ユーザー@]ホスト[:ポート] | ws:// | wss:// | iroh://
@@ -1671,7 +1901,7 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
-        ssh_help: r#"使用方法: cmux-tui ssh [ユーザー@]ホスト[:ポート] [オプション]
+        ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
 
 直接 SSH は既定で 1 本の搬送接続を使用します。複数接続を使うには
 --lanes auto または isolated を指定します。リモートバイナリを確認し、
@@ -1689,24 +1919,24 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
-        forward_help: r#"使用方法: cmux-tui forward [ルート] --workspace-root パス --port ポート [オプション]
+        forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:
   --host ホスト  --listen アドレス  --scheme http|https
-  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
-        rpc_help: r#"使用方法: cmux-tui rpc [ルート] [オプション]
+        rpc_help: r#"使用方法: cmux remote rpc [ルート] [オプション]
 
 標準入力の各行から WorkspaceRequest JSON を 1 件読み、応答を 1 行出力します。
 --request JSON は 1 件を送信して終了します。
 
 オプション:
   --request WORKSPACE_REQUEST_JSON
-  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
-        enroll_help: r#"使用方法: cmux-tui enroll 操作 [オプション]
+        enroll_help: r#"使用方法: cmux remote enroll 操作 [オプション]
 
 操作:
   status | create | pending | approve ID | deny ID | devices | connections
@@ -1717,13 +1947,14 @@ ID とセッション:
   create: --ttl 秒数  --advertise ルート
   create のリレーアクセスでは --relay-route、--relay-slot、
     --relay-ticket-file の組を出現順に最大 2 回指定します。
-  connect では `cmux-tui connect` の全オプションを使用できます。
+  connect では `cmux remote connect` の全オプションを使用できます。
 "#,
-        known_daemons_help: "使用方法: cmux-tui known-daemons [list] [--state-dir パス] [--json]\n          cmux-tui known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+        known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
         remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
         remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
         install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-        command_help: "使用方法: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux-tui コマンド --help` で表示します。\n",
+        command_help: "使用方法: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+        remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
         option_must_be_positive: "{option} には正の値を指定してください",
@@ -1785,21 +2016,21 @@ ID とセッション:
         known_daemon_auth_carrier: "信頼済み搬送路",
     },
     remote: RemoteMessages {
-        remote_stop_help: "使用方法: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
-        remote_stop_unknown_option: "remote-stop の不明なオプションです: {option}",
-        remote_stop_no_positional: "remote-stop に位置引数は指定できません",
+        remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+        remote_stop_unknown_option: "cmux remote stop の不明なオプションです: {option}",
+        remote_stop_no_positional: "cmux remote stop に位置引数は指定できません",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",
-        invalid_runtime_metadata: "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（{path}）",
+        invalid_runtime_metadata: "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください（{path}）",
         inspect_runtime_metadata: "リモートデーモンのランタイムメタデータを確認できませんでした（{path}）",
-        inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください",
+        inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください",
         refuse_live_invalid_lifecycle: "有効なライフサイクルメタデータがない実行中デーモンの停止を拒否しました",
-        embedded_daemon_stop_refused: "停止するとワークスペースが終了するため、組み込みデーモンのアップグレードを拒否しました。明示的に停止して再起動してください",
+        embedded_daemon_stop_refused: "cmux remote stop は置換可能な SSH サイドカーだけを管理します。このリモートリスナーはローカルサーバーに属するため、その所有者とワークスペースを停止するには `cmux server stop --session <名前>` を使用してください",
         daemon_shutdown_failed: "デーモンの停止に失敗しました",
         observe_daemon_exit: "リモートデーモンプロセスの終了を確認できませんでした",
         daemon_stop_timeout: "リモートデーモンが 20 秒以内に停止しませんでした",
         verify_previous_finalization_path: "前回のリモートデーモン認可終了処理を確認できませんでした（{path}）",
         verify_previous_finalization: "前回のリモートデーモン認可終了処理を確認できませんでした",
-        previous_finalization_failed_ack: "前回のリモートデーモン認可終了処理に失敗しました。認可状態を確認してから、remote-stop を --acknowledge-failed-finalization 付きで再実行してください",
+        previous_finalization_failed_ack: "前回のリモートデーモン認可終了処理に失敗しました。認可状態を確認してから、cmux remote stop を --acknowledge-failed-finalization 付きで再実行してください",
         verify_finalization: "リモートデーモンの認可終了処理を確認できませんでした",
         finalization_wrong_lifecycle: "リモートデーモンの認可終了処理を確認できませんでした。停止結果が別のデーモンライフサイクルに属しています",
         finalization_failed: "リモートデーモンの認可終了処理に失敗しました",
@@ -1807,13 +2038,13 @@ ID とセッション:
         confirm_lifecycle_fence_durability: "リモートデーモンのライフサイクルフェンスが永続化されたことを確認できませんでした",
         inspect_authorization_state: "リモートデーモンの認可状態を確認できませんでした",
         inspect_authorization_schema: "リモートデーモンの認可スキーマを確認できませんでした",
-        legacy_authorization_requires_migration: "前回のリモートデーモン認可状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop --acknowledge-legacy-finalization を実行してください",
+        legacy_authorization_requires_migration: "前回のリモートデーモン認可状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、cmux remote stop --acknowledge-legacy-finalization を実行してください",
         prepare_lifecycle_state: "リモートデーモンのライフサイクル状態を準備できませんでした",
         verify_previous_lifecycle_metadata: "前回のリモートデーモンライフサイクルメタデータを確認できませんでした",
         modern_predecessor_missing_outcome: "前回のリモートデーモン認可終了処理を確認できませんでした。新形式の先行デーモンが結果を保存していません",
         runtime_empty_lifecycle: "前回のリモートデーモン認可終了処理を確認できませんでした。ランタイムメタデータのライフサイクル ID が空です",
-        state_predates_lifecycle_fence: "前回のリモートデーモン状態はライフサイクルフェンス導入前のものです。再接続する前に remote-stop で旧デーモンを停止してください",
-        state_missing_lifecycle_fence: "前回のリモートデーモン状態にライフサイクルフェンスがありません。再接続する前に remote-stop で旧デーモンを停止してください",
+        state_predates_lifecycle_fence: "前回のリモートデーモン状態はライフサイクルフェンス導入前のものです。再接続する前に cmux remote stop で旧デーモンを停止してください",
+        state_missing_lifecycle_fence: "前回のリモートデーモン状態にライフサイクルフェンスがありません。再接続する前に cmux remote stop で旧デーモンを停止してください",
         authorization_finalization_failed: "認可終了処理に失敗しました",
         lifecycle_fence_version_unsupported: "リモートデーモンのライフサイクルフェンスバージョン {version} はサポートされていません",
         inspect_stopped_authorization_state: "停止済みデーモンの認可状態を確認できませんでした",
@@ -1870,9 +2101,17 @@ ID とセッション:
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
-        new_machine: "新規マシン",
-        connect_machine: "マシンを接続",
+        panes: "ペイン",
+        tabs: "タブ",
+        agents: "エージェント",
+        projection_path_separator: " › ",
+        new_machine: "新規VM",
+        connect_machine: "SSHホスト",
         no_machines: "マシンがありません",
+        no_workspaces: "ワークスペースがありません",
+        no_panes: "ペインがありません",
+        no_tabs: "タブがありません",
+        no_agents: "エージェントがありません",
         recoverable_machine: "復元可能",
         rename_machine: "マシン名を変更",
         delete_machine: "マシンを削除",
@@ -1896,11 +2135,26 @@ ID とセッション:
         managed_workspace_operation_not_allowed: "プロバイダーはこのワークスペースでこの操作を許可していません。メニューに表示される操作を使用してください",
         running: "実行中",
         connecting: "接続中",
+        waking: "再開中",
+        sleeping_wake_hint: "スリープ中 — 任意のキーで再開",
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
+        working: "作業中",
+        blocked: "ブロック中",
+        idle: "待機中",
+        done: "完了",
+        unknown: "不明",
         connect_prompt: "ホストアドレスまたはペアリングコード",
-        connect_host_prompt: "ホストアドレス",
+        connect_host_prompt: "SSH ホストまたは user@host",
+        connecting_to: "{target} に接続中…",
+        starting_on: "{target} でセッションを開始中…",
+        failed_to_connect: "{target} に接続できませんでした",
+        retry_connection: "再試行",
+        close_dialog: "閉じる",
+        ssh_hosts: "SSH ホスト",
+        type_to_filter: "入力して絞り込み",
+        other_host: "SSH ホストを追加…",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -1941,6 +2195,10 @@ ID とセッション:
         machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
         machine_catalog_create_unsupported: "このマシンカタログではマシンを作成できません",
+        machine_creation_source_unavailable: "このマシン作成元は利用できません",
+        machine_name_required: "マシン名を入力してください",
+        client_machine_unavailable: "このクライアント管理マシンは利用できません",
+        prototype_machine_added: "プロトタイプマシンを追加しました",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
         machine_catalog_restart_failed: "マシンは切り替わりましたが、カタログのライブ更新を再開できませんでした",
@@ -1949,6 +2207,7 @@ ID とセッション:
         machine_replacement_stale: "マシン切り替えの状態が古くなっています",
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
+        managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
     },
 };
 
@@ -2150,14 +2409,34 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt,
+            "SSH host or user@host"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt,
+            "SSH ホストまたは user@host"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "SSH ホストを追加…");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
+            "Enter a machine name"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_name_required,
+            "マシン名を入力してください"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
@@ -2290,21 +2569,25 @@ mod tests {
 
         assert!(english.remote_stop_help.contains("USAGE"));
         assert!(japanese.remote_stop_help.contains("使用方法"));
+        assert!(english.remote_stop_help.contains("cmux server stop"));
+        assert!(japanese.remote_stop_help.contains("cmux server stop"));
+        assert!(english.embedded_daemon_stop_refused.contains("SSH"));
+        assert!(japanese.embedded_daemon_stop_refused.contains("SSH"));
         assert_eq!(
             english.remote_stop_unknown_option("--unknown"),
-            "unknown option \"--unknown\" for remote-stop"
+            "unknown option \"--unknown\" for cmux remote stop"
         );
         assert_eq!(
             japanese.remote_stop_unknown_option("--unknown"),
-            "remote-stop の不明なオプションです: \"--unknown\""
+            "cmux remote stop の不明なオプションです: \"--unknown\""
         );
         assert_eq!(
             english.invalid_runtime_metadata("/tmp/runtime.json"),
-            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
+            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
         );
         assert_eq!(
             japanese.invalid_runtime_metadata("/tmp/runtime.json"),
-            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
+            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
         );
         assert_eq!(
             english.lifecycle_fence_version_unsupported(7),

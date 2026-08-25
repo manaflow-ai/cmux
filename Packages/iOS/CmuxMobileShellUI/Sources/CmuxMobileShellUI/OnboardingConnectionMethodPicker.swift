@@ -17,11 +17,11 @@ struct OnboardingConnectionMethodPicker: View {
                 .automatic,
                 title: L10n.string(
                     "mobile.onboarding.connect.method.automatic",
-                    defaultValue: "Auto-Connect"
+                    defaultValue: "Iroh"
                 ),
                 subtitle: L10n.string(
                     "mobile.onboarding.connect.method.automaticDetail",
-                    defaultValue: "Recommended. Finds your Mac with no setup."
+                    defaultValue: "Requires cmux 0.64.20 or later on your Mac."
                 ),
                 systemImage: "bolt.fill",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodAutomatic"
@@ -34,7 +34,7 @@ struct OnboardingConnectionMethodPicker: View {
                 ),
                 subtitle: L10n.string(
                     "mobile.onboarding.connect.method.tailscaleDetail",
-                    defaultValue: "Uses only your Tailscale network. Scan the pairing code on your Mac."
+                    defaultValue: "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
                 ),
                 systemImage: "qrcode",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodTailscale"
