@@ -10480,7 +10480,10 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
-        if let mixedTTYCluster = undelimitedRemoteCommandArguments.first(
+        let leadingRemoteOptionArguments = undelimitedRemoteCommandArguments.prefix {
+            $0.hasPrefix("-")
+        }
+        if let mixedTTYCluster = leadingRemoteOptionArguments.first(
             where: SSHRemoteCommand.isMixedTTYOptionCluster
         ) {
             throw CLIError(message: String(
