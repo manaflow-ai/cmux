@@ -663,11 +663,16 @@ final class AgentChatTranscriptService {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
-        if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
+        let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended)
+        if let completedAt {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
-            if let completedRecord = registry.record(sessionID: sessionID) {
-                scheduleDebouncedArtifactCapture(for: completedRecord)
-            }
+        }
+        let containsAuthorizedArtifactMutation = Self.batchContainsAuthorizedArtifactMutation(
+            batch.appended + batch.updated
+        )
+        if completedAt != nil || containsAuthorizedArtifactMutation,
+           let completedRecord = registry.record(sessionID: sessionID) {
+            scheduleDebouncedArtifactCapture(for: completedRecord)
         }
     }
 
@@ -704,6 +709,28 @@ final class AgentChatTranscriptService {
             }
         }
         return completedAt
+    }
+
+    private static func batchContainsAuthorizedArtifactMutation(
+        _ messages: [ChatMessage]
+    ) -> Bool {
+        messages.contains { message in
+            guard message.role == .agent else { return false }
+            switch message.kind {
+            case .toolUse(let toolUse):
+                return toolUse.artifactMutationAuthorized == true
+            case .terminal(let terminal):
+                return !terminal.isRunning && terminal.exitCode == 0
+            case .fileEdit:
+                // File-edit cards are emitted before their sidechain result;
+                // their visible path is only a reference until the result
+                // grants created provenance.
+                return false
+            case .prose, .thought, .permissionRequest, .question,
+                 .status, .attachment, .unsupported:
+                return false
+            }
+        }
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
@@ -792,6 +819,8 @@ final class AgentChatTranscriptService {
             if let eventSubscriptionObserver {
                 NotificationCenter.default.removeObserver(eventSubscriptionObserver)
             }
+            artifactCaptureTasks.values.compactMap(\.task).forEach { $0.cancel() }
+            artifactCaptureTasks.removeAll()
             artifactCaptureDebounceTasks.values.forEach { $0.task.cancel() }
             artifactCaptureDebounceTasks.removeAll()
             proseWakeDriver?.stop()

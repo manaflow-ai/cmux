@@ -19,6 +19,16 @@ struct TranscriptBatchAssembler {
     /// seq) bounds the carried state; dropping the oldest unresolved calls only
     /// means an extremely-late result (>N tool calls later) won't back-patch.
     static let maxPendingToolUses = 256
+    /// Bound unresolved sidechain mutation references by both entry count and
+    /// UTF-8 bytes; a single malformed tool call must not retain an unbounded
+    /// path array across incremental parse calls.
+    static let maxPendingArtifactMutationReferences = 1_024
+    static let maxPendingArtifactMutationBytes = 256 * 1_024
+    static let maxArtifactMutationReferencesPerCall = 256
+    /// Limit one registration so a single malformed tool call cannot consume
+    /// the entire cross-call mutation budget.
+    static let maxArtifactMutationBytesPerCall = 64 * 1_024
+    static let maxArtifactMutationPathBytes = 4_096
 
     /// Creates an assembler seeded with carried-over pending tool uses.
     ///
@@ -67,10 +77,30 @@ struct TranscriptBatchAssembler {
 
     /// Registers sidechain mutation targets without exposing sidechain messages.
     mutating func registerArtifactMutation(paths: [String], pendingKey: String, seq: Int) {
-        guard !paths.isEmpty else { return }
-        pendingArtifactMutations[pendingKey] = paths.map {
-            ChatArtifactTranscriptReference(path: $0, provenance: .referenced, seq: seq)
+        guard !paths.isEmpty, !pendingKey.isEmpty else { return }
+        var references: [ChatArtifactTranscriptReference] = []
+        references.reserveCapacity(min(paths.count, Self.maxArtifactMutationReferencesPerCall))
+        var bytes = 0
+        for path in paths {
+            guard references.count < Self.maxArtifactMutationReferencesPerCall,
+                  bytes < Self.maxArtifactMutationBytesPerCall else {
+                break
+            }
+            guard !path.isEmpty else { continue }
+            let pathBytes = path.utf8.count
+            guard pathBytes <= Self.maxArtifactMutationPathBytes else { continue }
+            guard pathBytes <= Self.maxArtifactMutationBytesPerCall - bytes else {
+                break
+            }
+            references.append(ChatArtifactTranscriptReference(
+                path: path,
+                provenance: .referenced,
+                seq: seq
+            ))
+            bytes += pathBytes
         }
+        guard !references.isEmpty else { return }
+        pendingArtifactMutations[pendingKey] = references
     }
 
     /// Pairs a tool result with its pending invocation, if registered.
@@ -146,13 +176,37 @@ struct TranscriptBatchAssembler {
     private func bounded(
         _ pending: [String: [ChatArtifactTranscriptReference]]
     ) -> [String: [ChatArtifactTranscriptReference]] {
-        guard pending.count > Self.maxPendingToolUses else { return pending }
         let newestFirst = pending.sorted { lhs, rhs in
             (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
         }
-        return Dictionary(
-            uniqueKeysWithValues: newestFirst.prefix(Self.maxPendingToolUses).map { ($0.key, $0.value) }
-        )
+        var bounded: [String: [ChatArtifactTranscriptReference]] = [:]
+        var referenceCount = 0
+        var byteCount = 0
+        for (key, references) in newestFirst {
+            guard referenceCount < Self.maxPendingArtifactMutationReferences,
+                  byteCount < Self.maxPendingArtifactMutationBytes else {
+                break
+            }
+            var retained: [ChatArtifactTranscriptReference] = []
+            for reference in references {
+                guard !reference.path.isEmpty else { continue }
+                let bytes = reference.path.utf8.count
+                guard bytes <= Self.maxArtifactMutationPathBytes else { continue }
+                guard referenceCount < Self.maxPendingArtifactMutationReferences else {
+                    break
+                }
+                guard bytes <= Self.maxPendingArtifactMutationBytes - byteCount else {
+                    break
+                }
+                retained.append(reference)
+                referenceCount += 1
+                byteCount += bytes
+            }
+            if !retained.isEmpty {
+                bounded[key] = retained
+            }
+        }
+        return bounded
     }
 
     private func mutationPaths(in message: ChatMessage) -> [String] {
