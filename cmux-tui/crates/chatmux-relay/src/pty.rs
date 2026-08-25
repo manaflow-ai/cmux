@@ -807,7 +807,8 @@ impl Inner {
             .expect("attach lock")
             .get(&pty_id)
             .map(|attachment| Arc::clone(&attachment.gate));
-        let _previous_gate_guard = previous_gate.as_ref().map(|gate| gate.lock().expect("attachment gate"));
+        let _previous_gate_guard =
+            previous_gate.as_ref().map(|gate| gate.lock().expect("attachment gate"));
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
@@ -861,8 +862,7 @@ impl Inner {
             Arc::new(move |chunk: Bytes| {
                 let _guard = gate.lock().expect("attachment gate");
                 inner.emit_output(&pty_id, generation, &chunk, &context, &control)
-            })
-                as Arc<dyn Fn(Bytes) + Send + Sync>
+            }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
@@ -873,8 +873,7 @@ impl Inner {
             Arc::new(move |code: i64| {
                 let _guard = gate.lock().expect("attachment gate");
                 inner.emit_exit(&pty_id, generation, code, &context, &control)
-            })
-                as Arc<dyn Fn(i64) + Send + Sync>
+            }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (generation, gate, on_data, on_exit)
     }
@@ -987,15 +986,11 @@ impl Inner {
         generation: u64,
         control: &Arc<dyn PtyControl>,
     ) -> bool {
-        self.attachments
-            .lock()
-            .expect("attach lock")
-            .get(pty_id)
-            .is_some_and(|attachment| {
-                attachment.generation == generation
-                    && !attachment.closing.load(Ordering::SeqCst)
-                    && Arc::ptr_eq(&attachment.control, control)
-            })
+        self.attachments.lock().expect("attach lock").get(pty_id).is_some_and(|attachment| {
+            attachment.generation == generation
+                && !attachment.closing.load(Ordering::SeqCst)
+                && Arc::ptr_eq(&attachment.control, control)
+        })
     }
 
     /// Remove an attachment only if the callback still belongs to the current
@@ -1429,15 +1424,7 @@ impl Inner {
             }
         });
 
-        Ok(Opened {
-            generation,
-            gate,
-            created,
-            surface: None,
-            control: proxy,
-            closing,
-            start,
-        })
+        Ok(Opened { generation, gate, created, surface: None, control: proxy, closing, start })
     }
 }
 
@@ -1968,11 +1955,7 @@ impl Inner {
             let _guard = gate_for_exit.lock().expect("attachment gate");
             if stream_for_exit.overflowed() {
                 if let Some(control) = control_identity.upgrade()
-                    && relay.remove_attachment_if_current(
-                        &pty_id_for_exit,
-                        generation,
-                        &control,
-                    )
+                    && relay.remove_attachment_if_current(&pty_id_for_exit, generation, &control)
                 {
                     control.kill();
                 }
@@ -1983,7 +1966,13 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, generation, code, &context_for_exit, &control_identity);
+                relay.emit_exit(
+                    &pty_id_for_exit,
+                    generation,
+                    code,
+                    &context_for_exit,
+                    &control_identity,
+                );
             }
         });
         let start_stream = Arc::clone(&stream);
@@ -2675,6 +2664,38 @@ mod tests {
             "before detach\r\nwhile detached\r\n"
         );
         assert_eq!(h.spawned().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn stale_callbacks_after_reopen_cannot_affect_replacement() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness(Some(cmux), None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let old = h.spawned()[0].clone();
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let replacement = h.spawned()[1].clone();
+
+        let before_stale = h.sent().len();
+        old.emit("stale output");
+        old.exit(7);
+        let stale_frames = h.sent();
+        assert!(!stale_frames[before_stale..].iter().any(|frame| matches!(
+            frame.get("type").and_then(Value::as_str),
+            Some("pty_output" | "pty_exit")
+        )));
+
+        replacement.emit("replacement output");
+        replacement.exit(0);
+        let frames = h.sent();
+        assert_eq!(
+            frames.last().and_then(|frame| frame.get("type")).and_then(Value::as_str),
+            Some("pty_exit")
+        );
+        assert_eq!(
+            frames.last().and_then(|frame| frame.get("code")).and_then(Value::as_i64),
+            Some(0)
+        );
     }
 
     #[tokio::test]
