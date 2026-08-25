@@ -71,6 +71,32 @@ struct BrowserCookieBuilderTests {
         #expect(!cookie.isHTTPOnly)
     }
 
+    @Test("rejects cookie values that cannot survive Set-Cookie parsing")
+    func rejectsHeaderDelimiters() throws {
+        let originURL = try #require(URL(string: "https://example.test/"))
+
+        #expect(builder.makeCookie(
+            name: "session",
+            value: "a;b",
+            originURL: originURL,
+            domain: "example.test",
+            path: "/",
+            secure: false,
+            expires: nil,
+            httpOnly: false
+        ) == nil)
+        #expect(builder.makeCookie(
+            name: "session",
+            value: "a;b",
+            originURL: originURL,
+            domain: "example.test",
+            path: "/",
+            secure: false,
+            expires: nil,
+            httpOnly: true
+        ) == nil)
+    }
+
     @Test("keeps HttpOnly secure cookies valid when the source URL is HTTP")
     func secureCookieUsesSecureParsingOrigin() throws {
         let originURL = try #require(URL(string: "http://example.test/"))

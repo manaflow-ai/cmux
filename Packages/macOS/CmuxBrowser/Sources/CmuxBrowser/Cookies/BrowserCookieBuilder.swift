@@ -53,6 +53,13 @@ private func browserCookieTwoDigits(_ value: Int) -> String {
     value < 10 ? "0\(value)" : String(value)
 }
 
+private func browserCookieHeaderComponentIsSafe(_ value: String) -> Bool {
+    !value.unicodeScalars.contains { scalar in
+        let code = scalar.value
+        return code == 0x3B || code == 0x0D || code == 0x0A || code < 0x20 || code == 0x7F
+    }
+}
+
 /// Builds browser cookies from the fields accepted by browser cookie automation.
 public struct BrowserCookieBuilder: Sendable {
     /// Creates a stateless browser cookie builder.
@@ -85,6 +92,10 @@ public struct BrowserCookieBuilder: Sendable {
         expires: Date?,
         httpOnly: Bool
     ) -> HTTPCookie? {
+        guard browserCookieHeaderComponentIsSafe(name),
+              browserCookieHeaderComponentIsSafe(value) else {
+            return nil
+        }
         var properties: [HTTPCookiePropertyKey: Any] = [
             .name: name,
             .value: value,
