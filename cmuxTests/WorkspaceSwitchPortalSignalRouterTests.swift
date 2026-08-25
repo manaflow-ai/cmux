@@ -44,12 +44,21 @@ struct WorkspaceSwitchPortalSignalRouterTests {
         }
         defer { router.notificationCenter.removeObserver(observer) }
 
-        let ownedView = NSView(frame: .zero)
+        let ownedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: .zero)
+        )
         window.contentView?.addSubview(ownedView)
+        router.observe(
+            terminalHostedView: ownedView,
+            terminalSurface: nil,
+            browserWebView: nil
+        )
         sourceCenter.post(name: .terminalPortalVisibilityDidChange, object: ownedView)
         #expect(relayedCount == 1)
 
-        let unrelatedView = NSView(frame: .zero)
+        let unrelatedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: .zero)
+        )
         otherWindow.contentView?.addSubview(unrelatedView)
         sourceCenter.post(name: .terminalPortalVisibilityDidChange, object: unrelatedView)
         #expect(relayedCount == 1)
