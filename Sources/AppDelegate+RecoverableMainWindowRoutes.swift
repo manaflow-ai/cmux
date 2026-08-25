@@ -139,7 +139,8 @@ extension AppDelegate {
             if let replacement = freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                includeScrollback: includeScrollback
             ) {
                 updatedRoutes.append(replacement)
             }
@@ -361,13 +362,31 @@ extension AppDelegate {
         includeScrollback: Bool
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
-        let registeredRouteCount = mainWindowLifecycleCoordinator.registeredContexts.count
+        let registeredRouteCount = mainWindowLifecycleCoordinator.registeredContexts.reduce(
+            into: 0
+        ) { count, context in
+            let route = MainWindowPersistenceRouteSnapshot.live(
+                registeredMainWindowRouteSnapshot(for: context)
+            )
+            if route.isEligibleForSessionPersistence {
+                count += 1
+            }
+        }
         let maximumRecoverableRoutes = max(
             0,
             SessionPersistencePolicy.maxWindowsPerSnapshot - registeredRouteCount
         )
         let candidateOrphanedRoutes = mainWindowLifecycleCoordinator
             .orphanedRoutes()
+            .filter { route in
+                guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
+                    for: route,
+                    resolvedWindow: windowsByWindowId[route.windowId]
+                ) else {
+                    return false
+                }
+                return snapshot.isEligibleForSessionPersistence
+            }
             .prefix(maximumRecoverableRoutes)
         let restorableAgentIndexForFreeze = includeScrollback
             ? suppliedRestorableAgentIndex
