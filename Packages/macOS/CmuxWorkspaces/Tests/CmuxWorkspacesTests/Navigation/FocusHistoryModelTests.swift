@@ -454,6 +454,39 @@ struct FocusHistoryModelTests {
         #expect(items.first?.panelTitle == "rewritten")
     }
 
+    @Test func recentlyFocusedMenuItemsDedupesAcrossBackForwardMerge() {
+        let host = FakeFocusHistoryHost()
+        var now = 0
+        let model = FocusHistoryModel(
+            now: {
+                defer { now += 1 }
+                return Date(timeIntervalSince1970: TimeInterval(now))
+            },
+            navigationScope: { .workspacesOnly }
+        )
+        model.attach(host: host)
+
+        let firstPanel = UUID()
+        let firstWorkspace = host.addWorkspace(title: "first", panels: [firstPanel: "first"])
+        let secondPanel = UUID()
+        let secondWorkspace = host.addWorkspace(title: "second", panels: [secondPanel: "second"])
+
+        host.selectedWorkspaceId = firstWorkspace
+        host.workspaces[firstWorkspace]?.rememberedFocusedPanelId = firstPanel
+        model.recordFocusInHistory(workspaceId: firstWorkspace, panelId: firstPanel)
+        host.selectedWorkspaceId = secondWorkspace
+        host.workspaces[secondWorkspace]?.rememberedFocusedPanelId = secondPanel
+        model.recordFocusInHistory(workspaceId: secondWorkspace, panelId: secondPanel)
+        host.selectedWorkspaceId = firstWorkspace
+        model.recordFocusInHistory(workspaceId: firstWorkspace, panelId: firstPanel)
+
+        #expect(model.navigateBack())
+        let items = model.recentlyFocusedFocusHistoryMenuItems(maxItemCount: 10)
+
+        #expect(items.count == 1)
+        #expect(items.first?.workspaceTitle == "first")
+    }
+
     @Test func menuSnapshotResolvesClosedPanelToWorkspaceLevelEntry() {
         let (model, host) = makeModel()
         let panelA = UUID()

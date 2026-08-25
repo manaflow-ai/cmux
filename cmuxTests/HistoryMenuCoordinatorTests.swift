@@ -11,6 +11,17 @@ import Testing
 @testable import cmux
 #endif
 
+private extension HistoryMenuActions {
+    static var unavailableForTests: HistoryMenuActions {
+        HistoryMenuActions(
+            reopenMostRecentlyClosedWorkspace: { _ in false },
+            reopenMostRecentlyClosedItem: { _ in false },
+            reopenClosedHistoryItem: { _, _ in false },
+            reopenPreviousSession: { false }
+        )
+    }
+}
+
 @MainActor
 @Suite
 struct HistoryMenuCoordinatorTests {
@@ -37,7 +48,7 @@ struct HistoryMenuCoordinatorTests {
                 closedItemHistoryStore: closedHistory,
                 managerProvider: { manager },
                 mainMenuProvider: { nil },
-                actions: .unavailable
+                actions: .unavailableForTests
             )
             coordinator.refreshIfNeeded()
             let firstState = coordinator.state
@@ -87,7 +98,7 @@ struct HistoryMenuCoordinatorTests {
                 closedItemHistoryStore: closedHistory,
                 managerProvider: { manager },
                 mainMenuProvider: { mainMenu },
-                actions: .unavailable
+                actions: .unavailableForTests
             )
             coordinator.refreshIfNeeded()
             #expect(coordinator.state.recentlyFocusedItems.first?.workspaceTitle == "Before Workspace")
@@ -124,7 +135,7 @@ struct HistoryMenuCoordinatorTests {
                 closedItemHistoryStore: closedHistory,
                 managerProvider: { manager },
                 mainMenuProvider: { nil },
-                actions: .unavailable
+                actions: .unavailableForTests
             )
             coordinator.refreshIfNeeded()
             #expect(coordinator.state.recentlyClosed.items.isEmpty)

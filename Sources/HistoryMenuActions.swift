@@ -6,12 +6,4 @@ struct HistoryMenuActions {
     let reopenMostRecentlyClosedItem: @MainActor (TabManager) -> Bool
     let reopenClosedHistoryItem: @MainActor (UUID, TabManager) -> Bool
     let reopenPreviousSession: @MainActor () -> Bool
-
-    /// No-op actions for projection-only tests.
-    static let unavailable = HistoryMenuActions(
-        reopenMostRecentlyClosedWorkspace: { _ in false },
-        reopenMostRecentlyClosedItem: { _ in false },
-        reopenClosedHistoryItem: { _, _ in false },
-        reopenPreviousSession: { false }
-    )
 }
