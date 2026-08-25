@@ -1,10 +1,10 @@
 import Darwin
+import CmuxFoundation
 import Foundation
-
+import CmuxSettings
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
-
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
             return defaultShowTitlebar
@@ -14,7 +14,6 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-
     enum Mode: String {
         case standard
         case minimal
@@ -272,7 +271,7 @@ enum AgentHibernationSettings {
     static let confirmationSecondsKey = "terminal.agentHibernation.confirmationSeconds"
 
     static let defaultEnabled = false
-    // Hibernation is opt-in. Once enabled, reclaim idle background agents quickly:
+    // Routine hibernation is opt-in. Once enabled, reclaim idle background agents quickly:
     // the maxLiveTerminals cap and the confirmationSeconds settle window keep this safe.
     static let defaultIdleSeconds: TimeInterval = 5
     static let defaultMaxLiveTerminals = 12
@@ -367,8 +366,8 @@ enum AgentHibernationSettings {
 }
 
 /// Settings for non-destructive offscreen renderer reclamation. Unlike
-/// `AgentHibernationSettings` (which kills a resumable agent's PTY and is opt-in),
-/// this only releases an offscreen terminal's GPU renderer (Metal swap chain /
+/// routine `AgentHibernationSettings` (which kills a resumable agent's PTY and is
+/// opt-in), this only releases an offscreen terminal's GPU renderer (Metal swap chain /
 /// IOSurface) while keeping its PTY and terminal state alive, rebuilding it on
 /// re-show. It is therefore safe to default ON. The cap keeps recently-used tabs
 /// warm so switching stays instant; the idle window avoids reclaiming a tab the
@@ -384,9 +383,10 @@ enum RendererRealizationSettings {
     static let idleSecondsKey = "terminal.rendererRealization.idleSeconds"
     static let maxWarmRenderersKey = "terminal.rendererRealization.maxWarmRenderers"
 
-    static let defaultEnabled = true
-    static let defaultIdleSeconds: TimeInterval = 30
-    static let defaultMaxWarmRenderers = 12
+    private static let catalog = SettingCatalog().terminal
+    static let defaultEnabled = catalog.rendererRealizationEnabled.defaultValue
+    static let defaultIdleSeconds = catalog.rendererRealizationIdleSeconds.defaultValue
+    static let defaultMaxWarmRenderers = catalog.rendererRealizationMaxWarmRenderers.defaultValue
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
 
     static func values(defaults: UserDefaults = .standard) -> Values {
@@ -465,19 +465,14 @@ enum RendererRealizationSettings {
 }
 
 enum AgentHibernationTrackingGate {
-    private static let lock = NSLock()
-    private static var enabled = AgentHibernationSettings.isEnabled()
+    private static let gate = AtomicBooleanGate(false)
 
     static func isEnabled() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return enabled
+        gate.loadRelaxed()
     }
 
     static func setEnabled(_ nextEnabled: Bool) {
-        lock.lock()
-        enabled = nextEnabled
-        lock.unlock()
+        gate.storeRelease(nextEnabled)
     }
 }
 

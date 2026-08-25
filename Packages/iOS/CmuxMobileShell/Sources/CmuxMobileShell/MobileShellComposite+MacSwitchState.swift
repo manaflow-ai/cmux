@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
 
@@ -31,19 +32,29 @@ extension MobileShellComposite {
     /// Resolves the live foreground Mac that a failed destructive switch should restore.
     func previousForegroundMacForSwitchRestore(
         previousForegroundMacDeviceID: String?,
+        previousForegroundInstanceTag: String? = nil,
         switchingTo macDeviceID: String,
+        switchingToInstanceTag: String? = nil,
         storeMacs: [MobilePairedMac]
     ) -> MobilePairedMac? {
         guard let previousForegroundMacDeviceID,
               !previousForegroundMacDeviceID.isEmpty,
-              previousForegroundMacDeviceID != macDeviceID else { return nil }
-        var seenIDs = Set<String>()
+              previousForegroundDeviceMatchesTarget(
+                  previousForegroundMacDeviceID,
+                  previousForegroundInstanceTag,
+                  switchingTo: macDeviceID,
+                  switchingToInstanceTag: switchingToInstanceTag
+              ) == false else { return nil }
+        var seenIDs = Set<MacPairingKey>()
         let rawCandidates = storeMacs.isEmpty ? pairedMacs : storeMacs + pairedMacs
         let candidates = rawCandidates.filter { mac in
-            seenIDs.insert(mac.macDeviceID).inserted
+            seenIDs.insert(MacPairingKey(mac)).inserted
         }
         if let direct = candidates.first(where: {
-            $0.macDeviceID == previousForegroundMacDeviceID && $0.macDeviceID != macDeviceID
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: previousForegroundMacDeviceID,
+                instanceTag: previousForegroundInstanceTag
+            )
         }) {
             return direct
         }
@@ -54,9 +65,30 @@ extension MobileShellComposite {
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         return candidates.first { candidate in
-            guard candidate.macDeviceID != macDeviceID else { return false }
-            return aliasSetsByMacID[candidate.macDeviceID]?.contains(previousForegroundMacDeviceID) == true
+            guard MacPairingKey(candidate) != MacPairingKey(
+                      macDeviceID: macDeviceID,
+                      instanceTag: switchingToInstanceTag
+                  ),
+                  MacPairingKey(candidate).normalizedInstanceTag
+                      == MacPairingKey(
+                          macDeviceID: previousForegroundMacDeviceID,
+                          instanceTag: previousForegroundInstanceTag
+                      ).normalizedInstanceTag else { return false }
+            return aliasSetsByMacID[candidate.id]?.contains(previousForegroundMacDeviceID) == true
         }
+    }
+
+    private func previousForegroundDeviceMatchesTarget(
+        _ previousDeviceID: String,
+        _ previousInstanceTag: String?,
+        switchingTo targetDeviceID: String,
+        switchingToInstanceTag: String?
+    ) -> Bool {
+        cmxCanonicalDeviceID(previousDeviceID) == cmxCanonicalDeviceID(targetDeviceID)
+            && macInstanceTagAuthority.sameStoredAuthority(
+                previousInstanceTag,
+                switchingToInstanceTag
+            )
     }
 
     /// Whether any foreground Mac switch attempt is currently in flight.
@@ -73,6 +105,29 @@ extension MobileShellComposite {
     /// budget.
     public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
 
+    func cancelMacSwitchAttempt(_ attemptID: UUID) -> Task<Bool, Never>? {
+        macSwitchAttemptID == attemptID ? cancelPendingMacSwitch(restorePreviousOnCancel: true) : nil
+    }
+
+    func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
+        macSwitchAttemptID == attemptID
+            && macSwitchAttemptSignInGeneration == signInGeneration
+            && isSignedIn
+            && !Task.isCancelled
+    }
+
+    func finishMacSwitchAttempt(_ attemptID: UUID) {
+        if macSwitchAttemptID == attemptID {
+            macSwitchAttemptID = nil
+            macSwitchAttemptSignInGeneration = nil
+            macSwitchRestoreBaseline = nil
+        }
+        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
+        if macSwitchAttemptID == nil {
+            finishCompletedSecondaryMacDrainReservations()
+        }
+    }
+
     /// Assign any newly seen real Mac a stable in-memory color slot.
     ///
     /// Called from `recomputeDerivedWorkspaceState()` before deriving
@@ -83,9 +138,14 @@ extension MobileShellComposite {
     /// `workspaceAggregation` made internal) instead of
     /// `MobileShellComposite.swift` to respect that file's length budget.
     func updateStableMacColorSlots() {
+        // Color is per exact app instance. Stable and Nightly are separate
+        // computers, so their avatar slots must not be shared even when their
+        // physical device id is the same.
         let updated = workspaceAggregation.machineColorIndex(
             existingAssignments: stableMacColorSlots,
-            adding: Array(workspacesByMac.keys.filter { !$0.isEmpty && $0 != Self.foregroundAnonymousKey })
+            adding: workspacesByMac.keys
+                .filter { $0 != .anonymousForeground }
+                .map(\.pairingID)
         )
         if updated != stableMacColorSlots {
             stableMacColorSlots = updated
@@ -104,7 +164,8 @@ extension MobileShellComposite {
         stableMacColorSlots = [:]
     }
 
-    /// Prune stable color slots to only the foreground Mac on a team switch.
+    /// Prune stable color slots to only the foreground app instance on a team
+    /// switch.
     /// Slots are additive-only, so the old team's Macs would otherwise linger
     /// in the slot map forever across repeated team switches; the new team's
     /// Macs get reassigned lazily as they're re-aggregated. Lives here instead

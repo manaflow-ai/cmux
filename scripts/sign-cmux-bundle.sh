@@ -90,6 +90,9 @@ echo "==> signing main bundle"
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
+"$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
+  "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+  --require-signed
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"

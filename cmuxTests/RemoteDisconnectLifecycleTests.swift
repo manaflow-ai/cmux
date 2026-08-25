@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -11,6 +12,78 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteDisconnectLifecycleTests {
+    @Test func placeholderReplayEmitsNotificationRestoreBoundaries() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-replay-boundary-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let replayFileURL = try #require(SessionScrollbackReplayStore.replayFileURL(
+            for: "remote-output\n",
+            tempDirectory: temporaryDirectory
+        ))
+        let scriptPath = try #require(Workspace.remoteDisconnectPlaceholderScript(
+            target: "example-host",
+            reconnectCommand: nil,
+            temporaryDirectory: temporaryDirectory
+        ))
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [scriptPath]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [SessionScrollbackReplayStore.environmentKey: replayFileURL.path],
+            uniquingKeysWith: { _, new in new }
+        )
+
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let startBoundary = SessionScrollbackReplayStore.startBoundaryValue(forReplayFilePath: replayFileURL.path)
+        let endBoundary = SessionScrollbackReplayStore.endBoundaryValue(forReplayFilePath: replayFileURL.path)
+        let startRange = try #require(output.range(of: startBoundary))
+        let replayRange = try #require(output.range(of: "remote-output"))
+        let endRange = try #require(output.range(of: endBoundary))
+
+        #expect(process.terminationStatus == 0)
+        #expect(startRange.lowerBound < replayRange.lowerBound)
+        #expect(replayRange.lowerBound < endRange.lowerBound)
+    }
+
+    @Test func missingPlaceholderReplayFileStillCompletesNotificationRestoreLifecycle() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-missing-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let missingPath = temporaryDirectory.appendingPathComponent("missing-replay").path
+        let scriptPath = try #require(Workspace.remoteDisconnectPlaceholderScript(
+            target: "example-host",
+            reconnectCommand: nil,
+            temporaryDirectory: temporaryDirectory
+        ))
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [scriptPath]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [SessionScrollbackReplayStore.environmentKey: missingPath],
+            uniquingKeysWith: { _, new in new }
+        )
+
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0)
+        #expect(output.contains(SessionScrollbackReplayStore.startBoundaryValue(forReplayFilePath: missingPath)))
+        #expect(output.contains(SessionScrollbackReplayStore.endBoundaryValue(forReplayFilePath: missingPath)))
+    }
+
     @Test func twoPendingRemoteExitsKeepIndependentReplacementState() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)

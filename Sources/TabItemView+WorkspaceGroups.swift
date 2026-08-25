@@ -11,37 +11,27 @@ extension TabItemView {
             localized: "contextMenu.workspaceGroup.newEmpty",
             defaultValue: "New Empty Workspace Group"
         )
-        let canCreateEmptyWorkspaceGroup = tabManager.selectedTab?.isRemoteTmuxMirror != true
+        let context = snapshot.contextMenu
+        let canCreateEmptyWorkspaceGroup = context.canCreateEmptyGroup
         if let key = newWorkspaceGroupShortcut.keyEquivalent {
             Button(newWorkspaceGroupLabel) {
-                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                actions.createEmptyGroup()
             }
             .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
             .disabled(!canCreateEmptyWorkspaceGroup)
         } else {
             Button(newWorkspaceGroupLabel) {
-                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                actions.createEmptyGroup()
             }
             .disabled(!canCreateEmptyWorkspaceGroup)
         }
 
-        let targetWorkspaces = targetIds.compactMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-        let eligibleTargets = targetWorkspaces.filter { !existingAnchorIds.contains($0.id) }
-        let eligibleTargetIds = eligibleTargets.map(\.id)
+        let eligibleTargetIds = context.eligibleGroupTargetIds
         if !eligibleTargetIds.isEmpty {
-            let groups = workspaceGroupMenuSnapshot.items
+            let groups = context.groupMenuSnapshot.items
             let moveToGroupMenuState = WorkspaceGroupMoveToMenuState(groups: groups)
-            let allTargetsInSameGroup: UUID? = {
-                let groupIds = eligibleTargets.map(\.groupId)
-                guard let first = groupIds.first, groupIds.allSatisfy({ $0 == first }) else {
-                    return nil
-                }
-                return first
-            }()
-            let hasAnyGroupedTarget = eligibleTargets.contains { $0.groupId != nil }
+            let allTargetsInSameGroup = context.allEligibleTargetsGroupId
+            let hasAnyGroupedTarget = context.hasGroupedEligibleTarget
 
             let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
             let groupSelectedLabel = isMulti
@@ -72,9 +62,7 @@ extension TabItemView {
                 Menu(moveToGroupLabel) {
                     ForEach(groups) { group in
                         Button(group.name) {
-                            for id in eligibleTargetIds {
-                                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
-                            }
+                            actions.addTargetsToGroup(eligibleTargetIds, group.id)
                         }
                         .disabled(allTargetsInSameGroup == group.id)
                     }
@@ -91,9 +79,7 @@ extension TabItemView {
                         defaultValue: "Remove from Group"
                     )
                 ) {
-                    for id in eligibleTargetIds {
-                        tabManager.removeWorkspaceFromGroup(workspaceId: id)
-                    }
+                    actions.removeTargetsFromGroup(eligibleTargetIds)
                 }
             }
         }
@@ -101,6 +87,6 @@ extension TabItemView {
 
     func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
+        actions.createGroup(workspaceIds)
     }
 }

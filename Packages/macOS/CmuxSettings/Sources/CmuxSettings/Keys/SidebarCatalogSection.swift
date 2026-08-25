@@ -6,6 +6,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     /// Valid notification-preview line limits for settings UI and configuration parsing.
     public static let notificationMessageLineLimitRange = 1...50
 
+    /// Resolves the shipped legacy layout contract together with the newer
+    /// branch/directory placement preference.
+    public static func stacksBranchAndDirectory(
+        vertical: Bool,
+        explicit: Bool
+    ) -> Bool {
+        vertical || explicit
+    }
+
     public let hideAllDetails = DefaultsKey<Bool>(
         id: "sidebar.hideAllDetails",
         defaultValue: false,
@@ -27,8 +36,11 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert
-    /// every user with a saved preference. `true` means vertical
-    /// (branch and directory stacked on their own lines).
+    /// every user with a saved preference. `true` preserves the legacy
+    /// vertical presentation: each panel's branch/directory record gets its
+    /// own row, with branch and directory on separate subrows. When this is
+    /// `false`, `stackBranchDirectory` can still opt the compact branch layout
+    /// into separate branch and directory subrows.
     public let branchVerticalLayout = DefaultsKey<Bool>(
         id: "sidebar.branchVerticalLayout",
         defaultValue: true,

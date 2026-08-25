@@ -27,7 +27,7 @@ struct MobileMacConnectionStatusRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if showsSpinner {
+                if showsSpinner || status == .reconnecting {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 24)
@@ -67,7 +67,7 @@ struct MobileMacConnectionStatusRow: View {
 
                     if let addDevice {
                         Button(action: addDevice) {
-                            Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                            Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)

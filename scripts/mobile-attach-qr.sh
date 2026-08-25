@@ -4,9 +4,11 @@ set -euo pipefail
 TAG="${CMUX_TAG:-swmob}"
 TTL_SECONDS="3600"
 ROUTE_ID=""
-ROUTE_KIND="tailscale"
+ROUTE_KIND="iroh"
 OUT_DIR=""
 OPEN_HTML="0"
+MAX_ATTEMPTS="${CMUX_ATTACH_QR_MAX_ATTEMPTS:-20}"
+POLL_INTERVAL_SECONDS="${CMUX_ATTACH_QR_POLL_INTERVAL_SECONDS:-0.5}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,7 +80,46 @@ HTML_PATH="$OUT_DIR/index.html"
 
 RAW_JSON_TMP="$(mktemp "$OUT_DIR/attach-ticket.raw.json.XXXXXX")"
 trap 'rm -f "$RAW_JSON_TMP"' EXIT
-CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create "$PARAMS" > "$RAW_JSON_TMP"
+READY="0"
+for _attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+  if CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" \
+    rpc mobile.attach_ticket.create "$PARAMS" > "$RAW_JSON_TMP" 2>/dev/null && \
+    RAW_JSON_TMP="$RAW_JSON_TMP" python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    with open(os.environ["RAW_JSON_TMP"]) as stream:
+        payload = json.load(stream)
+except (OSError, ValueError):
+    sys.exit(1)
+
+attach_url = payload.get("attach_url")
+ticket = payload.get("ticket")
+routes = ticket.get("routes") if isinstance(ticket, dict) else None
+if not isinstance(attach_url, str) or not attach_url:
+    sys.exit(1)
+if not isinstance(routes, list) or not any(
+    isinstance(route, dict) and route.get("kind") == "iroh"
+    for route in routes
+):
+    sys.exit(1)
+PY
+  then
+    READY="1"
+    break
+  fi
+  if [[ "$_attempt" -lt "$MAX_ATTEMPTS" ]]; then
+    sleep "$POLL_INTERVAL_SECONDS"
+  fi
+done
+
+if [[ "$READY" != "1" ]]; then
+  echo "error: tagged Mac '$TAG' did not publish an authenticated Iroh route before the QR deadline" >&2
+  exit 1
+fi
+
 chmod 600 "$RAW_JSON_TMP"
 mv "$RAW_JSON_TMP" "$RAW_JSON"
 

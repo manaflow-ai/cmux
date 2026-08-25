@@ -23,6 +23,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     override func setUp() {
         super.setUp()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        // The suite asserts the store never live-applies appearance, so the global observer's own reaction to the defaults writes the store legitimately makes must not be recorded.
+        AppearanceSettingsUserDefaultsObserver.shared.stopObserving()
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -30,6 +32,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
         AppearanceSettings.resetLiveEnvironmentProviderForTesting()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -925,15 +928,19 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         let defaults = UserDefaults.standard
         let scrollBarKey = TerminalScrollBarSettings.showScrollBarKey
         let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let adaptiveDefaultThemeKey =
+            TerminalAdaptiveDefaultThemeSettings.userDefaultsKey
 
         try preservingDefaults(keys: [
             scrollBarKey,
             autoResumeKey,
+            adaptiveDefaultThemeKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
             defaults.removeObject(forKey: scrollBarKey)
             defaults.removeObject(forKey: autoResumeKey)
+            defaults.removeObject(forKey: adaptiveDefaultThemeKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
@@ -946,7 +953,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 {
                   "terminal": {
                     "showScrollBar": false,
-                    "autoResumeAgentSessions": false
+                    "autoResumeAgentSessions": false,
+                    "adaptiveDefaultTheme": true
                   }
                 }
                 """,
@@ -956,6 +964,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             let notificationCenter = NotificationCenter()
             var scrollBarNotificationCount = 0
             var autoResumeNotificationCount = 0
+            var adaptiveDefaultThemeNotificationCount = 0
             let scrollBarObserver = notificationCenter.addObserver(
                 forName: TerminalScrollBarSettings.didChangeNotification,
                 object: nil,
@@ -970,9 +979,18 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             ) { _ in
                 autoResumeNotificationCount += 1
             }
+            let adaptiveDefaultThemeObserver = notificationCenter.addObserver(
+                forName:
+                    TerminalAdaptiveDefaultThemeSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                adaptiveDefaultThemeNotificationCount += 1
+            }
             defer {
                 notificationCenter.removeObserver(scrollBarObserver)
                 notificationCenter.removeObserver(autoResumeObserver)
+                notificationCenter.removeObserver(adaptiveDefaultThemeObserver)
             }
 
             let store = KeyboardShortcutSettingsFileStore(
@@ -985,13 +1003,19 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             XCTAssertEqual(defaults.object(forKey: scrollBarKey) as? Bool, false)
             XCTAssertEqual(defaults.object(forKey: autoResumeKey) as? Bool, false)
+            XCTAssertTrue(
+                TerminalAdaptiveDefaultThemeSettings(defaults: defaults)
+                    .isEnabled
+            )
             XCTAssertEqual(scrollBarNotificationCount, 0)
             XCTAssertEqual(autoResumeNotificationCount, 0)
+            XCTAssertEqual(adaptiveDefaultThemeNotificationCount, 0)
 
             store.applyDeferredManagedDefaultSideEffects()
 
             XCTAssertEqual(scrollBarNotificationCount, 1)
             XCTAssertEqual(autoResumeNotificationCount, 1)
+            XCTAssertEqual(adaptiveDefaultThemeNotificationCount, 1)
         }
     }
 
@@ -1249,6 +1273,40 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesBrowserDefaultZoomLevel() throws {
+        let defaults = UserDefaults.standard
+        let key = "browserDefaultZoomLevel"
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "defaultZoomLevel": 0.8
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.double(forKey: key), 0.8)
+        }
+    }
+
     func testSettingsFileStoreAppliesBlankCustomBrowserSearchNameAndIgnoresInvalidCustomURLWithoutAbortingBrowserSection() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
@@ -1367,8 +1425,14 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
+        // Snapshot from the persistent domain, not object(forKey:): the resolved
+        // value includes registered fallbacks (e.g. BrowserPanel's browser
+        // defaults registration), and the restore below would persist such a
+        // fallback for a key that was never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previousValues = keys.map { key in
-            (key: key, value: defaults.object(forKey: key))
+            (key: key, value: persisted[key])
         }
         defer {
             for previous in previousValues {

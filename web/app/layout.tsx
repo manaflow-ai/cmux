@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 import { routing, type Locale } from "../i18n/routing";
 import "./globals.css";
 
@@ -14,6 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 const nextIntlLocaleHeader = "x-next-intl-locale";
+
+// The document attributes and RSS metadata depend on the locale injected by
+// the request proxy. Deeper route segments can still opt into instant
+// navigation validation independently.
+export const instant = false;
 
 function localeFromHeader(value: string | null): Locale {
   return routing.locales.includes(value as Locale)
@@ -32,9 +38,22 @@ export default async function RootLayout({
 }) {
   const locale = localeFromHeader((await headers()).get(nextIntlLocaleHeader));
   const dir = directionForLocale(locale);
+  const blogTranslations = await getTranslations({ locale, namespace: "blog" });
+  const feedUrl =
+    locale === routing.defaultLocale
+      ? "https://cmux.com/feed.xml"
+      : `https://cmux.com/${locale}/feed.xml`;
 
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning>
+      <head>
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title={blogTranslations("layoutTitle")}
+          href={feedUrl}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >

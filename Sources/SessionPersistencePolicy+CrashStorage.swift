@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 
 extension SessionPersistencePolicy {
     static func defaultCmuxCrashDirectoryURL(
@@ -249,7 +250,11 @@ extension SessionPersistencePolicy {
     }
 
     private static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
-        !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
+        if let fontSize = terminal.fontSize,
+           TerminalFontSizePolicy().acceptsPersistedBasePoints(fontSize) {
+            return true
+        }
+        return !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
     }
 
     private static func adjustedSelectedWorkspaceIndex(

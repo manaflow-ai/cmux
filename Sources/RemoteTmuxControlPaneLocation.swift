@@ -10,8 +10,8 @@ struct RemoteTmuxControlPaneLocation {
     let windowMirror: RemoteTmuxWindowMirror?
     let pane: RemoteTmuxControlPane
 
-    func controlFocus() -> Bool {
-        owner.controlFocus(pane: pane.tmuxPaneID)
+    func controlFocus(completion: @escaping (Bool) -> Void = { _ in }) -> Bool {
+        owner.controlFocus(pane: pane.tmuxPaneID, completion: completion)
     }
 
     func sendInput(_ text: String) -> Bool {
@@ -22,8 +22,39 @@ struct RemoteTmuxControlPaneLocation {
         owner.sendKey(toPane: pane.tmuxPaneID, name: name)
     }
 
-    func requestSplit(vertical: Bool) -> Bool {
-        owner.requestSplit(fromPane: pane.tmuxPaneID, vertical: vertical)
+    func requestSplit(vertical: Bool, focusIntent: RemoteTmuxSplitFocusIntent) -> Bool {
+        owner.requestSplit(
+            fromPane: pane.tmuxPaneID,
+            vertical: vertical,
+            focusIntent: focusIntent
+        )
+    }
+
+    func requestAgentForkSplit(
+        vertical: Bool,
+        insertBefore: Bool,
+        shellCommand: String,
+        workingDirectory: String?
+    ) -> Bool {
+        owner.requestSplit(
+            fromPane: pane.tmuxPaneID,
+            vertical: vertical,
+            focusIntent: .focusCreatedPane,
+            insertBefore: insertBefore,
+            shellCommand: shellCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    func requestAgentForkNewWindow(
+        shellCommand: String,
+        workingDirectory: String?
+    ) -> Bool {
+        owner.requestAgentForkNewWindow(
+            afterPane: pane.tmuxPaneID,
+            shellCommand: shellCommand,
+            workingDirectory: workingDirectory
+        )
     }
 
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {

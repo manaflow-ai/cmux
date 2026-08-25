@@ -68,6 +68,7 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
@@ -89,8 +90,11 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "terminal": [
+                    "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
+                    "sessionContentMaxWidth": false,
+                    "sessionContentAlignment": SessionContentAlignment.center.rawValue,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
@@ -117,6 +121,7 @@ extension CmuxSettingsFileStore {
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,
@@ -129,6 +134,14 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                    "beta": [
+                        "workspaceTodos": [
+                            "controls": [
+                                "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,
+                            ],
+                            "checklistStyle": SettingCatalog().betaFeatures.workspaceTodosChecklistStyle.defaultValue.rawValue,
+                        ],
+                    ],
                     "branchLayout": SettingCatalog().sidebar.branchVerticalLayout.defaultValue ? "vertical" : "inline",
                     "stackBranchDirectory": SettingCatalog().sidebar.stackBranchDirectory.defaultValue,
                     "pathLastSegmentOnly": SettingCatalog().sidebar.pathLastSegmentOnly.defaultValue,
@@ -187,6 +200,7 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
@@ -199,8 +213,14 @@ extension CmuxSettingsFileStore {
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
+                    "urlAllowlist": BrowserURLAllowlistPolicy.defaultPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                ],
+            ],
+            [
+                "mobile": [
+                    "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
                 ],
             ],
             [

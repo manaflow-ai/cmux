@@ -231,7 +231,12 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        let paneType: CanvasNewPaneType = (type == "browser") ? .browser : .terminal
+        let paneType: CanvasNewPaneType
+        switch type {
+        case "browser": paneType = .browser
+        case "simulator": paneType = .simulator
+        default: paneType = .terminal
+        }
         guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {
             return .tabManagerUnavailable
         }

@@ -1,6 +1,12 @@
 import AppKit
 import CmuxSettings
 import CmuxVoice
+import os
+
+nonisolated private let voiceDictationLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "VoiceDictation"
+)
 
 /// App-side composition and user flow around `DictationController`.
 ///
@@ -125,28 +131,46 @@ final class VoiceDictationCoordinator {
                 )
             )
         case .modelDownloadFailed(let detail):
+            voiceDictationLogger.error(
+                "Voice dictation model download failed: \(detail, privacy: .private)"
+            )
             presentInfoAlert(
                 message: String(
                     localized: "voice.error.modelDownload.title",
                     defaultValue: "Couldn’t download the speech model"
                 ),
-                informative: detail
+                informative: String(
+                    localized: "voice.error.modelDownload.message",
+                    defaultValue: "cmux couldn’t prepare the on-device speech model. Check your connection and try again. Audio and transcripts stay on this Mac."
+                )
             )
         case .audioCaptureFailed(let detail):
+            voiceDictationLogger.error(
+                "Voice dictation audio capture failed: \(detail, privacy: .private)"
+            )
             presentInfoAlert(
                 message: String(
                     localized: "voice.error.audioCapture.title",
                     defaultValue: "Couldn’t start the microphone"
                 ),
-                informative: detail
+                informative: String(
+                    localized: "voice.error.audioCapture.message",
+                    defaultValue: "cmux couldn’t start audio capture. Check that an input device is connected, then try again."
+                )
             )
         case .transcriptionFailed(let detail):
+            voiceDictationLogger.error(
+                "Voice dictation transcription failed: \(detail, privacy: .private)"
+            )
             presentInfoAlert(
                 message: String(
                     localized: "voice.error.transcription.title",
                     defaultValue: "Dictation stopped unexpectedly"
                 ),
-                informative: detail
+                informative: String(
+                    localized: "voice.error.transcription.message",
+                    defaultValue: "Voice dictation stopped unexpectedly. Try again. Audio and transcripts stay on this Mac."
+                )
             )
         }
     }

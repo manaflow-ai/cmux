@@ -13,8 +13,9 @@ import Testing
 
 // MARK: - Runtime double
 
-private struct RoutingTestRuntime: MobileSyncRuntime {
+struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
+    var terminalLaneProvider: MobileTerminalLaneProvider? = nil
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
     var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
@@ -40,10 +41,29 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct AttachmentUploadRecord: Sendable {
+        var fileName: String
+        var offset: Int
+        var last: Bool
+        var totalBytes: Int
+    }
+    struct WorkspaceCreateRecord: Sendable, Equatable {
+        var groupID: String?
+        var title: String?
+        var workingDirectory: String?
+        var initialCommand: String?
+        var initialEnv: [String: String]?
+        var operationID: String? = nil
+    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var attachmentUploads: [AttachmentUploadRecord] = []
+    private var rejectAttachmentUpload = false
+    let terminalInputRecorder = RoutingTerminalInputRecorder()
+    private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
-    private var workspaceCreateGroupIDs: [String?] = []
+    private var notificationFeedMarkAllReadCount = 0
+    private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -51,7 +71,20 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceCreateCount = 0
+    private var hostCapabilities = ["workspace.task_create.v1"]
     private var rejectWorkspaceCreate = false
+    private var workspaceCreateError: (code: String?, message: String)?
+    private var workspaceCreateResponseCreatedWorkspaceID: String? = "workspace-created"
+    private var workspaceCreateResponseIncludesCreatedWorkspace = true
+    private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
+    private var directoryListError: (code: String?, message: String)?
+    private var directorySearchError: (code: String?, message: String)?
+    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
+    private var taskModelListProviders: [String] = []
+    private var holdTaskModelList = false
+    private var taskModelListHeld = false
+    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
+    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -98,6 +131,52 @@ actor RoutingHostRouter {
         rejectWorkspaceCreate = reject
     }
 
+    func setWorkspaceCreateError(code: String?, message: String) {
+        workspaceCreateError = (code, message)
+    }
+
+    func setWorkspaceCreateResponse(
+        createdWorkspaceID: String?,
+        includesCreatedWorkspace: Bool = true
+    ) {
+        workspaceCreateResponseCreatedWorkspaceID = createdWorkspaceID
+        workspaceCreateResponseIncludesCreatedWorkspace = includesCreatedWorkspace
+    }
+
+    func setDirectorySearchError(code: String?, message: String) {
+        directorySearchError = (code, message)
+    }
+
+    func setDirectoryListError(code: String?, message: String) {
+        directoryListError = (code, message)
+    }
+
+    func setHostCapabilities(_ capabilities: [String]) {
+        hostCapabilities = capabilities
+    }
+
+    func setTaskModels(
+        _ models: [MobileTaskAgentModel],
+        provider: MobileTaskAgentProvider
+    ) {
+        taskModelsByProvider[provider.rawValue] = models
+    }
+
+    func setHoldTaskModelList(_ hold: Bool) {
+        holdTaskModelList = hold
+    }
+
+    func awaitTaskModelListReached() async {
+        if taskModelListHeld { return }
+        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
+    }
+
+    func releaseTaskModelList() {
+        let continuation = taskModelListContinuation
+        taskModelListContinuation = nil
+        continuation?.resume()
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -114,23 +193,53 @@ actor RoutingHostRouter {
     }
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
-    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
+    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreates.map(\.groupID) }
+    func recordedWorkspaceCreates() -> [WorkspaceCreateRecord] { workspaceCreates }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedAttachmentUploads() -> [AttachmentUploadRecord] { attachmentUploads }
+
+    /// Reject every mobile.task.attachment.upload with an error frame, modeling
+    /// a host that cannot store the file (the composer must keep the chip and
+    /// leave the text unsent).
+    func setRejectAttachmentUpload(_ reject: Bool) {
+        rejectAttachmentUpload = reject
+    }
+    func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
+    func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
+        directoryListRequests
+    }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
+    func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var streamID: String?
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
         var notificationIDs: [String]?
         var clientID: String?
         var groupID: String?
+        var title: String?
+        var workingDirectory: String?
+        var initialCommand: String?
+        var initialEnv: [String: String]?
+        var operationID: String?
+        var query: String?
+        var directoryPath: String?
+        var directoryOffset: Int?
+        var directoryLimit: Int?
+        var provider: String?
+        var fileName: String?
+        var uploadOffset: Int?
+        var uploadLast: Bool?
+        var uploadTotalBytes: Int?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -167,12 +276,7 @@ actor RoutingHostRouter {
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
-                "capabilities": [
-                    "events.v1",
-                    "terminal.render_grid.v1",
-                    "terminal.replay.v1",
-                    "workspace.group_actions.v1",
-                ],
+                "capabilities": hostCapabilities,
             ])
         case "mobile.events.subscribe":
             return try? Self.resultFrame(id: id, result: [
@@ -182,7 +286,14 @@ actor RoutingHostRouter {
             ])
         case "workspace.create":
             workspaceCreateCount += 1
-            workspaceCreateGroupIDs.append(info.groupID)
+            workspaceCreates.append(WorkspaceCreateRecord(
+                groupID: info.groupID,
+                title: info.title,
+                workingDirectory: info.workingDirectory,
+                initialCommand: info.initialCommand,
+                initialEnv: info.initialEnv,
+                operationID: info.operationID
+            ))
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
                 let reachedWaiters = firstWorkspaceCreateReachedWaiters
@@ -193,29 +304,134 @@ actor RoutingHostRouter {
             if rejectWorkspaceCreate {
                 return try? Self.errorFrame(id: id, message: "workspace.create rejected")
             }
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": "Routing Workspace",
-                        "terminals": [],
-                    ],
-                    [
-                        "id": "workspace-created",
-                        "title": "Created Workspace",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "terminal-created",
-                                "title": "Created",
-                                "is_focused": true,
-                                "is_ready": true,
-                            ],
+            if let workspaceCreateError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: workspaceCreateError.code,
+                    message: workspaceCreateError.message
+                )
+            }
+            var workspaces: [[String: Any]] = [[
+                "id": Self.workspaceID,
+                "title": "Routing Workspace",
+                "current_directory": "/tmp/route",
+                "is_selected": false,
+                "terminals": [],
+            ]]
+            if workspaceCreateResponseIncludesCreatedWorkspace {
+                workspaces.append([
+                    "id": "workspace-created",
+                    "title": "Created Workspace",
+                    "current_directory": "/tmp/created",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-created",
+                            "title": "Created",
+                            "current_directory": "/tmp/created",
+                            "is_focused": true,
+                            "is_ready": true,
                         ],
                     ],
-                ],
-                "created_workspace_id": "workspace-created",
+                ])
+            }
+            var result: [String: Any] = [
+                "workspaces": workspaces,
                 "created_terminal_id": "terminal-created",
+            ]
+            if let workspaceCreateResponseCreatedWorkspaceID {
+                result["created_workspace_id"] = workspaceCreateResponseCreatedWorkspaceID
+            }
+            return try? Self.resultFrame(id: id, result: result)
+        case "mobile.directory.search":
+            directorySearchQueries.append(info.query ?? "")
+            if let directorySearchError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: directorySearchError.code,
+                    message: directorySearchError.message
+                )
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "directories": [
+                    "/Users/test/Dev/Manaflow/cmux",
+                    "/Users/test/Dev/Manaflow/cmuxterm-hq",
+                ],
+            ])
+        case "mobile.directory.list":
+            let path = info.directoryPath ?? ""
+            let offset = info.directoryOffset ?? 0
+            let limit = info.directoryLimit ?? 50
+            directoryListRequests.append((path, offset, limit))
+            if let directoryListError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: directoryListError.code,
+                    message: directoryListError.message
+                )
+            }
+            let allEntries: [[String: Any]] = [
+                [
+                    "name": ".hidden",
+                    "path": "/Users/test/.hidden",
+                    "is_hidden": true,
+                    "is_package": false,
+                    "is_symbolic_link": false,
+                    "is_readable": true,
+                ],
+                [
+                    "name": "Projects",
+                    "path": "/Users/test/Projects",
+                    "is_hidden": false,
+                    "is_package": false,
+                    "is_symbolic_link": false,
+                    "is_readable": true,
+                ],
+            ]
+            let boundedOffset = min(max(offset, 0), allEntries.count)
+            let end = min(boundedOffset + max(limit, 0), allEntries.count)
+            return try? Self.resultFrame(id: id, result: [
+                "current_path": "/Users/test",
+                "parent_path": "/Users",
+                "entries": Array(allEntries[boundedOffset..<end]),
+                "offset": boundedOffset,
+                "limit": limit,
+                "total_count": allEntries.count,
+                "next_offset": end < allEntries.count ? end : NSNull() as Any,
+            ])
+        case "mobile.task.models.list":
+            let provider = info.provider ?? ""
+            taskModelListProviders.append(provider)
+            if holdTaskModelList {
+                taskModelListHeld = true
+                let reachedWaiters = taskModelListReachedWaiters
+                taskModelListReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { taskModelListContinuation = $0 }
+            }
+            let models: [[String: Any]] = taskModelsByProvider[provider, default: []].map { model in
+                var object: [String: Any] = [
+                    "id": model.id,
+                    "display_name": model.displayName,
+                    "efforts": model.efforts.map { effort in
+                        var effortObject: [String: Any] = [
+                            "id": effort.id,
+                            "display_name": effort.displayName,
+                        ]
+                        if let description = effort.description {
+                            effortObject["description"] = description
+                        }
+                        return effortObject
+                    },
+                ]
+                if let defaultEffortID = model.defaultEffortID {
+                    object["default_effort_id"] = defaultEffortID
+                }
+                return object
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "source": "discovered",
+                "models": models,
             ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
@@ -238,20 +454,51 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.task.attachment.upload":
+            let fileName = info.fileName ?? ""
+            let last = info.uploadLast ?? false
+            let totalBytes = info.uploadTotalBytes ?? 0
+            attachmentUploads.append(AttachmentUploadRecord(
+                fileName: fileName,
+                offset: info.uploadOffset ?? 0,
+                last: last,
+                totalBytes: totalBytes
+            ))
+            if rejectAttachmentUpload {
+                return try? Self.errorFrame(id: id, message: "attachment upload rejected")
+            }
+            var result: [String: Any] = ["received_bytes": totalBytes]
+            if last {
+                result["path"] = "/tmp/uploads/\(fileName)"
+            }
+            return try? Self.resultFrame(id: id, result: result)
+        case "terminal.input":
+            return await terminalInputResponse(info)
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "notification.feed.mark_all_read":
+            notificationFeedMarkAllReadCount += 1
+            return try? Self.resultFrame(id: id, result: [
+                "marked": 1,
+                "revision": notificationFeedMarkAllReadCount + 100,
+            ])
+        case "mobile.events.unsubscribe":
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": info.streamID ?? "",
+                "removed": true,
+            ])
+        case "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
     }
 
-    private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
+    static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": true,
@@ -260,17 +507,21 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 }
 
-private struct RoutingTransportFactory: CmxByteTransportFactory {
+struct RoutingTransportFactory: CmxByteTransportFactory {
     let router: RoutingHostRouter
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -313,12 +564,27 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                streamID: params?["stream_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
-                groupID: params?["group_id"] as? String
+                groupID: params?["group_id"] as? String,
+                title: params?["title"] as? String,
+                workingDirectory: params?["working_directory"] as? String,
+                initialCommand: params?["initial_command"] as? String,
+                initialEnv: params?["initial_env"] as? [String: String],
+                operationID: params?["operation_id"] as? String,
+                query: params?["query"] as? String,
+                directoryPath: params?["path"] as? String,
+                directoryOffset: params?["offset"] as? Int,
+                directoryLimit: params?["limit"] as? Int,
+                provider: params?["provider"] as? String,
+                fileName: params?["file_name"] as? String,
+                uploadOffset: params?["offset"] as? Int,
+                uploadLast: params?["last"] as? Bool,
+                uploadTotalBytes: params?["total_bytes"] as? Int
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
@@ -346,138 +612,4 @@ private actor RoutingTransport: CmxByteTransport {
         let waiter = receiveWaiters.removeFirst()
         waiter.resume(returning: frame)
     }
-}
-
-// MARK: - Connected-store builder
-
-/// Build a store with a workspace of two terminals (term-a selected) and a real
-/// `MobileCoreRPCClient` wired DIRECTLY onto the store, backed by the recording
-/// transport. This deliberately bypasses the pairing/connect handshake (which
-/// the scripted-host harness cannot complete in this environment): the composer
-/// send path only needs a live `remoteClient` to reach the wire, and the
-/// session connects its transport lazily on the first request. The result is a
-/// deterministic end-to-end exercise of submitComposer's routing over the real
-/// terminal.paste / terminal.paste_image RPC frames.
-@MainActor
-func makeRoutingConnectedStore(
-    router: RoutingHostRouter,
-    pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
-        defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
-    ),
-    macScopedWorkspaceMutations: Bool = false
-) async throws -> MobileShellComposite {
-    let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
-    )
-    let terminals = [
-        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
-        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
-    ]
-    let store = MobileShellComposite(
-        runtime: runtime,
-        isSignedIn: true,
-        workspaces: [
-            MobileWorkspacePreview(
-                id: .init(rawValue: RoutingHostRouter.workspaceID),
-                name: "Routing Workspace",
-                terminals: terminals
-            ),
-        ],
-        pendingDismissQueue: pendingDismissQueue
-    )
-    // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
-    // Stack token and do not throw insecureManualRoute before reaching the
-    // transport. Enable the fallback to match the trusted-route production path.
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56585)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
-        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(3600),
-        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
-    )
-    store.remoteClient = MobileCoreRPCClient(
-        runtime: runtime,
-        route: route,
-        ticket: ticket,
-        allowsStackAuthFallback: true
-    )
-    store.foregroundMacDeviceID = "test-mac"
-    return store
-}
-
-/// Install a fresh `remoteClient` on an already-built store, backed by `router`.
-/// Models the new transport a reconnect / account switch / Mac switch installs:
-/// the mid-submit identity guard must abort BEFORE any further image or the text
-/// reaches this second router, so a test can assert that router recorded nothing.
-@MainActor
-func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHostRouter) throws {
-    let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
-    )
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56586)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: RoutingHostRouter.workspaceID,
-        terminalID: RoutingHostRouter.terminalA,
-        macDeviceID: "test-mac-2",
-        macDisplayName: "Test Mac 2",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(3600)
-    )
-    store.remoteClient = MobileCoreRPCClient(
-        runtime: runtime,
-        route: route,
-        ticket: ticket,
-        allowsStackAuthFallback: true
-    )
-    store.foregroundMacDeviceID = "test-mac-2"
-}
-
-/// Install a live read-only secondary client on `store`, backed by `router`.
-@MainActor
-func installSecondaryClient(
-    on store: MobileShellComposite,
-    macDeviceID: String,
-    router: RoutingHostRouter
-) throws {
-    let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
-    )
-    let route = try CmxAttachRoute(
-        id: "debug_loopback_\(macDeviceID)",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: RoutingHostRouter.workspaceID,
-        terminalID: RoutingHostRouter.terminalA,
-        macDeviceID: macDeviceID,
-        macDisplayName: macDeviceID,
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(3600)
-    )
-    let client = MobileCoreRPCClient(
-        runtime: runtime,
-        route: route,
-        ticket: ticket,
-        allowsStackAuthFallback: true
-    )
-    store.secondaryMacSubscriptions[macDeviceID] = SecondaryMacSubscription(
-        macDeviceID: macDeviceID,
-        client: client,
-        route: route,
-        ticket: ticket,
-        supportedHostCapabilities: [],
-        actionCapabilities: .none
-    )
 }

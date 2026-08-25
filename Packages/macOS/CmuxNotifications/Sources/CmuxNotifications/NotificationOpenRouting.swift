@@ -27,7 +27,8 @@ public protocol NotificationOpenRouting: AnyObject {
         retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the specific registered window `windowId`,
@@ -40,7 +41,8 @@ public protocol NotificationOpenRouting: AnyObject {
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the active window when no registered context
@@ -51,8 +53,12 @@ public protocol NotificationOpenRouting: AnyObject {
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
+
+    /// Reveals a per-window Dock and focuses its exact unread surface.
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool
 
     /// The workspace's title, resolved from whichever window owns it, falling
     /// back to the active tab manager. Mirrors `tabTitle(for:)`.

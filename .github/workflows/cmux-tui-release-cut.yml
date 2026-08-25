@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Compute next TUI version
@@ -148,20 +148,28 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin "refs/tags/$TAG"
 
-      - name: Dispatch downstream build and PyPI publish
+      - name: Dispatch release workflows
         # The tag push above was made with the default GITHUB_TOKEN, which
-        # never triggers other workflows' tag-push events. Dispatch them
-        # explicitly against the new tag so the release actually builds and
-        # publishes. npm stays a deliberate manual dispatch (confirm gate).
+        # never triggers other workflows' tag-push events. Dispatch the
+        # build/package workflow explicitly against the new tag. That workflow
+        # builds and verifies every package once, then dispatches the top-level
+        # registry workflows with its artifact run ID. The registry OIDC
+        # identities therefore stay on their existing workflow files without
+        # rebuilding the same binaries for each registry.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run cmux-tui-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG" \
+            -f version="$VERSION" \
+            -f publish_npm=true \
+            -f publish_pypi=true \
+            -f confirm_tui_cmux=true
           {
-            echo "- Dispatched cmux-tui-release.yml and tui-publish-pypi.yml on $TAG"
-            echo "- npm publish: dispatch tui-publish-npm.yml with version=$VERSION and confirm_tui_cmux=true"
+            echo "- Dispatched one build/package run on $TAG"
+            echo "- npm and PyPI will reuse that run's verified artifacts"
           } >> "$GITHUB_STEP_SUMMARY"

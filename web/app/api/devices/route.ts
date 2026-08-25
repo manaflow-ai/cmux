@@ -11,6 +11,7 @@
 // when the registry is unreachable, so pairing survives the cloud being down.
 
 import { and, desc, eq, sql } from "drizzle-orm";
+import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceAppInstances, devices } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -28,9 +29,10 @@ import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
+import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
+import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_DEVICES_PER_TEAM = 200;
@@ -44,6 +46,14 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ALLOWED_PLATFORMS = new Set(["mac", "ios", "linux", "windows"]);
+
+async function enforceDeviceRegistryIngressLimit(request: Request): Promise<Response | null> {
+  return enforceNativeIngressRateLimit({
+    request,
+    route: "devices.registry",
+    ruleId: env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
+  });
+}
 
 type TeamResolution =
   | { ok: true; teamId: string }
@@ -109,11 +119,9 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
 
 /**
  * Keep only structurally valid route entries (a plain object), bounded by
- * `MAX_ROUTES`. Semantic validation of the `CmxAttachRoute` wire schema is left
- * to the typed Mac/iOS clients, so the server stays forward-compatible with new
- * route kinds; this only guarantees the stored jsonb is a bounded array of
- * objects (never a string, number, or array element that would corrupt the
- * column or bloat the row).
+ * `MAX_ROUTES`. Legacy route semantics remain client-owned so the server stays
+ * forward-compatible with non-Iroh route kinds. Iroh entries cross the stricter
+ * publication policy after this structural bound.
  */
 function routesArray(value: unknown): unknown[] {
   if (!Array.isArray(value)) return [];
@@ -129,10 +137,17 @@ function routesArray(value: unknown): unknown[] {
  * instance row, so a relaunch updates routes in place rather than duplicating.
  */
 export async function POST(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.post.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);
@@ -153,7 +168,7 @@ export async function POST(request: Request): Promise<Response> {
   const { manual: _ignoredManualLabel, ...labels } = rawLabels;
   void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
-  const routes = routesArray(body.value.routes);
+  const routes = sanitizeServerPublishedRoutes(routesArray(body.value.routes));
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);
   // `manual: true` marks a user-initiated remote added through the cmux CLI
   // (`cmux remotes add`) rather than a Mac self-registering its own live
@@ -178,7 +193,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   // For a user-initiated manual remote, enforce the full attach-route schema on
   // the server (non-empty array; every entry a `tailscale` host:port with a
-  // 1-65535 port and a Tailscale-attachable host). This is the server-side
+  // 1-65535 port and a numeric Tailscale peer host). This is the server-side
   // mirror of the CLI/app check, so a direct authenticated API caller cannot
   // register a remote that lists but cannot connect (empty routes, port 0, wrong
   // kind, or a non-Tailscale host). Scoped to the manual path: the Mac's own
@@ -338,10 +353,17 @@ type DeviceListRow = {
  * find the Mac it last paired with and refresh routes on reload.
  */
 export async function GET(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.get.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);
@@ -391,7 +413,9 @@ export async function GET(request: Request): Promise<Response> {
     lastSeenAt: device.lastSeenAt.toISOString(),
     instances: (instancesByDevice.get(device.id) ?? []).map((instance) => ({
       tag: instance.tag,
-      routes: instance.routes,
+      routes: sanitizeServerPublishedRoutes(
+        Array.isArray(instance.routes) ? instance.routes : [],
+      ),
       labels: instance.labels,
       lastSeenAt: instance.lastSeenAt.toISOString(),
     })),
@@ -406,10 +430,17 @@ export async function GET(request: Request): Promise<Response> {
  * only delete devices in a team they belong to.
  */
 export async function DELETE(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.delete.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);

@@ -16,6 +16,7 @@ mkdir -p \
 for path in \
   "$APP/Contents/MacOS/cmux" \
   "$APP/Contents/Resources/bin/cmux" \
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "$APP/Contents/Resources/bin/ghostty" \
   "$APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
   "$APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
@@ -29,7 +30,7 @@ done
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"CmuxDockTilePlugin"|*"libcmux_"*)
+  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"libcmux_"*)
     printf '%s: Mach-O universal binary\n' "$1"
     ;;
   *)
@@ -51,15 +52,15 @@ CMUX_STRIP_TOOL="$TMP_DIR/tools/strip" \
   "$ROOT/scripts/strip-release-bundle.sh" "$APP"
 
 expected="$TMP_DIR/expected.log"
-cat > "$expected" <<EOF
--S -x $APP/Contents/MacOS/cmux
--S -x $APP/Contents/Resources/bin/cmux
--S -x $APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin
--S -x $APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib
-EOF
+printf '%s\n' \
+  "-S -x $APP/Contents/MacOS/cmux" \
+  "-S -x $APP/Contents/Resources/bin/cmux" \
+  "-S -x $APP/Contents/Resources/bin/cmux-diff-sidecar" \
+  "-S -x $APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
+  "-S -x $APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
+  > "$expected"
 
 if ! diff -u "$expected" "$TMP_DIR/strip.log"; then
   echo "strip-release-bundle.sh stripped the wrong files" >&2
   exit 1
 fi
-

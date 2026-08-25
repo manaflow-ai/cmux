@@ -3,6 +3,14 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    func managedTerminalRequiredMessage(displayName: String) -> String {
+        let format = String(
+            localized: "cli.tmux-compat.error.managedTerminalRequired",
+            defaultValue: "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+        )
+        return String(format: format, displayName)
+    }
+
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
@@ -29,16 +37,14 @@ extension CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    func isCmuxClaudeCommandShim(at path: String) -> Bool {
+    func isCmuxAgentCommandShim(at path: String) -> Bool {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
             .path
         let environment = ProcessInfo.processInfo.environment
-        let shimPaths = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM"],
-        ]
-        for shimPath in shimPaths {
-            guard let shimPath else { continue }
+        for (key, rawPath) in environment where key.hasSuffix("_WRAPPER_SHIM") {
+            let shimPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimPath.isEmpty else { continue }
             let standardizedShim = URL(fileURLWithPath: shimPath, isDirectory: false)
                 .standardizedFileURL
                 .path
@@ -47,16 +53,22 @@ extension CMUXCLI {
             }
         }
 
-        let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+        var shimRoots = environment.compactMap { key, rawPath -> String? in
+            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT" || key.hasSuffix("_WRAPPER_SHIM_ROOT") else {
+                return nil
+            }
+            return rawPath
+        }
+        shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL
                 .path,
             "/tmp/cmux-cli-shims",
-        ]
+        ])
         for shimRoot in shimRoots {
-            guard let shimRoot else { continue }
+            let shimRoot = shimRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimRoot.isEmpty else { continue }
             let standardizedRoot = URL(fileURLWithPath: shimRoot, isDirectory: true)
                 .standardizedFileURL
                 .path
@@ -77,8 +89,16 @@ extension CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the provider binary would otherwise shadow the real executable and
+            // fail at execv (#8743). Reject directories the way the configured-candidate
+            // path in `resolveClaudeExecutable` already does.
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             guard !isBundledProviderExecutable(at: candidate) else { continue }
+            guard !isCmuxAgentCommandShim(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate
         }
@@ -94,7 +114,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: trimmed),
                   !isBundledProviderExecutable(at: trimmed),
-                  !isCmuxClaudeCommandShim(at: trimmed),
+                  !isCmuxAgentCommandShim(at: trimmed),
                   !isCmuxClaudeWrapper(at: trimmed) else { continue }
             return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL.path
         }
@@ -106,7 +126,7 @@ extension CMUXCLI {
         resolveExecutableInSearchPath(
             "claude",
             searchPath: searchPath,
-            skip: { self.isCmuxClaudeCommandShim(at: $0) || self.isCmuxClaudeWrapper(at: $0) }
+            skip: { self.isCmuxClaudeWrapper(at: $0) }
         )
     }
 
@@ -146,6 +166,59 @@ extension CMUXCLI {
             "--dangerously-skip-permissions",
             args: commandArgs
         )
+    }
+
+    /// Whether a Claude-backed launcher will exit after printing help or version
+    /// information. Reuse the launch parser so flag-shaped prompt text and option values
+    /// cannot downgrade a real agent session to launcher-only tmux compatibility.
+    func tmuxCompatIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        ["--help", "-h", "--version", "-v"].contains { option in
+            AgentLaunchSanitizer.claudeTeamsLaunchHasOption(option, args: commandArgs)
+        }
+    }
+
+    func claudeTeamsIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        tmuxCompatIsInformationalInvocation(commandArgs: commandArgs)
+            || AgentLaunchInvocationClassifier().claudeTeamsLaunchIsManagementCommand(args: commandArgs)
+    }
+
+    /// Whether cmux delegates the complete argument tail to a managed provider.
+    /// These commands own flags such as `--json` and nested `--help`; cmux must
+    /// not consume them as presentation options or generic subcommand help.
+    func managedProviderArgumentsPassThrough(command: String) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether cmux should render its own subcommand help before launching a provider.
+    ///
+    /// Claude and Codex own their help arguments. The legacy OMO/OMX/OMC wrappers
+    /// retain cmux's root `--help` contract while forwarding nested help unchanged.
+    func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams":
+            return false
+        case "omo", "omx", "omc":
+            return commandArgs.count == 1 && ["--help", "-h"].contains(commandArgs[0])
+        default:
+            return true
+        }
+    }
+
+    func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().codexTeamsLaunchIsInformational(args: commandArgs)
+    }
+
+    func omoIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().omoLaunchIsNonLaunch(args: commandArgs)
+    }
+
+    func omxIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().omxLaunchIsNonLaunch(args: commandArgs)
     }
 
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
@@ -234,6 +307,8 @@ extension CMUXCLI {
         for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
             unsetenv(key)
         }
+        unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+        unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {
@@ -261,17 +336,9 @@ extension CMUXCLI {
             "/bin"
         ])
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver()
+            .normalizedDirectories(from: directories)
+            .filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {

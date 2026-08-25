@@ -44,6 +44,7 @@ export default async function RemoteTmuxPage({
       <p>{t("intro")}</p>
 
       <Callout>{t("betaNote")}</Callout>
+      <Callout>{t("moshContrast")}</Callout>
 
       <DocsHeading level={2} id="mapping">{t("mappingTitle")}</DocsHeading>
       <p>{t("mappingIntro")}</p>

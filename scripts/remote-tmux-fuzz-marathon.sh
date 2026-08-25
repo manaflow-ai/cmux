@@ -48,6 +48,11 @@ DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-fuzz-marathon.XXXXXXXX") || {
   echo "could not create private marathon evidence directory" >&2
   exit 2
 }
+# The child fuzz driver snapshots the debug-log tail at the MOMENT each
+# failure is noted (per-fail files in this directory). The end-of-seed
+# capture below stays, but it cannot cover mid-seed failures — later
+# iterations churn the log past the failure window before the seed ends.
+export CMUX_FUZZ_EVIDENCE_DIR="$DIR"
 echo "marathon: $SEEDS seeds x $ITERS iters -> $DIR"
 
 app_pid() {
@@ -227,12 +232,30 @@ for seed in $(seq 1 "$SEEDS"); do
   fi
 done
 
-echo "MARATHON DONE seeds=$SEEDS hangs=$hangs crashes=$crashes fail-seeds=$fails dir=$DIR"
+# Coverage is a property of the whole run, not of one seed: whether a given seed
+# draws the mirror->mirror switch is the RNG's business, so a single seed missing
+# it is not a defect. A whole marathon missing it is — the run would report green
+# for a path it never entered, which is how the class this op exists for survived
+# 125 "clean" iterations. Assert the floor here, where the draw has room to even
+# out, and say what the coverage was either way rather than leaving it implied.
+switches=$(grep -h 'FUZZ COVERAGE' "$DIR"/seed-*.log 2>/dev/null \
+  | sed -E 's/.*op10_switches=([0-9]+).*/\1/' | awk '{ total += $1 } END { print total + 0 }')
+uncovered=$(grep -hc 'FUZZ UNCOVERED' "$DIR"/seed-*.log 2>/dev/null | awk '{ n += $1 } END { print n + 0 }')
+echo "MARATHON COVERAGE mirror-tab-switches=$switches seeds-without-any=$uncovered/$SEEDS"
+coverage_gap=0
+if [ "$switches" -eq 0 ]; then
+  echo "MARATHON UNCOVERED: no mirror->mirror tab switch landed in ANY of $SEEDS seeds —" \
+    "the reveal path was not exercised, so this run's green means nothing for it"
+  coverage_gap=1
+fi
+
+echo "MARATHON DONE seeds=$SEEDS hangs=$hangs crashes=$crashes fail-seeds=$fails switches=$switches dir=$DIR"
 {
   echo "seeds=$SEEDS iters=$ITERS hangs=$hangs crashes=$crashes fail-seeds=$fails"
+  echo "mirror-tab-switches=$switches seeds-without-any=$uncovered/$SEEDS"
   grep -l "FUZZ FAIL\|FUZZ HANG" "$DIR"/seed-*.log 2>/dev/null
 } > "$DIR/summary.txt"
 # Boolean exit — the counts live in the MARATHON DONE line and summary.txt;
 # a raw sum could wrap past 255 and read as success.
-[ $((hangs + crashes + fails)) -gt 0 ] && exit 1
+[ $((hangs + crashes + fails + coverage_gap)) -gt 0 ] && exit 1
 exit 0

@@ -1,13 +1,4 @@
-const priorSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
-const priorResendApiKey = process.env.RESEND_API_KEY;
-const priorFeedbackFromEmail = process.env.CMUX_FEEDBACK_FROM_EMAIL;
-const priorFeedbackRateLimitId = process.env.CMUX_FEEDBACK_RATE_LIMIT_ID;
 const priorVercel = process.env.VERCEL;
-
-process.env.SKIP_ENV_VALIDATION = "1";
-process.env.RESEND_API_KEY = "resend-test-key";
-process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.test";
-process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "feedback-rate-limit-test";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
@@ -18,15 +9,6 @@ import {
 const sendEmail = mock(async () => ({ data: { id: "email-1" }, error: null }));
 
 installVercelFirewallMock();
-
-mock.module("@/app/env", () => ({
-  env: {
-    RESEND_API_KEY: "resend-test-key",
-    CMUX_FEEDBACK_FROM_EMAIL: "feedback@example.test",
-    CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback-rate-limit-test",
-    CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
-  },
-}));
 
 mock.module("resend", () => ({
   Resend: class {
@@ -48,17 +30,25 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  restoreEnv("SKIP_ENV_VALIDATION", priorSkipEnvValidation);
-  restoreEnv("RESEND_API_KEY", priorResendApiKey);
-  restoreEnv("CMUX_FEEDBACK_FROM_EMAIL", priorFeedbackFromEmail);
-  restoreEnv("CMUX_FEEDBACK_RATE_LIMIT_ID", priorFeedbackRateLimitId);
   restoreEnv("VERCEL", priorVercel);
 });
 
 describe("feedback route", () => {
-  test("fails closed when the Vercel firewall rule is missing", async () => {
+  test("fails open when the Vercel firewall rule is missing", async () => {
+    // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
+
+    const res = await POST(feedbackRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sendEmail).toHaveBeenCalled();
+  });
+
+  test("fails closed when the Vercel firewall check errors", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: "firewall-unavailable" });
 
     const res = await POST(feedbackRequest());
 
@@ -67,9 +57,13 @@ describe("feedback route", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  test("fails closed when the Vercel firewall check errors", async () => {
+  test("fails closed when the Vercel firewall check throws", async () => {
     process.env.VERCEL = "1";
-    checkRateLimit.mockResolvedValue({ rateLimited: false, error: "firewall-unavailable" });
+    (checkRateLimit as unknown as {
+      mockImplementation(next: () => Promise<never>): void;
+    }).mockImplementation(async () => {
+      throw new Error("firewall transport down");
+    });
 
     const res = await POST(feedbackRequest());
 

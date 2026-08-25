@@ -73,12 +73,22 @@ die() { err "$*"; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/cloud-testflight.sh [--no-upload] [--external] [--tag <tag>] [--marketing-version <X.Y.Z>]
+Usage: ios/scripts/cloud-testflight.sh [--lane beta|appstore] [--no-upload] [--external]
+                                       [--tag <tag>] [--marketing-version <X.Y.Z>]
                                        [--host <name>] [--wait <seconds>]
                                        [--local] [--keep-artifacts]
 
-Build an UNSIGNED Release archive for the cmux iOS beta on a leased fleet Mac,
-download it, then export/re-sign/verify/upload via upload-testflight.sh.
+Build an UNSIGNED Release archive for cmux iOS on a leased fleet Mac, download
+it, then export/re-sign/verify/upload via upload-testflight.sh.
+
+  --lane <beta|appstore>
+                     Distribution lane. beta (default) = dev.cmux.app.beta;
+                     appstore = com.cmux.app (public App Store record). Both
+                     archive an unsigned Release build with display name "cmux"
+                     on the fleet; upload-testflight.sh picks the matching
+                     provisioning profile and uploads to that record's
+                     TestFlight (the appstore build is then attached to the App
+                     Store version in App Store Connect; it does not auto-submit).
 
   --no-upload        Dry run. Stop after the local export + re-sign + strict
                      codesign verification (aps-environment=production); do NOT
@@ -110,6 +120,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-upload) NO_UPLOAD=1; shift ;;
+    --lane) LANE="${2:-}"; shift 2 ;;
     --marketing-version) MARKETING_VERSION_OVERRIDE="${2:-}"; shift 2 ;;
     --external) EXTERNAL=1; shift ;;
     --skip-notes) SKIP_NOTES=1; shift ;;
@@ -123,7 +134,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$LANE" == "beta" ]] || die "only the beta lane is supported"
+# Resolve the archive bundle id + on-device display name per lane. The fleet
+# build (reload-cloud-ios.sh --mode beta-archive) bakes DISPLAY_NAME="cmux" for
+# either lane already; LANE_DISPLAY_NAME only feeds the LOCAL fallback archive,
+# which otherwise inherits Release.xcconfig's "cmux BETA".
+LANE_DISPLAY_NAME=""
+case "$LANE" in
+  beta)
+    : "${BETA_BUNDLE_ID:=dev.cmux.app.beta}"
+    ;;
+  appstore|prod)
+    BETA_BUNDLE_ID="com.cmux.app"
+    LANE_DISPLAY_NAME="cmux"
+    [[ "$TAG" == "beta" ]] && TAG="appstore"
+    ;;
+  *)
+    die "unsupported lane: $LANE (expected beta or appstore)"
+    ;;
+esac
 [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid tag: $TAG"
 # Validate the override eagerly: a malformed value (or a flag swallowed by
 # `--marketing-version --external`) must fail here, not as a silent no-op or
@@ -215,6 +243,7 @@ build_archive_local() {
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$out/DerivedData" \
       PRODUCT_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
+      ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \
       CODE_SIGNING_ALLOWED=NO \
@@ -243,14 +272,14 @@ fi
 err "archive ready: $ARCHIVE_PATH"
 
 # Verify an exported/re-signed IPA's single .app is strictly signed AND carries
-# aps-environment == production in its ACTUAL signature. The dry run promises this
+# production APNs plus Time Sensitive delivery in its ACTUAL signature. The dry run promises this
 # check, so the LANE enforces it independently of upload-testflight.sh: even if
 # that script's re-sign were ever lost or skipped (an unsigned archive's export
 # carries NO aps-environment at all), this gate FAILS the dry run instead of
 # silently "passing". On the real upload path upload-testflight.sh runs its own
 # pre-altool gate, so this is the dry-run-only backstop.
 verify_ipa_aps_environment_production() {
-  local ipa="$1" workdir app ent aps rc
+  local ipa="$1" workdir app ent aps time_sensitive rc
   [[ -f "$ipa" ]] || { err "verify: IPA not found: $ipa"; return 1; }
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then err "verify: could not unzip $ipa"; rm -rf "$workdir"; return 1; fi
@@ -264,6 +293,12 @@ verify_ipa_aps_environment_production() {
   aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"; rc=$?
   if [[ $rc -ne 0 || "$aps" != "production" ]]; then
     err "verify: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app"
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"; return 1
+  fi
+  time_sensitive="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$ent" 2>/dev/null)"; rc=$?
+  if [[ $rc -ne 0 || "$time_sensitive" != "true" ]]; then
+    err "verify: signed app com.apple.developer.usernotifications.time-sensitive is '${time_sensitive:-<absent>}', expected 'true'"
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"; return 1
   fi
@@ -299,9 +334,9 @@ if [[ "$NO_UPLOAD" -eq 1 ]]; then
   RESIGNED_IPA="$(grep -E '^IPA_PATH=' "$upload_log" | tail -n 1 | sed 's/^IPA_PATH=//')"
   rm -f "$upload_log"
   [[ -n "$RESIGNED_IPA" ]] || die "dry run did not produce an IPA to verify"
-  err "verifying exported IPA is strictly signed with aps-environment=production"
+  err "verifying exported IPA is strictly signed for production APNs and Time Sensitive delivery"
   verify_ipa_aps_environment_production "$RESIGNED_IPA" \
-    || die "DRY RUN FAILED: exported IPA is not a valid production-push build (see above). If the upload-testflight.sh re-sign was skipped or lost, the unsigned archive's export carries no aps-environment at all; that is the gap this gate catches."
+    || die "DRY RUN FAILED: exported IPA is not a valid production-push build (see above). Production APNs and Time Sensitive entitlements must both survive the final signature."
 else
   ( cd "$REPO_ROOT" && "$UPLOAD" "${upload_args[@]}" )
 fi
@@ -327,8 +362,8 @@ if [[ "$NO_UPLOAD" -eq 1 ]]; then
   echo "==> Cloud TestFlight DRY RUN complete (no upload)"
   echo "Archive:      $ARCHIVE_PATH"
   echo "Verified IPA: $RESIGNED_IPA"
-  echo "The exported IPA passed the lane's strict codesign verify and carries"
-  echo "aps-environment=production in its signed entitlements. No TestFlight upload."
+  echo "The exported IPA passed strict codesign verification with production APNs"
+  echo "and Time Sensitive entitlements. No TestFlight upload."
 else
   echo
   echo "==> Cloud TestFlight upload complete"

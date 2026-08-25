@@ -1,0 +1,34 @@
+{
+  "name": "@cmux/examples-typescript-browser-controller",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser-safe cmux controller built as an external TypeScript SDK consumer",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:linked-sdk": "node scripts/build-linked-sdk.mjs",
+    "test": "npm run build:linked-sdk && npm run verify:clean-link && npm run build && node --test dist/test/*.test.js && npm run verify:package",
+    "verify:clean-link": "node scripts/verify-clean-linked-sdk.mjs",
+    "verify:package": "node scripts/verify-packaged-consumer.mjs",
+    "demo": "node dist/src/node-demo.js"
+  },
+  "dependencies": {
+    "cmux-sdk": "file:../../typescript"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.25",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

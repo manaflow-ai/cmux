@@ -1,19 +1,15 @@
 import { and, eq, gt } from "drizzle-orm";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
-import { withAuthedVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
+import { withAuthedCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-// Approval only records WHO approved. Tokens are minted later, by the poll
 // route at claim time, so no credential is ever stored in the database and a
 // duplicate approve cannot mint an orphaned Stack session.
 export async function POST(request: Request): Promise<Response> {
-  return withAuthedVaultApiRoute(
+  return withAuthedCliAuthApiRoute(
     request,
     "/api/vault/cli/auth/approve",
     { "cmux.vault.operation": "cli_auth.approve" },

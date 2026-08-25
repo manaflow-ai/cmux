@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
@@ -76,6 +76,7 @@ export default function WorkspaceGroupsPage() {
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
 cmux workspace-group delete  <group-id>
+cmux workspace-group delete  <group-id> --close-workspaces
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>
@@ -94,7 +95,7 @@ cmux workspace-group focus <group-id>`}</CodeBlock>
 
       <DocsHeading level={3} id="examples">{t("cliExamplesTitle")}</DocsHeading>
       <p>{t("cliExampleGroup")}</p>
-      <CodeBlock lang="bash">{`cmux workspace-group create --name manaflow`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux workspace-group create --name manaflow --from workspace:1,workspace:2`}</CodeBlock>
       <p>{t("cliExampleNew")}</p>
       <CodeBlock lang="bash">{`cmux workspace-group new-workspace workspace_group:1`}</CodeBlock>
       <p>{t("cliExampleList")}</p>

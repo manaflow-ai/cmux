@@ -149,6 +149,119 @@
         }
       }
     },
+    "NSSpeechRecognitionUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transcribes your speech on this Mac to type it into the focused pane. No audio or transcripts leave your device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはこのMac上で音声を文字起こしし、フォーカス中のペインに入力します。音声も文字起こし結果もデバイスの外に送信されません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会在此 Mac 上转录您的语音，并将其输入到当前聚焦的面板中。音频和转录文本不会离开您的设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會在此 Mac 上轉錄您的語音，並將其輸入到目前聚焦的面板中。音訊和轉錄文字不會離開您的裝置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 이 Mac에서 음성을 텍스트로 변환하여 포커스된 패널에 입력합니다. 오디오와 변환된 텍스트는 기기 밖으로 전송되지 않습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transkribiert Ihre Sprache auf diesem Mac und gibt sie in das fokussierte Fenster ein. Audio und Transkripte verlassen Ihr Gerät nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transcribe su voz en este Mac y la escribe en el panel enfocado. El audio y las transcripciones no salen de su dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transcrit votre voix sur ce Mac et l’insère dans le panneau actif. L’audio et les transcriptions ne quittent pas votre appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux trascrive la tua voce su questo Mac e la inserisce nel pannello attivo. L’audio e le trascrizioni non lasciano il dispositivo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transskriberer din tale på denne Mac og skriver den ind i det fokuserede panel. Lyd og transskriptioner forlader ikke din enhed."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transkrybuje mowę na tym Macu i wpisuje ją do aktywnego panelu. Dźwięk ani transkrypcje nie opuszczają urządzenia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux расшифровывает вашу речь на этом Mac и вводит её в сфокусированную панель. Аудио и расшифровки не покидают ваше устройство."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transkribuje vaš govor na ovom Macu i unosi ga u fokusirani panel. Audio i transkripti ne napuštaju vaš uređaj."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحوّل cmux كلامك إلى نص على جهاز Mac هذا ويدخله في اللوحة المركّز عليها. لا يغادر الصوت أو النصوص المفرّغة جهازك."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux transkriberer talen din på denne Mac-en og skriver den inn i ruten som har fokus. Lyd og transkripsjoner forlater ikke enheten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux transcreve sua fala neste Mac e a insere no painel em foco. O áudio e as transcrições não saem do seu dispositivo."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ถอดเสียงพูดของคุณบน Mac เครื่องนี้และป้อนลงในแผงที่โฟกัสอยู่ เสียงและข้อความถอดเสียงจะไม่ออกจากอุปกรณ์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konuşmanızı bu Mac'te yazıya döker ve odaklanmış panele girer. Ses ve transkriptler cihazınızdan çıkmaz."
+          }
+        }
+      }
+    },
     "New $(PRODUCT_NAME) Workspace Here": {
       "extractionState": "manual",
       "localizations": {

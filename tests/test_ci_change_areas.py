@@ -140,6 +140,10 @@ def test_remote_daemon_asset_builder_runs_go_validation() -> None:
     assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
 
 
+def test_remote_daemon_manifest_generator_runs_go_validation() -> None:
+    assert_areas(["scripts/generate_remote_daemon_release_manifest.py"], macos=True, web=False, go=True)
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
 
@@ -245,9 +249,11 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "workflow-guard-tests": "success",
+        "ghosttykit-release-check": "success",
         "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
+        "diff-sidecar-check": "success",
         "web-db-migrations": "success",
         "agent-session-web-resources": "success",
     }
@@ -294,6 +300,7 @@ def run_detect_step_for_paths(
             "EVENT_NAME": "pull_request",
             "BASE_SHA": base_sha,
             "HEAD_SHA": head_sha,
+            "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
         }
         result = subprocess.run(
@@ -325,6 +332,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "EVENT_NAME": "pull_request",
             "BASE_SHA": "missing-base",
             "HEAD_SHA": "missing-head",
+            "MERGE_SHA": "missing-merge",
             "GITHUB_OUTPUT": str(output_path),
         }
         result = subprocess.run(
@@ -343,6 +351,90 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "web=true",
             "go=true",
             "agent_session_web=true",
+        ]
+
+
+def test_workflow_routes_from_shallow_synthetic_merge() -> None:
+    script = detect_step_script()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        source = root / "source"
+        shallow = root / "shallow"
+        source.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=source, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=source, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=source, check=True)
+
+        helper_copy = source / "scripts" / "ci" / "detect_ci_change_areas.py"
+        helper_copy.parent.mkdir(parents=True)
+        helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+        (source / "common.txt").write_text("common\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "common"], cwd=source, check=True)
+        subprocess.run(["git", "branch", "feature"], cwd=source, check=True)
+
+        (source / "base-only.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=source, check=True)
+        base_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(["git", "checkout", "-q", "feature"], cwd=source, check=True)
+        web_file = source / "web" / "app" / "page.tsx"
+        web_file.parent.mkdir(parents=True)
+        web_file.write_text("changed\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "feature"], cwd=source, check=True)
+        head_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=source, check=True)
+        subprocess.run(
+            ["git", "merge", "-q", "--no-ff", "feature", "-m", "synthetic merge"],
+            cwd=source,
+            check=True,
+        )
+        merge_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "2", source.resolve().as_uri(), str(shallow)],
+            check=True,
+        )
+        assert subprocess.run(
+            ["git", "merge-base", base_sha, head_sha],
+            cwd=shallow,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0
+
+        output_path = shallow / "github-output.txt"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=shallow,
+            env={
+                **os.environ,
+                "EVENT_NAME": "pull_request",
+                "BASE_SHA": base_sha,
+                "HEAD_SHA": head_sha,
+                "MERGE_SHA": merge_sha,
+                "GITHUB_OUTPUT": str(output_path),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+        assert "Could not compute PR diff" not in result.stderr
+        assert output_path.read_text(encoding="utf-8").splitlines() == [
+            "macos=false",
+            "web=true",
+            "go=false",
+            "agent_session_web=false",
         ]
 
 
@@ -379,6 +471,55 @@ def test_router_changes_run_everything() -> None:
 
 def test_ghosttykit_checksum_pin_runs_macos() -> None:
     assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
+
+
+def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
+    # The classifier remains macOS-aware for manual/full CI routing above, but
+    # a checksum-only pull request takes the dedicated release-check path before
+    # invoking the classifier so it cannot be hidden by a build cache.
+    result, outputs = run_detect_step_for_paths(["scripts/ghosttykit-checksums.txt"])
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
+def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+    result, outputs = run_detect_step_for_paths(
+        [
+            "ghostty",
+            "scripts/download-prebuilt-ghosttykit.sh",
+            "scripts/validate-xcframework-archive.py",
+            "scripts/ghosttykit-checksums.txt",
+            "tests/test_ci_ghosttykit_release_check.sh",
+            "tests/test_ci_change_areas.py",
+            ".github/workflows/ci.yml",
+        ]
+    )
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
+def test_workflow_only_pr_keeps_fail_open_routing() -> None:
+    result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
+
+    assert "CI router changed; running all CI areas." in result.stdout
+    assert outputs == [
+        "macos=true",
+        "web=true",
+        "go=true",
+        "agent_session_web=true",
+    ]
 
 
 def test_app_bundled_markdown_runs_macos() -> None:
@@ -475,6 +616,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "remote-daemon-tests",
         "web-typecheck",
         "react-apps-check",
+        "diff-sidecar-check",
         "web-db-migrations",
         "linux-preflight",
         "app-host-unit-tests",
@@ -534,13 +676,15 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "name: linux-preflight" in block
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
+    assert "      - ghosttykit-release-check" in block
     assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
+    assert "      - diff-sidecar-check" in block
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests")' in block
+    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block

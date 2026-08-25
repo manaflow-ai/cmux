@@ -2,12 +2,7 @@
 
 ## Prerequisites
 
-Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
-
-```bash
-cd cmux-tui
-cargo build -p cmux-tui
-```
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts. The first `cargo run` below compiles the TUI and then starts it.
 
 ## Local session
 
@@ -21,7 +16,9 @@ cargo run -p cmux-tui -- --session agents
 
 The default session is `main`. Quitting a local TUI shuts down that in-process session and removes its socket.
 
-Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the surface layer also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
+Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
+
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
 ## Headless server and attach
 
@@ -40,6 +37,44 @@ cargo run -p cmux-tui -- attach --session agents
 ```
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
+
+PTY programs may emit inline images with the Kitty graphics protocol. cmux-tui preserves those images across local, attached, and remote sessions when the outer terminal supports Kitty graphics, subject to the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
+
+Attach one terminal without the sidebar, status bar, pane border, or other tabs:
+
+```bash
+cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
+```
+
+Use the noun-first public CLI to inspect or automate individual resources:
+
+```bash
+cargo run -p cmux-tui -- workspace list
+cargo run -p cmux-tui -- workspace current run -- cargo test
+cargo run -p cmux-tui -- terminal term_0123456789abcdef0123456789abcdef attach --jsonl
+```
+
+Resource selectors accept a typed opaque ID, `current`, or an exact name. Names need not be unique. An ambiguous name returns every candidate ID without changing state.
+
+## Remote machines
+
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
+
+Packaged clients use the same configuration and can start with:
+
+```bash
+npx cmux
+```
+
+See [Machines](machines.md) for Unix and SSH examples, rail input, and remote setup.
+
+To share an existing local session through cmux.cloud without a public listener, run its outbound machine agent separately:
+
+```bash
+npx cmux machine-agent --session agents
+```
+
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
 ## Sessions and sockets
 

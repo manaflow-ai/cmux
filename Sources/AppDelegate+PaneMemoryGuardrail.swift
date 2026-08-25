@@ -34,6 +34,14 @@ extension AppDelegate {
                 self?.paneMemoryGuardrailTabManagers() ?? []
             }
         )
+        monitor.registry.register(
+            AgentHibernationMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isPressureCritical: { [weak monitor] in
+                    monitor?.currentSeverity == .critical
+                }
+            )
+        )
         if let notificationStore {
             monitor.registry.register(
                 NotificationCacheMemoryPressureResponder(store: notificationStore)

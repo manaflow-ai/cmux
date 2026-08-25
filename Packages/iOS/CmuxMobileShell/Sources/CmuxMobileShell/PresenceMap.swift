@@ -1,4 +1,4 @@
-public import CMUXMobileCore
+internal import CMUXMobileCore
 public import Foundation
 
 /// The phone's live presence state: every known app instance keyed by
@@ -31,6 +31,12 @@ public struct PresenceMap: Equatable, Sendable {
     /// the map, so the rollup must stay O(instances of one device), never
     /// O(all instances on the team).
     private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
+    /// Number of exact `(deviceId, tag)` instances currently in the map.
+    /// Maintained during reduction so per-frame diagnostics stay constant-time.
+    private var instanceCountStorage = 0
+    /// Distinguishes the startup window from an authoritative empty snapshot.
+    /// A snapshot with zero devices still proves every absent Mac is offline.
+    public private(set) var hasReceivedSnapshot = false
 
     public init() {}
 
@@ -38,31 +44,63 @@ public struct PresenceMap: Equatable, Sendable {
     /// overrides its registry-derived "last seen" hints once a snapshot exists.
     public var isEmpty: Bool { instancesByDevice.isEmpty }
 
+    /// Number of exact app instances represented by the latest presence state.
+    public var instanceCount: Int { instanceCountStorage }
+
     /// Apply one stream frame. A snapshot replaces the whole map (the protocol
     /// is snapshot-first on every (re)subscribe, which is also how a dropped
     /// frame heals); transition events upsert single instances.
     public mutating func apply(_ update: PresenceUpdate) {
         switch update {
         case .snapshot(let snapshot):
+            hasReceivedSnapshot = true
             var next: [String: [String: PresenceInstance]] = [:]
             for device in snapshot.devices {
-                for instance in device.instances {
+                for rawInstance in device.instances {
+                    let instance = Self.normalized(rawInstance)
                     next[instance.deviceId, default: [:]][instance.tag] = instance
                 }
             }
             instancesByDevice = next
-        case .online(let instance), .routes(let instance), .offline(let instance, _):
+            instanceCountStorage = next.values.reduce(into: 0) { count, instances in
+                count += instances.count
+            }
+        case .online(let rawInstance), .routes(let rawInstance), .offline(let rawInstance, _):
+            let instance = Self.normalized(rawInstance)
+            let isNew = instancesByDevice[instance.deviceId]?[instance.tag] == nil
             instancesByDevice[instance.deviceId, default: [:]][instance.tag] = instance
+            if isNew {
+                instanceCountStorage += 1
+            }
         case .seen(let deviceId, let tag, let lastSeenAt):
-            guard var instance = instancesByDevice[deviceId]?[tag] else { return }
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: deviceId,
+                instanceTag: tag
+            )
+            guard var instance = instancesByDevice[identity.macDeviceID]?[identity.instanceTag ?? ""] else {
+                return
+            }
             instance.lastSeenAt = lastSeenAt
-            instancesByDevice[deviceId]?[tag] = instance
+            instancesByDevice[identity.macDeviceID]?[identity.instanceTag ?? ""] = instance
         }
     }
 
     /// The live presence record for one app instance, if known.
     public func instance(deviceId: String, tag: String) -> PresenceInstance? {
-        instancesByDevice[deviceId]?[tag]
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: deviceId,
+            instanceTag: tag
+        )
+        return instancesByDevice[identity.macDeviceID]?[identity.instanceTag ?? ""]
+    }
+
+    /// Stable instance ordering for reconnect evidence comparisons.
+    func allInstancesForReconnectEvidence() -> [PresenceInstance] {
+        instancesByDevice.values
+            .flatMap(\.values)
+            .sorted {
+                ($0.deviceId, $0.tag) < ($1.deviceId, $1.tag)
+            }
     }
 
     /// Summary for one exact app instance. Tagged iOS builds use this instead
@@ -70,11 +108,40 @@ public struct PresenceMap: Equatable, Sendable {
     /// its online state or build label.
     public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
         guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return Self.summary(for: instance)
+    }
+
+    /// Summary for a legacy untagged pairing only when one app instance is
+    /// present on the physical device. This preserves old single-build hosts
+    /// without letting Stable or Nightly lend identity to an untagged row.
+    public func soleInstanceSummary(deviceId: String) -> DeviceSummary? {
+        let canonicalDeviceID = CmxMacAppInstanceIdentity(
+            macDeviceID: deviceId,
+            instanceTag: nil
+        ).macDeviceID
+        guard let instances = instancesByDevice[canonicalDeviceID],
+              instances.count == 1,
+              let instance = instances.values.first else { return nil }
+        return Self.summary(for: instance)
+    }
+
+    private static func summary(for instance: PresenceInstance) -> DeviceSummary {
         return DeviceSummary(
             online: instance.online,
             lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),
             buildLabel: MacBuildChannel().label(bundleID: instance.bundleId, tag: instance.tag)
         )
+    }
+
+    private static func normalized(_ raw: PresenceInstance) -> PresenceInstance {
+        var instance = raw
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: raw.deviceId,
+            instanceTag: raw.tag
+        )
+        instance.deviceId = identity.macDeviceID
+        instance.tag = identity.instanceTag ?? ""
+        return instance
     }
 
     /// The instance allowed to replace persisted reconnect routes.
@@ -105,7 +172,11 @@ public struct PresenceMap: Equatable, Sendable {
     /// the live-presence mirror of the registry refresh's multi-instance guard
     /// (``DeviceRegistryService/routes(forMacDeviceID:in:)``).
     public func soleRouteAdvertisingInstance(deviceId: String) -> PresenceInstance? {
-        guard let instances = instancesByDevice[deviceId] else { return nil }
+        let canonicalDeviceID = CmxMacAppInstanceIdentity(
+            macDeviceID: deviceId,
+            instanceTag: nil
+        ).macDeviceID
+        guard let instances = instancesByDevice[canonicalDeviceID] else { return nil }
         let candidates = instances.values.filter { $0.online && !($0.routes ?? []).isEmpty }
         return candidates.count == 1 ? candidates.first : nil
     }
@@ -114,7 +185,13 @@ public struct PresenceMap: Equatable, Sendable {
     /// presence service has never seen this device (the row then falls back to
     /// its registry "last seen" hint).
     public func deviceSummary(deviceId: String) -> DeviceSummary? {
-        guard let instances = instancesByDevice[deviceId], !instances.isEmpty else { return nil }
+        let canonicalDeviceID = CmxMacAppInstanceIdentity(
+            macDeviceID: deviceId,
+            instanceTag: nil
+        ).macDeviceID
+        guard let instances = instancesByDevice[canonicalDeviceID], !instances.isEmpty else {
+            return nil
+        }
         var online = false
         var lastSeenMs = -Double.infinity
         // Pick the instance to label the build from: prefer an online one (the

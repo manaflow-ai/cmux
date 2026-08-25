@@ -13,7 +13,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 }
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
+enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions
@@ -63,13 +63,13 @@ extension RightSidebarMode {
     }
 }
 
-nonisolated enum RightSidebarContentMountPolicy {
+enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
     }
 }
 
-nonisolated enum FileExplorerRootSyncPolicy {
+enum FileExplorerRootSyncPolicy {
     static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
         guard isRightSidebarVisible else { return false }
         switch mode {
@@ -125,7 +125,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
@@ -175,12 +175,17 @@ struct RightSidebarPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             modeBar
-                .rightSidebarChromeBottomBorder()
+                .rightSidebarChromeBottomBorder(
+                    backgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Keep every mode (including Dock and AppKit-backed file rows) on the
+        // same resolved cmux scheme as the window and left sidebar.
+        .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
         .background(
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)
@@ -393,12 +398,18 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                SessionIndexView(
+                    store: sessionIndexStore,
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    onResume: onResumeSession
+                )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
             case .feed:
-                FeedPanelView()
+                FeedPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:
@@ -424,7 +435,8 @@ struct RightSidebarPanelView: View {
                 mode: fileExplorerState.mode,
                 rootDirectory: nil,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
+                unreadSource: TerminalNotificationStore.shared.sidebarUnread
             )
             .id("dock.window.\(dock.workspaceId.uuidString)")
         } else {

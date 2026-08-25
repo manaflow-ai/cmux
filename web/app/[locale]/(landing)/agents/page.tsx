@@ -1,10 +1,17 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../landing-ui";
 import { LandingFaq, LandingSchema } from "../landing-schema";
+import {
+  fallbackContentLocales,
+} from "@/i18n/locale-availability";
+import {
+  codingAgentPath,
+  codingAgents,
+} from "@/i18n/coding-agents";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -26,19 +33,41 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-const AGENTS: { href: string; key: string }[] = [
+const AGENTS: {
+  href: string;
+  key: string;
+  label?: string;
+  locales?: readonly string[];
+}[] = [
   { href: "/agents/claude-code", key: "claude" },
   { href: "/agents/codex", key: "codex" },
   { href: "/agents/opencode", key: "opencode" },
+  {
+    href: "/agents/pi",
+    key: "pi",
+    label: "Pi",
+  },
   { href: "/agents/gemini-cli", key: "geminiCli" },
   { href: "/agents/aider", key: "aider" },
   { href: "/agents/amp", key: "amp" },
   { href: "/agents/cursor-cli", key: "cursorCli" },
+  ...codingAgents
+    .filter((agent) => agent.genericPage || agent.slug === "oh-my-pi")
+    .map((agent) => ({
+      href: codingAgentPath(agent),
+      key: agent.slug,
+      label: agent.name,
+      locales: agent.genericPage ? undefined : fallbackContentLocales,
+    })),
 ];
 
 export default function AgentsPage() {
   const t = useTranslations("landing.agents");
   const tl = useTranslations("landing.links");
+  const locale = useLocale();
+  const agents = AGENTS.filter(
+    (agent) => !agent.locales || agent.locales.includes(locale),
+  );
   return (
     <>
       <SiteHeader section={tl("agents")} />
@@ -55,10 +84,10 @@ export default function AgentsPage() {
           <h2>{t("agentsTitle")}</h2>
           <p>{t("agentsBody")}</p>
           <ul>
-            {AGENTS.map((a) => (
+            {agents.map((a) => (
               <li key={a.href}>
                 <Link href={a.href} className="underline underline-offset-2">
-                  {tl(a.key)}
+                  {a.label ?? tl(a.key)}
                 </Link>
               </li>
             ))}

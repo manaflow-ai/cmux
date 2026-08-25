@@ -9,6 +9,28 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Maximum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMaximum = 3.0
 
+    /// Maximum width for terminal and agent-session content, or a negative
+    /// sentinel when the cap is disabled.
+    public let sessionContentMaxWidth = DefaultsKey<Double>(
+        id: SessionContentWidthSettings.settingsPath,
+        defaultValue: SessionContentWidthSettings.noMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.maxWidthKey
+    )
+
+    /// Last enabled session content width, restored by the settings toggle.
+    public let rememberedSessionContentMaxWidth = DefaultsKey<Double>(
+        id: "terminal.sessionContentMaxWidth.remembered",
+        defaultValue: SessionContentWidthSettings.defaultConfiguredMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.rememberedMaxWidthKey
+    )
+
+    /// Horizontal placement for width-capped session content.
+    public let sessionContentAlignment = DefaultsKey<SessionContentAlignment>(
+        id: SessionContentWidthSettings.alignmentSettingsPath,
+        defaultValue: .center,
+        userDefaultsKey: SessionContentWidthSettings.alignmentKey
+    )
+
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
         defaultValue: true,
@@ -19,6 +41,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.copyOnSelect",
         defaultValue: false,
         userDefaultsKey: "terminal.copyOnSelect"
+    )
+
+    /// Whether cmux supplies its appearance-adaptive managed palette for an
+    /// untouched Ghostty config. Default-on preserves cmux's historical fresh
+    /// install behavior; any Ghostty directive suppresses the managed palette.
+    public let adaptiveDefaultTheme = DefaultsKey<Bool>(
+        id: "terminal.adaptiveDefaultTheme",
+        defaultValue: true,
+        userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
@@ -57,7 +88,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// reclaimed.
     public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.rendererRealization.idleSeconds",
-        defaultValue: 30,
+        defaultValue: 5,
         userDefaultsKey: "terminal.rendererRealization.idleSeconds"
     )
 
@@ -65,23 +96,23 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// instant. Extra off-screen renderers are reclaimed oldest first.
     public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
         id: "terminal.rendererRealization.maxWarmRenderers",
-        defaultValue: 12,
+        defaultValue: 1,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 
-    /// Opt-in throttle for high-frequency terminal title changes. Default-off
-    /// so existing title freshness stays unchanged unless users choose the
-    /// performance tradeoff.
+    /// Safety throttle for high-frequency terminal title changes. Default-on
+    /// because terminal titles are presentation metadata and must not drive
+    /// workspace/sidebar/window updates at an agent spinner's source cadence.
     public let titleUpdateCoalescingEnabled = DefaultsKey<Bool>(
         id: "terminal.titleUpdates.coalescing.enabled",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "terminal.titleUpdates.coalescing.enabled"
     )
 
     /// Delay used when title-update coalescing is enabled.
     public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
         id: "terminal.titleUpdates.coalescing.delayMilliseconds",
-        defaultValue: 500,
+        defaultValue: 1_000,
         userDefaultsKey: "terminal.titleUpdates.coalescing.delayMilliseconds",
         legacyUserDefaultsKeys: ["terminal.titleUpdates.coalescingMilliseconds"]
     )

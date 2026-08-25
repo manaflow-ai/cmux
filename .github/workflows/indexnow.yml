@@ -1,0 +1,52 @@
+name: Notify IndexNow
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch notification run
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Production – cmux'
+    permissions:
+      # Required to start the secret-bearing workflow_dispatch run.
+      actions: write
+      contents: read
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch authenticated submission
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run indexnow.yml
+          --repo "$GITHUB_REPOSITORY"
+          --ref "$DEFAULT_BRANCH"
+
+  notify:
+    name: Notify IndexNow
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: Submit changed URLs
+        env:
+          INDEXNOW_TRIGGER_SECRET: ${{ secrets.INDEXNOW_TRIGGER_SECRET }}
+        run: |
+          test -n "$INDEXNOW_TRIGGER_SECRET"
+          curl --request POST \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --max-time 30 \
+            --retry 2 \
+            --retry-all-errors \
+            --header "Authorization: Bearer $INDEXNOW_TRIGGER_SECRET" \
+            https://cmux.com/api/cron/indexnow

@@ -39,6 +39,129 @@ cmux_claude_wrapper_reexec_hops=0
 # legally contain ':' even though PATH entries cannot.
 cmux_claude_wrapper_reexec_target_history=""
 
+# Keep argument inspection bounded. Apart from protecting the shell's pattern
+# matcher, this prevents a caller from turning the wrapper's own launch metadata
+# into another ARG_MAX-sized environment value.
+# Stay below Linux's 128 KiB per-argument exec limit so the same guard can be
+# exercised portably; larger settings should be supplied by file path.
+cmux_claude_wrapper_max_argument_bytes=122880
+
+cmux_claude_wrapper_validate_arguments() {
+    local arg
+    local byte_length
+    local had_lc_all=0
+    local previous_lc_all="${LC_ALL-}"
+    local too_large=0
+    if [[ ${LC_ALL+x} ]]; then
+        had_lc_all=1
+    fi
+    export LC_ALL=C
+    for arg in "$@"; do
+        byte_length=${#arg}
+        if (( byte_length > cmux_claude_wrapper_max_argument_bytes )); then
+            too_large=1
+            break
+        fi
+    done
+    if (( had_lc_all == 1 )); then
+        export LC_ALL="$previous_lc_all"
+    else
+        unset LC_ALL
+    fi
+    if (( too_large == 1 )); then
+        printf 'cmux: argument too large (maximum %s bytes)\n' \
+            "$cmux_claude_wrapper_max_argument_bytes" >&2
+        return 2
+    fi
+    return 0
+}
+
+cmux_claude_wrapper_settings_value_is_managed() {
+    local value="$1"
+    local trimmed="${value#"${value%%[![:space:]]*}"}"
+    if [[ "$trimmed" == \{* || "$trimmed" == \[* ]]; then
+        case "$trimmed" in
+            *'"__cmux":{"managed":"claude-hooks"'*|*'hooks feed --source claude'*)
+                return 0
+                ;;
+        esac
+        return 1
+    fi
+    [[ -f "$trimmed" ]] || return 1
+    grep -Fq '"__cmux":{"managed":"claude-hooks"' "$trimmed" 2>/dev/null && return 0
+    grep -Fq 'hooks feed --source claude' "$trimmed" 2>/dev/null
+}
+
+cmux_claude_wrapper_args_have_managed_settings() {
+    local collect=false
+    local arg
+    for arg in "$@"; do
+        if [[ "$collect" == true ]]; then
+            cmux_claude_wrapper_settings_value_is_managed "$arg" && return 0
+            collect=false
+            continue
+        fi
+        if [[ "$arg" == "--settings" ]]; then
+            collect=true
+        elif [[ "${arg:0:11}" == "--settings=" ]]; then
+            cmux_claude_wrapper_settings_value_is_managed "${arg#--settings=}" && return 0
+        fi
+    done
+    return 1
+}
+
+cmux_claude_wrapper_path_without_shims() {
+    local current_path="${PATH:-}"
+    local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local old_ifs="$IFS"
+    local entry
+    local result=""
+    local globbing_was_disabled=0
+
+    case "$-" in
+        *f*) globbing_was_disabled=1 ;;
+        *) set -f ;;
+    esac
+    IFS=:
+    for entry in ${current_path:-}; do
+        if [[ "$entry" == "$shim_root" ||
+              "$entry" == */cmux-cli-shims/* ||
+              "$entry" == */cmux-cli-shims ]]; then
+            continue
+        fi
+        if [[ -z "$result" ]]; then
+            result="$entry"
+        else
+            result="$result:$entry"
+        fi
+    done
+    IFS="$old_ifs"
+    if (( globbing_was_disabled == 0 )); then
+        set +f
+    fi
+    printf '%s' "$result"
+}
+
+cmux_claude_wrapper_target_is_custom_path() {
+    local target="$1"
+    local custom="${CMUX_CUSTOM_CLAUDE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    [[ -n "$custom" && -n "$target" ]] || return 1
+    [[ "$target" == "$custom" ]] && return 0
+    [[ -e "$target" && -e "$custom" && "$target" -ef "$custom" ]]
+}
+
+cmux_claude_wrapper_prepare_custom_path_environment() {
+    local target="$1"
+    [[ "${IN_CMUX:-0}" == "1" ]] || return 0
+    cmux_claude_wrapper_target_is_custom_path "$target" || return 0
+    local cleaned_path
+    if cleaned_path="$(cmux_claude_wrapper_path_without_shims)" && [[ -n "$cleaned_path" ]]; then
+        export PATH="$cleaned_path"
+    fi
+}
+
 cmux_claude_wrapper_is_nonnegative_integer() {
     case "$1" in
         ''|*[!0-9]*)
@@ -85,6 +208,29 @@ cmux_claude_wrapper_reexec_target_seen() {
     while IFS= read -r seen; do
         [[ "$seen" == "$target" ]] && return 0
     done <<< "$cmux_claude_wrapper_reexec_target_history"
+    return 1
+}
+
+cmux_claude_wrapper_custom_target_is_direct_absolute_claude() {
+    local snippet="$1"
+    local line rest token
+    while IFS= read -r line; do
+        case "$line" in
+            *exec\ *)
+                rest="${line#*exec }"
+                rest="${rest#\"}"
+                rest="${rest#\'}"
+                token="${rest%%[[:space:]]*}"
+                token="${token%\"}"
+                token="${token%\'}"
+                if [[ "$token" == /*/claude || "$token" == /claude ]] &&
+                   [[ -e "$token" && -x "$token" ]] &&
+                   ! cmux_claude_wrapper_is_self_or_shim "$token"; then
+                    return 0
+                fi
+                ;;
+        esac
+    done <<< "$snippet"
     return 1
 }
 
@@ -140,12 +286,67 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
             return 1
             ;;
     esac
-    case "$first_line" in
-        *node*|*Node*)
-            return 1
-            ;;
-    esac
+    local target_is_custom=false
+    if [[ "${IN_CMUX:-0}" == "1" ]] && cmux_claude_wrapper_target_is_custom_path "$target"; then
+        target_is_custom=true
+    fi
+    if [[ "$target_is_custom" != true ]]; then
+        case "$first_line" in
+            *node*|*Node*)
+                return 1
+                ;;
+        esac
+    fi
+
+    # A configured launcher can delegate through another executable (for
+    # example `exec some-launcher claude "$@"`) without matching the finite
+    # command forms above. Treat a bare Claude token in that launcher as a
+    # possible re-entry, but keep direct absolute `/.../claude` launchers on
+    # the real-binary side of the boundary.
+    if [[ "$target_is_custom" == true ]]; then
+        cmux_claude_wrapper_custom_target_is_direct_absolute_claude "$snippet" && return 1
+        local launcher_line
+        while IFS= read -r launcher_line; do
+            if [[ "$launcher_line" == *'exec "'*'/claude" '* ||
+                  "$launcher_line" == *'exec '*/claude' '* ]]; then
+                continue
+            fi
+            case "$launcher_line" in
+                *'exec '*claude*|*'spawn'*claude*|*'which'*claude*|*'command -v '*claude*)
+                    return 0
+                    ;;
+            esac
+        done <<< "$snippet"
+
+        # A configured script is a launcher boundary unless it is an explicit
+        # absolute Claude executable. Keep the re-entry counter across generic
+        # launcher syntax (`exec "$LAUNCHER"`, `env`, etc.) so an indirect PATH
+        # lookup cannot reset it between wrapper passes.
+        case "$snippet" in
+            *'exec '*|*'command '*|*'spawn'*|*'which '*)
+                return 0
+                ;;
+        esac
+    fi
     return 1
+}
+
+cmux_claude_wrapper_exec_real_after_managed_reentry() {
+    local previous_custom_path="${CMUX_CUSTOM_CLAUDE_PATH:-}"
+    unset CMUX_CUSTOM_CLAUDE_PATH
+    local fallback
+    fallback="$(find_real_claude)"
+    if [[ -n "$previous_custom_path" ]]; then
+        export CMUX_CUSTOM_CLAUDE_PATH="$previous_custom_path"
+    fi
+    [[ -n "$fallback" ]] || cmux_claude_wrapper_fail_reexec_guard
+    cmux_claude_wrapper_target_looks_like_reexec_shim "$fallback" &&
+        cmux_claude_wrapper_fail_reexec_guard
+    unset CMUX_AGENT_RESTORE_LAUNCH
+    unset CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH
+    unset cmux_claude_wrapper_reexec_guard
+    unset cmux_claude_wrapper_reexec_targets
+    exec "$fallback" "$@"
 }
 
 cmux_claude_wrapper_exec_resolved_claude() {
@@ -154,13 +355,25 @@ cmux_claude_wrapper_exec_resolved_claude() {
 
     if ! cmux_claude_wrapper_target_looks_like_reexec_shim "$target"; then
         # A non-shim target is the boundary where a real Claude process starts.
-        # Clear the shim-bounce guard so real Claude children that invoke
-        # `claude` later begin a fresh wrapper resolution.
+        # Custom launcher scripts that can delegate to Claude are classified as
+        # re-entry shims above, so this reset is only reached for a proven real
+        # boundary. Real Claude children that invoke `claude` later can therefore
+        # begin a fresh wrapper resolution without inheriting the hop counter.
+        unset CMUX_AGENT_RESTORE_LAUNCH
+        unset CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH
         unset cmux_claude_wrapper_reexec_guard
         unset cmux_claude_wrapper_reexec_targets
+        # A configured Claude path is often a launcher script rather than the
+        # Claude executable itself. It must not inherit cmux's PATH shim: a
+        # downstream `which`/execvp/command -v lookup would otherwise route back
+        # into this wrapper after the guard was cleared.
+        cmux_claude_wrapper_prepare_custom_path_environment "$target"
         exec "$target" "$@"
     fi
     if cmux_claude_wrapper_reexec_target_seen "$target"; then
+        if cmux_claude_wrapper_args_have_managed_settings "$@"; then
+            cmux_claude_wrapper_exec_real_after_managed_reentry "$@"
+        fi
         cmux_claude_wrapper_fail_reexec_guard "$target"
     fi
     if (( cmux_claude_wrapper_reexec_hops >= cmux_claude_wrapper_reexec_guard_limit )); then
@@ -178,10 +391,36 @@ cmux_claude_wrapper_exec_resolved_claude() {
     fi
     cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_target_history"
     export cmux_claude_wrapper_reexec_targets
+    if [[ "${cmux_claude_app_restore_owned:-0}" == "1" ]]; then
+        # A supported shim will invoke this wrapper again. Re-issue the exact
+        # authorization for that pass; the next wrapper consumes it immediately.
+        export CMUX_AGENT_RESTORE_LAUNCH="$cmux_claude_app_restore_launch"
+    fi
+    if [[ "${cmux_claude_teams_wrapper_launch:-0}" == "1" ]]; then
+        # Keep the one-shot launch signal across finite version-manager shim
+        # hops. The final real-Claude boundary above consumes it.
+        export CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH=1
+    fi
+    cmux_claude_wrapper_prepare_custom_path_environment "$target"
     exec "$target" "$@"
 }
 
 cmux_claude_wrapper_init_reexec_guard
+
+# `cmux claude-teams` resolves the real provider itself, then deliberately
+# enters this app-owned wrapper so hooks can bind the lead session. Preserve its
+# structured launcher capture for that one process only. The marker is consumed
+# before Claude starts, so teammate `claude` commands inherit no launch signal
+# and receive their own ordinary Claude capture below.
+cmux_claude_teams_wrapper_launch=0
+if [[ "${CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH:-}" == "1" &&
+      "${CMUX_AGENT_LAUNCH_KIND:-}" == "claudeTeams" &&
+      -n "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" &&
+      "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" == "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-}" &&
+      -n "${CMUX_AGENT_LAUNCH_ARGV_B64:-}" ]]; then
+    cmux_claude_teams_wrapper_launch=1
+fi
+unset CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH
 
 # Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
@@ -583,6 +822,16 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+if [[ "$IN_CMUX" == "1" ]]; then
+    cmux_claude_wrapper_validate_arguments "$@" || exit $?
+fi
+
+# CMUX_AGENT_RESTORE_LAUNCH is a provider/session-bound one-shot token attached
+# only to app-generated restore input. Consume it before every eventual exec so
+# it can authorize this launch without leaking to Claude or hooks.
+cmux_claude_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
+unset CMUX_AGENT_RESTORE_LAUNCH
+
 exec_real_claude_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
         clear_inherited_claude_session_identity_env
@@ -608,16 +857,27 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
-    # In cmux-launched shells, preserve old behavior and always clear nested
-    # Claude session markers, even when we must pass through due to stale socket.
-    if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_identity_env
-    fi
+if [[ "$IN_CMUX" == "0" ]]; then
     clear_inherited_claude_auth_selection_env
-    if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
-    fi
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec_real_claude_passthrough "$@"
+fi
+
+# App-generated restore input plus an explicit resume id proves cmux owns this
+# launch, so a transient socket miss cannot permanently strip its hooks. An
+# unmarked resume from a detached shell/tmux keeps the bounded ownership probe
+# and preserves native behavior when its inherited cmux environment is stale.
+cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
+cmux_claude_app_restore_owned=0
+if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ \
+      && "$cmux_claude_app_restore_launch" == "claude:$cmux_claude_resume_sid" ]]; then
+    cmux_claude_app_restore_owned=1
+fi
+if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
+      && ! cmux_socket_available; then
+    clear_inherited_claude_session_identity_env
+    clear_inherited_claude_auth_selection_env
+    reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi
@@ -750,6 +1010,33 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
+cmux_claude_wrapper_create_settings_file() {
+    local contents="$1"
+    local temp_dir="${TMPDIR:-/tmp}"
+    local settings_path
+    [[ -d "$temp_dir" ]] || temp_dir="/tmp"
+    # mktemp gives each launch a private name; do not sweep matching files here,
+    # because another surface may still be handing one to Claude.
+    settings_path="$(mktemp "${temp_dir%/}/cmux-claude-settings.XXXXXX")" || return 1
+    if ! printf '%s' "$contents" >"$settings_path"; then
+        rm -f -- "$settings_path"
+        return 1
+    fi
+    printf '%s' "$settings_path"
+}
+
+cmux_claude_wrapper_create_settings_values_file() {
+    local temp_dir="${TMPDIR:-/tmp}"
+    local settings_path
+    [[ -d "$temp_dir" ]] || temp_dir="/tmp"
+    settings_path="$(mktemp "${temp_dir%/}/cmux-claude-settings-inputs.XXXXXX")" || return 1
+    if ! printf '%s\0' "$@" >"$settings_path"; then
+        rm -f -- "$settings_path"
+        return 1
+    fi
+    printf '%s' "$settings_path"
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -772,7 +1059,7 @@ claude_passthrough_option_flag() {
 
 claude_builtin_command_name() {
     case "$1" in
-        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
         experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
         ultrareview|update|upgrade)
             return 0
@@ -839,9 +1126,15 @@ if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     clear_inherited_claude_auth_selection_env
     export CMUX_CLAUDE_PID=$$
     export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
-    export CMUX_AGENT_LAUNCH_KIND="claude"
-    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
-    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
+        # Do not carry a pre-file-handoff launch capture from an older wrapper
+        # pass; it may contain the oversized inline settings payload we are
+        # replacing here.
+        unset CMUX_AGENT_LAUNCH_ARGV_B64
+        export CMUX_AGENT_LAUNCH_KIND="claude"
+        export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+        export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    fi
     install_cmux_node_options
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
@@ -868,16 +1161,22 @@ fi
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
 # resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
-reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
+if [[ -n "$cmux_claude_resume_sid" ]]; then
+    export CMUX_AGENT_RESUME_LAUNCH=1
+else
+    unset CMUX_AGENT_RESUME_LAUNCH
+fi
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
-export CMUX_AGENT_LAUNCH_KIND="claude"
-export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
-export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
-export CMUX_AGENT_LAUNCH_CWD="$PWD"
+if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+fi
 install_cmux_node_options
 
 # Build Claude settings JSON.
@@ -912,7 +1211,10 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+# `__cmux` is private merge metadata. Claude Code's settings schema permits
+# additional properties; keeping the marker in the file is what lets a later
+# wrapper pass distinguish cmux-owned hook groups from genuine user hooks.
+HOOKS_JSON='{"__cmux":{"managed":"claude-hooks","version":1},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #
@@ -923,12 +1225,14 @@ HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionS
 # first-wins on <=2.1.168 (the user's flag was dropped: the original #2816
 # symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
 # --settings is dropped, silently breaking cmux notifications/status). Either
-# way one side is lost. Deep-merge the user's settings into ours and pass a
-# SINGLE combined --settings so Claude Code never sees multiple --settings: hook
-# arrays are concatenated (so both cmux and user hooks run) and the user's other
-# keys win. This is precedence-agnostic -- it does not rely on the CLI's
-# multi-flag behavior. Requires `node`; if node is missing or the merge fails we
-# fall back to the previous behavior (no worse than before).
+# way one side is lost. Deep-merge the user's settings into ours, write the
+# combined document to a private temporary file, and pass one path-valued
+# --settings flag. Hook arrays from a genuine user document are retained, while
+# cmux's marked block is replaced on re-entry. This is precedence-agnostic -- it
+# does not rely on the CLI's multi-flag behavior. Requires `node`; if node is
+# missing or the merge fails, preserve the user's original settings and disable
+# cmux hooks for that launch rather than passing an ambiguous pair of flags.
+unset CMUX_USER_SETTINGS_B64
 CMUX_FILTERED_ARGS=()
 CMUX_USER_SETTINGS=()
 cmux_collect_settings_value=false
@@ -949,83 +1253,173 @@ for arg in "$@"; do
         cmux_pending_option_value=false
         continue
     fi
-    case "$arg" in
-        --)
-            cmux_positional_only=true
-            CMUX_FILTERED_ARGS+=("$arg")
-            ;;
-        --settings)
-            cmux_collect_settings_value=true
-            ;;
-        --settings=*)
-            CMUX_USER_SETTINGS+=("${arg#--settings=}")
-            ;;
-        -*)
-            CMUX_FILTERED_ARGS+=("$arg")
-            if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                cmux_pending_option_value=true
-            fi
-            ;;
-        *)
-            CMUX_FILTERED_ARGS+=("$arg")
-            ;;
-    esac
+    if [[ "$arg" == "--" ]]; then
+        cmux_positional_only=true
+        CMUX_FILTERED_ARGS+=("$arg")
+    elif [[ "$arg" == "--settings" ]]; then
+        # The fixed-width prefix checks above avoid a wildcard match against a
+        # potentially very large JSON value.
+        cmux_collect_settings_value=true
+    elif [[ "${arg:0:11}" == "--settings=" ]]; then
+        CMUX_USER_SETTINGS+=("${arg#--settings=}")
+    elif [[ "${arg:0:1}" == "-" ]]; then
+        CMUX_FILTERED_ARGS+=("$arg")
+        if [[ "${arg%%=*}" == "$arg" ]] && claude_option_consumes_value "$arg"; then
+            cmux_pending_option_value=true
+        fi
+    else
+        CMUX_FILTERED_ARGS+=("$arg")
+    fi
 done
 if [[ "$cmux_collect_settings_value" == true ]]; then
     # Dangling --settings with no value; keep it so the real CLI reports the error.
     CMUX_FILTERED_ARGS+=("--settings")
 fi
 
-if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
-    CMUX_MERGED_SETTINGS="$(
-        CMUX_BASE_SETTINGS="$HOOKS_JSON" \
-        CMUX_USER_SETTINGS_B64="$(printf '%s\0' "${CMUX_USER_SETTINGS[@]}" | base64 | tr -d '\n')" \
+CMUX_SETTINGS_PATH=""
+CMUX_SETTINGS_BASE_PATH=""
+CMUX_SETTINGS_INPUTS_PATH=""
+CMUX_MERGED_SETTINGS_PATH=""
+CMUX_SETTINGS_MERGE_SUCCEEDED=false
+
+# The settings artifact is file-backed so re-entry carries a bounded identity
+# instead of copying an ever-growing JSON value through argv and the environment.
+if CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_settings_file "$HOOKS_JSON")"; then
+    CMUX_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH"
+else
+    printf 'cmux: warning: unable to create hook settings file; hooks were not injected\n' >&2
+fi
+
+if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && [[ -n "$CMUX_SETTINGS_BASE_PATH" ]] && command -v node >/dev/null 2>&1; then
+    if CMUX_SETTINGS_INPUTS_PATH="$(cmux_claude_wrapper_create_settings_values_file "${CMUX_USER_SETTINGS[@]}")" &&
+       CMUX_MERGED_SETTINGS_PATH="$(cmux_claude_wrapper_create_settings_file "")"; then
+        CMUX_BASE_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH" \
+        CMUX_USER_SETTINGS_PATH="$CMUX_SETTINGS_INPUTS_PATH" \
+        CMUX_MERGED_SETTINGS_PATH="$CMUX_MERGED_SETTINGS_PATH" \
         node -e '
 const fs=require("fs"),os=require("os"),path=require("path");
 const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
+const clone=x=>JSON.parse(JSON.stringify(x));
+const canonical=x=>JSON.stringify(x,(key,value)=>{
+  if(!isObj(value)) return value;
+  return Object.keys(value).sort().reduce((out,k)=>{out[k]=value[k];return out;},{});
+});
+const marker=x=>isObj(x)&&isObj(x.__cmux)&&x.__cmux.managed==="claude-hooks";
+const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
+const load=value=>{
+  const text=String(value).trim();
+  if(text==="") throw new Error("empty --settings value");
+  return (text[0]==="{"||text[0]==="[")?JSON.parse(text):JSON.parse(fs.readFileSync(expand(text),"utf8"));
+};
 const merge=(a,b)=>{
-  if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
-  if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
-  // a is the cmux/base side; on a type mismatch keep the cmux container so a
-  // non-object/array user value (e.g. hooks:null or hooks:[]) cannot wipe the
-  // cmux hook object/event arrays. Scalars still let the user value (b) win.
-  if(isObj(a)||Array.isArray(a))return a;
+  if(Array.isArray(a)&&Array.isArray(b)) return a.concat(b);
+  if(isObj(a)&&isObj(b)){
+    const out=Object.assign({},a);
+    for(const key of Object.keys(b)) out[key]=(key in a)?merge(a[key],b[key]):clone(b[key]);
+    return out;
+  }
+  if(isObj(a)||Array.isArray(a)) return a;
   return b;
 };
-const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
-const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
-let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
-const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
-// split() leaves one trailing "" from printf terminating NUL; slice it off
-// rather than filtering all empties, so an explicit empty --settings= reaches
-// load("") -> JSON.parse throws -> merge fails loudly (warning + fallback)
-// instead of being silently dropped. The wrapper emits exactly one --settings,
-// so Claude Code never sees multiples; its multi-flag precedence (first-wins
-// <=2.1.168, last-wins >=2.1.169, undocumented) is irrelevant here. Among
-// repeated USER --settings, reverse() makes the earliest-listed value win the
-// scalar conflict (issue #2816).
-try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
-catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
-process.stdout.write(JSON.stringify(acc));
+const stripManaged=(settings,base,hasMarker)=>{
+  if(!isObj(settings)||!isObj(settings.hooks)) return settings;
+  const out=clone(settings);
+  const fingerprints=new Set(
+    hasMarker&&isObj(settings.__cmux)&&Array.isArray(settings.__cmux.hookFingerprints)
+      ? settings.__cmux.hookFingerprints
+      : []
+  );
+  for(const event of Object.keys(out.hooks)){
+    const values=out.hooks[event];
+    if(!Array.isArray(values)) continue;
+    const baseValues=isObj(base.hooks)&&Array.isArray(base.hooks[event])?base.hooks[event]:[];
+    out.hooks[event]=values.filter(value=>{
+      if(baseValues.some(baseValue=>canonical(baseValue)===canonical(value))) return false;
+      return !fingerprints.has(canonical(value));
+    });
+  }
+  return out;
+};
+const base=load(process.env.CMUX_BASE_SETTINGS_PATH);
+const raw=fs.readFileSync(process.env.CMUX_USER_SETTINGS_PATH,"utf8");
+const values=raw.split("\0").slice(0,-1);
+let acc=clone(base);
+try{
+  for(const value of values.reverse()){
+    const loaded=load(value);
+    const hasBaseHook=()=>isObj(loaded)&&isObj(loaded.hooks)&&Object.keys(loaded.hooks).some(event=>{
+      const values=loaded.hooks[event];
+      const baseValues=isObj(base.hooks)&&Array.isArray(base.hooks[event])?base.hooks[event]:[];
+      return Array.isArray(values)&&values.some(value=>baseValues.some(baseValue=>canonical(baseValue)===canonical(value)));
+    });
+    const managed=marker(loaded)||hasBaseHook();
+    acc=merge(acc,managed?stripManaged(loaded,base,marker(loaded)):loaded);
+  }
+}catch(error){
+  process.stderr.write("cmux: settings merge failed; using user settings unchanged\n");
+  process.exit(1);
+}
+const baseMarker=clone(base.__cmux||{managed:"claude-hooks",version:1});
+const hookFingerprints=[];
+for(const event of Object.keys(base.hooks||{})){
+  const groups=Array.isArray(base.hooks[event])?base.hooks[event]:[];
+  for(const group of groups) hookFingerprints.push(canonical(group));
+}
+baseMarker.hookFingerprints=hookFingerprints;
+acc.__cmux=baseMarker;
+fs.writeFileSync(process.env.CMUX_MERGED_SETTINGS_PATH,JSON.stringify(acc),{encoding:"utf8",mode:0o600});
 '
-    )"
-    cmux_merge_status=$?
-    if [[ $cmux_merge_status -eq 0 && -n "$CMUX_MERGED_SETTINGS" ]]; then
-        HOOKS_JSON="$CMUX_MERGED_SETTINGS"
-        set -- "${CMUX_FILTERED_ARGS[@]}"
-    else
-        # Merge failed: malformed JSON, an unreadable --settings file, or a node
-        # error. node has already written the specific cause to stderr; add a
-        # one-line summary so the user knows their --settings was dropped instead
-        # of silently falling back to the dual-flag behavior that #2816 fixes.
-        printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
+        cmux_merge_status=$?
+        if [[ $cmux_merge_status -eq 0 && -s "$CMUX_MERGED_SETTINGS_PATH" ]]; then
+            CMUX_SETTINGS_PATH="$CMUX_MERGED_SETTINGS_PATH"
+            CMUX_SETTINGS_MERGE_SUCCEEDED=true
+            set -- "${CMUX_FILTERED_ARGS[@]}"
+        else
+            rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
+        fi
     fi
-    unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
+if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && ${#CMUX_USER_SETTINGS[@]} -gt 0 ]]; then
+    printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged; install Node or correct the settings file before retrying\n' >&2
+    CMUX_SETTINGS_PATH=""
+fi
+if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
+    rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
+fi
+if [[ -n "$CMUX_SETTINGS_INPUTS_PATH" ]]; then
+    rm -f -- "$CMUX_SETTINGS_INPUTS_PATH"
+fi
+if [[ -n "$CMUX_SETTINGS_BASE_PATH" && "$CMUX_SETTINGS_PATH" != "$CMUX_SETTINGS_BASE_PATH" ]]; then
+    rm -f -- "$CMUX_SETTINGS_BASE_PATH"
+fi
+unset CMUX_MERGED_SETTINGS_PATH cmux_merge_status CMUX_SETTINGS_INPUTS_PATH
+
+# Capture only the compact post-merge argv. The previous implementation encoded
+# the inline JSON here as a second ARG_MAX multiplier.
+if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
+    if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" == true ]]; then
+        # A successful merge has replaced settings with the private file path,
+        # so the filtered argv is the authoritative compact launch snapshot.
+        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${CMUX_FILTERED_ARGS[@]}")"
+    else
+        # Preserve the caller's original settings in restore metadata when the
+        # merge is unavailable; the argument-size guard keeps this bounded.
+        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    fi
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    if [[ -n "$CMUX_SETTINGS_PATH" ]]; then
+        cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$CMUX_SETTINGS_PATH" "$@"
+    else
+        cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+    fi
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    if [[ -n "$CMUX_SETTINGS_PATH" ]]; then
+        cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$CMUX_SETTINGS_PATH" "$@"
+    else
+        cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" "$@"
+    fi
 fi

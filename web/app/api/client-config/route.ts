@@ -14,26 +14,25 @@ import {
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  if (process.env.VERCEL === "1") {
-    const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
-    if (!rateLimitId) {
-      console.error("client-config.route.rate_limit_not_configured");
-      return json({ error: "client_config_unavailable" }, 503);
-    }
-
-    const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
-    if (rateLimited || error === "blocked") {
-      return json({ error: "rate_limited" }, 429);
-    }
-    if (error === "not-found") {
-      console.error("client-config.route.rate_limit_not_found", rateLimitId);
-      return json({ error: "client_config_unavailable" }, 503);
-    } else if (error) {
-      console.error("client-config.route.rate_limit_error", error);
+  // An unset rule id means no rate limiting; a deleted rule (not-found) fails
+  // open rather than making client config unavailable for every app boot.
+  const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+  if (process.env.VERCEL === "1" && rateLimitId) {
+    try {
+      const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
+      if (rateLimited || error === "blocked") {
+        return json({ error: "rate_limited" }, 429);
+      }
+      if (error === "not-found") {
+        console.warn("client-config.route.rate_limit_not_found; failing open", rateLimitId);
+      } else if (error) {
+        console.error("client-config.route.rate_limit_error", { failure: "check_error" });
+        return json({ error: "client_config_unavailable" }, 503);
+      }
+    } catch {
+      console.error("client-config.route.rate_limit_error", { failure: "check_failed" });
       return json({ error: "client_config_unavailable" }, 503);
     }
   }

@@ -89,6 +89,31 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+        PhonePushClient.shared.reloadConfigurationFromDefaults()
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func terminalAdaptiveDefaultThemeDidChange() {
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    func notifyShortcutSettingsDidChange() {
+        // reload() already posts didChangeNotification when the file's
+        // contents changed; posting again here double-notified every
+        // listener. Only post when the reload saw no change, so callers
+        // still get exactly one notification either way.
+        if !KeyboardShortcutSettings.settingsFileStore.reload(notificationSourceURL: configFileURL) {
+            KeyboardShortcutSettings.notifySettingsFileDidChange(sourceURL: configFileURL)
+        }
+    }
+
+    func canRegisterSystemWideHotkey(
+        _ shortcut: CmuxSettings.StoredShortcut
+    ) -> Bool {
+        SystemWideHotkeySettings.registrationCandidate(
+            for: StoredShortcut(cmuxSettingsStoredShortcut: shortcut)
+        ) != nil
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
@@ -113,8 +138,53 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openSystemNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
-        NSWorkspace.shared.open(url)
+        TerminalNotificationStore.shared.openNotificationSettings()
+    }
+
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState {
+        Self.desktopNotificationAuthorizationState(from: TerminalNotificationStore.shared.authorizationState)
+    }
+
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: TerminalNotificationStore.authorizationStatusDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(
+                    Self.desktopNotificationAuthorizationState(
+                        from: TerminalNotificationStore.shared.authorizationState
+                    )
+                )
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(
+                        Self.desktopNotificationAuthorizationState(
+                            from: TerminalNotificationStore.shared.authorizationState
+                        )
+                    )
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    func refreshDesktopNotificationAuthorizationStatus() {
+        TerminalNotificationStore.shared.refreshAuthorizationStatus()
     }
 
     func restartApp() {
@@ -124,6 +194,12 @@ final class HostSettingsActions: SettingsHostActions {
         task.arguments = ["-n", bundlePath]
         try? task.run()
         NSApp.terminate(nil)
+    }
+
+    func socketControlConfigurationDidChange() {
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.commit"
+        )
     }
 
     func openBrowserImportFlow() {
@@ -182,7 +258,84 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openMobilePairingWindow() {
-        MobilePairingWindowController.shared.show()
+        _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+            enforceFeatureFlag: false,
+            bringWindowForward: true,
+            debugSource: "settings.mobileConnect"
+        )
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        Self.mobilePhonePushSettingsSnapshot(
+            from: PhonePushClient.shared.configuration()
+        )
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: PhonePushClient.settingsDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(mobilePhonePushSettings())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(mobilePhonePushSettings())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        let configuration: PhonePushConfiguration
+        switch mutation {
+        case let .forwardingEnabled(enabled):
+            configuration = PhonePushClient.shared.updateSettings(
+                forwardingEnabled: enabled
+            )
+        case let .mode(mode):
+            let hostMode: PhoneForwardingMode = switch mode {
+            case .onlyWhenAway: .onlyWhenAway
+            case .always: .always
+            }
+            configuration = PhonePushClient.shared.updateSettings(mode: hostMode)
+        case let .hideContent(hidden):
+            configuration = PhonePushClient.shared.updateSettings(
+                hideContent: hidden
+            )
+        }
+        return Self.mobilePhonePushSettingsSnapshot(from: configuration)
+    }
+
+    private static func mobilePhonePushSettingsSnapshot(
+        from configuration: PhonePushConfiguration
+    ) -> MobilePhonePushSettingsSnapshot {
+        let mode: MobilePhonePushSettingsSnapshot.Mode = switch configuration.mode {
+        case .onlyWhenAway: .onlyWhenAway
+        case .always: .always
+        }
+        return MobilePhonePushSettingsSnapshot(
+            forwardingEnabled: configuration.forwardingEnabled,
+            mode: mode,
+            hideContent: configuration.hideContent
+        )
     }
 
     private func existingConfigWindow() -> NSWindow? {
@@ -215,7 +368,7 @@ final class HostSettingsActions: SettingsHostActions {
         // Reads the in-memory cache (kept current by config reloads) rather than
         // forcing a synchronous disk read on the main actor when Settings opens.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().sidebarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().sidebarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
@@ -233,7 +386,7 @@ final class HostSettingsActions: SettingsHostActions {
     func surfaceTabBarFontSize() -> SettingsFontSize {
         // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
@@ -290,6 +443,10 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
+        MobileHostIrohRuntime.shared
+    }
+
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge.
@@ -311,6 +468,25 @@ final class HostSettingsActions: SettingsHostActions {
             activeConnectionCount: status.activeConnectionCount,
             routes: routes
         )
+    }
+
+    private static func desktopNotificationAuthorizationState(
+        from state: NotificationAuthorizationState
+    ) -> DesktopNotificationAuthorizationState {
+        switch state {
+        case .unknown:
+            return .unknown
+        case .notDetermined:
+            return .notDetermined
+        case .authorized:
+            return .authorized
+        case .denied:
+            return .denied
+        case .provisional:
+            return .provisional
+        case .ephemeral:
+            return .ephemeral
+        }
     }
 
     func mobilePairingDefaultDisplayName() -> String {

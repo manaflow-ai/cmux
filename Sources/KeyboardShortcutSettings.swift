@@ -10,7 +10,7 @@ enum KeyboardShortcutSettings {
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
-    static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
+    static var settingsFileStore: KeyboardShortcutSettingsFileStore = .appLive {
         didSet { notifySettingsFileDidChange() }
     }
     #if DEBUG
@@ -73,21 +73,32 @@ enum KeyboardShortcutSettings {
         // Navigation
         case nextSurface
         case prevSurface
+        case moveSurfaceLeft, moveSurfaceRight
+        case moveSurfaceToPreviousPane, moveSurfaceToNextPane
+        case moveSurfaceToPaneLeft, moveSurfaceToPaneRight
+        case moveSurfaceToPaneUp, moveSurfaceToPaneDown
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
+        case nextSidebarTabInGroup
+        case prevSidebarTabInGroup
+        case moveWorkspaceUp, moveWorkspaceDown
         case focusHistoryBack
         case focusHistoryForward
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
         case editWorkspaceDescription
+        case markWorkspaceDone
+        case cycleWorkspaceStatus
+        case toggleChecklistItemComplete
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
         case newWorkspaceGroup
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
+        case reopenClosedWorkspace
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -100,8 +111,13 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case focusPreviousPane
+        case focusNextPane
         case splitRight
         case splitDown, toggleSplitZoom
+        case increaseWorkspaceTerminalFontSize
+        case decreaseWorkspaceTerminalFontSize
+        case resetWorkspaceTerminalFontSize
         case equalizeSplits
         case splitBrowserRight
         case splitBrowserDown
@@ -151,6 +167,7 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
         case toggleBrowserFocusMode
+        case toggleBrowserDesignMode
         case toggleReactGrab
         case openDiffViewer
         case diffViewerScrollDown
@@ -160,6 +177,8 @@ enum KeyboardShortcutSettings {
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case simulatorHome, simulatorRotateLeft, simulatorRotateRight
+        case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
         case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
@@ -200,21 +219,37 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
+            case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+            case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+            case .moveSurfaceToPreviousPane: return SurfacePaneMovement.previous.title
+            case .moveSurfaceToNextPane: return SurfacePaneMovement.next.title
+            case .moveSurfaceToPaneLeft: return SurfacePaneMovement.left.title
+            case .moveSurfaceToPaneRight: return SurfacePaneMovement.right.title
+            case .moveSurfaceToPaneUp: return SurfacePaneMovement.up.title
+            case .moveSurfaceToPaneDown: return SurfacePaneMovement.down.title
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
+            case .nextSidebarTabInGroup: return String(localized: "shortcut.nextWorkspaceInGroup.label", defaultValue: "Next Workspace in Group")
+            case .prevSidebarTabInGroup: return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
+            case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+            case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
             case .editWorkspaceDescription: return String(localized: "shortcut.editWorkspaceDescription.label", defaultValue: "Edit Workspace Description")
+            case .markWorkspaceDone: return String(localized: "shortcut.markWorkspaceDone.label", defaultValue: "Mark Workspace as Done")
+            case .cycleWorkspaceStatus: return String(localized: "shortcut.cycleWorkspaceStatus.label", defaultValue: "Cycle Workspace Status")
+            case .toggleChecklistItemComplete: return String(localized: "shortcut.toggleChecklistItemComplete.label", defaultValue: "Toggle Checklist Item Complete")
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
             case .newWorkspaceGroup: return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+            case .reopenClosedWorkspace: return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -227,9 +262,26 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
+            case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
+            case .increaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Increase Font Size for Workspace Terminals"
+                )
+            case .decreaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Decrease Font Size for Workspace Terminals"
+                )
+            case .resetWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                    defaultValue: "Reset Font Size for Workspace Terminals"
+                )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
@@ -273,6 +325,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
+            case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
@@ -284,25 +337,15 @@ enum KeyboardShortcutSettings {
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorLabel
             case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
             case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
-
-        var isPublicShortcutAction: Bool {
-            switch self {
-            case .switchRightSidebarToFiles,
-                 .switchRightSidebarToFind,
-                 .switchRightSidebarToSessions,
-                 .switchRightSidebarToFeed,
-                 .switchRightSidebarToDock:
-                return false
-            default:
-                return true
-            }
-        }
 
         var defaultShortcut: StoredShortcut {
             switch self {
@@ -311,10 +354,9 @@ enum KeyboardShortcutSettings {
             case .reloadConfiguration:
                 return StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
             case .showHideAllWindows:
-                // Avoid AppKit-reserved keystrokes such as Cmd+. (modal
-                // cancel). Default to Ctrl+Option+Cmd+. so the global hotkey
-                // does not collide with the standard cancel keystroke that
-                // NSAlert/NSOpenPanel use.
+                // Avoid AppKit-reserved keystrokes such as Cmd+. (modal cancel). Default to
+                // Ctrl+Option+Cmd+. so the global hotkey does not collide with the standard
+                // cancel keystroke that NSAlert/NSOpenPanel use.
                 return StoredShortcut(key: ".", command: true, shift: false, option: true, control: true)
             case .globalSearch:
                 return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
@@ -335,9 +377,8 @@ enum KeyboardShortcutSettings {
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newBrowserWorkspace:
-                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window
-                // (Cmd+Shift+N) without colliding with any cmux default or an
-                // AppKit-reserved keystroke.
+                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
+                // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
@@ -381,6 +422,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .nextSidebarTabInGroup, .prevSidebarTabInGroup:
+                return .unbound
             case .focusHistoryBack:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
@@ -391,6 +434,17 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .editWorkspaceDescription:
                 return StoredShortcut(key: "e", command: true, shift: false, option: true, control: false)
+            case .markWorkspaceDone:
+                // Cmd+; pins the selected workspace's status to done. The Cmd-"D" family was taken by split/diff
+                // actions and the natural Cmd+Ctrl+D chord is reserved by macOS; Cmd+; (semicolon) is free and sits next to the status-cycle chord.
+                return StoredShortcut(key: ";", command: true, shift: false, option: false, control: false)
+            case .cycleWorkspaceStatus:
+                // Cmd+Shift+; cycles the selected workspace's status one lane forward (todo → working → needs-attention → review → done).
+                return StoredShortcut(key: ";", command: true, shift: true, option: false, control: false)
+            case .toggleChecklistItemComplete:
+                // Cmd+Return toggles the highlighted checklist item in the focused todo pane / checklist popover.
+                // Registered here for Settings discoverability and rebinding; the pane/popover handle the keystroke locally (they own the highlight).
+                return StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
             case .closeTab:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
             case .closeOtherTabsInPane:
@@ -400,19 +454,16 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceGroup:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
-                // Cmd+Shift+G is the user-natural mnemonic. It collides with
-                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
-                // returns false (lets the event propagate) whenever there are
-                // no eligible workspaces to group — so React Grab still
-                // fires in browser/terminal contexts where this shortcut
-                // wouldn't have done anything anyway.
+                // Cmd+Shift+G is the user-natural mnemonic. It collides with toggleReactGrab's default,
+                // but handleGroupSelectedWorkspacesShortcut returns false (lets the event propagate) whenever
+                // there are no eligible workspaces to group — so React Grab still fires in browser/terminal contexts where this shortcut wouldn't have done anything anyway.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .toggleFocusedWorkspaceGroupCollapsed:
-                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
-                // used by other group ops, with "." as the collapse
-                // mnemonic. No-ops gracefully when the focused workspace
-                // isn't in a group.
+                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family used by other group ops,
+                // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
+            case .reopenClosedWorkspace:
+                return .unbound
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
@@ -423,11 +474,25 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            // Unbound by default: Ghostty's goto_split:previous/next mirror still
+            // cycles panes on the terminal-config keys when Focus Back/Forward do
+            // not claim them; these entries exist so pane cycling stays rebindable
+            // now that ⌘[ / ⌘] reach global focus history.
+            case .focusPreviousPane:
+                return .unbound
+            case .focusNextPane:
+                return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
-            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .increaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .decreaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: true)
+            case .resetWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
+            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -461,6 +526,20 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .moveSurfaceLeft: return StoredShortcut(key: "[", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceRight: return StoredShortcut(key: "]", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPreviousPane:
+                return StoredShortcut(key: "[", command: true, shift: true, option: false, control: true)
+            case .moveSurfaceToNextPane:
+                return StoredShortcut(key: "]", command: true, shift: true, option: false, control: true)
+            case .moveSurfaceToPaneLeft:
+                return StoredShortcut(key: "←", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneRight:
+                return StoredShortcut(key: "→", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneUp:
+                return StoredShortcut(key: "↑", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneDown:
+                return StoredShortcut(key: "↓", command: true, shift: true, option: true, control: false)
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
@@ -471,20 +550,19 @@ enum KeyboardShortcutSettings {
             case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
             case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .sendCtrlFToTerminal:
-                // Unbound by default: this is a deliberate escape hatch for forwarding a
-                // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
-                // terminal. Binding it to plain Ctrl-F would be self-referential, so users
-                // opt in via Settings; it stays reachable through the command palette and
-                // the `send_key ctrl-f` socket command.
+                // Unbound by default: this is a deliberate escape hatch for forwarding a control chord
+                // (e.g. Claude Code's Ctrl-F force-stop) to the focused terminal. Binding it to plain Ctrl-F
+                // would be self-referential, so users opt in via Settings; it stays reachable through the command palette and the `send_key ctrl-f` socket command.
                 return .unbound
             case .clearScreenKeepScrollback:
-                // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K
-                // (clear_screen), which also wipes scrollback. Shift+K is unbound in
-                // both Ghostty defaults and cmux, and sits next to the full-clear
-                // chord. Rebindable in Settings → Keyboard Shortcuts.
+                // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K (clear_screen),
+                // which also wipes scrollback. Shift+K is unbound in both Ghostty defaults and
+                // cmux, and sits next to the full-clear chord. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+            case .moveWorkspaceUp: return StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
+            case .moveWorkspaceDown: return StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .fileExplorerOpenSelection:
@@ -538,21 +616,21 @@ enum KeyboardShortcutSettings {
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleBrowserFocusMode:
-                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
-                // modifier tier web pages rarely bind, so it stays out of the page's
-                // way while focus mode is off and cmux owns the shortcut, and it
-                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
-                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a modifier tier web
+                // pages rarely bind, so it stays out of the page's way while focus mode is off and
+                // cmux owns the shortcut, and it avoids the Ctrl+Cmd+Return global hotkey some
+                // screen recorders use. Exit stays double-Escape; rebind in Settings or cmux.json.
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
+            case .toggleBrowserDesignMode:
+                return StoredShortcut(key: "d", command: true, shift: false, option: true, control: true)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
-                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
-                // "Look Up & data detectors" — the OS swallows it before it reaches the
-                // app's key monitor — and the rest of the Cmd-based "D" family is taken
-                // by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D, Cmd+Shift+Opt+D).
-                // Adding Shift yields a chord that reaches cmux while keeping the "D for
-                // Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
+                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for "Look Up &
+                // data detectors" — the OS swallows it before it reaches the app's key monitor — and
+                // the rest of the Cmd-based "D" family is taken by split actions (Cmd+D, Cmd+Shift+D,
+                // Cmd+Opt+D, Cmd+Shift+Opt+D). Adding Shift yields a chord that reaches cmux while
+                // keeping the "D for Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
@@ -585,47 +663,21 @@ enum KeyboardShortcutSettings {
                     first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
                     second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
                 )
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorDefaultShortcut
             }
         }
-
-        func tooltip(_ base: String) -> String {
-            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
-        }
-
-        var usesNumberedDigitMatching: Bool {
-            switch self {
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-                return true
-            default:
-                return false
-            }
-        }
-
-        var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
-        }
-
-        func displayedShortcutString(for shortcut: StoredShortcut) -> String {
-            if shortcut.isUnbound {
-                return shortcut.displayString
-            }
-            if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
-            }
-            return shortcut.displayString
-        }
-
         func conflicts(
             with proposedShortcut: StoredShortcut,
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            // Two bindings on the same keystroke only collide when some focus
-            // state activates both AND router priority cannot decide the overlap.
-            // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping (issue #5189), and a pre-routed action
-            // wins its context outright, so factory Select Surface ⌃1…9 coexists
-            // with the sidebar's ⌃1…5 by priority.
+            // Two bindings on the same keystroke only collide when some focus state activates
+            // both AND router priority cannot decide the overlap. A `shortcuts.when` override
+            // (or the built-in context default) can make them non-overlapping (issue #5189),
+            // and a pre-routed action wins its context outright, so factory Select Surface
+            // ⌃1…9 coexists with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,
@@ -646,18 +698,15 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return .rejected(.reservedBySystem)
-            }
 
-            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
-                for: shortcut,
-                excluding: self
-            ) {
+            let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            guard case .accepted = resolved else { return resolved }
+
+            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(for: shortcut, excluding: self) {
                 return .rejected(.conflictsWithAction(conflictingAction))
             }
 
-            return resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            return resolved
         }
 
         func normalizedSettingsFileShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
@@ -665,9 +714,6 @@ enum KeyboardShortcutSettings {
             // Keep this path free of conflict and hotkey checks that consult global shortcut state.
             if shortcut.isUnbound {
                 return .unbound
-            }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return nil
             }
 
             if case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(
@@ -677,9 +723,8 @@ enum KeyboardShortcutSettings {
                 return normalized
             }
 
-            // Preserve invalid settings-file values for the show/hide hotkey so managed
-            // configuration remains visible instead of silently falling back to defaults.
-            // Runtime registration still rejects unsupported Carbon hotkey shapes.
+            // Preserve invalid settings-file values for the show/hide hotkey so managed configuration
+            // remains visible instead of silently falling back to defaults. Runtime registration still rejects unsupported Carbon hotkey shapes.
             if usesNumberedDigitMatching || self == .globalSearch {
                 return nil
             }
@@ -690,14 +735,19 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
+            if let rejection = shortcutBindingPolicyRejection(for: shortcut) {
+                return .rejected(rejection)
+            }
 
             switch self {
-            case .showHideAllWindows, .globalSearch:
+            case .showHideAllWindows:
                 return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(
                     shortcut,
                     for: self,
                     checkingConflicts: checkingSystemWideConflicts
                 )
+            case .globalSearch:
+                return .accepted(shortcut)
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
@@ -752,23 +802,6 @@ enum KeyboardShortcutSettings {
             return nil
         }
         return normalized
-    }
-
-    private static func systemWideHotkeyConflicts(with shortcut: StoredShortcut, excluding action: Action) -> Bool {
-        guard let registration = shortcut.carbonHotKeyRegistration else { return false }
-        let keyCode = UInt16(registration.keyCode)
-        let modifierFlags = shortcut.modifierFlags
-        // Validate against the keystroke AppKit shortcuts would see for the
-        // registered Carbon hotkey under the current input source.
-        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
-
-        return reservedSystemWideHotkeyShortcuts(excluding: action).contains { reserved in
-            reserved.matches(
-                keyCode: keyCode,
-                modifierFlags: modifierFlags,
-                eventCharacter: eventCharacter
-            )
-        }
     }
 
     private static func conflictingAction(
@@ -899,7 +932,7 @@ enum KeyboardShortcutSettings {
         if shortcut.isUnbound { return shortcut }
         if shortcut.hasChord && !action.allowsChordShortcut { return nil }
 
-        switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+        switch action.normalizedRecordedShortcutResult(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:
@@ -973,7 +1006,12 @@ enum KeyboardShortcutSettings {
         return true
     }
 
-    static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
+    static func notifySettingsFileDidChange(
+        center: NotificationCenter = .default,
+        sourceURL: URL? = nil
+    ) {
+        center.post(name: didChangeNotification, object: sourceURL)
+    }
 
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
@@ -1069,10 +1107,7 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
-        }
-        return storedShortcut() ?? defaultShortcut
+        return KeyboardShortcutSettings.shortcut(for: action)
     }
 
     static func setShortcut(_ shortcut: StoredShortcut) {
@@ -1102,10 +1137,10 @@ enum SystemWideHotkeySettings {
 
     private static func migrateLegacyShortcutIfNeeded(defaults: UserDefaults = .standard) {
         guard defaults.object(forKey: legacyShortcutKey) != nil else { return }
-        defer { defaults.removeObject(forKey: legacyShortcutKey) }
-
+        let legacyData = defaults.data(forKey: legacyShortcutKey)
+        defaults.removeObject(forKey: legacyShortcutKey)
         guard defaults.object(forKey: action.defaultsKey) == nil,
-              let data = defaults.data(forKey: legacyShortcutKey),
+              let data = legacyData,
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
             return
         }
@@ -1132,16 +1167,10 @@ struct CarbonHotKeyRegistration: Equatable {
 final class SystemWideHotkeyController {
     static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
-    private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
-        .showHideAllWindows: 1,
-        .globalSearch: 2,
-    ]
-    private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
-        .showHideAllWindows,
-        .globalSearch,
-    ]
+    private static let hotKeyID: UInt32 = 1
+    private static let action = SystemWideHotkeySettings.action
 
-    private var hotKeyRefs: [KeyboardShortcutSettings.Action: EventHotKeyRef] = [:]
+    private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var defaultsObserver: NSObjectProtocol?
     private var shortcutObserver: NSObjectProtocol?
@@ -1149,8 +1178,8 @@ final class SystemWideHotkeyController {
     private var packageRecorderObserver: NSObjectProtocol?
     private var inputSourceObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
-    private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    private var registeredHotKeyRegistrations: [KeyboardShortcutSettings.Action: CarbonHotKeyRegistration] = [:]
+    private var registeredShortcut: StoredShortcut?
+    private var registeredHotKeyRegistration: CarbonHotKeyRegistration?
 
     private init() {}
 
@@ -1180,12 +1209,11 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
-        // The live Settings UI uses the CmuxSettingsUI package recorder, which
-        // signals arm/disarm through its own notification (it cannot post the
-        // app-target `KeyboardShortcutRecorderActivity` one). Without this,
-        // recording a system-wide hotkey in Settings would not unregister the
-        // existing Carbon hotkey, so the keystroke would fire the global action
-        // instead of being captured (issue #5189).
+        // The live Settings UI uses the CmuxSettingsUI package recorder, which signals
+        // arm/disarm through its own notification (it cannot post the app-target
+        // `KeyboardShortcutRecorderActivity` one). Without this, recording a system-wide
+        // hotkey in Settings would not unregister the existing Carbon hotkey, so the
+        // keystroke would fire the global action instead of being captured (issue #5189).
         packageRecorderObserver = NotificationCenter.default.addObserver(
             forName: RecorderHostButton.activeRecordingDidChangeNotification,
             object: nil,
@@ -1214,45 +1242,38 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
-        // Stand down while either recorder is armed (legacy app-target recorder
-        // or the CmuxSettingsUI package recorder) so a system-wide hotkey being
-        // rebound in Settings is captured rather than fired.
+        let shortcut = SystemWideHotkeySettings.shortcut()
+        // Stand down while either recorder is armed (legacy app-target recorder or the CmuxSettingsUI
+        // package recorder) so the opt-in hotkey is captured rather than fired while being rebound.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
             || RecorderHostButton.isActivelyRecording
 
-        guard !isShortcutRecordingActive else {
-            unregisterHotKeys()
+        guard SystemWideHotkeySettings.isEnabled(),
+              !shortcut.isUnbound,
+              !isShortcutRecordingActive else {
+            unregisterHotKey()
             return
         }
 
-        for action in Self.systemWideActions {
-            refreshRegistration(for: action)
+        guard let candidate = SystemWideHotkeySettings.registrationCandidate(
+            for: shortcut
+        ) else {
+            unregisterHotKey()
+            return
         }
-    }
+        let normalizedShortcut = candidate.shortcut
+        let registration = candidate.registration
 
-    private func refreshRegistration(for action: KeyboardShortcutSettings.Action) {
-        let configuredShortcut = shortcut(for: action)
-        guard isSystemWideActionEnabled(action, shortcut: configuredShortcut) else {
-            unregisterHotKey(for: action)
+        if registeredShortcut == normalizedShortcut,
+           registeredHotKeyRegistration == registration,
+           hotKeyRef != nil {
             return
         }
 
-        guard let normalizedShortcut = action.normalizedRecordedShortcut(configuredShortcut),
-              let registration = normalizedShortcut.carbonHotKeyRegistration else {
-            unregisterHotKey(for: action)
-            return
-        }
-
-        if registeredShortcuts[action] == normalizedShortcut,
-           registeredHotKeyRegistrations[action] == registration,
-           hotKeyRefs[action] != nil {
-            return
-        }
-
-        unregisterHotKey(for: action)
+        unregisterHotKey()
         installHotKeyHandlerIfNeeded()
 
-        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID(for: action))
+        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID)
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             registration.keyCode,
@@ -1266,48 +1287,23 @@ final class SystemWideHotkeyController {
         guard status == noErr, let hotKeyRef else {
 #if DEBUG
             cmuxDebugLog(
-                "globalHotkey.register failed action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+                "globalHotkey.register failed action=\(Self.action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
                 "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers) status=\(status)"
             )
 #endif
             return
         }
 
-        hotKeyRefs[action] = hotKeyRef
-        registeredShortcuts[action] = normalizedShortcut
-        registeredHotKeyRegistrations[action] = registration
+        self.hotKeyRef = hotKeyRef
+        registeredShortcut = normalizedShortcut
+        registeredHotKeyRegistration = registration
 
 #if DEBUG
         cmuxDebugLog(
-            "globalHotkey.register success action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+            "globalHotkey.register success action=\(Self.action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
             "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers)"
         )
 #endif
-    }
-
-    private func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.shortcut()
-        default:
-            return KeyboardShortcutSettings.shortcut(for: action)
-        }
-    }
-
-    private func isSystemWideActionEnabled(
-        _ action: KeyboardShortcutSettings.Action,
-        shortcut: StoredShortcut
-    ) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.isEnabled()
-        case .globalSearch:
-            return true
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return false
-        }
     }
 
     private func installHotKeyHandlerIfNeeded() {
@@ -1335,18 +1331,13 @@ final class SystemWideHotkeyController {
 #endif
     }
 
-    private func unregisterHotKey(for action: KeyboardShortcutSettings.Action) {
-        if let hotKeyRef = hotKeyRefs.removeValue(forKey: action) {
+    private func unregisterHotKey() {
+        if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
         }
-        registeredShortcuts[action] = nil
-        registeredHotKeyRegistrations[action] = nil
-    }
-
-    private func unregisterHotKeys() {
-        for action in Self.systemWideActions {
-            unregisterHotKey(for: action)
-        }
+        registeredShortcut = nil
+        registeredHotKeyRegistration = nil
     }
 
     private static let hotKeyEventHandler: EventHandlerUPP = { _, event, userInfo in
@@ -1373,32 +1364,27 @@ final class SystemWideHotkeyController {
 
         guard status == noErr,
               hotKeyID.signature == Self.hotKeySignature,
-              let action = Self.action(forHotKeyID: hotKeyID.id) else {
+              hotKeyID.id == Self.hotKeyID else {
             return OSStatus(eventNotHandledErr)
         }
 
 #if DEBUG
-        let shortcut = registeredShortcuts[action]?.displayString ?? "unknown"
-        cmuxDebugLog("globalHotkey.fire action=\(action.rawValue) shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)")
+        let shortcut = registeredShortcut?.displayString ?? "unknown"
+        cmuxDebugLog(
+            "globalHotkey.fire action=\(Self.action.rawValue) " +
+            "shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)"
+        )
 #endif
 
         Task { @MainActor [weak self] in
-            self?.perform(action)
+            self?.toggleApplicationVisibility()
         }
         return OSStatus(noErr)
     }
 
     @MainActor
-    private func perform(_ action: KeyboardShortcutSettings.Action) {
-        switch action {
-        case .showHideAllWindows:
-            AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
-        case .globalSearch:
-            AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            break
-        }
+    private func toggleApplicationVisibility() {
+        AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
     }
 
     @MainActor
@@ -1406,17 +1392,6 @@ final class SystemWideHotkeyController {
         AppDelegate.shared?.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
     }
 
-    private static func hotKeyID(for action: KeyboardShortcutSettings.Action) -> UInt32 {
-        guard let hotKeyID = hotKeyIDs[action] else {
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return 0
-        }
-        return hotKeyID
-    }
-
-    private static func action(forHotKeyID hotKeyID: UInt32) -> KeyboardShortcutSettings.Action? {
-        systemWideActions.first { Self.hotKeyID(for: $0) == hotKeyID }
-    }
 }
 
 struct ShortcutStroke: Equatable, Hashable {
@@ -1640,9 +1615,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            return false
-        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
@@ -1661,8 +1633,12 @@ struct ShortcutStroke: Equatable, Hashable {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
 
+        if let recordedKeyCode = self.keyCode {
+            return keyCode == recordedKeyCode
+        }
+
         let shortcutKey = key.lowercased()
-        if Self.usesDirectKeyCodeMatching(shortcutKey) {
+        if Self.usesPhysicalKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false
             }
@@ -1763,39 +1739,10 @@ struct ShortcutStroke: Equatable, Hashable {
         keyCode: UInt16,
         charactersIgnoringModifiers: String?
     ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
+        recordedShortcutKey(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
+        )
     }
 
     private static func recordableKey(
@@ -1860,13 +1807,12 @@ struct ShortcutStroke: Equatable, Hashable {
     ) -> String {
         let lowered = eventCharacter.lowercased()
 
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
+        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US layouts these
+        // symbols only exist as Shift variants, so the Shift gate below historically sufficed.
+        // On European layouts (German QWERTZ, French AZERTY, Nordic) "+" and "-" are dedicated
+        // keys typed WITHOUT Shift, so a bare "+"/"_" can only originate from such a key.
+        // Mapping them to their base zoom key ("=", "-") unconditionally is therefore safe
+        // (no shortcut key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
         switch lowered {
         case "+": return "="
         case "_": return "-"
@@ -2011,6 +1957,18 @@ struct ShortcutStroke: Equatable, Hashable {
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
         key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+    }
+
+    /// Arrow glyphs are persisted by name in hand-written config, but AppKit
+    /// reports them as private-use function-key characters. Match their stable
+    /// physical key codes without changing the bare-key recording policy.
+    private static func usesPhysicalKeyCodeMatching(_ key: String) -> Bool {
+        switch key {
+        case "←", "→", "↓", "↑":
+            return true
+        default:
+            return usesDirectKeyCodeMatching(key)
+        }
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -2529,9 +2487,4 @@ enum KeyboardShortcutRecorderActivity {
         }
     }
 #endif
-}
-
-struct ShortcutRecorderRejectedAttempt: Equatable {
-    let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
-    let proposedShortcut: StoredShortcut?
 }

@@ -172,12 +172,12 @@ extension TabManager: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    var gitMetadataActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard)
     }
 
-    var isPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    var pullRequestActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard)
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {

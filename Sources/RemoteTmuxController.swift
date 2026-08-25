@@ -301,11 +301,22 @@ final class RemoteTmuxController {
         // the sidebar.
         let connection = try attach(host: host, sessionName: sessionName)
         let workspace = tabManager.addWorkspace(
-            title: sessionName,
+            title: sessionName, titleSource: .auto,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: false
         )
         workspace.isRemoteTmuxMirror = true
+        // Identity pairs the connection pushes into the remote SESSION
+        // environment on attach and every reconnect (issue #833). Workspace id
+        // is published under both keys, matching the SSH-workspace bootstrap
+        // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
+        // ssh-tmux transport has no relay, so a local path would be dead on the
+        // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        connection.setMirrorEnvironment([
+            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+            "CMUX_TAB_ID": workspace.id.uuidString,
+        ])
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(
@@ -322,7 +333,9 @@ final class RemoteTmuxController {
             tabManager: tabManager,
             workspace: workspace,
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
-            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler(
+                workspaceID: workspace.id
+            )
         )
         return true
     }
@@ -388,10 +401,18 @@ final class RemoteTmuxController {
     /// tmux `split-window`. The new pane arrives via the resulting
     /// `%layout-change`. Returns `true` if `surfaceId` is a mirror pane (the
     /// caller suppresses the local split).
-    func handleMirrorSplitRequested(surfaceId: UUID, vertical: Bool) -> Bool {
+    func handleMirrorSplitRequested(
+        surfaceId: UUID,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
         for sessionMirror in sessionMirrors.values {
             if let match = sessionMirror.windowMirror(forSurfaceId: surfaceId) {
-                return match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
+                return match.mirror.requestSplit(
+                    fromPane: match.tmuxPaneId,
+                    vertical: vertical,
+                    focusIntent: focusIntent
+                )
             }
         }
         return false
@@ -442,15 +463,6 @@ final class RemoteTmuxController {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
         return nil
-    }
-
-    /// A split was requested on a mirror window-tab (the split button / any
-    /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
-    /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
-    func handleMirrorTabSplitRequested(workspaceId: UUID, panelId: UUID, vertical: Bool) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })
-        else { return false }
-        return mirror.requestSplit(windowPanelId: panelId, vertical: vertical)
     }
 
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
@@ -561,15 +573,17 @@ final class RemoteTmuxController {
         sessionName: String,
         workspaceId: UUID
     ) {
-        tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+        tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId, reason: .sessionEnded)
     }
 
-    /// Removes a mirror + its control connection, then closes or converts the local
-    /// workspace. Shared by remote session-end and deliberate detach; neither kills.
+    /// Removes a mirror + its control connection, then closes the local workspace.
+    /// A genuine remote end may instead honor a pending keep-workspace-open intent;
+    /// deliberate detach is authoritative and always removes the mirror workspace.
     private func tearDownMirrorAndCloseWorkspace(
         host: RemoteTmuxHost,
         sessionName: String,
-        workspaceId: UUID
+        workspaceId: UUID,
+        reason: RemoteTmuxMirrorTeardownReason
     ) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         let mirrorWorkspace = sessionMirrors[key]?.mirroredWorkspace
@@ -588,27 +602,29 @@ final class RemoteTmuxController {
         }
         #if DEBUG
         cmuxDebugLog(
-            "remote-tmux: session ended hostHasOtherMirrors=\(hostHasOtherMirrors)"
+            "remote-tmux: teardown hostHasOtherMirrors=\(hostHasOtherMirrors)"
         )
         #endif
-        if (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+        if reason == .sessionEnded,
+           (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
             .tabs.first(where: { $0.id == workspaceId }))?
             .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
-        // Close just the dead workspace. `closeWorkspace` refuses to remove a
-        // window's last workspace (it would leave a windowless state), so if the
-        // dead mirror is the only workspace in its window, add a fresh local
-        // workspace first — that leaves a usable window instead of stranding a
-        // frozen, connection-less remote tab. `inheritWorkingDirectory: false`
-        // avoids inheriting the mirror's remote path; `select: false` keeps the
-        // disconnect from stealing focus (closeWorkspace reselects after the
-        // dead one is removed).
         let manager = mirrorWorkspace?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
         if let manager, let workspace {
-            if manager.tabs.count == 1 {
-                _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+            switch reason {
+            case .sessionEnded:
+                // Preserve a usable owning window when the remote disappears.
+                // The replacement is local and must not inherit the remote path.
+                if manager.tabs.count == 1 {
+                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                }
+                manager.closeWorkspace(workspace)
+            case .explicitDetach:
+                // Detach is authoritative even for a pinned final mirror. Closing
+                // its owning window avoids stranding a blank `--new-window` shell.
+                _ = manager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
             }
-            manager.closeWorkspace(workspace)
         }
     }
 
@@ -747,7 +763,7 @@ final class RemoteTmuxController {
     func detach(host: RemoteTmuxHost, sessionName: String) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let workspaceId = sessionMirrors[key]?.mirroredWorkspaceId {
-            tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+            tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId, reason: .explicitDetach)
             return
         }
         if let mirror = sessionMirrors.removeValue(forKey: key) {

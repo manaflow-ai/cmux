@@ -448,6 +448,9 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
+        IrohNetworkingSection(hostActions: hostActions)
+            .id(anchorID(for: .networking))
+
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
 
@@ -470,7 +473,8 @@ public struct SettingsWindowRoot: View {
             jsonStore: jsonStore,
             secretStore: secretStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .automation))
 
@@ -485,13 +489,13 @@ public struct SettingsWindowRoot: View {
         GlobalHotkeySection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
+            catalog: catalog, errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .globalHotkey))
 
         KeyboardShortcutsSection(
-            jsonStore: jsonStore,
+            jsonStore: jsonStore, userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: runtime.errorLog,
             hostActions: hostActions

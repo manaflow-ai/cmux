@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
 
@@ -12,16 +13,17 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) async -> Bool {
         guard case .adopt = expectation,
-              MobileMacInstanceTagAuthority.normalized(reportedInstanceTag) == nil,
+              macInstanceTagAuthority.normalize(reportedInstanceTag) == nil,
               let macDeviceID = macDeviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !macDeviceID.isEmpty,
               let pairedMacStore,
               let scope = await currentScopeSnapshot() else { return false }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let existing = try? await pairedMacStore.loadAll(
             stackUserID: scope.userID,
             teamID: scope.teamID
-        ).first { $0.macDeviceID.caseInsensitiveCompare(macDeviceID) == .orderedSame }
+        ).first { cmxCanonicalDeviceID($0.macDeviceID) == canonicalDeviceID }
         guard await isScopeCurrent(scope) else { return true }
-        return MobileMacInstanceTagAuthority.normalized(existing?.instanceTag) != nil
+        return macInstanceTagAuthority.normalize(existing?.instanceTag) != nil
     }
 }

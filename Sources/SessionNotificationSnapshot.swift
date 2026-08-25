@@ -9,6 +9,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var isRead: Bool
     var paneFlash: Bool?
     var retargetsToLiveSurfaceOwner: Bool?
+    var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
 
@@ -21,6 +22,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         isRead: Bool,
         paneFlash: Bool? = nil,
         retargetsToLiveSurfaceOwner: Bool? = nil,
+        correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
@@ -32,11 +34,15 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.isRead = isRead
         self.paneFlash = paneFlash
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
 
     init(notification: TerminalNotification) {
+        let persistedScrollPosition = notification.scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
         self.init(
             id: notification.id,
             title: notification.title,
@@ -46,25 +52,30 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-            scrollPosition: notification.scrollPosition,
+            correlationKey: notification.correlationKey,
+            scrollPosition: persistedScrollPosition,
             clickAction: notification.clickAction
         )
     }
 
     func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
+        let restoredScrollPosition = scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
+        return TerminalNotification(
             id: id,
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
+            correlationKey: correlationKey,
             title: title,
             subtitle: subtitle,
             body: body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
-            scrollPosition: scrollPosition,
+            scrollPosition: restoredScrollPosition,
             clickAction: clickAction
         )
     }

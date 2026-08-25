@@ -39,8 +39,14 @@ public final class CommandPaletteInteractionMonitor {
         self.mainMenuProvider = mainMenuProvider
     }
 
-    isolated deinit {
-        deactivate()
+    deinit {
+        // This AppKit-owned object is created and released on the main actor.
+        // `isolated deinit` cannot be compiled by Xcode 16.4, which cmux uses
+        // for Intel macOS 14 verification, so keep the synchronous teardown
+        // contract while asserting that owner invariant at runtime.
+        MainActor.assumeIsolated {
+            deactivate()
+        }
     }
 
     /// Starts observation for `window`, or refreshes the callbacks when already active.

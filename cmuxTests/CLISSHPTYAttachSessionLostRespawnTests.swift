@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import XCTest
 
@@ -235,7 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
     }
 
-    func testSSHPTYAttachClosedGenerationBeforeReadyEndsWithoutWrapperRetry() throws {
+    func testSSHPTYAttachClosedGenerationPreservesStateWhenReconciliationIsUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyclosedstart")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -300,13 +301,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(result.status, SSHPTYAttachExitCode.retryableTransient.rawValue, result.stderr)
+        let requests = state.snapshot().compactMap { self.jsonObject($0) }
+        let methods = requests.compactMap { $0["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1, "\(methods)")
-        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1, "\(methods)")
+        XCTAssertFalse(methods.contains("workspace.remote.pty_attach_end"), "\(methods)")
+        let reconciliationParams = requests.compactMap { request -> [String: Any]? in
+            guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
+            return request["params"] as? [String: Any]
+        }
+        XCTAssertEqual(reconciliationParams.count, 1)
+        XCTAssertNotEqual(reconciliationParams.first?["acknowledge_lifecycle"] as? Bool, true)
+        XCTAssertNotEqual(
+            reconciliationParams.first?["acknowledge_lifecycle_if_session_absent"] as? Bool,
+            true
+        )
     }
 
-    func testSSHPTYAttachTransientPreReadyFailureKeepsLifecycleForRetry() throws {
+    func testSSHPTYAttachCapacityFailureKeepsSurfaceForWrapperRetry() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptypreretry")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -327,8 +340,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 2
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -364,8 +376,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let firstBridgeHandled = startBridgeErrorServer(
             listenerFD: firstBridge.fd,
-            message: "connection reset",
-            code: "remote_pty_error"
+            message: "remote PTY attach failed",
+            code: "unavailable"
         )
         let secondBridgeHandled = startBridgeReadyThenCloseServer(listenerFD: secondBridge.fd)
         let arguments = [
@@ -385,7 +397,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
         XCTAssertFalse(first.timedOut, first.stderr)
-        XCTAssertEqual(first.status, SSHPTYAttachExitCode.retryableTransient.rawValue, first.stderr)
+        XCTAssertEqual(first.status, 251, first.stderr)
+        let firstMethods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertFalse(
+            firstMethods.contains("workspace.remote.pty_attach_end"),
+            "capacity retry must preserve the surface: \(firstMethods)"
+        )
 
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "0"
         let second = runProcess(
@@ -403,7 +420,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
             return (request["params"] as? [String: Any])?["acknowledge_lifecycle_if_session_absent"] as? Bool
         }
-        XCTAssertEqual(reconciliationFlags, [false, true])
+        XCTAssertEqual(reconciliationFlags, [false, false, true])
         let methods = requests.compactMap { $0["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 2, "\(methods)")
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")

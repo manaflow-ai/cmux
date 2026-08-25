@@ -1,6 +1,11 @@
 import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
-import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
+import {
+  parseNativeStackTokens,
+  unauthorized,
+  verifyRequest,
+  type AuthedUser,
+} from "./auth";
 import {
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
@@ -15,18 +20,13 @@ import {
   vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { authProviderErrorResponse } from "./authErrors";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
 
 export function parseBearer(request: Request): StackBearer | null {
-  const auth = request.headers.get("authorization");
-  const refresh = request.headers.get("x-stack-refresh-token");
-  if (!auth?.toLowerCase().startsWith("bearer ") || !refresh) return null;
-  const accessToken = auth.slice("bearer ".length).trim();
-  const refreshToken = refresh.trim();
-  if (!accessToken || !refreshToken) return null;
-  return { accessToken, refreshToken };
+  return parseNativeStackTokens(request);
 }
 
 export type AuthedVmRouteContext = {
@@ -68,7 +68,12 @@ export async function withAuthedVmApiRoute(
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
         const authStart = performance.now();
-        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        let user: AuthedUser | null;
+        try {
+          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        } catch (error) {
+          return finalize(authProviderErrorResponse(error, `${route}.auth`));
+        }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();

@@ -1,5 +1,3 @@
-import AppKit
-import Darwin
 import Foundation
 
 struct AgentHibernationPanelKey: Hashable, Sendable {
@@ -18,7 +16,10 @@ struct AgentHibernationRecord {
     let lastActivityAt: TimeInterval
     let isProtected: Bool
     let hasLiveProcess: Bool
+    let containsUnrelatedProcess: Bool
+    let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
+    let processIdentities: [Int: AgentPIDProcessIdentity]
 }
 
 @MainActor
@@ -27,9 +28,9 @@ final class AgentHibernationController {
 
     static let unableToProtectRetrySeconds: TimeInterval = 120
 
-    private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    var evaluationPhase: EvaluationPhase = .idle
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -40,13 +41,18 @@ final class AgentHibernationController {
     var postTeardownRestoreDrainTask: Task<Void, Never>?
     var postSnapshotValidationIndexSequence: UInt64 = 0
     var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
-    private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
-    private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
-    private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
+    var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
+    var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
+    var committedTerminationCleanupByPanelID: [UUID: CommittedTerminationCleanup] = [:]
+    let processSnapshotCoordinator = AgentHibernationProcessSnapshotCoordinator()
+    var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
+    var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
+    var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
 
     private init() {}
 
     func start() {
+        AgentHibernationTrackingGate.setEnabled(true)
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return
@@ -66,6 +72,8 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        memoryPressureEvaluation?.task.cancel()
+        memoryPressureEvaluation = nil
         AgentHibernationTrackingGate.setEnabled(false)
         clearTrackingState()
         if let settingsObserver {
@@ -76,8 +84,13 @@ final class AgentHibernationController {
 
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        if let terminalInputAt = terminalInputByPanel[key],
+           terminalInputAt > (lifecycleChangeByPanel[key] ?? 0) {
+            return
+        }
         let recordedAt = recordedAt ?? Date()
-        let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
@@ -116,49 +129,46 @@ final class AgentHibernationController {
 
     private func recordSettingsChange() {
         teardownValidationGeneration = teardownValidationGeneration &+ 1
-        confirmations.removeAll(keepingCapacity: false)
+        confirmations = confirmations.filter { $0.value.trigger == .systemMemoryPressure }
         unableToProtectByPanel.removeAll(keepingCapacity: false)
         updateTimerForCurrentSettings()
     }
 
     private func updateTimerForCurrentSettings() {
         let enabled = AgentHibernationSettings.isEnabled()
-        AgentHibernationTrackingGate.setEnabled(enabled)
         guard enabled else {
             timer?.cancel()
             timer = nil
-            clearTrackingState()
             return
         }
         guard timer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
-            Task.detached(priority: .utility) {
-                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-                await MainActor.run {
-                    let settings = AgentHibernationSettings.values()
-                    guard settings.enabled else { return }
-                    AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
-                }
+            Task { @MainActor in
+                AgentHibernationController.shared.scheduleEvaluation(now: now)
             }
         }
         timer.resume()
         self.timer = timer
     }
 
-    private func evaluate(
+    @discardableResult
+    func evaluate(
         index: RestorableAgentSessionIndex,
         settings: AgentHibernationSettings.Values,
-        now: Date
-    ) {
-        guard settings.enabled else {
-            AgentHibernationTrackingGate.setEnabled(false)
-            clearTrackingState()
-            return
+        now: Date,
+        trigger: AgentHibernationReclaimTrigger = .scheduled,
+        teardownShouldProceed: (@MainActor () -> Bool)? = nil,
+        onHibernationCompleted: (@MainActor (Int) -> Void)? = nil
+    ) -> (hasCandidates: Bool, beganTeardowns: Bool) {
+        guard trigger != .scheduled || settings.enabled else {
+            return (false, false)
         }
-        guard let appDelegate = AppDelegate.shared else { return }
+        guard let appDelegate = AppDelegate.shared else {
+            return (false, false)
+        }
 
         let records = appDelegate.agentHibernationRecords(
             index: index,
@@ -181,10 +191,16 @@ final class AgentHibernationController {
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
             if record.hasLiveProcess {
-                bumpTeardownValidationEpoch(record.key)
                 tailFingerprintSamples.removeValue(forKey: record.key)
-                confirmations.removeValue(forKey: record.key)
-                unableToProtectByPanel.removeValue(forKey: record.key)
+                if confirmations[record.key]?.trigger == .scheduled {
+                    confirmations.removeValue(forKey: record.key)
+                }
+                if teardownInFlightByPanel[record.key]?.trigger == .scheduled {
+                    bumpTeardownValidationEpoch(record.key)
+                }
+                if trigger == .scheduled {
+                    unableToProtectByPanel.removeValue(forKey: record.key)
+                }
             }
             if shouldMaintainTailSamples,
                isLive,
@@ -216,10 +232,15 @@ final class AgentHibernationController {
         let selectedKeys = AgentHibernationPlanner.selectedPanelKeys(
             inputs: plannerInputs,
             settings: settings,
-            now: nowTime
+            now: nowTime,
+            trigger: trigger
         )
         let currentKeys = Set(records.map(\.key))
-        pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
+        pruneTrackingState(
+            currentKeys: currentKeys,
+            selectedKeys: selectedKeys,
+            trigger: trigger
+        )
 
         let confirmedTeardowns = records.compactMap { record -> ConfirmedTeardownRequest? in
             guard selectedKeys.contains(record.key) else { return nil }
@@ -227,22 +248,32 @@ final class AgentHibernationController {
                 record: record,
                 effectiveLastActivityAt: effectiveActivityByKey[record.key] ?? record.lastActivityAt,
                 settings: settings,
-                now: nowTime
+                now: nowTime,
+                trigger: trigger
             )
         }
-        if !confirmedTeardowns.isEmpty { beginConfirmedTeardowns(confirmedTeardowns) }
+        if !confirmedTeardowns.isEmpty {
+            beginConfirmedTeardowns(
+                confirmedTeardowns,
+                shouldProceed: teardownShouldProceed,
+                onCompletion: onHibernationCompleted
+            )
+        }
+        return (!selectedKeys.isEmpty, !confirmedTeardowns.isEmpty)
     }
 
     private func evaluateConfirmation(
         record: AgentHibernationRecord,
         effectiveLastActivityAt: TimeInterval,
         settings: AgentHibernationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        trigger: AgentHibernationReclaimTrigger
     ) -> ConfirmedTeardownRequest? {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              !record.hasLiveProcess,
+              (trigger == .systemMemoryPressure || !record.hasLiveProcess),
+              trigger != .systemMemoryPressure || record.hasPressureSafeProcessEvidence,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
@@ -251,19 +282,24 @@ final class AgentHibernationController {
         }
         if teardownInFlightByPanel[record.key] != nil { confirmations.removeValue(forKey: record.key); return nil }
 
-        if let confirmation = confirmations[record.key] {
+        if let confirmation = confirmations[record.key],
+           confirmation.trigger == trigger {
             guard now >= confirmation.dueAt else { return nil }
             guard effectiveLastActivityAt <= confirmation.sampledAt else {
                 confirmations.removeValue(forKey: record.key)
                 return nil
             }
             guard let fingerprint = hibernationFingerprint(for: record),
-                  fingerprint == confirmation.fingerprint else {
+                  fingerprint == confirmation.fingerprint,
+                  record.processIdentities == confirmation.processIdentities else {
                 confirmations.removeValue(forKey: record.key)
                 return nil
             }
             let requestID = UUID()
-            teardownInFlightByPanel[record.key] = InFlightTeardown(requestID: requestID)
+            teardownInFlightByPanel[record.key] = InFlightTeardown(
+                requestID: requestID,
+                trigger: trigger
+            )
             confirmations.removeValue(forKey: record.key)
             return ConfirmedTeardownRequest(
                 record: record,
@@ -271,8 +307,12 @@ final class AgentHibernationController {
                 effectiveLastActivityAt: effectiveLastActivityAt,
                 requestID: requestID,
                 epoch: teardownValidationEpochByPanel[record.key] ?? 0,
-                generation: teardownValidationGeneration
+                generation: teardownValidationGeneration,
+                trigger: trigger
             )
+        }
+        if confirmations[record.key]?.trigger == .systemMemoryPressure {
+            return nil
         }
 
         guard let fingerprint = hibernationFingerprint(for: record) else { return nil }
@@ -287,7 +327,9 @@ final class AgentHibernationController {
         }
         unableToProtectByPanel.removeValue(forKey: record.key)
         confirmations[record.key] = Confirmation(
+            trigger: trigger,
             fingerprint: fingerprint,
+            processIdentities: record.processIdentities,
             sampledAt: now,
             dueAt: now + settings.confirmationSeconds
         )
@@ -391,30 +433,8 @@ final class AgentHibernationController {
         )
     }
 
-    func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
-        guard !record.processIDs.isEmpty else { return }
-        let currentProcessID = getpid()
-        let currentProcessGroupID = getpgrp()
-        var signaledProcessGroups: Set<pid_t> = []
-        for rawPID in record.processIDs.sorted(by: >) {
-            guard rawPID > 0, rawPID <= Int(Int32.max) else { continue }
-            let pid = pid_t(rawPID)
-            guard pid != currentProcessID else { continue }
-            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: rawPID),
-                  process.matchesCMUXScope(workspaceId: record.key.workspaceId, surfaceId: record.key.panelId) else {
-                continue
-            }
-            let processGroupID = getpgid(pid)
-            if processGroupID > 1,
-               processGroupID != currentProcessGroupID,
-               signaledProcessGroups.insert(processGroupID).inserted {
-                _ = kill(-processGroupID, SIGTERM)
-            }
-            _ = kill(pid, SIGTERM)
-        }
-    }
-
     private func clearTrackingState() {
+        cancelEvaluation()
         cancelPostTeardownRestoreTasks()
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)
@@ -429,7 +449,8 @@ final class AgentHibernationController {
 
     private func pruneTrackingState(
         currentKeys: Set<AgentHibernationPanelKey>,
-        selectedKeys: Set<AgentHibernationPanelKey>
+        selectedKeys: Set<AgentHibernationPanelKey>,
+        trigger: AgentHibernationReclaimTrigger
     ) {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
@@ -437,10 +458,15 @@ final class AgentHibernationController {
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
-        confirmations = confirmations.filter { key, _ in
-            currentKeys.contains(key) && selectedKeys.contains(key)
+        confirmations = confirmations.filter { key, confirmation in
+            currentKeys.contains(key) &&
+                (confirmation.trigger != trigger || selectedKeys.contains(key))
         }
         tailFingerprintSamples = tailFingerprintSamples.filter { currentKeys.contains($0.key) }
+    }
+
+    func clearMemoryPressureConfirmations() {
+        confirmations = confirmations.filter { $0.value.trigger != .systemMemoryPressure }
     }
 
     func clearInFlightTeardown(_ key: AgentHibernationPanelKey, requestID: UUID) {

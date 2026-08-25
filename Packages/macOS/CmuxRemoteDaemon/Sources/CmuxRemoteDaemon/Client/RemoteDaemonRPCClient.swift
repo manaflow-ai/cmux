@@ -41,6 +41,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
+    static let ptyAttachCancellationWriteTimeout: TimeInterval = 1.0
     /// Wire capability required for push-based proxy streaming
     /// (`proxy.stream.push`; value is test-pinned, do not change).
     public static let requiredProxyStreamCapability = RemoteDaemonCapability.proxyStreamPush.rawValue
@@ -59,13 +60,31 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    /// Wire capability required to cancel timed-out PTY attach requests
+    /// (`pty.attach.cancel`; value is test-pinned, do not change).
+    public static let requiredPTYAttachCancelCapability = RemoteDaemonCapability.ptyAttachCancel.rawValue
     /// Optional wire capability for sequenced, acked PTY input
     /// (`pty.input.seq_ack`; value is test-pinned, do not change).
     public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
     /// Wire-pinned rpc error code the daemon returns for a sequenced
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
+    /// Package-owned NSError metadata key for the daemon's structured RPC error code.
+    static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
     static let maxCloudCLIRequestsInFlight = 4
+
+    /// Returns the daemon's structured RPC error code preserved on `error`.
+    ///
+    /// RPC callers should classify this stable code before consulting the
+    /// localized description, whose text remains a compatibility surface but
+    /// is not a reliable error taxonomy.
+    public static func rpcErrorCode(from error: any Error) -> String? {
+        guard let rawCode = (error as NSError).userInfo[rpcErrorCodeUserInfoKey] as? String else {
+            return nil
+        }
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.isEmpty ? nil : code
+    }
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via
@@ -95,6 +114,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
     let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
+    let ptyAttachCancellationTimerQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.pty-attach-cancel-timeout.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
     let cliRequestQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.cli.\(UUID().uuidString)", qos: .utility, attributes: .concurrent)
@@ -207,6 +227,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             capabilities.append(requiredPTYSessionTokenCapability)
             capabilities.append(requiredPTYWriteNotificationCapability)
             capabilities.append(requiredPTYResizeNotificationCapability)
+            capabilities.append(requiredPTYAttachCancelCapability)
         }
         if configuration.persistentDaemonSlot != nil {
             capabilities.append(requiredPTYPersistentDaemonCapability)

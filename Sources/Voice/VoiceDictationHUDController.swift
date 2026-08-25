@@ -11,6 +11,9 @@ import SwiftUI
 /// key window while dictation is active and hides when the session ends.
 @MainActor
 final class VoiceDictationHUDController {
+    /// Stable identifier used by cmux's shared auxiliary-window close path.
+    static let windowIdentifier = "cmux.voiceDictationHUD"
+
     private let controller: DictationController
     private var panel: NSPanel?
     private var observationActive = false
@@ -70,6 +73,7 @@ final class VoiceDictationHUDController {
             defer: true
         )
         panel.level = .floating
+        panel.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true

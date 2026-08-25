@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -12,7 +13,7 @@ import Testing
 /// dials the phone's own loopback and silently fails to connect.
 @MainActor
 @Suite struct ReconnectRouteSelectionTests {
-    private func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -21,12 +22,26 @@ import Testing
         )
     }
 
-    private func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.82.214.112", port: port),
             priority: 10
+        )
+    }
+
+    func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh-personal",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: priority
         )
     }
 
@@ -39,14 +54,16 @@ import Testing
         #expect(pick?.0 == "100.82.214.112") // tailscale, not the phone's 127.0.0.1
     }
 
-    @Test func physicalDeviceFallsBackToLoopbackWhenItIsTheOnlyRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1.
+    @Test func physicalDeviceRejectsLoopbackWhenItIsTheOnlyRoute() throws {
+        // A stale backup can contain only the Mac's debug loopback route. On a
+        // real phone that address names the phone, so reconnect must fail closed
+        // instead of dialing a local port that can never reach the Mac.
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
-        #expect(pick?.0 == "127.0.0.1")
+        #expect(pick == nil)
     }
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
@@ -84,16 +101,17 @@ import Testing
         #expect(candidates.map { $0.host } == ["100.82.214.112"])
     }
 
-    @Test func physicalDeviceCandidatesUseLoopbackOnlyAsSoleSupportedRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1
-        // and advertises no other route.
+    @Test func physicalDeviceCandidatesRejectSoleLoopbackRoute() throws {
+        // Candidate iteration must enforce the same fail-closed rule as the
+        // single-route helper, otherwise a later caller can reintroduce the bad
+        // physical-device dial even when the preferred-route helper is correct.
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
 
-        #expect(candidates.map { $0.host } == ["127.0.0.1"])
+        #expect(candidates.isEmpty)
     }
 
     @Test func reconnectCandidatesDeduplicateEndpoints() throws {
@@ -112,6 +130,16 @@ import Testing
 
         #expect(candidates.count == 1)
         #expect(candidates.first?.routeID == "duplicate")
+    }
+
+    @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.isEmpty)
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -170,7 +198,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [connected],
-            storedRoutes: [stale, connected]
+            storedRoutes: [stale, connected],
+            at: .distantPast
         )
 
         #expect(merged.map { $0.id }.contains(stale.id))
@@ -204,6 +233,46 @@ import Testing
         #expect(connected)
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func connectionPoolRecordsFallbackRouteThatActuallyConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "pairing-pool-route-\(UUID().uuidString)")!
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [
+                try loopbackRoute(id: "stale", port: 51000),
+                try loopbackRoute(id: "good", port: 51001),
+            ],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.id == "good")
+        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -246,6 +315,119 @@ import Testing
         #expect(!firstConnected)
         #expect(secondConnected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func staleConnectCannotReplaceAnEstablishedClientBeforeDialing() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let liveRoute = try loopbackRoute(id: "live", port: 51001)
+        let staleRoute = try loopbackRoute(id: "stale", port: 51000)
+        let liveTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "live-mac",
+            macDisplayName: "Live Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [liveRoute],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+        let staleTicket = try CmxAttachTicket(
+            workspaceID: "stale-workspace",
+            terminalID: "stale-terminal",
+            macDeviceID: "stale-mac",
+            macDisplayName: "Stale Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [staleRoute],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+        let liveClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: liveRoute,
+            ticket: liveTicket,
+            allowsStackAuthFallback: true
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "stale-connect-authority-\(UUID().uuidString)"
+            )!
+        )
+        store.activeTicket = liveTicket
+        store.activeRoute = liveRoute
+        store.replaceRemoteClient(with: liveClient)
+
+        _ = try await store.connect(
+            ticket: staleTicket,
+            ifStillCurrent: { false }
+        )
+
+        #expect(store.remoteClient === liveClient)
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedPorts().isEmpty)
+    }
+
+    @Test func supersededSuccessfulRouteClosesItsUnadoptedTransport() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.holdWorkspaceListRequest(number: 1)
+        let factory = SupersededTransportFactory(router: router)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "pairing-superseded-close-\(UUID().uuidString)"
+            )!
+        )
+        let route = try loopbackRoute(id: "live", port: 51001)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults
+                .pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+
+        let first = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+
+        let second = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        _ = await second.value
+        await router.releaseAllHeld()
+        _ = await first.value
+
+        let transports = factory.createdTransports()
+        #expect(transports.count == 2)
+        #expect(await transports.first?.observedCloseCount() == 1)
+        #expect(await transports.last?.observedCloseCount() == 0)
+        await store.remoteClient?.disconnect()
     }
 
     @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
@@ -333,7 +515,7 @@ import Testing
         )
     }
 
-    private func makeReconnectStore(
+    func makeReconnectStore(
         routes: [CmxAttachRoute],
         runtime: any MobileSyncRuntime
     ) async throws -> MobileShellComposite {
@@ -353,121 +535,278 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
+            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
         return store
     }
 
-    private func makePairedMacStore() throws -> (MobilePairedMacStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+    @Test func tailscaleMethodUsesOnlyGrantedTailscaleRoute() throws {
+        let tailscale = try tailscale()
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [tailscale, try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+                macDeviceID: "test-mac",
+                grantRoutes: [tailscale]
+            )
         )
-        return (store, directory)
-    }
-}
 
-private enum RouteRecordingTransportError: Error {
-    case routeFailed
-}
-
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let router: LivenessHostRouter
-    private let box: TransportBox
-    private let failingPorts: Set<Int>
-    private let holdFirstFailingPort: Int?
-    private let lock = NSLock()
-    private var attempts: [Int] = []
-    private var heldConnectConsumed = false
-    private var heldConnectReleased = false
-    private var heldConnectWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(
-        router: LivenessHostRouter,
-        box: TransportBox,
-        failingPorts: Set<Int>,
-        holdFirstFailingPort: Int? = nil
-    ) {
-        self.router = router
-        self.box = box
-        self.failingPorts = failingPorts
-        self.holdFirstFailingPort = holdFirstFailingPort
+        #expect(routes.map(\.kind) == [.tailscale])
     }
 
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        guard case let .hostPort(_, port) = route.endpoint else {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let shouldHold = lock.withLock {
-            attempts.append(port)
-            if port == holdFirstFailingPort, !heldConnectConsumed {
-                heldConnectConsumed = true
-                return true
-            }
-            return false
-        }
-        if shouldHold {
-            return HeldFailingConnectTransport(factory: self)
-        }
-        if failingPorts.contains(port) {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
+    @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+                macDeviceID: "test-mac",
+                grantRoutes: []
+            )
+        )
+
+        #expect(routes.isEmpty)
     }
 
-    func attemptedPorts() -> [Int] {
-        lock.withLock { attempts }
+    @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
+        let otherDestination = try tailscale(50907)
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+                macDeviceID: "test-mac",
+                grantRoutes: [otherDestination]
+            )
+        )
+
+        #expect(routes.isEmpty)
     }
 
-    func releaseHeldConnect() {
-        let waiters = lock.withLock {
-            heldConnectReleased = true
-            let waiters = heldConnectWaiters
-            heldConnectWaiters = []
-            return waiters
+    @Test func usableTailscaleAuthorizationRequiresACurrentExactRouteMatch() throws {
+        let current = try tailscale()
+        let stale = try tailscale(50_907)
+        let base = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [current],
+            createdAt: .distantPast,
+            lastSeenAt: .now,
+            isActive: true,
+            stackUserID: "user-1"
+        )
+
+        let authorized = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [current]
+        )
+        let staleAuthorization = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [stale]
+        )
+
+        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
+            in: [staleAuthorization]
+        ))
+    }
+
+    @Test func usableTailscaleAuthorizationFindsLastMacInLargeSnapshot() throws {
+        let current = try tailscale()
+        let macs = (0 ..< 1_000).map { index in
+            MobilePairedMac(
+                macDeviceID: "test-mac-\(index)",
+                displayName: "Test Mac \(index)",
+                routes: [current],
+                createdAt: .distantPast,
+                lastSeenAt: .distantPast,
+                isActive: index == 999,
+                stackUserID: "user-1",
+                legacyTailscaleRoutes: index == 999 ? [current] : nil
+            )
         }
-        for waiter in waiters {
-            waiter.resume()
+
+        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: macs))
+    }
+
+    @Test func tailscaleSetupIsRequiredImmediatelyWhenNoMacIsKnown() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-setup-method-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-setup-pairing-\(UUID().uuidString)"
+        )!
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.pairedMacLoadState == .notLoaded)
+        #expect(!store.hasKnownPairedMac)
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
+        #expect(store.tailscalePairingRequired)
+    }
+
+    @Test func knownMacWaitsForRouteLoadBeforeRequiringTailscaleSetup() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-load-method-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-load-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
+        #expect(!store.tailscalePairingRequired)
+        store.pairedMacLoadState = .failed
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
+        #expect(store.tailscalePairingRequired)
+    }
+
+    @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
+        )!
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .loadingAuthorization
+        )
+        store.pairedMacLoadState = .failed
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .pairingRequired
+        )
+    }
+
+    /// Switching an Iroh-identified pairing to Tailscale Only still replaces
+    /// the live session (its route decisions were made under the old method),
+    /// but the replacement dial rides the Iroh lane pinned to the pairing's
+    /// numeric Tailscale addresses: transport admission stays the single auth
+    /// authority for every session purpose, and the raw TCP lane is reserved
+    /// for legacy pairings without an Iroh identity.
+    @Test func changingToTailscaleReplacesLiveIrohWithPinnedIrohDial() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        // The factory boxes the live Iroh transport it hands out, so the test
+        // can observe physical teardown, not just the store's logical route.
+        let liveTransportBox = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: liveTransportBox,
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [tailscale, iroh],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
+        )!
+        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-pairing-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.activeRoute?.kind == .iroh)
+        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+
+        // The box tracks the most recent transport, so capture the original
+        // live session before the method change replaces it.
+        let originalTransport = await liveTransportBox.get()
+
+        methodStore.method = .tailscale
+
+        // The reconnected route only proves the store's logical state; the
+        // replaced live Iroh transport must also finish closing so no
+        // physical cleanup work is still pending when the test completes.
+        let applied = try await pollUntil {
+            let originalTransportClosed =
+                await originalTransport?.isClosedForTesting() == true
+            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
+                && store.connectionState == .connected
+                && originalTransportClosed
         }
+        #expect(applied)
+        #expect(store.activeRoute?.kind == .iroh)
+        // Tailscale Only never dials the raw TCP lane for a pairing with an
+        // Iroh identity, even when that dial would be authorized.
+        #expect(!factory.attemptedKinds().contains(.tailscale))
     }
-
-    func waitUntilHeldConnectReleased() async {
-        let shouldWait = lock.withLock {
-            guard !heldConnectReleased else { return false }
-            return true
-        }
-        guard shouldWait else { return }
-        await withCheckedContinuation { continuation in
-            let resumeImmediately = lock.withLock {
-                guard !heldConnectReleased else { return true }
-                heldConnectWaiters.append(continuation)
-                return false
-            }
-            if resumeImmediately {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private actor HeldFailingConnectTransport: CmxByteTransport {
-    private let factory: RouteRecordingTransportFactory
-
-    init(factory: RouteRecordingTransportFactory) {
-        self.factory = factory
-    }
-
-    func connect() async throws {
-        await factory.waitUntilHeldConnectReleased()
-        throw RouteRecordingTransportError.routeFailed
-    }
-
-    func receive() async throws -> Data? { nil }
-    func send(_ data: Data) async throws {}
-    func close() async {}
 }

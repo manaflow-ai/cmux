@@ -13,8 +13,13 @@ extension Workspace {
             paneIds: bonsplitController.allPaneIds.map(\.id),
             surfaces: panels.compactMap { panelId, panel in
                 guard surfaceIdFromPanelId(panelId) != nil else { return nil }
+                let runtimeSurfaceIds = remoteTmuxControlPanes(containerPanelID: panelId)
+                    .map { $0.pane.panel.id }
+                    .filter { $0 != panelId }
                 return CmuxNavigationTargetResolver.SurfaceDescriptor(
                     panelId: panelId,
+                    runtimeSurfaceIds: Array(Set(runtimeSurfaceIds))
+                        .sorted { $0.uuidString < $1.uuidString },
                     stableSurfaceId: panel.stableSurfaceId
                 )
             }

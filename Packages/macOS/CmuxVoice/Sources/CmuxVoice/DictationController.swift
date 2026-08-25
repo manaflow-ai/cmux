@@ -146,11 +146,11 @@ public final class DictationController {
             }
             for try await event in events {
                 guard sessionGeneration == generation, isActive else { break }
-                handle(event, generation: generation)
+                await handle(event, generation: generation)
             }
             guard sessionGeneration == generation, isActive else { return }
             if let delta = transcript.commitTrailingVolatileText(),
-               !inserter.insertFinalizedText(delta) {
+               !(await inserter.insertFinalizedText(delta)) {
                 fail(.insertionTargetUnavailable, generation: generation)
                 return
             }
@@ -184,9 +184,9 @@ public final class DictationController {
         }
     }
 
-    private func handle(_ event: DictationTranscriptionEvent, generation: Int) {
+    private func handle(_ event: DictationTranscriptionEvent, generation: Int) async {
         guard let delta = transcript.apply(event) else { return }
-        guard inserter.insertFinalizedText(delta) else {
+        guard await inserter.insertFinalizedText(delta) else {
             let transcriber = activeTranscriber
             Task { await transcriber?.finishTranscribing() }
             fail(.insertionTargetUnavailable, generation: generation)

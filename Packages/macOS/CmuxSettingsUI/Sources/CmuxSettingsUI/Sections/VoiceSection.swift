@@ -72,7 +72,7 @@ public struct VoiceSection: View {
 }
 
 /// One selectable dictation language.
-struct VoiceDictationLanguageChoice: Identifiable, Hashable {
+nonisolated struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendable {
     let identifier: String
     let displayName: String
 
@@ -80,7 +80,7 @@ struct VoiceDictationLanguageChoice: Identifiable, Hashable {
 
     /// Languages the current OS can transcribe on device, sorted by
     /// localized display name.
-    static func systemChoices() async -> [VoiceDictationLanguageChoice] {
+    @concurrent static func systemChoices() async -> [VoiceDictationLanguageChoice] {
         let locales: [Locale]
         if #available(macOS 26.0, *) {
             locales = await SpeechTranscriber.supportedLocales

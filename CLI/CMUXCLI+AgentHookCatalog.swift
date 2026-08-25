@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -39,6 +40,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -142,8 +144,8 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
-            sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
+            sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -160,6 +162,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
@@ -229,20 +232,22 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: ".kimi-code", configFile: "config.toml", configDirEnvOverride: "KIMI_CODE_HOME",
+            configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
+            configFile: KimiConfigLocationResolver.configFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
             binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
-                .init(agentEvent: "Interrupt", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse", "PostToolUse", "PermissionRequest"]
+            feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
     ]
 

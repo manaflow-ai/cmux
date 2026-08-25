@@ -43,6 +43,28 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         // to explicit window management, never to content measurement.
     }
 
+    /// The hosting view's own frame may never exceed its window. The paths
+    /// above cover the hosting view's OWN sizing behavior, but AppKit's
+    /// layout engine can hand this view an inflated frame directly: hosted
+    /// AppKit subtrees carry required constraints, and when one of them is
+    /// laid out oversized the engine resolves the conflict by growing the
+    /// containers — observed live as this view at 6373pt inside a 1728pt
+    /// window, with every space-filling descendant (including terminal
+    /// surfaces, whose rendered grids feed remote size claims) inheriting
+    /// the inflated width. The frame setter is the last line: clamp to the
+    /// window, so the host answers the window, never the content.
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let window {
+            let bound = window.frame.size
+            if bound.width >= 1, bound.height >= 1 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+            }
+        }
+        super.setFrameSize(size)
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating
@@ -279,10 +301,10 @@ final class CmuxMainWindow: NSWindow {
     /// is what stops the sleep/wake drift (#6305).
     ///
     /// Delegates to the shared ``isTitlebarReachable(frame:visibleFrame:)``
-    /// predicate, which the startup/restore-path clamp
-    /// (`AppDelegate.shouldPreserveAccessibleFrame`) also uses, so the runtime
-    /// constrain pass and the restore-time clamp can never disagree on what
-    /// counts as reachable.
+    /// predicate used by the reactive titlebar-stranding safety net. Persisted
+    /// frames and display-topology changes use the stricter visible-frame fit
+    /// policy instead: restored windows must be fully covered by current
+    /// displays even when this lenient drag-reachability test passes.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect]
@@ -293,8 +315,8 @@ final class CmuxMainWindow: NSWindow {
     /// Whether a grabbable slice of `frame`'s titlebar — its top strip — is
     /// visible on `visibleFrame`. This is the single source of truth for "can
     /// the user still grab this window", shared by the runtime constrain veto
-    /// (``shouldPreserveFrameDuringConstrain``) and the reactive/restore-time
-    /// clamp (`AppDelegate`).
+    /// (``shouldPreserveFrameDuringConstrain``) and AppDelegate's reactive
+    /// titlebar-stranding safety net.
     ///
     /// The window is non-movable (``configureCmuxMainWindowDragBehavior`` sets
     /// `isMovable = false`) and can only be dragged by ``WindowDragHandleView``

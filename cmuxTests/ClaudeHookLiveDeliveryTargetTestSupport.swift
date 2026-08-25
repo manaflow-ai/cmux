@@ -85,7 +85,10 @@ enum ClaudeHookLiveDeliveryHarness {
         pidTarget: (workspaceId: String, surfaceId: String)?,
         surfaceTargets: [String: String] = [:],
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
-        resolverMethodAvailable: Bool = true
+        resolverMethodAvailable: Bool = true,
+        acknowledgesPIDResolution: Bool = true,
+        resumeClearSucceeds: Bool = true,
+        resumeClearOwnsCheckpoint: Bool? = true
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -103,11 +106,15 @@ enum ClaudeHookLiveDeliveryHarness {
                     guard let pidTarget else {
                         return v2Response(id: id, ok: false, error: ["code": "not_found", "message": "pid not owned by a live surface"])
                     }
-                    return v2Response(id: id, ok: true, result: [
+                    var result: [String: Any] = [
                         "workspace_id": pidTarget.workspaceId,
                         "surface_id": pidTarget.surfaceId,
                         "source": "pid",
-                    ])
+                    ]
+                    if acknowledgesPIDResolution {
+                        result["pid_resolution"] = params["pid_resolution"] as? String ?? "corroborated"
+                    }
+                    return v2Response(id: id, ok: true, result: result)
                 }
                 if let surfaceId = params["surface_id"] as? String,
                    let workspaceId = surfaceTargets[surfaceId] {
@@ -136,6 +143,22 @@ enum ClaudeHookLiveDeliveryHarness {
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "surface.resume.clear":
+                if resumeClearSucceeds {
+                    guard let resumeClearOwnsCheckpoint else {
+                        return v2Response(id: id, ok: true, result: [:])
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["cleared": resumeClearOwnsCheckpoint]
+                    )
+                }
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "cleanup_failed", "message": "injected resume cleanup failure"]
+                )
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -180,6 +203,9 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func sessionRecord(in storeURL: URL, sessionId: String) throws -> [String: Any]? {
+        // A hook that fails closed before its first accepted upsert never
+        // creates the store file; that is the strongest form of "no record".
+        guard FileManager.default.fileExists(atPath: storeURL.path) else { return nil }
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         let sessions = saved?["sessions"] as? [String: Any]
         return sessions?[sessionId] as? [String: Any]

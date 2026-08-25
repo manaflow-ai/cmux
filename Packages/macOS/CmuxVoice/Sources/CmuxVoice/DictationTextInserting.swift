@@ -18,9 +18,14 @@ public protocol DictationTextInserting: AnyObject {
 
     /// Types one finalized delta into the pinned target.
     ///
-    /// - Returns: `false` when the target no longer exists; the controller
-    ///   ends the session.
-    func insertFinalizedText(_ text: String) -> Bool
+    /// The operation does not complete until the target has accepted (or
+    /// rejected) the text. This matters for asynchronous targets such as a
+    /// `WKWebView`, where reporting success before the JavaScript completion
+    /// would allow a failed final segment to settle the session as successful.
+    ///
+    /// - Returns: `false` when the target no longer exists or rejects the
+    ///   insertion; the controller ends the session.
+    func insertFinalizedText(_ text: String) async -> Bool
 
     /// Releases the pinned target at session end.
     func endSession()

@@ -23,8 +23,18 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// sidebar. Group order in this array defines section order. Each member
     /// workspace stores its `groupId` on the workspace itself.
     public var workspaceGroups: [WorkspaceGroup] = [] {
-        willSet { host?.workspaceGroupsWillChange(to: newValue) }
+        willSet {
+            groupNamesByAnchorWorkspaceId = Dictionary(
+                newValue.map { ($0.anchorWorkspaceId, $0.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            host?.workspaceGroupsWillChange(to: newValue)
+        }
     }
+
+    /// O(1) display-title lookup for group anchors in title-churn observers.
+    @ObservationIgnored
+    public private(set) var groupNamesByAnchorWorkspaceId: [UUID: String] = [:]
 
     /// The selected workspace's id, if any.
     public var selectedTabId: UUID? {

@@ -10,8 +10,8 @@ import Observation
 /// split layout side by side — with the native cmux pane chrome (each pane is a
 /// real ``TerminalPanel`` rendered via ``TerminalPanelView``).
 ///
-/// Created lazily by ``RemoteTmuxSessionMirror`` the first time a window has more
-/// than one pane; once created it owns every pane's panel for that window. The
+/// Created by ``RemoteTmuxSessionMirror`` from a window's first published layout;
+/// it owns every pane's panel as that window later splits or rejoins. The
 /// remote tmux control stream is the source of truth: pane output is fed into
 /// the matching surface, typed input is forwarded to that pane via `send-keys`,
 /// and a user split is propagated to `split-window`.
@@ -29,8 +29,6 @@ import Observation
 @MainActor
 @Observable
 final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
-    typealias AdoptedPane = (tmuxPaneId: Int, panel: TerminalPanel)
-
     /// tmux window id (the `@N` without the sigil).
     let windowId: Int
     /// The bonsplit tab's panel id this window renders into.
@@ -47,6 +45,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Session-owned control identity lookup. Render nodes are replaceable.
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
+    @ObservationIgnored private let onPaneSurfaceProgress: ((Int) -> Void)?
+    @ObservationIgnored var onTerminalPanelAdded:
+        ((TerminalPanel) -> Void)?
+    @ObservationIgnored var onTerminalPanelRemoved:
+        ((TerminalPanel) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -68,6 +71,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    @ObservationIgnored var pendingControlPaneFocusRequest: PendingControlPaneFocusRequest?
+    @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
     /// Display title for this mirrored tmux window; every inner surface/tab title
     /// derives from this tmux window name, never from pane-border labels.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
@@ -131,6 +136,74 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// It is not sizing truth until a hosting window bounds it.
     @ObservationIgnored var pendingContainerSizePt: CGSize?
     @ObservationIgnored var pendingContainerScale: CGFloat?
+    /// The latest reading the hosting window's bound rejected as oversized.
+    /// The verdict itself can be wrong: during an AppKit resize the reading
+    /// may be post-resize truth while the bound is the transient old frame.
+    /// The next sizing pass re-judges it once against that pass's bound —
+    /// banked if it fits, discarded for good if it still exceeds it. Never
+    /// merged with `pendingContainerSizePt`: pending consumption clamps to
+    /// the bound, and clamping a genuinely oversized reading would bank the
+    /// bound itself, the exact poison the drop path exists to prevent.
+    @ObservationIgnored var pendingOversizedReading: (size: CGSize, scale: CGFloat)?
+    /// An NSView planted inside the mirror's own view subtree (not the portal
+    /// layer), so `hostProbeView?.window` is the hosting window even while
+    /// portal-hosted panels churn, and its superview chain is the real
+    /// ancestor stack that produced the SwiftUI proposal.
+    @ObservationIgnored weak var hostProbeView: NSView?
+    /// Set when the divider sync sends a resize-pane between a drag session's
+    /// begin and end. Bonsplit delivers the final drag geometry notification
+    /// just BEFORE drag-end (the delegate contract: settled geometry is
+    /// already reported when drag-end runs), so the drag-end re-sync usually
+    /// finds the baseline already advanced and sends nothing — this flag
+    /// keeps that from reading as "the drag changed no cells".
+    @ObservationIgnored var dividerResizeSentSinceDragBegan = false
+    /// The one divider resize-pane in flight, keyed by the split it was sent
+    /// for and the span it asked of tmux. The round trip is a known-stale-
+    /// plan window: the tree holds the user's dragged fraction while
+    /// lastPlannedOuterSizes holds the pre-drag plan, so the output-parity
+    /// re-arm would read the dragged views as an apply miss and re-impose
+    /// the stale plan — the divider visibly bounced back, then jumped when
+    /// tmux's reply landed. While a send is in flight the re-arm holds, and
+    /// impositions skip the held split (an UNRELATED layout change replans
+    /// from a tree that is equally pre-drag for that split).
+    ///
+    /// Every release edge is a protocol or geometry event — never time:
+    ///  - a reconciled layout assigns the sent span (the reply landed), or
+    ///    the split disappears (structure changed under it);
+    ///  - tmux answers the resize with `%error` — recovery immediately;
+    ///  - the resize's own ack arrives, then a barrier command's ack arrives
+    ///    with no intervening layout event for this window: control mode
+    ///    orders reply blocks and notifications on one stream, and a
+    ///    `%layout-change` a command causes is emitted after that command's
+    ///    `%end` but before any block for a command sent later — so a
+    ///    barrier issued at the resize's ack and answered without a layout
+    ///    event PROVES the send was a no-op (a span tmux's cascade minimums
+    ///    clamped to nothing). Recovery re-imposes the plan and parity
+    ///    resumes judging (see `sendDividerResize` in
+    ///    RemoteTmuxWindowMirror+DividerSizing.swift);
+    ///  - the barrier's ack found this window's layout fetch still in
+    ///    flight: the publication (or its drop — both resolve the pending
+    ///    layout) makes the final judgment in `reconcile`;
+    ///  - the stream resets before any of the above: the tracked completion
+    ///    fails and recovery runs, with the reconnect republishing truth.
+    /// Generation-checked throughout: a newer send supersedes an older
+    /// send's pending acks and barrier.
+    struct DividerResizeInFlight {
+        let generation: UInt64
+        let splitId: UUID
+        let axis: RemoteTmuxSplitOrientation
+        let targetCells: Int
+        /// Set when the barrier ack found a pending (unpublished) layout for
+        /// this window: the resolution of that fetch is the final verdict.
+        var barrierAcked = false
+    }
+    @ObservationIgnored var dividerResizeInFlight: DividerResizeInFlight?
+    @ObservationIgnored var dividerResizeInFlightGeneration: UInt64 = 0
+    /// The exact point size the split tree renders at (grid + chrome), set by
+    /// the sizing pass; the view frames the tree to this, top-leading, so the
+    /// region's sub-cell remainder stays outside the tree. nil until the
+    /// first sized pass (the view fills the region as before).
+    var renderFrameSize: CGSize?
     /// Monotone minimum of `surface_px − cols·cell_px` observed per axis: the
     /// ghostty padding estimate, KEYED BY BACKING SCALE. A single sample
     /// overestimates padding by the quantization remainder (< one cell),
@@ -193,8 +266,24 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var lastCompletedSizingInputs: SizingInputs?
     @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
 
+    /// The per-pane outer sizes the last imposition granted — the plan side
+    /// of the output-parity check in `rearmIfOutputMissedPlan()` and of the
+    /// chrome-parity probe in ``handleSizingSample``.
+    @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
+    /// Output-parity re-arm state: how many bounded recovery passes this
+    /// input fixed point has spent, and which fixed point they belong to
+    /// (the counter resets when the completed inputs change). Tracked apart
+    /// from `lastCompletedSizingInputs` because a re-arm nils that field —
+    /// folding the two together would reset the counter on every re-arm and
+    /// unbound the loop.
+    @ObservationIgnored var outputParityRearmsSpent = 0
+    @ObservationIgnored var outputParityRearmInputs: SizingInputs?
+    @ObservationIgnored var outputParityCheckScheduled = false
+
     #if DEBUG
-    static var dumpedAncestorChains = Set<Int>()
+    /// One ancestor-chain dump per window: `dumpProposalAncestors` fires per
+    /// dropped container reading, and one chain names the leaking subtree.
+    @ObservationIgnored var dumpedAncestorChains = false
     #endif
 
     init(
@@ -208,7 +297,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         hostingContentSizeSource: (() -> CGSize?)? = nil,
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
-        adoptedPanes: [AdoptedPane] = [],
+        onPaneSurfaceProgress: ((Int) -> Void)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -220,17 +309,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.hostingContentSizeSource = hostingContentSizeSource
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
+        self.onPaneSurfaceProgress = onPaneSurfaceProgress
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
-        for pane in adoptedPanes where layout.paneIDsInOrder.contains(pane.tmuxPaneId) {
-            panelsByPaneId[pane.tmuxPaneId] = pane.panel
-            onControlSurfaceChanged?(pane.tmuxPaneId, pane.panel.id)
-            configurePanePanel(pane.panel, paneId: pane.tmuxPaneId, needsSeed: false)
-        }
         reconcile(layout: layout)
     }
 
@@ -283,6 +368,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             panelsByPaneId[paneId] = panel
             onControlSurfaceChanged?(paneId, panel.id)
             configurePanePanel(panel, paneId: paneId, needsSeed: true)
+            onTerminalPanelAdded?(panel)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
@@ -296,7 +382,12 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
+            onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
+            cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                cancelPendingControlPaneFocus()
+            }
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
@@ -315,18 +406,37 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // Pin every pane's grid to the fresh assignment HERE, not only in
+        // the sizing pass: the pass is visibility-gated, so a hidden
+        // window's pins would otherwise freeze at its last-visible
+        // assignment while tmux moves on, and the pinned grid would drag
+        // the mirror to a stale tree. Ingestion runs for every published
+        // layout, visible or not, and the pin touches only surface pixels.
+        applyAssignedGrids()
+        // A barrier-acked divider hold deferred its verdict to this window's
+        // layout fetch; once the connection holds no pending layout the fetch
+        // has resolved (published — this reconcile — or dropped keeping the
+        // verified tree), and the current tree is the final answer for the
+        // sent span. Judge before scheduling the pass so a released hold no
+        // longer skips its split.
+        if dividerResizeInFlight?.barrierAcked == true,
+           connection?.hasPendingLayout(windowId: windowId) != true {
+            judgeDividerResizeHold()
+        }
         setNeedsSizingPass()
         // Adopt tmux's known active pane when this mirror has none yet: on
         // first attach the rects reply emits the active-pane event BEFORE the
         // topology publish creates this mirror, so the event-driven path
         // (noteRemoteActivePane) can't have delivered it.
+        let remoteActive = connection?.activePaneByWindow[windowId]
         if activePaneId == nil,
-           let remoteActive = connection?.activePaneByWindow[windowId],
+           let remoteActive,
            livePaneIds.contains(remoteActive) {
             setActivePane(remoteActive, fromTmux: true)
         } else {
             seedActivePaneIfNeeded()
         }
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: remoteActive)
         refreshPaneTitles()
         // Drive the ONE-TIME claim from topology publishes too, not just view
         // geometry and surface reports. Without this a hidden window can
@@ -346,10 +456,15 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         let surface = panel.surface
         surface.onManualSizeApplied = { [weak self] in
             self?.handleSizingSample($0, paneId: paneId)
+            self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
-            guard let sample = surface?.rawSizingSample() else { return }
-            self?.handleSizingSample(sample, paneId: paneId)
+            if let sample = surface?.rawSizingSample() {
+                self?.handleSizingSample(sample, paneId: paneId)
+            }
+            self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.flushPendingManualSizeReportIfAttached()
         if let sample = surface.rawSizingSample() {
@@ -367,15 +482,30 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// tmux truth, not local focus alone. Tolerates unknown panes: the
     /// matching layout may still be pending its rects publication.
     func noteRemoteActivePane(_ paneId: Int) {
+        projectActivePane(paneId)
+        resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: paneId)
+    }
+
+    func projectActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
-        if activePaneId != paneId { activePaneId = paneId }
-        focusBonsplitPane(forTmuxPane: paneId)
         if !fromTmux {
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                projectActivePane(paneId)
+                return
+            }
+            cancelPendingControlPaneFocus(competingPaneID: paneId)
+            cancelPendingCreatedPaneFocus(competingPaneID: paneId)
+        }
+        projectActivePane(paneId)
+        if fromTmux {
+            resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        } else {
             connection?.send("select-pane -t @\(windowId).%\(paneId)")
         }
     }
@@ -426,6 +556,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingSizingPassIntent = .inputChange
         pendingContainerSizePt = nil
         pendingContainerScale = nil
+        pendingOversizedReading = nil
+        dividerResizeInFlight = nil
+        cancelPendingControlPaneFocus()
+        pendingCreatedPaneFocusRequests.removeAll()
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil
@@ -437,13 +571,17 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for (paneId, panel) in panelsByPaneId {
+        let removedPanels = Array(panelsByPaneId)
+        for (paneId, panel) in removedPanels {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
         }
         panelsByPaneId.removeAll()
+        for (_, panel) in removedPanels {
+            onTerminalPanelRemoved?(panel)
+        }
         tabIdByPaneId.removeAll()
         paneIdByPaneId.removeAll()
         paneIdByBonsplitPane.removeAll()

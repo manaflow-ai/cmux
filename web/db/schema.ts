@@ -2,11 +2,13 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -84,18 +86,86 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "legacy_delete_pending" | "hosted_delete_pending" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
     attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    legacySubrouterRetiredTenantIds: jsonb("legacy_subrouter_retired_tenant_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    hostedSubrouterDeletedTeamIds: jsonb("hosted_subrouter_deleted_team_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     errorMessage: text("error_message"),
   },
   (table) => [
     index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
     index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * The last server-configured relay catalog accepted by this database.
+ * Persisting its complete non-secret body lets activation enforce add-before-
+ * remove rotation under the same lock that prevents sequence rollback.
+ */
+export const irohRelayCatalogState = pgTable(
+  "iroh_relay_catalog_state",
+  {
+    id: text("id").primaryKey(),
+    catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
+    catalogDigest: text("catalog_digest").notNull(),
+    // Nullable for rolling compatibility with an older web process. The new
+    // process backfills only an exact sequence/digest match and refuses to
+    // advance until the prior catalog body is authoritative.
+    catalog: jsonb("catalog"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_catalog_state_singleton", sql`${table.id} = 'managed'`),
+    check("iroh_relay_catalog_sequence_positive", sql`${table.catalogSequence} > 0`),
+  ],
+);
+
+/**
+ * Account-scoped relay choice and non-secret custom relay metadata.
+ * Custom relay credentials deliberately have no column and are rejected by
+ * the API before this JSON reaches Postgres.
+ */
+export const irohRelayPreferences = pgTable(
+  "iroh_relay_preferences",
+  {
+    accountId: text("account_id").primaryKey(),
+    mode: text("mode").$type<"automatic" | "managed" | "custom">().notNull().default("automatic"),
+    selectedManagedRelayIds: jsonb("selected_managed_relay_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    customRelays: jsonb("custom_relays")
+      .$type<Array<{
+        id: string;
+        url: string;
+        provider: string;
+        region: string;
+        displayName?: string;
+        authMode: "none" | "device_secret";
+      }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    revision: bigint("revision", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_preferences_mode", sql`${table.mode} in ('automatic', 'managed', 'custom')`),
+    check("iroh_relay_preferences_selected_array", sql`jsonb_typeof(${table.selectedManagedRelayIds}) = 'array'`),
+    check("iroh_relay_preferences_custom_array", sql`jsonb_typeof(${table.customRelays}) = 'array'`),
+    check("iroh_relay_preferences_revision_nonnegative", sql`${table.revision} >= 0`),
   ],
 );
 
@@ -112,6 +182,21 @@ export const accountAnalyticsForwardLeases = pgTable(
     index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
     index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
     index("account_analytics_forward_leases_operation_idx").on(table.operationId),
+  ],
+);
+
+export const accountMutationLeases = pgTable(
+  "account_mutation_leases",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_mutation_leases_expiry_idx").on(table.expiresAt),
+    index("account_mutation_leases_operation_idx").on(table.operationId),
   ],
 );
 
@@ -279,8 +364,8 @@ export const cloudVmBaseEvents = pgTable(
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".
- * Keyed unique by `deviceToken` so a device re-registering (e.g. after an
- * account switch) updates its `userId` instead of duplicating.
+ * Keyed unique by `(bundleId, deviceToken)` so re-registering one exact app
+ * updates its user without allowing another installed app to overwrite it.
  */
 export const deviceTokens = pgTable(
   "device_tokens",
@@ -295,12 +380,18 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+    deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("device_tokens_user_idx").on(table.userId),
-    uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
+    index("device_tokens_user_bundle_idx").on(table.userId, table.bundleId),
+    uniqueIndex("device_tokens_bundle_token_unique").on(
+      table.bundleId,
+      table.deviceToken,
+    ),
   ],
 );
 
@@ -310,10 +401,216 @@ export const notificationSendEvents = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceCount: integer("device_count").notNull(),
+    // Opaque logical event id from the Mac. Retries reuse it so the database
+    // limiter counts one source event and the route can return the completed
+    // aggregate without resending successful devices.
+    correlationId: text("correlation_id"),
+    // SHA-256 of the canonical logical payload. This binds a correlation id to
+    // one event without persisting notification content or routing identifiers.
+    payloadFingerprint: text("payload_fingerprint"),
+    eventKind: text("event_kind").notNull().default("notify"),
+    initialTargets: jsonb("initial_targets").$type<Array<{
+      targetId: string;
+      bundleId: string;
+      environment: string;
+    }>>(),
+    resultSummary: jsonb("result_summary").$type<{
+      sent: number;
+      devices: number;
+      pruned: number;
+      transientFailures: number;
+      permanentFailures: number;
+      retryAfterSeconds?: number;
+    }>(),
+    resultOutcomes: jsonb("result_outcomes").$type<Array<{
+      targetId: string;
+      status: number;
+      reason?: string;
+      retryAfterSeconds?: number;
+      prune: boolean;
+    }>>(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    retryNotBefore: timestamp("retry_not_before", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+// Hosted Subrouter owns live tenant state. This legacy mapping remains only so
+// account deletion can purge credential-bearing rows retained for recovery.
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    // Durable recovery marker for the external source-finalization phase.
+    hostedFinalizationStartedAt: timestamp("hosted_finalization_started_at", {
+      withTimezone: true,
+    }),
+    // The hosted control plane must not serve a mapped legacy tenant until
+    // the credential-safe operator has verified its hosted copy.
+    hostedReadyAt: timestamp("hosted_ready_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
+/**
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
+ */
+export const coderouterAccounts = pgTable(
+  "coderouter_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    label: text("label").notNull(),
+    state: text("state")
+      .$type<"active" | "refreshing" | "expired" | "broken">()
+      .notNull()
+      .default("active"),
+    vaultRevision: bigint("vault_revision", { mode: "number" }).notNull().default(1),
+    credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
+    refreshLeaseId: uuid("refresh_lease_id"),
+    refreshLeaseExpiresAt: timestamp("refresh_lease_expires_at", { withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_accounts_team_provider_account_unique").on(
+      table.teamId,
+      table.provider,
+      table.providerAccountId,
+    ),
+    index("coderouter_accounts_team_provider_state_idx").on(
+      table.teamId,
+      table.provider,
+      table.state,
+    ),
+    index("coderouter_accounts_refresh_lease_expiry_idx").on(
+      table.refreshLeaseExpiresAt,
+    ),
+    index("coderouter_accounts_cooldown_idx").on(table.cooldownUntil),
+  ],
+);
+
+export const coderouterRouteTokens = pgTable(
+  "coderouter_route_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull().default("cli"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
+    index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
+ * Envelope-encrypted provider credentials. Every secret-bearing field is
+ * ciphertext; the plaintext data key exists only briefly in Vercel memory.
+ */
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    credentialRevision: bigint("credential_revision", { mode: "number" })
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_credentials_revision_positive",
+      sql`${table.credentialRevision} > 0`,
+    ),
+    check(
+      "coderouter_credentials_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    index("coderouter_credentials_team_idx").on(table.teamId),
+  ],
+);
+
+export const coderouterVaultLeases = pgTable(
+  "coderouter_vault_leases",
+  {
+    teamId: text("team_id").primaryKey(),
+    leaseId: uuid("lease_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * Session -> account stickiness for coderouter routing.
+ *
+ * Providers cache prompt prefixes per account, so moving a live session to a
+ * different account re-bills its whole prompt prefix as uncached input. A row
+ * here pins one agent session (the Codex CLI `session_id` header) to one
+ * account. Placement of a new session spreads across the least-loaded usable
+ * accounts under FOR UPDATE SKIP LOCKED, so concurrent session starts cannot
+ * herd onto a single account (port of subrouter PR #228).
+ */
+export const coderouterSessionAccounts = pgTable(
+  "coderouter_session_accounts",
+  {
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    sessionKey: text("session_key").notNull(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_session_accounts_pkey",
+      columns: [table.teamId, table.provider, table.sessionKey],
+    }),
+    index("coderouter_session_accounts_account_idx").on(table.accountId),
+    index("coderouter_session_accounts_last_seen_idx").on(table.lastSeenAt),
   ],
 );
 
@@ -356,11 +653,16 @@ export const stripeSubscriptions = pgTable(
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+    index("stripe_subscriptions_reconcile_cursor_idx").on(
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
+    ),
   ],
 );
 
@@ -372,6 +674,24 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const proWelcomeFulfillments = pgTable(
+  "pro_welcome_fulfillments",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
 
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
@@ -387,21 +707,6 @@ export const billingEmailClaims = pgTable(
   },
   (table) => [
     index("billing_email_claims_email_idx").on(table.email),
-  ],
-);
-
-export const subrouterTenants = pgTable(
-  "subrouter_tenants",
-  {
-    teamId: text("team_id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
-    tenantName: text("tenant_name").notNull(),
-    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
   ],
 );
 
@@ -499,6 +804,7 @@ export const vaultCliAuthRequests = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     deviceCodeHash: text("device_code_hash").notNull(),
     userCode: text("user_code").notNull(),
+    client: text("client").notNull().default("cmux-vault"),
     status: text("status").notNull(),
     userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -508,6 +814,10 @@ export const vaultCliAuthRequests = pgTable(
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
+    check(
+      "vault_cli_auth_requests_client_check",
+      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+    ),
   ],
 );
 
@@ -620,6 +930,224 @@ export const deviceAppInstances = pgTable(
   (table) => [
     uniqueIndex("device_app_instances_device_tag_unique").on(table.deviceId, table.tag),
     index("device_app_instances_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+  ],
+);
+
+/**
+ * Personal-account Iroh trust state. The rendezvous key is derived at the
+ * application boundary from a server-only HMAC secret and this generation, so
+ * Aurora never stores the LAN discovery secret itself. Revoking an endpoint
+ * increments the generation and invalidates previously advertised rendezvous
+ * values for the account.
+ */
+export const irohAccountSecurityStates = pgTable(
+  "iroh_account_security_states",
+  {
+    userId: text("user_id").primaryKey(),
+    lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    routeRevision: bigint("route_revision", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+    check("iroh_account_security_states_route_revision_check", sql`${table.routeRevision} >= 0`),
+  ],
+);
+
+/**
+ * Authenticated Iroh endpoint bindings. These rows are intentionally separate
+ * from the legacy team-scoped device registry: Iroh discovery and grants are
+ * always scoped to the exact Stack user id that registered the endpoint.
+ */
+export const irohEndpointBindings = pgTable(
+  "iroh_endpoint_bindings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
+    tag: text("tag").notNull(),
+    platform: text("platform").notNull(),
+    displayName: text("display_name"),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    pairingEnabled: boolean("pairing_enabled").notNull().default(false),
+    capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    directPortV4: integer("direct_port_v4"),
+    directPortV6: integer("direct_port_v6"),
+    pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
+    deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason"),
+  },
+  (table) => [
+    check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_endpoint_bindings_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
+    check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
+    check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
+    check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
+    check("iroh_endpoint_bindings_direct_port_v6_check", sql`${table.directPortV6} is null or ${table.directPortV6} between 1 and 65535`),
+    check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
+    uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
+      .on(table.endpointId)
+      .where(sql`${table.revokedAt} is null`),
+    // One active binding per (user, client namespace, device, tag) slot. A
+    // reinstall, sign-out/in,
+    // or key rotation overwrites that slot in place instead of stacking a new row.
+    // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
+    // mints a fresh slot and orphans the old row (it stays active, wasting a
+    // sanity-cap slot and lingering in discovery until it is revoked or expires).
+    // The DB cannot enforce this; the client owns it. iOS derives deviceUuid from
+    // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
+    uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
+      .on(table.userId, table.clientNamespace, table.deviceUuid, table.tag)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_idx")
+      .on(table.userId, table.updatedAt)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
+    index("iroh_endpoint_bindings_active_ios_scope_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'ios'`),
+    index("iroh_endpoint_bindings_user_idx")
+      .on(table.userId),
+    index("iroh_endpoint_bindings_user_revoked_idx")
+      .on(table.userId, table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_revoked_idx")
+      .on(table.revokedAt)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_path_hints_expiry_idx")
+      .on(table.pathHintsNextExpiry, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.pathHintsNextExpiry} is not null`),
+    index("iroh_endpoint_bindings_revoked_hints_idx")
+      .on(table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null and ${table.pathHintsNextExpiry} is not null`),
+  ],
+);
+
+/**
+ * One-use registration challenges. Only a SHA-256 hash of the random nonce is
+ * persisted. The payload hash binds all endpoint metadata before signature
+ * verification and the consumed timestamp provides replay protection.
+ */
+export const irohRegistrationChallenges = pgTable(
+  "iroh_registration_challenges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
+    tag: text("tag").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_registration_challenges_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
+    check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
+    uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),
+    index("iroh_registration_challenges_user_created_idx").on(table.userId, table.createdAt),
+    index("iroh_registration_challenges_user_device_created_idx")
+      .on(table.userId, table.deviceUuid, table.createdAt),
+    index("iroh_registration_challenges_expires_idx")
+      .on(table.expiresAt, table.id),
+    index("iroh_registration_challenges_consumed_idx")
+      .on(table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+    index("iroh_registration_challenges_user_expires_idx")
+      .on(table.userId, table.expiresAt, table.id),
+    index("iroh_registration_challenges_user_consumed_idx")
+      .on(table.userId, table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+  ],
+);
+
+/** Audit-only record of an issued compact pair-grant JWS. The JWS is returned
+ * once and is never persisted. */
+export const irohPairGrantIssuances = pgTable(
+  "iroh_pair_grant_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    jti: uuid("jti").notNull(),
+    initiatorBindingId: uuid("initiator_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    acceptorBindingId: uuid("acceptor_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    signingKeyId: text("signing_key_id").notNull(),
+    alpn: text("alpn").notNull().default("cmux/mobile/1"),
+    scope: text("scope").notNull().default("cmux.mobile.attach"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("iroh_pair_grant_issuances_jti_unique").on(table.jti),
+    index("iroh_pair_grant_issuances_user_issued_idx").on(table.userId, table.issuedAt),
+    index("iroh_pair_grant_issuances_initiator_idx").on(table.initiatorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_acceptor_expires_idx").on(table.acceptorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_expires_idx").on(table.expiresAt, table.id),
+    index("iroh_pair_grant_issuances_user_expires_idx").on(table.userId, table.expiresAt, table.id),
+  ],
+);
+
+/**
+ * DB-authoritative relay-mint quota ledger. At most a hash of a successfully
+ * minted token is recorded; plaintext relay credentials never enter Aurora.
+ */
+export const irohRelayTokenIssuances = pgTable(
+  "iroh_relay_token_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    bindingId: uuid("binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    endpointIdHash: text("endpoint_id_hash").notNull(),
+    status: text("status")
+      .$type<"pending" | "succeeded" | "failed" | "expired">()
+      .notNull()
+      .default("pending"),
+    tokenHash: text("token_hash"),
+    failureCode: text("failure_code"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_relay_token_issuances_endpoint_hash_check", sql`${table.endpointIdHash} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed', 'expired')`),
+    index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
+    index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
+    index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),
   ],
 );
 

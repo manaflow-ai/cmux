@@ -21,6 +21,7 @@ private struct FakeAuthorizer: DictationAuthorizing {
 private final class RecordingInserter: DictationTextInserting {
     var beginSucceeds = true
     var insertionSucceedsAfter: Int = .max
+    var yieldBeforeInsertionResult = false
     private(set) var began = 0
     private(set) var ended = 0
     private(set) var insertions: [String] = []
@@ -30,7 +31,10 @@ private final class RecordingInserter: DictationTextInserting {
         return beginSucceeds
     }
 
-    func insertFinalizedText(_ text: String) -> Bool {
+    func insertFinalizedText(_ text: String) async -> Bool {
+        if yieldBeforeInsertionResult {
+            await Task.yield()
+        }
         guard insertions.count < insertionSucceedsAfter else { return false }
         insertions.append(text)
         return true
@@ -48,10 +52,16 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private let startError: (any Error)?
     let finishFlush: [DictationTranscriptionEvent]
+    let finishError: (any Error)?
 
-    init(startError: (any Error)? = nil, finishFlush: [DictationTranscriptionEvent] = []) {
+    init(
+        startError: (any Error)? = nil,
+        finishFlush: [DictationTranscriptionEvent] = [],
+        finishError: (any Error)? = nil
+    ) {
         self.startError = startError
         self.finishFlush = finishFlush
+        self.finishError = finishError
     }
 
     func transcribe(
@@ -67,7 +77,11 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
         for event in finishFlush {
             continuation?.yield(event)
         }
-        continuation?.finish()
+        if let finishError {
+            continuation?.finish(throwing: finishError)
+        } else {
+            continuation?.finish()
+        }
         continuation = nil
     }
 
@@ -186,6 +200,20 @@ struct DictationControllerTests {
         #expect(inserter.insertions == ["tail"])
     }
 
+    @Test func finalizeFailureDoesNotSettleAsSuccessfulStop() async {
+        let expected = DictationFailure.transcriptionFailed("finalize failed")
+        let transcriber = ScriptedTranscriber(finishError: expected)
+        let (controller, inserter, _, recorder) = makeController(transcriber: transcriber)
+        controller.toggle()
+        #expect(await waitUntil { controller.phase == .listening })
+
+        controller.stop()
+
+        #expect(await waitUntil { controller.phase == .failed(expected) })
+        #expect(recorder.failures == [expected])
+        #expect(inserter.ended == 1)
+    }
+
     @Test func danglingPartialIsCommittedAtSessionEnd() async {
         let (controller, inserter, transcriber, _) = makeController()
         controller.toggle()
@@ -207,6 +235,7 @@ struct DictationControllerTests {
         #expect(await waitUntil { controller.phase == .failed(.microphoneAccessDenied) })
         #expect(recorder.failures == [.microphoneAccessDenied])
         #expect(inserter.began == 0)
+        #expect(inserter.ended == 0)
         #expect(controller.isActive == false)
     }
 
@@ -254,6 +283,7 @@ struct DictationControllerTests {
     @Test func trailingFlushInsertionFailureFailsTheSession() async {
         let inserter = RecordingInserter()
         inserter.insertionSucceedsAfter = 0
+        inserter.yieldBeforeInsertionResult = true
         let (controller, _, transcriber, recorder) = makeController(inserter: inserter)
         controller.toggle()
         #expect(await waitUntil { controller.phase == .listening })
@@ -264,6 +294,7 @@ struct DictationControllerTests {
         controller.stop()
         #expect(await waitUntil { controller.phase == .failed(.insertionTargetUnavailable) })
         #expect(recorder.failures == [.insertionTargetUnavailable])
+        #expect(inserter.ended == 1)
     }
 
     @Test func vanishedTargetMidSessionFailsAndStopsEngine() async {

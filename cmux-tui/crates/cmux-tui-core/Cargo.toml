@@ -13,6 +13,8 @@ workspace = true
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
+cmux-pty.workspace = true
+cmux-remote-protocol.workspace = true
 portable-pty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,7 +22,17 @@ anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
 regex.workspace = true
+jsonschema.workspace = true
+flate2.workspace = true
+wait-timeout.workspace = true
 tungstenite.workspace = true
+getrandom.workspace = true
+rusqlite.workspace = true
+fs4.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true
+windows-sys.workspace = true

@@ -26,7 +26,8 @@ struct RemotePortScanGatingTests {
 
         coordinator.queue.sync {
             coordinator.proxyEndpoint = endpoint
-            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint))
+            coordinator.handleProxyBrokerUpdateLocked(
+                .ready(endpoint), leaseGeneration: coordinator.proxyLeaseGeneration)
         }
 
         #expect(host.connectionStates.map(\.state).contains(.connected))
@@ -290,6 +291,7 @@ struct RemotePortScanGatingTests {
             "pty.session.token",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
             "pty.session.persistent_daemon",
         ])
         #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
@@ -326,6 +328,7 @@ struct RemotePortScanGatingTests {
             host: host,
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -339,7 +342,10 @@ struct RemotePortScanGatingTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }
@@ -377,7 +383,6 @@ final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
         }
     }
 }
-
 struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
@@ -386,7 +391,6 @@ struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
-
 final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
@@ -445,6 +449,15 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         lifecycleID: String
     ) throws {}
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool { false }
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? { nil }
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? { nil }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

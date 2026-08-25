@@ -15,9 +15,8 @@ private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", categ
 /// localhost and the presence `devices` projection isn't wired into the live iOS
 /// app yet, so neither delivers the Mac's route to the phone. The per-user
 /// `pairedMacs` backup IS reachable from the dev iOS build (it restores from it),
-/// so this bridges the gap until those pipelines work on dev. Tagged Mac builds
-/// publish directly into the matching tagged iOS partition; stable and untagged
-/// builds keep the legacy unscoped partition.
+/// so this bridges the gap until those pipelines work on dev. Every Mac build
+/// publishes into the exact iOS bundle target selected for pairing and pushes.
 ///
 /// Strictly DEV-gated and best-effort, mirroring ``PresenceHeartbeatClient``:
 /// a failure never disturbs the Mac, and Release builds never publish.
@@ -100,14 +99,18 @@ final class MacPairedMacBackupPublisher {
             + "/v1/sync/paired-macs"
         guard let url = comps.url else { return }
 
-        let nowMs = Date().timeIntervalSince1970 * 1000.0
+        let disclosureDate = Date()
+        let nowMs = disclosureDate.timeIntervalSince1970 * 1000.0
+        let cloudSafeRoutes = routes.compactMap {
+            $0.disclosed(for: .pairedMacCloudBackup, at: disclosureDate)
+        }
         let body = MacPairedMacBackupBody(ops: [
             MacPairedMacBackupOpWire(
                 macDeviceID: MobileHostIdentity.deviceID(),
                 record: MacPairedMacBackupRecordWire(
                     macDeviceID: MobileHostIdentity.deviceID(),
                     displayName: MobileHostIdentity.baseDisplayName(),
-                    routes: routes,
+                    routes: cloudSafeRoutes,
                     instanceTag: MobileHostIdentity.instanceTag(),
                     createdAt: nowMs,
                     lastSeenAt: nowMs,
@@ -120,11 +123,15 @@ final class MacPairedMacBackupPublisher {
         ])
         guard let payload = try? JSONEncoder().encode(body) else { return }
 
+        guard let targetNamespace =
+            MobileIOSPairingTargetStore().selectedNamespace else {
+            return
+        }
         let req = Self.makeRequest(
             url: url,
             accessToken: tokens.accessToken,
             teamID: teamID,
-            instanceTag: MobileHostIdentity.instanceTag(),
+            targetNamespace: targetNamespace,
             payload: payload
         )
 
@@ -141,14 +148,12 @@ final class MacPairedMacBackupPublisher {
         }
     }
 
-    /// Builds a self-publish request whose backup partition matches the tagged
-    /// iOS build. Stable/untagged instances omit the scope header and preserve
-    /// the legacy unscoped collection.
+    /// Builds a request for the exact iOS bundle selected by the user.
     nonisolated static func makeRequest(
         url: URL,
         accessToken: String,
         teamID: String?,
-        instanceTag: String,
+        targetNamespace: MobileIOSAppNamespace,
         payload: Data
     ) -> URLRequest {
         var request = URLRequest(url: url)
@@ -158,11 +163,19 @@ final class MacPairedMacBackupPublisher {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let clientScope = MobileIOSBuildScope(instanceTag)?.serializedScope {
-            request.setValue(clientScope, forHTTPHeaderField: "X-Cmux-Client-Scope")
-        }
+        request.setValue(
+            targetNamespace.serverScope,
+            forHTTPHeaderField: "X-Cmux-Client-Scope"
+        )
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = payload
         return request
+    }
+
+    /// Republishes unchanged routes after the selected iOS target changes.
+    func pairingTargetDidChange(routes: [CmxAttachRoute]) {
+        lastPublishedRoutes = []
+        guard !routes.isEmpty else { return }
+        Task { await publish(routes: routes) }
     }
 }

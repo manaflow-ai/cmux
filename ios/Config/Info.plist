@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -14,8 +16,14 @@
 	<string>6.0</string>
 	<key>CMUXAuthEnvironment</key>
 	<string>$(CMUX_IOS_AUTH_ENV)</string>
+	<key>CMUXApiBaseURL</key>
+	<string>$(CMUX_API_BASE_URL)</string>
+	<key>CMUXIrohBrokerBaseURL</key>
+	<string>$(CMUX_IROH_BROKER_BASE_URL)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
+	<key>CMUXKeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
 	<key>CMUXCrashReportingEnabled</key>
@@ -37,22 +45,9 @@
 			<string>dev.cmux.ios.attach</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- Channel-specific pairing scheme (CMUX_IOS_URL_SCHEME in
-				     Config/Shared.xcconfig + Config/Release.xcconfig): dev builds
-				     register cmux-ios-dev, Release (beta/prod) registers cmux-ios,
-				     so a beta/prod QR scanned with the Camera app can never open a
-				     dev build. Keep the values in sync with CmxPairingURLScheme. -->
+				<!-- Exact-bundle pairing scheme. No two installed cmux apps
+				     register the same route with iOS. -->
 				<string>$(CMUX_IOS_URL_SCHEME)</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>dev.cmux.ios.stack-auth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>stack-auth-mobile-oauth-url</string>
 			</array>
 		</dict>
 	</array>
@@ -64,6 +59,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cmux-iroh._udp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -97,7 +96,15 @@
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<!-- HIG "Launching": match the first screen (plain systemBackground
+		     surfaces) and keep it static — a solid adaptive background with the
+		     small cmux mark from the sign-in header, no text. -->
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeRight</string>
@@ -110,6 +117,25 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>CMUXIrohRelayPolicyKeyID</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+	<key>CMUXIrohRelayPolicyTrustKeys</key>
+	<array>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+		</dict>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
+		</dict>
 	</array>
 </dict>
 </plist>

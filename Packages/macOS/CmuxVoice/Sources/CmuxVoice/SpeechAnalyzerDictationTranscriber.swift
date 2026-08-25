@@ -205,9 +205,13 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             // sequence then ends, which ends the caller's event stream.
             try await analyzer?.finalizeAndFinishThroughEndOfInput()
         } catch {
-            // The results sequence may never end after a failed finalize;
-            // end the caller's stream directly so the session can settle.
-            outputContinuation?.finish()
+            // The results sequence may never end after a failed finalize.
+            // End it directly, but preserve the failure so the controller
+            // cannot settle the session as a successful stop after losing the
+            // trailing hypothesis.
+            let failure = (error as? DictationFailure)
+                ?? .transcriptionFailed(error.localizedDescription)
+            outputContinuation?.finish(throwing: failure)
         }
         analyzer = nil
         transcriber = nil

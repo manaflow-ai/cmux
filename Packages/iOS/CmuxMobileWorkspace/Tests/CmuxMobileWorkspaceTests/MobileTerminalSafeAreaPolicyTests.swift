@@ -4,100 +4,73 @@ import Testing
 @testable import CmuxMobileWorkspace
 
 @Suite struct MobileTerminalSafeAreaPolicyTests {
+    @Test func compactLandscapeExpansionKeepsTheCameraEdgeProtected() {
+        // A landscape phone puts the Dynamic Island / notch on one horizontal
+        // edge; the terminal keeps that edge's safe-area inset and expands only
+        // into the opposite one, so its content never renders under the
+        // hardware.
+        #expect(
+            MobileTerminalSafeAreaExpansionPolicy.edges(
+                context: .fullWidth,
+                hasCompactVerticalSize: true,
+                cameraEdge: .trailing
+            ) == MobileTerminalSafeAreaExpansionEdges(leading: true, trailing: false, bottom: true)
+        )
+        #expect(
+            MobileTerminalSafeAreaExpansionPolicy.edges(
+                context: .fullWidth,
+                hasCompactVerticalSize: true,
+                cameraEdge: .leading
+            ) == MobileTerminalSafeAreaExpansionEdges(leading: false, trailing: true, bottom: true)
+        )
+        #expect(
+            MobileTerminalSafeAreaExpansionPolicy.edges(
+                context: .fullWidth,
+                hasCompactVerticalSize: true,
+                cameraEdge: .none
+            ) == MobileTerminalSafeAreaExpansionEdges(leading: true, trailing: true, bottom: true)
+        )
+    }
+
     @Test func expansionAccountsForIPadSidebarVisibility() {
         #expect(
             MobileTerminalSafeAreaExpansionPolicy.edges(
                 context: .fullWidth,
-                hasCompactVerticalSize: true
-            ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true)
-        )
-        #expect(
-            MobileTerminalSafeAreaExpansionPolicy.edges(
-                context: .fullWidth,
-                hasCompactVerticalSize: false
+                hasCompactVerticalSize: false,
+                cameraEdge: .trailing
             ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
         )
         #expect(
             MobileTerminalSafeAreaExpansionPolicy.edges(
                 context: .splitSidebarVisible,
-                hasCompactVerticalSize: true
+                hasCompactVerticalSize: true,
+                cameraEdge: .trailing
             ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
         )
         #expect(
             MobileTerminalSafeAreaExpansionPolicy.edges(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
+                cameraEdge: .trailing,
                 includesBottom: false
-            ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: false)
+            ) == MobileTerminalSafeAreaExpansionEdges(leading: true, trailing: false, bottom: false)
         )
     }
 
-    @Test func contentInsetsProtectLandscapeCameraArea() {
-        let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
-
+    @Test func edgeSetMapsRequestedEdges() {
         #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: landscapeInsets
-            ) == MobileTerminalContentInsets(leading: 33, trailing: 0)
-        )
-
-        #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
-            ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
-        )
-
-        #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-                symmetricCameraEdge: .leading
-            ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
-        )
-
-        #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-                symmetricCameraEdge: .none
-            ) == .zero
-        )
-
-        #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
-            ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
-        )
-
-        #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
-            ) == .zero
+            MobileTerminalSafeAreaExpansionEdges(leading: true, trailing: false, bottom: true).edgeSet
+                == [.leading, .bottom]
         )
         #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .fullWidth,
-                hasCompactVerticalSize: false,
-                safeAreaInsets: landscapeInsets
-            ) == .zero
+            MobileTerminalSafeAreaExpansionEdges(leading: false, trailing: true, bottom: false).edgeSet
+                == [.trailing]
         )
         #expect(
-            MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-                context: .splitSidebarVisible,
-                hasCompactVerticalSize: true,
-                safeAreaInsets: landscapeInsets
-            ) == .zero
+            MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true).edgeSet
+                == [.horizontal, .bottom]
         )
+        #expect(!MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: false).hasEdges)
     }
 
     @Test func landscapeCameraEdgeFollowsWindowOrientation() {
@@ -105,5 +78,18 @@ import Testing
         #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
         #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
         #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
+    }
+
+    @Test func landscapeCameraEdgeFollowsLayoutDirection() {
+        // The camera's physical side is fixed by the rotation; leading/trailing
+        // flip with the layout direction.
+        #expect(
+            MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeLeft, isRightToLeft: true)
+                == .leading
+        )
+        #expect(
+            MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight, isRightToLeft: true)
+                == .trailing
+        )
     }
 }
