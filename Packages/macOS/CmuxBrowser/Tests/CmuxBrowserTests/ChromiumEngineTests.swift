@@ -94,6 +94,14 @@ struct ChromiumEngineTests {
         #expect(String(data: encoded, encoding: .utf8) == "\"chromium\"")
     }
 
+    @Test("CDP errors use product messages instead of raw transport details")
+    func cdpErrorsRedactRawMessages() {
+        let raw = "file:///Users/example/secret-profile: renderer rejected command"
+        #expect(!CDPError.disconnected(raw).description.contains(raw))
+        #expect(!CDPError.protocolError(raw).description.contains(raw))
+        #expect(!CDPError.commandFailed(raw).description.contains(raw))
+    }
+
     @Test("Launch arguments keep profile and CDP loopback-only")
     func launchArguments() {
         let configuration = ChromiumLaunchConfiguration(
