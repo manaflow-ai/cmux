@@ -78,14 +78,22 @@ enum AppFocusState {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        return NSApp.isActive
+        return isCurrentApplicationFrontmost(
+            appIsActive: NSApp.isActive,
+            frontmostProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier
+        )
     }
 
     static func isAppFocused() -> Bool {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        guard NSApp.isActive else { return false }
+        guard isCurrentApplicationFrontmost(
+            appIsActive: NSApp.isActive,
+            frontmostProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier
+        ) else { return false }
         guard let keyWindow = NSApp.keyWindow, keyWindow.isKeyWindow else { return false }
         // Only treat the app as "focused" for notification suppression when a main terminal window
         // is key. If Settings/About/debug panels are key, we still want notifications to show.
@@ -93,6 +101,17 @@ enum AppFocusState {
             return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
         }
         return false
+    }
+
+    /// AppKit can leave `NSApp.isActive` true for a Stage Manager stage after
+    /// another application owns key events. The system frontmost process is
+    /// the authoritative boundary for notification suppression and dismissal.
+    static func isCurrentApplicationFrontmost(
+        appIsActive: Bool,
+        frontmostProcessIdentifier: pid_t?,
+        currentProcessIdentifier: pid_t
+    ) -> Bool {
+        appIsActive && frontmostProcessIdentifier == currentProcessIdentifier
     }
 
 }
