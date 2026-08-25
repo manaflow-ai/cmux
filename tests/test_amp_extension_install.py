@@ -128,6 +128,82 @@ def main() -> int:
             print("FAIL: Amp session-start rewrote the plugin without the cmux marker")
             return 1
 
+        # The event-time refresh path is only allowed to replace a file that
+        # cmux previously marked as its own. An unmarked empty file can be a
+        # user placeholder, so preserve it just like any other custom file.
+        extension_path.write_text("", encoding="utf-8")
+        empty_refresh = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(root / "missing-amp-refresh-empty.sock"),
+                "hooks",
+                "amp",
+                "session-start",
+                "--workspace",
+                workspace_id,
+                "--surface",
+                surface_id,
+            ],
+            input=json.dumps(
+                {
+                    "session_id": "amp-unmarked-empty-plugin",
+                    "cwd": str(root),
+                    "hook_event_name": "SessionStart",
+                }
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if empty_refresh.returncode == 0:
+            print("FAIL: empty Amp refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != "":
+            print("FAIL: Amp refresh overwrote an unmarked empty plugin")
+            return 1
+
+        custom_plugin = "// user-owned Amp plugin\nexport default () => {};\n"
+        extension_path.write_text(custom_plugin, encoding="utf-8")
+        custom_refresh = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(root / "missing-amp-refresh-custom.sock"),
+                "hooks",
+                "amp",
+                "session-start",
+                "--workspace",
+                workspace_id,
+                "--surface",
+                surface_id,
+            ],
+            input=json.dumps(
+                {
+                    "session_id": "amp-unmarked-custom-plugin",
+                    "cwd": str(root),
+                    "hook_event_name": "SessionStart",
+                }
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if custom_refresh.returncode == 0:
+            print("FAIL: custom Amp refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != custom_plugin:
+            print("FAIL: Amp refresh overwrote an unmarked custom plugin")
+            return 1
+
+        # Restore the managed fixture for the import and lifecycle checks
+        # below; those checks intentionally exercise cmux's generated source.
+        extension_path.write_text(extension_text, encoding="utf-8")
+
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
         fake_stdin_log = root / "fake-cmux-stdin.log"
@@ -1146,6 +1222,27 @@ try {
   boundedThreads[0].setState("idle");
   if (stopCalls().length !== beforeEvictedIdle) {
     throw new Error("an evicted Amp turn retained settlement ownership");
+  }
+  // A late agent.end must not recreate an empty state for the evicted turn.
+  // Resolve the old deferred snapshot to idle so an unsafely recreated state
+  // would settle immediately and make the regression deterministic.
+  boundedThreads[0].resolveInitialGet("idle");
+  const beforeEvictedEnd = stopCalls().length;
+  await handlers.get("agent.end")({
+    thread: boundedThreads[0],
+    message: "bounded pending native state",
+    id: "msg-bounded-0",
+    status: "done",
+    messages: []
+  }, { thread: boundedThreads[0] });
+  const evictedEndSettlements = stopCalls()
+    .slice(beforeEvictedEnd)
+    .map((call) => JSON.parse(call.stdin))
+    .filter((payload) => payload.cmux_turn_boundary === "settled");
+  if (evictedEndSettlements.length !== 0) {
+    throw new Error(
+      `an evicted Amp turn was recreated and settled: ${JSON.stringify(evictedEndSettlements)}`
+    );
   }
   boundedThreads.at(-1).setState("idle");
   await waitFor(

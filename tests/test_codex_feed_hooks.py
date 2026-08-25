@@ -86,6 +86,7 @@ class FakeCmuxSocket:
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
+        method_error_once: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
         method_delays: dict[str, float] | None = None,
     ):
@@ -101,6 +102,7 @@ class FakeCmuxSocket:
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
+        self.method_error_once = dict(method_error_once or {})
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
         self._dropped_surface_list = False
@@ -109,6 +111,7 @@ class FakeCmuxSocket:
         self._frame_condition = threading.Condition()
         self._raw_response_gate_lock = threading.Lock()
         self._raw_response_gate_pending = raw_response_gate is not None
+        self._method_error_once_lock = threading.Lock()
         self._next_connection_id = 0
         self._ready = threading.Event()
         self.feed_frame_received = threading.Event()
@@ -201,7 +204,14 @@ class FakeCmuxSocket:
                         self._frame_condition.notify_all()
                     if delay := self.method_delays.get(frame.get("method")):
                         time.sleep(delay)
-                    if method_error := self.method_errors.get(frame.get("method")):
+                    method_error = self.method_errors.get(frame.get("method"))
+                    if method_error is None:
+                        with self._method_error_once_lock:
+                            method_error = self.method_error_once.pop(
+                                frame.get("method"),
+                                None,
+                            )
+                    if method_error:
                         code, message = method_error
                         response = {
                             "id": frame.get("id"),
@@ -3587,7 +3597,16 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
         )
 
     try:
-        with FakeCmuxSocket(socket_path, None) as fake:
+        with FakeCmuxSocket(
+            socket_path,
+            None,
+            method_error_once={
+                "agent.attention.begin": (
+                    "transient_attention_failure",
+                    "retry the acknowledged attention delivery",
+                )
+            },
+        ) as fake:
             id_suffix = str(os.getpid())
             requested_tool_call_id = f"cursor-call-requested-{id_suffix}"
             auto_tool_call_id = f"cursor-call-auto-{id_suffix}"
@@ -3637,9 +3656,15 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     f"Cursor shell telemetry was misclassified: {feed_frame!r}"
                 )
 
+            failed_attention_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+            )
+            retry_start = fake.frames.index(failed_attention_begin) + 1
             attention_begin = wait_for_method(
                 fake,
                 "agent.attention.begin",
+                after=retry_start,
             )
             begin_params = attention_begin.get("params", {})
             if (
