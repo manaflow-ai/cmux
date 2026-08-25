@@ -1063,6 +1063,29 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func collapseAllGroupsReconcilesSelectionWhenFocusedAnchorIsAlreadySelected() throws {
+        let (model, host, groups, _) = makeWorld()
+        let child = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "Focused anchor",
+            childWorkspaceIds: [child.id]
+        ))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+        model.selectedTabId = group.anchorWorkspaceId
+        host.sidebarSelectedWorkspaceIds = [child.id]
+
+        groups.collapseAllWorkspaceGroups()
+
+        #expect(model.selectedTabId == group.anchorWorkspaceId)
+        #expect(host.subtractedSidebarSelections.count == 1)
+        let reconciliation = try #require(host.subtractedSidebarSelections.first)
+        #expect(reconciliation.hidden == Set([child.id]))
+        #expect(reconciliation.focused == group.anchorWorkspaceId)
+    }
+
+    @Test
     func expandAllGroupsPreservesFocusAndSelection() throws {
         let (model, host, groups, _) = makeWorld()
         let firstChild = CoordinatorStubTab()
