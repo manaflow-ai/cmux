@@ -316,14 +316,27 @@ struct ClaudeTaskSyncHookTests {
             ) == nil
         )
 
+        var currentEnvironment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        currentEnvironment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
+        currentEnvironment["CMUX_SURFACE_ID"] = currentSurfaceId
+
+        // SessionEnd leaves a tombstone so a late task hook cannot resurrect
+        // the consumed generation. A real resume starts a new generation
+        // first; only that lifecycle boundary may re-admit the task hook.
+        let resumeStartResult = ClaudeHookLiveDeliveryHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: currentEnvironment,
+            standardInput: #"{"session_id":"resumed-personal-session","hook_event_name":"SessionStart","source":"resume","cwd":"\#(context.root.path)"}"#
+        )
+        #expect(!resumeStartResult.timedOut, Comment(rawValue: resumeStartResult.stderr))
+        #expect(resumeStartResult.status == 0, Comment(rawValue: resumeStartResult.stderr))
+
         try writeTask(
             #"{"id":"1","subject":"Resumed task","status":"in_progress"}"#,
             named: "1.json",
             in: taskDirectory
         )
-        var currentEnvironment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
-        currentEnvironment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
-        currentEnvironment["CMUX_SURFACE_ID"] = currentSurfaceId
         let resumedResult = runHook(
             context: context,
             environment: currentEnvironment,
