@@ -45,6 +45,26 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             if shouldRemoveOutput { _ = unlink(command.outputURL.path) }
         }
 
+        let directoryDescriptor = Darwin.open(
+            command.currentDirectoryURL.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC
+        )
+        guard directoryDescriptor >= 0 else {
+            throw SudoPOSIXSpawnError.directoryOpenFailed(errno)
+        }
+        defer { Darwin.close(directoryDescriptor) }
+        if let expectedDirectoryIdentity = command.expectedDirectoryIdentity {
+            var status = stat()
+            guard fstat(directoryDescriptor, &status) == 0,
+                  status.st_mode & S_IFMT == S_IFDIR,
+                  SudoDirectoryIdentity(
+                      device: UInt64(status.st_dev),
+                      inode: UInt64(status.st_ino)
+                  ) == expectedDirectoryIdentity else {
+                throw SudoPOSIXSpawnError.directoryChanged
+            }
+        }
+
         var fileActions: posix_spawn_file_actions_t?
         try Self.requireSuccess(
             posix_spawn_file_actions_init(&fileActions),
@@ -70,12 +90,16 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             }
         }
         if actionStatus == 0 {
-            if let expectedDirectoryIdentity = command.expectedDirectoryIdentity,
-               !expectedDirectoryIdentity.matches(path: command.currentDirectoryURL.path) {
-                throw SudoPOSIXSpawnError.directoryChanged
-            }
-            actionStatus = command.currentDirectoryURL.path.withCString { path in
-                posix_spawn_file_actions_addchdir_np(&fileActions, path)
+            if #available(macOS 26, *) {
+                actionStatus = posix_spawn_file_actions_addfchdir(
+                    &fileActions,
+                    directoryDescriptor
+                )
+            } else {
+                actionStatus = Self.addLegacyFDChdir(
+                    &fileActions,
+                    directoryDescriptor
+                )
             }
         }
         if actionStatus == 0 {
@@ -92,7 +116,7 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
                 STDERR_FILENO
             )
         }
-        let childDescriptors = Set(inputPipe + outputPipe + [outputDescriptor])
+        let childDescriptors = Set(inputPipe + outputPipe + [outputDescriptor, directoryDescriptor])
         for descriptor in childDescriptors where actionStatus == 0 && descriptor > STDERR_FILENO {
             actionStatus = posix_spawn_file_actions_addclose(&fileActions, descriptor)
         }
@@ -164,6 +188,7 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             identity: identity,
             processGroupIdentifier: processIdentifier,
             outputURL: command.outputURL,
+            approvedScriptURL: command.approvedScriptURL,
             standardInput: command.standardInput,
             standardInputReadyMarker: command.standardInputReadyMarker,
             controlMarkers: command.controlMarkers,
@@ -182,6 +207,14 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
               fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0 else {
             throw SudoPOSIXSpawnError.descriptorFailed(errno)
         }
+    }
+
+    @available(macOS, introduced: 10.15, deprecated: 26)
+    private static func addLegacyFDChdir(
+        _ actions: UnsafeMutablePointer<posix_spawn_file_actions_t?>,
+        _ descriptor: Int32
+    ) -> Int32 {
+        posix_spawn_file_actions_addfchdir_np(actions, descriptor)
     }
 
     private static func requireSuccess(
@@ -220,6 +253,7 @@ private enum SudoPOSIXSpawnError: Error {
     case pipeFailed(Int32)
     case descriptorFailed(Int32)
     case outputOpenFailed(Int32)
+    case directoryOpenFailed(Int32)
     case fileActionsFailed(Int32)
     case attributesFailed(Int32)
     case invalidCString

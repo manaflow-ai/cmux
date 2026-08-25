@@ -5,6 +5,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
     let arguments: [String]
     let currentDirectoryURL: URL
     let outputURL: URL
+    let approvedScriptURL: URL?
     let standardInput: Data?
     let standardInputReadyMarker: Data?
     let controlMarkers: SudoExecutionControlMarkers
@@ -15,6 +16,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
         arguments: [String],
         currentDirectoryURL: URL,
         outputURL: URL,
+        approvedScriptURL: URL? = nil,
         standardInput: Data? = nil,
         standardInputReadyMarker: Data? = nil,
         controlMarkers: SudoExecutionControlMarkers = SudoExecutionControlMarkers(),
@@ -24,6 +26,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
         self.arguments = arguments
         self.currentDirectoryURL = currentDirectoryURL
         self.outputURL = outputURL
+        self.approvedScriptURL = approvedScriptURL
         self.standardInput = standardInput
         self.standardInputReadyMarker = standardInputReadyMarker
         self.controlMarkers = controlMarkers
@@ -61,6 +64,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
             ] + transport.shellArguments,
             currentDirectoryURL: currentDirectoryURL,
             outputURL: outputURL,
+            approvedScriptURL: approvedScriptURL,
             standardInput: reviewedScript,
             standardInputReadyMarker: controlMarkers.inputReady,
             controlMarkers: controlMarkers,

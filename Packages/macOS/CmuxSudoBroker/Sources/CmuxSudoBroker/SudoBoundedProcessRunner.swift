@@ -3,6 +3,7 @@ import Foundation
 
 struct SudoBoundedProcessRunner: Sendable {
     private let spawner: any SudoProcessSpawning
+    private let inspector: any SudoProcessInspecting
     private let executionWaiter: SudoExecutionEventWaiter
     private let terminator: SudoProcessTreeTerminator
     private let now: @Sendable () -> Date
@@ -14,6 +15,7 @@ struct SudoBoundedProcessRunner: Sendable {
         now: @Sendable @escaping () -> Date = { .now }
     ) {
         self.spawner = spawner
+        self.inspector = inspector
         executionWaiter = SudoExecutionEventWaiter(
             inspector: inspector
         )
@@ -44,7 +46,9 @@ struct SudoBoundedProcessRunner: Sendable {
             return .privilegedTimedOut
         case .privilegedCleanupFailed:
             _ = reap(process.identity.processIdentifier)
-            return .privilegedCleanupFailed
+            return .privilegedCleanupFailed(
+                cleanupSurvivors: privilegedSurvivors(process)
+            )
         case .privilegedTransportFailed:
             _ = reap(process.identity.processIdentifier)
             return .privilegedTransportFailed
@@ -84,5 +88,13 @@ struct SudoBoundedProcessRunner: Sendable {
             return .exited((status >> 8) & 0xff)
         }
         return .signaled(terminationSignal)
+    }
+
+    private func privilegedSurvivors(_ process: SudoSpawnedProcess) -> [SudoProcessIdentity] {
+        guard let approvedScriptURL = process.approvedScriptURL else { return [] }
+        return SudoOrphanProcessInventory(inspector: inspector)
+            .identitiesByScriptPath(approvedScriptURLs: [approvedScriptURL])[
+                approvedScriptURL.standardizedFileURL.path
+            ] ?? []
     }
 }

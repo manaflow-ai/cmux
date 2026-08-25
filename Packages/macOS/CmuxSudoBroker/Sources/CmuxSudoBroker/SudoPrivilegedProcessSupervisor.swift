@@ -5,6 +5,7 @@ import Foundation
 struct SudoPrivilegedProcessSupervisor: Sendable {
     static let sourceCommand = "source /dev/fd/4"
     private let inspector: any SudoProcessInspecting
+    private let inventory: SudoOrphanProcessInventory
     private let terminator: SudoProcessTreeTerminator
     private let exitWaiter: SudoProcessExitWaiter
     private let now: @Sendable () -> Date
@@ -15,6 +16,7 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
         now: @Sendable @escaping () -> Date = { .now }
     ) {
         self.inspector = inspector
+        inventory = SudoOrphanProcessInventory(inspector: inspector)
         terminator = SudoProcessTreeTerminator(inspector: inspector, signaler: signaler)
         exitWaiter = SudoProcessExitWaiter(inspector: inspector)
         self.now = now
@@ -54,7 +56,18 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
                 roots: identities(inProcessGroup: processIdentifier)
             )
             let outcome = reapOutcome(processIdentifier)
-            return cleanupSurvivors.isEmpty ? outcome : .cleanupFailed
+            guard cleanupSurvivors.isEmpty else { return .cleanupFailed }
+            let detached = inventory.identitiesByScriptPath(
+                approvedScriptURLs: [URL(fileURLWithPath: displayName)]
+            )[URL(fileURLWithPath: displayName).standardizedFileURL.path] ?? []
+            guard detached.isEmpty else {
+                // The process group is the kernel-owned containment boundary.
+                // Best-effort argv inventory catches detached broker wrappers;
+                // arbitrary setsid daemons remain an explicit platform boundary.
+                _ = terminator.terminate(roots: detached)
+                return .cleanupFailed
+            }
+            return outcome
         }
 
         let cleanupSurvivors = terminator.terminate(root: identity)

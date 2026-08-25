@@ -5,6 +5,6 @@ enum SudoProcessOutcome: Sendable, Equatable {
     case authenticationFailed(cleanupSurvivors: [SudoProcessIdentity])
     case timedOut(cleanupSurvivors: [SudoProcessIdentity])
     case privilegedTimedOut
-    case privilegedCleanupFailed
+    case privilegedCleanupFailed(cleanupSurvivors: [SudoProcessIdentity])
     case privilegedTransportFailed
 }

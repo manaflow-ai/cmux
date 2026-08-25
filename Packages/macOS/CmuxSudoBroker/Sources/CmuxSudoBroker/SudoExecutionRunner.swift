@@ -257,8 +257,10 @@ public struct SudoExecutionRunner {
             case .authenticationFailed(let survivors), .timedOut(let survivors):
                 cleanupSurvivors = survivors
             case .exited, .signaled, .unavailable, .privilegedTimedOut,
-                    .privilegedCleanupFailed, .privilegedTransportFailed:
+                    .privilegedTransportFailed:
                 cleanupSurvivors = []
+            case .privilegedCleanupFailed(let survivors):
+                cleanupSurvivors = survivors
             }
             recordCleanupSurvivors(cleanupSurvivors, requestID: requestID)
             try settle(
@@ -330,7 +332,7 @@ public struct SudoExecutionRunner {
                 errorCode: .executionTimedOut,
                 note: messages.executionTimedOut
             )
-        case .privilegedCleanupFailed:
+        case .privilegedCleanupFailed(_):
             return SudoResult(
                 id: requestID,
                 status: .failed,
