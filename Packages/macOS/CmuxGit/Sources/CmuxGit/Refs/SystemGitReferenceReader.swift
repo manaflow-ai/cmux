@@ -182,20 +182,20 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         }
         if directSnapshot.currentCommit != nil,
            directSnapshot.branchName != ".invalid" {
-            switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+            switch quickReferenceStorageName(repository: repository, deadline: effectiveDeadline) {
             case .complete(let storage):
                 return storage.map { $0 != "files" } ?? false
             case .incomplete:
                 return true
             }
         }
-        switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+        switch quickReferenceStorageName(repository: repository, deadline: effectiveDeadline) {
         case .complete(let storage):
             if let storage {
                 return storage != "files"
-                    || fileSnapshotRequiresPlumbing(repository: repository, deadline: deadline)
+                    || fileSnapshotRequiresPlumbing(repository: repository, deadline: effectiveDeadline)
             }
-            return fileSnapshotRequiresPlumbing(repository: repository, deadline: deadline)
+            return fileSnapshotRequiresPlumbing(repository: repository, deadline: effectiveDeadline)
         case .incomplete:
             // Includes and oversized configs may hide a non-files backend;
             // conservatively reserve a plumbing permit before the full scan.

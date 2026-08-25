@@ -90,12 +90,16 @@ extension GitMetadataService {
             deadline: deadline,
             branchContext: branchContext
         ) != false {
+            var fallbackRemainingRepositoryCount = remainingRepositoryCount
+            var fallbackVisitedRoots: Set<String> = []
             pathsByRepository[repository.workTreeRoot, default: []].append(contentsOf:
                 gitmodulesFallbackMetadataPaths(
                     repository: repository,
                     depth: 0,
                     safetyConfiguration: safetyConfiguration,
-                    deadline: deadline
+                    deadline: deadline,
+                    remainingRepositoryCount: &fallbackRemainingRepositoryCount,
+                    visitedRoots: &fallbackVisitedRoots
                 )
             )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
@@ -186,10 +190,16 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         depth: Int,
         safetyConfiguration: GitMetadataSafetyConfiguration,
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        remainingRepositoryCount: inout Int,
+        visitedRoots: inout Set<String>
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth,
+              remainingRepositoryCount > 0,
+              !visitedRoots.contains(repository.workTreeRoot),
               deadline > DispatchTime.now() else { return [] }
+        remainingRepositoryCount -= 1
+        visitedRoots.insert(repository.workTreeRoot)
         let gitmodulesURL = URL(fileURLWithPath: repository.workTreeRoot)
             .appendingPathComponent(".gitmodules")
         let reader = GitConfigFileReader()
@@ -203,6 +213,7 @@ extension GitMetadataService {
         var paths: [String] = [gitmodulesURL.path]
         var inSubmoduleSection = false
         for rawLine in contents.split(whereSeparator: \.isNewline) {
+            guard remainingRepositoryCount > 0, deadline > DispatchTime.now() else { break }
             let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -214,12 +225,22 @@ extension GitMetadataService {
                 $0.trimmingCharacters(in: .whitespaces)
             }
             guard parts.count == 2, parts[0].lowercased() == "path" else { continue }
-            let childPath = GitMetadataService.joinedPath(
-                root: repository.workTreeRoot,
-                relativePath: GitMetadataService.gitConfigUnquotedValue(parts[1])
-            )
+            let relativePath = GitMetadataService.gitConfigUnquotedValue(parts[1])
+            guard !relativePath.isEmpty,
+                  !relativePath.hasPrefix("/"),
+                  !relativePath.split(separator: "/").contains("..") else { continue }
+            let rootURL = URL(fileURLWithPath: repository.workTreeRoot)
+            let childURL = rootURL.appendingPathComponent(relativePath).standardizedFileURL
+            let canonicalRoot = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+            let canonicalChild = childURL.resolvingSymlinksInPath().standardizedFileURL.path
+            guard canonicalChild == canonicalRoot
+                    || canonicalChild.hasPrefix(canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/") else {
+                continue
+            }
+            let childPath = childURL.path
             guard let child = Self.resolveGitRepository(containing: childPath),
-                  child.workTreeRoot == childPath else { continue }
+                  child.workTreeRoot == childPath,
+                  !visitedRoots.contains(child.workTreeRoot) else { continue }
             paths.append(contentsOf: [
                 child.workTreeRoot,
                 child.gitDirectory,
@@ -229,7 +250,9 @@ extension GitMetadataService {
                 repository: child,
                 depth: depth + 1,
                 safetyConfiguration: safetyConfiguration,
-                deadline: deadline
+                deadline: deadline,
+                remainingRepositoryCount: &remainingRepositoryCount,
+                visitedRoots: &visitedRoots
             ))
         }
         var seen: Set<String> = []
