@@ -48,7 +48,8 @@ extension Workspace {
         for binding: SurfaceResumeBindingSnapshot?,
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID,
-        persistentPTYSessionID: String
+        persistentPTYSessionID: String,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil
     ) -> String? {
         guard let binding,
               case .persistentSSH(let context) = binding.launchFlavor,
@@ -65,16 +66,34 @@ extension Workspace {
               let relayPort = configuration.relayPort else {
             return nil
         }
+        let matchingRestorableAgent = (restorableAgent ?? restoredAgentSnapshotsByPanelId[expectedSurfaceID]).flatMap {
+            Self.restorableAgentForSessionRestore($0, resumeBinding: binding)
+        }
+        let bindingForStartup: SurfaceResumeBindingSnapshot = if let selection =
+            binding.restoreWorkingDirectorySelection,
+            selection.discardsRecordedCwdOptions,
+            let matchingRestorableAgent {
+            binding.applyingRestoreWorkingDirectorySelection(
+                selection,
+                from: matchingRestorableAgent
+            )
+        } else {
+            binding
+        }
         let startupInput: String?
-        if binding.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true {
+        if bindingForStartup.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true {
             // Exact/unavailable policies may intentionally have no structured
             // launch recipe. Keep the transport reattach, but never replay the
             // untrusted stored shell command in that case.
-            startupInput = binding.remoteStartupInput()
-        } else if binding.isAgentHookBinding && binding.restoreWorkingDirectorySelection == nil {
+            startupInput = bindingForStartup.remoteStartupInput(
+                registration: matchingRestorableAgent?.registration
+            )
+        } else if bindingForStartup.isAgentHookBinding && bindingForStartup.restoreWorkingDirectorySelection == nil {
             startupInput = nil
         } else {
-            guard let input = binding.remoteStartupInput() else { return nil }
+            guard let input = bindingForStartup.remoteStartupInput(
+                registration: matchingRestorableAgent?.registration
+            ) else { return nil }
             startupInput = input
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(

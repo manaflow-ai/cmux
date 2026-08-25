@@ -1452,7 +1452,8 @@ extension Workspace {
                     for: effectiveResumeBindingForStartup,
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID
+                    persistentPTYSessionID: restoredRemotePTYSessionID,
+                    restorableAgent: retainedRestorableAgent
                 )
             } else {
                 nil
@@ -1460,7 +1461,9 @@ extension Workspace {
             let restoredPersistentSSHHasAgentStartupInput =
                 restoredPersistentSSHResumeCommand != nil &&
                 effectiveResumeBindingForStartup?.isAgentHookBinding == true &&
-                effectiveResumeBindingForStartup?.remoteStartupInput() != nil
+                effectiveResumeBindingForStartup?.remoteStartupInput(
+                    registration: retainedRestorableAgent?.registration
+                ) != nil
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot

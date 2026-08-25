@@ -24,7 +24,8 @@ extension SurfaceResumeBindingSnapshot {
 
     func inlineStartupInput(
         repairPortableAgentExecutable: Bool,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        registration: CmuxVaultAgentRegistration? = nil
     ) -> String? {
         guard restoreWorkingDirectorySelection?.permitsResume != false else {
             return nil
@@ -34,7 +35,8 @@ extension SurfaceResumeBindingSnapshot {
            selection.discardsRecordedCwdOptions {
             guard let constrainedCommand = constrainedRestoreCommand(
                 selection: selection,
-                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+                registration: registration
             ) else {
                 return nil
             }
@@ -74,8 +76,13 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    func remoteStartupInput() -> String? {
-        inlineStartupInput(repairPortableAgentExecutable: false)
+    func remoteStartupInput(
+        registration: CmuxVaultAgentRegistration? = nil
+    ) -> String? {
+        inlineStartupInput(
+            repairPortableAgentExecutable: false,
+            registration: registration
+        )
     }
 
     private var localRestoreCLIInput: String {

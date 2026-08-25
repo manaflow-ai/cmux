@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
@@ -23,10 +24,21 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     /// Persists authenticated relay ownership and the relay-reported cwd trust boundary.
-    func registeredForPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
+    func registeredForPersistentSSH(
+        _ context: SurfaceResumeRemoteContext,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil
+    ) -> SurfaceResumeBindingSnapshot {
         var registered = replacingLaunchFlavor(.persistentSSH(context))
         if registered.isAgentHookBinding {
-            registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
+            let kind = restorableAgent?.kind.rawValue ?? registered.kind ?? ""
+            if registered.cwd != nil {
+                registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
+            } else if restorableAgent?.registration?.cwd == .ignore ||
+                        AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile {
+                registered.restoreWorkingDirectorySelection = .exact(nil)
+            } else {
+                registered.restoreWorkingDirectorySelection = .unavailable
+            }
         }
         return registered
     }

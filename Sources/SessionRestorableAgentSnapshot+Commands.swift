@@ -250,16 +250,20 @@ extension SurfaceResumeBindingSnapshot {
     /// Rebuilds an explicit restore command from structured launch data, or fails closed.
     func constrainedRestoreCommand(
         selection: AgentRestoreWorkingDirectorySelection,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        registration: CmuxVaultAgentRegistration?
     ) -> String? {
         guard case .exact = selection,
               let rawKind = kind,
               let agentKind = RestorableAgentKind(
                   persistedRawValue: rawKind,
-                  registration: nil
+                  registration: registration
               ),
               let sessionId = checkpointId,
-              let launchCommand else {
+              let launchCommand,
+              registration != nil || RestorableAgentKind.allCases.contains(where: {
+                  $0.rawValue == agentKind.rawValue
+              }) else {
             return nil
         }
         var structuredLaunchCommand = launchCommand
@@ -273,6 +277,7 @@ extension SurfaceResumeBindingSnapshot {
             sessionId: sessionId,
             workingDirectory: cwd,
             launchCommand: structuredLaunchCommand,
+            registration: registration,
             permissionMode: permissionMode
         ).applyingAuthoritativeBindingSelection(selection)
         guard let command = agent.resumeCommand(
