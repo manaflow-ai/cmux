@@ -446,11 +446,10 @@ final class ClaudeHookSessionStore {
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            let requiresToolUseId = normalizedToolUseId == nil
-                && (record.cursorShellCommandOnlyCorrelationDisabled == true
-                    || recentlyCleared[commandIdentity.fingerprint].map {
+            let requiresToolUseId = record.cursorShellCommandOnlyCorrelationDisabled == true
+                || recentlyCleared[commandIdentity.fingerprint].map {
                     now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
-                    } == true)
+                } == true
             // Only a repeated stable tool id is a retry. Without one, two
             // identical commands may be concurrent invocations; preserving
             // both records lets two terminal callbacks consume both waits.
@@ -630,10 +629,13 @@ final class ClaudeHookSessionStore {
     /// Drops all pending Cursor shell approvals when a session stops or starts
     /// a new turn. Returns whether visible pending state was actually present.
     @discardableResult
-    func clearCursorShellApprovals(sessionId: String) throws -> Bool {
+    func clearCursorShellApprovals(
+        sessionId: String,
+        deadline: Date? = nil
+    ) throws -> Bool {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession],
                   record.pendingCursorShellApprovals?.isEmpty == false else {
                 return false
@@ -33143,12 +33145,6 @@ export default CMUXSessionRestore;
         }
 
         func cursorShellFailureIsApprovalDenial(from input: ClaudeHookParsedInput) -> Bool {
-            if cursorShellToolUseId(from: input) != nil {
-                // A stable tool id is an exact completion identity, so the
-                // terminal outcome can be reconciled regardless of failure
-                // wording.
-                return true
-            }
             guard let rawObject = input.rawObject else { return false }
             let values = [
                 firstString(in: rawObject, keys: ["failure_type", "failureType"]),
@@ -33577,7 +33573,10 @@ export default CMUXSessionRestore;
                     print("{}")
                     return
                 }
-                _ = try? store.clearCursorShellApprovals(sessionId: sessionId)
+                _ = try? store.clearCursorShellApprovals(
+                    sessionId: sessionId,
+                    deadline: cursorShellDeadline
+                )
             }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
@@ -34129,7 +34128,10 @@ export default CMUXSessionRestore;
                 || codexSubagentSignals.hasSubagentNotificationRelay
             let clearedCursorApprovalOnStop = def.name == "cursor"
                 && !sessionId.isEmpty
-                && ((try? store.clearCursorShellApprovals(sessionId: sessionId)) == true)
+                && ((try? store.clearCursorShellApprovals(
+                    sessionId: sessionId,
+                    deadline: cursorShellDeadline
+                )) == true)
             if clearedCursorApprovalOnStop, !suppressVisibleMutations {
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
