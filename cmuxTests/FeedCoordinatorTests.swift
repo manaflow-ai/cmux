@@ -787,7 +787,9 @@ struct FeedCoordinatorTests {
                 decision: .permission(.once)
             )
         }
-        #expect(done.wait(timeout: .now() + 2) == .success)
+        #expect(
+            waitForFeedTestSignal(done, timeout: .now() + 2) == .success
+        )
     }
 
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
