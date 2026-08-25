@@ -57,7 +57,9 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
                 for path in members:
                     output.add(
                         path,
-                        arcname=Path(PACKAGE_ROOT, path.relative_to(packages_dir)),
+                        arcname=PurePosixPath(
+                            PACKAGE_ROOT, path.relative_to(packages_dir).as_posix()
+                        ),
                         recursive=False,
                         filter=_normalize_member,
                     )
