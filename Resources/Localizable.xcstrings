@@ -171873,6 +171873,57 @@
         }
       }
     },
+    "settings.betaFeatures.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides every Cloud Machines surface unless remote rollout enables it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートロールアウトで有効化されない限り、クラウドマシンのすべての画面を非表示にします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにクラウドを表示し、クラウドマシンの設定、パレットコマンド、新規ワークスペースの項目も有効にします。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.customSidebars": {
       "extractionState": "manual",
       "localizations": {
@@ -201167,13 +201218,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines"
+            "value": "Cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシン"
+            "value": "クラウド"
           }
         }
       }

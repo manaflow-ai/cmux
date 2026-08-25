@@ -425,7 +425,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let sourcePane = try #require(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
             let sourcePanel = try #require(workspace.newTerminalSurface(inPane: sourcePane, focus: true))
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let existingDockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
 
@@ -490,7 +490,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let workspace = try #require(manager.tabs.first)
             let targetPanel = try #require(workspace.panels.values.first)
             let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
             let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))

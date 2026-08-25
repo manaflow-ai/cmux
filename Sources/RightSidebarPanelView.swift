@@ -65,6 +65,9 @@ struct RightSidebarPanelView: View {
     @AppStorage(RightSidebarBetaFeatureSettings.artifactsEnabledKey)
     private var artifactsEnabled = RightSidebarBetaFeatureSettings.defaultArtifactsEnabled
 
+    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+
     init(
         tabManager: TabManager,
         fileExplorerStore: FileExplorerStore,
@@ -114,7 +117,7 @@ struct RightSidebarPanelView: View {
             artifactsEnabled: artifactsEnabled && featureFlags.isArtifactsEnabled,
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
-            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled
+            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
         )
     }
 
@@ -190,6 +193,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: featureFlags.isArtifactsEnabled) { _, _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
+        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {

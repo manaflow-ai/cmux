@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 const getUser = mock(async (): Promise<unknown> => null);
 
@@ -42,6 +50,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSystemTime();
   if (originalTtl === undefined) delete process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
   else process.env.CMUX_VM_AUTH_CACHE_TTL_MS = originalTtl;
 });
@@ -97,8 +106,9 @@ describe("native auth verification cache", () => {
   test("entries expire after the TTL", async () => {
     process.env.CMUX_VM_AUTH_CACHE_TTL_MS = "20";
 
+    setSystemTime(0);
     await verifyRequest(nativeRequest("access-1"));
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    setSystemTime(21);
     await verifyRequest(nativeRequest("access-1"));
 
     expect(getUser).toHaveBeenCalledTimes(2);

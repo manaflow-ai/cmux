@@ -30,17 +30,57 @@ NPM_TARGETS = (
     NpmTarget("cmux-tui-linux-x64", "linux", "x64"),
     NpmTarget("cmux-tui-linux-arm64", "linux", "arm64"),
 )
+NPM_WINDOWS_TARGET = NpmTarget("cmux-tui-win32-x64", "win32", "x64")
 NPM_PLATFORM_NAMES = tuple(target.name for target in NPM_TARGETS)
-NPM_PACKAGE_NAMES = ("cmux", *NPM_PLATFORM_NAMES)
-NPM_PLATFORM_FILES = frozenset(
-    {"package.json", "bin/cmux-tui", "bin/cmux-tui-hook"}
+NPM_PLATFORM_NAMES_WITH_WINDOWS = (*NPM_PLATFORM_NAMES, NPM_WINDOWS_TARGET.name)
+NPM_RELAY_PLATFORM_NAMES = tuple(
+    target.name.replace("cmux-tui", "cmux-relay") for target in NPM_TARGETS
 )
+NPM_RELAY_PLATFORM_NAMES_WITH_WINDOWS = (
+    *NPM_RELAY_PLATFORM_NAMES,
+    NPM_WINDOWS_TARGET.name.replace("cmux-tui", "cmux-relay"),
+)
+NPM_PACKAGE_NAMES = (
+    "cmux",
+    "cmux-relay",
+    *NPM_PLATFORM_NAMES,
+    *NPM_RELAY_PLATFORM_NAMES,
+)
+NPM_PACKAGE_NAMES_WITH_WINDOWS = (
+    "cmux",
+    "cmux-relay",
+    *NPM_PLATFORM_NAMES_WITH_WINDOWS,
+    *NPM_RELAY_PLATFORM_NAMES_WITH_WINDOWS,
+)
+NPM_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-tui", "bin/cmux-tui-hook"})
 NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
-NPM_EXECUTABLE_FILES = tuple(
-    f"{target.name}/bin/{binary}"
-    for target in NPM_TARGETS
-    for binary in ("cmux-tui", "cmux-tui-hook")
-) + ("cmux/bin/cmux.js",)
+NPM_RELAY_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-relay"})
+NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux-relay.js"})
+
+
+def npm_targets(include_windows: bool) -> tuple[NpmTarget, ...]:
+    return (*NPM_TARGETS, NPM_WINDOWS_TARGET) if include_windows else NPM_TARGETS
+
+
+def _target_binary_paths(target: NpmTarget, names: tuple[str, ...]) -> tuple[str, ...]:
+    extension = ".exe" if target.os == "win32" else ""
+    return tuple(f"{target.name}/bin/{name}{extension}" for name in names)
+
+
+def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
+    targets = npm_targets(include_windows)
+    relay_targets = tuple(
+        NpmTarget(target.name.replace("cmux-tui", "cmux-relay"), target.os, target.cpu)
+        for target in targets
+    )
+    return (
+        tuple(path for target in targets for path in _target_binary_paths(target, ("cmux-tui", "cmux-tui-hook")))
+        + tuple(path for target in relay_targets for path in _target_binary_paths(target, ("cmux-relay",)))
+        + ("cmux/bin/cmux.js", "cmux-relay/bin/cmux-relay.js")
+    )
+
+
+NPM_EXECUTABLE_FILES = npm_executable_files()
 
 PYPI_WHEEL_TAGS = (
     "macosx_11_0_arm64",
@@ -99,6 +139,31 @@ def _require_executable(path: Path, label: str) -> None:
         raise _error(f"{label} is not executable: {path}")
 
 
+def _require_relay_autostart_guard(path: Path) -> None:
+    """Keep the npm launcher aligned with the native autostart safety rule.
+
+    An npm package can be launched through ``npx`` from a disposable ``_npx``
+    cache. The launcher must refuse ``--autostart`` in that case instead of
+    writing a login service that points at a path npm may delete.
+    """
+
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise _error(f"cmux-relay launcher cannot be read: {path}: {error}") from error
+    required_markers = (
+        '"--autostart"',
+        '"_npx"',
+        "npm install --global cmux-relay",
+    )
+    missing = [marker for marker in required_markers if marker not in source]
+    if missing:
+        raise _error(
+            "cmux-relay launcher is missing the ephemeral-npx autostart guard: "
+            + ", ".join(missing)
+        )
+
+
 def _read_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text())
@@ -117,7 +182,49 @@ def _validate_version(actual: object, expected: str | None, label: str) -> str:
     return actual
 
 
-def validate_npm_tree(packages_dir: Path, version: str | None = None) -> str:
+def _validate_package_files(
+    package_dir: Path,
+    target: NpmTarget,
+    *,
+    binary_names: tuple[str, ...],
+    expected_files: frozenset[str],
+    label: str,
+    version: str,
+) -> None:
+    metadata = _read_json(package_dir / "package.json")
+    if metadata.get("name") != target.name:
+        raise _error(f"{label}: package name is incorrect")
+    _validate_version(metadata.get("version"), version, label)
+    if metadata.get("os") != [target.os] or metadata.get("cpu") != [target.cpu]:
+        raise _error(f"{label}: os/cpu selectors are incorrect")
+    extension = ".exe" if target.os == "win32" else ""
+    files = [f"bin/{name}{extension}" for name in binary_names]
+    if metadata.get("files") != files:
+        raise _error(f"{label}: files must be {files}")
+    files_on_disk = _files_below(package_dir)
+    entries = _entries_below(package_dir)
+    expected_entries = expected_files | {"bin"}
+    if entries != expected_entries:
+        raise _error(
+            f"{label}: directory tree mismatch: expected "
+            f"{sorted(expected_entries)}, found {sorted(entries)}"
+        )
+    if files_on_disk != expected_files:
+        missing = sorted(expected_files - files_on_disk)
+        extra = sorted(files_on_disk - expected_files)
+        raise _error(
+            f"{label}: package files mismatch; missing={missing}, unexpected={extra}"
+        )
+    for name in binary_names:
+        _require_executable(package_dir / "bin" / f"{name}{extension}", f"{label} {name}")
+
+
+def validate_npm_tree(
+    packages_dir: Path,
+    version: str | None = None,
+    *,
+    include_windows: bool = False,
+) -> str:
     """Validate the generated npm package directory tree.
 
     Returns the package version. If ``version`` is omitted, the launcher version
@@ -133,7 +240,14 @@ def validate_npm_tree(packages_dir: Path, version: str | None = None) -> str:
         if path.is_symlink():
             raise _error(f"npm package root contains symlink: {path.name}")
     actual_root_entries = tuple(sorted(path.name for path in root_paths))
-    expected_packages = tuple(sorted(NPM_PACKAGE_NAMES))
+    targets = npm_targets(include_windows)
+    relay_targets = tuple(
+        NpmTarget(target.name.replace("cmux-tui", "cmux-relay"), target.os, target.cpu)
+        for target in targets
+    )
+    expected_packages = tuple(
+        sorted(("cmux", "cmux-relay", *(target.name for target in targets), *(target.name for target in relay_targets)))
+    )
     if actual_root_entries != expected_packages:
         raise _error(
             f"npm package set mismatch: expected {expected_packages}, "
@@ -166,9 +280,7 @@ def validate_npm_tree(packages_dir: Path, version: str | None = None) -> str:
         raise _error("cmux: files must contain only bin/cmux.js")
     if launcher_metadata.get("bin") != {"cmux": "bin/cmux.js"}:
         raise _error("cmux: bin mapping is incorrect")
-    expected_dependencies = {
-        target.name: package_version for target in NPM_TARGETS
-    }
+    expected_dependencies = {target.name: package_version for target in targets}
     if launcher_metadata.get("optionalDependencies") != expected_dependencies:
         raise _error(
             "cmux: optionalDependencies mismatch: "
@@ -177,34 +289,67 @@ def validate_npm_tree(packages_dir: Path, version: str | None = None) -> str:
         )
     _require_executable(launcher_dir / "bin/cmux.js", "cmux launcher")
 
-    for target in NPM_TARGETS:
-        package_dir = packages_dir / target.name
-        metadata = _read_json(package_dir / "package.json")
-        label = target.name
-        if metadata.get("name") != target.name:
-            raise _error(f"{label}: package name is incorrect")
-        _validate_version(metadata.get("version"), package_version, label)
-        if metadata.get("os") != [target.os] or metadata.get("cpu") != [target.cpu]:
-            raise _error(f"{label}: os/cpu selectors are incorrect")
-        if metadata.get("files") != ["bin/cmux-tui", "bin/cmux-tui-hook"]:
-            raise _error(f"{label}: files must contain the binary and hook only")
-        files = _files_below(package_dir)
-        entries = _entries_below(package_dir)
-        expected_entries = NPM_PLATFORM_FILES | {"bin"}
-        if entries != expected_entries:
-            raise _error(
-                f"{label}: directory tree mismatch: expected "
-                f"{sorted(expected_entries)}, found {sorted(entries)}"
-            )
-        if files != NPM_PLATFORM_FILES:
-            missing = sorted(NPM_PLATFORM_FILES - files)
-            extra = sorted(files - NPM_PLATFORM_FILES)
-            raise _error(
-                f"{label}: package files mismatch; missing={missing}, "
-                f"unexpected={extra}"
-            )
-        _require_executable(package_dir / "bin/cmux-tui", f"{label} binary")
-        _require_executable(package_dir / "bin/cmux-tui-hook", f"{label} hook")
+    relay_launcher_dir = packages_dir / "cmux-relay"
+    relay_launcher_metadata = _read_json(relay_launcher_dir / "package.json")
+    if relay_launcher_metadata.get("name") != "cmux-relay":
+        raise _error("cmux-relay: package name is incorrect")
+    _validate_version(relay_launcher_metadata.get("version"), package_version, "cmux-relay")
+    relay_launcher_files = _files_below(relay_launcher_dir)
+    relay_launcher_entries = _entries_below(relay_launcher_dir)
+    expected_relay_launcher_entries = NPM_RELAY_LAUNCHER_FILES | {"bin"}
+    if relay_launcher_entries != expected_relay_launcher_entries:
+        raise _error(
+            f"cmux-relay: directory tree mismatch: expected "
+            f"{sorted(expected_relay_launcher_entries)}, found {sorted(relay_launcher_entries)}"
+        )
+    if relay_launcher_files != NPM_RELAY_LAUNCHER_FILES:
+        raise _error(
+            f"cmux-relay: package files mismatch: expected "
+            f"{sorted(NPM_RELAY_LAUNCHER_FILES)}, found {sorted(relay_launcher_files)}"
+        )
+    if relay_launcher_metadata.get("files") != ["bin/cmux-relay.js"]:
+        raise _error("cmux-relay: files must contain only bin/cmux-relay.js")
+    if relay_launcher_metadata.get("bin") != {"cmux-relay": "bin/cmux-relay.js"}:
+        raise _error("cmux-relay: bin mapping is incorrect")
+    expected_relay_dependencies = {target.name: package_version for target in relay_targets}
+    if relay_launcher_metadata.get("optionalDependencies") != expected_relay_dependencies:
+        raise _error(
+            "cmux-relay: optionalDependencies mismatch: "
+            f"expected {expected_relay_dependencies}, "
+            f"found {relay_launcher_metadata.get('optionalDependencies')}"
+        )
+    _require_executable(relay_launcher_dir / "bin/cmux-relay.js", "cmux-relay launcher")
+    _require_relay_autostart_guard(relay_launcher_dir / "bin/cmux-relay.js")
+
+    for target in targets:
+        _validate_package_files(
+            packages_dir / target.name,
+            target,
+            binary_names=("cmux-tui", "cmux-tui-hook"),
+            expected_files=frozenset(
+                {
+                    "package.json",
+                    f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
+                    f"bin/cmux-tui-hook{'.exe' if target.os == 'win32' else ''}",
+                }
+            ),
+            label=target.name,
+            version=package_version,
+        )
+    for target in relay_targets:
+        _validate_package_files(
+            packages_dir / target.name,
+            target,
+            binary_names=("cmux-relay",),
+            expected_files=frozenset(
+                {
+                    "package.json",
+                    f"bin/cmux-relay{'.exe' if target.os == 'win32' else ''}",
+                }
+            ),
+            label=target.name,
+            version=package_version,
+        )
 
     return package_version
 

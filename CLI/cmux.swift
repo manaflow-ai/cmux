@@ -3222,12 +3222,35 @@ struct CMUXCLI {
         // create can finish before the app has focused the new workspace, and an
         // untargeted split would land in whatever was focused before. Without a
         // target (a later "open desktop"), the split goes where the person is.
-        var params: [String: Any] = ["url": openUrl + "&autoconnect=1&resize=remote"]
+        // reconnect: autoconnect only covers the first load — without it a machine
+        // sleeping, waking, or any dropped websocket leaves the pane parked on
+        // noVNC's disconnected screen until someone reopens the desktop.
+        var params: [String: Any] = ["url": openUrl + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"]
         if let workspaceId {
             params["workspace_id"] = workspaceId
         }
         let opened = try? client.sendV2(method: "browser.open_split", params: params)
         return opened != nil
+    }
+
+    /// The workspace already attached to a managed Cloud VM, so a later desktop
+    /// open lands beside that machine's shell instead of wherever focus happens
+    /// to be. Nil when the machine has no open workspace.
+    private func vmAttachedWorkspaceId(vmId: String, client: SocketClient) -> String? {
+        guard let response = try? client.sendV2(method: "workspace.list"),
+              let workspaces = response["workspaces"] as? [[String: Any]] else {
+            return nil
+        }
+        for workspace in workspaces {
+            let remote = workspace["remote"] as? [String: Any]
+            guard let attached = remote?["managed_cloud_vm_id"] as? String,
+                  attached == vmId,
+                  let id = workspace["id"] as? String else {
+                continue
+            }
+            return id
+        }
+        return nil
     }
     /// One-line activity-monitor reading: `swift-gecko  awake · CPU 12% · Mem 1.1/4.0 GB · Disk 2.3/5.0 GB · load 0.42 (2 cpus)`.
     static func formatVMStatsLine(id: String, payload: [String: Any]) -> String {
@@ -4734,9 +4757,10 @@ struct CMUXCLI {
                 }
 
             case "desktop", "vnc":
-                // The machine's screen, on demand: the noVNC desktop opens as a new browser
-                // pane in the workspace you are in (or the one named by --workspace). The
-                // create-time layout puts it beside the shell; later opens follow you.
+                // The machine's screen, on demand: the noVNC desktop opens as a browser
+                // pane in the machine's own workspace when it has one open (beside its
+                // shell), in the workspace named by --workspace, or where you are when
+                // the machine has no open workspace.
                 let (workspaceOpt, vmArgs) = parseOption(rest, name: "--workspace")
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
@@ -4746,7 +4770,8 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: workspaceOpt) else {
+                let desktopWorkspace = workspaceOpt ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
+                guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace) else {
                     throw CLIError(message: String(
                         localized: "cli.vm.desktop.unavailable",
                         defaultValue: "\(vmId) has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."
@@ -4874,7 +4899,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                try vmOpenShell(
+                let shellWorkspaceId = try vmOpenShell(
                     id: vmId,
                     workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
@@ -4887,7 +4912,10 @@ struct CMUXCLI {
                 if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
-                    _ = try? openVMDesktopSplit(vmId: vmId, client: client)
+                    // The screen belongs beside the shell it was opened with, not in
+                    // whatever workspace holds focus once the attach settles.
+                    let desktopWorkspace = shellWorkspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
+                    _ = try? openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace)
                 }
 
             case "rename":

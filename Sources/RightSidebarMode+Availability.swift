@@ -27,7 +27,7 @@ extension RightSidebarMode {
             artifactsEnabled: RightSidebarBetaFeatureSettings.isArtifactsEnabled(defaults: defaults),
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CmuxFeatureFlags.offMainIsCloudVMUIEnabled
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
@@ -67,7 +67,7 @@ extension RightSidebarMode {
             artifactsEnabled: RightSidebarBetaFeatureSettings.isArtifactsEnabled(defaults: defaults),
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CmuxFeatureFlags.offMainIsCloudVMUIEnabled
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 

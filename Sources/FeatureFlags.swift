@@ -463,7 +463,7 @@ final class CmuxFeatureFlags {
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshRemoteFlags() }
         }
     }
