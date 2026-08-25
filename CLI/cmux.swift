@@ -218,6 +218,11 @@ struct ClaudeHookSessionRecord: Codable {
                     with: "<token>",
                     options: [.regularExpression, .caseInsensitive]
                 )
+                .replacingOccurrences(
+                    of: #"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#,
+                    with: "<credential>=<token>",
+                    options: [.regularExpression, .caseInsensitive]
+                )
             return String(redacted.prefix(180))
         }
 
@@ -32199,6 +32204,11 @@ export default CMUXSessionRestore;
                     .appendingPathComponent("cli-config.json", isDirectory: false),
                 readsApprovalMode: true
             )
+            // Cursor documents allowlist as the default when approvalMode is
+            // absent, including minimal configs that only contain permissions.
+            if mode == nil {
+                mode = "allowlist"
+            }
 
             guard let rawCwd = hookCwd ?? normalizedHookValue(env["PWD"]) else {
                 return (mode, allowedShellCommands, deniedShellCommands)
@@ -33905,6 +33915,7 @@ export default CMUXSessionRestore;
                         detail: "cursor-shell-approval-persistence-failed"
                     )
                     hookResponse = "{}"
+                    print("{}")
                     return
                 }
             }
