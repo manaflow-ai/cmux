@@ -218,6 +218,59 @@ struct ClaudeBackgroundWorkNotifyTests {
         }
     }
 
+    /// A started agent is present and ready, so its pane must read as ready
+    /// rather than as an empty terminal, and `/clear` must not report the agent
+    /// as working while it sits at a fresh empty prompt.
+    ///
+    /// Both session starts share one context and mock server: every context
+    /// parks a global-queue thread in `accept()` for the run, and a context per
+    /// case starves the pool until unrelated hooks time out.
+    @Test func sessionStartPublishesIdleAndClearDoesNotReportRunning() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "session-start-idle")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-session-start-idle",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-session-start-idle",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+
+        for (session, source) in [("startup", "startup"), ("cleared", "clear")] {
+            let start = context.state.snapshot().count
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "session-start"],
+                environment: environment,
+                standardInput: #"{"session_id":"session-start-\#(session)","cwd":"/tmp/x","hook_event_name":"SessionStart","source":"\#(source)"}"#,
+                // Above the agents' own 5s hook budget: a busy machine starves a
+                // healthy hook past 5s, which then reads as a product hang.
+                timeout: 15
+            )
+            #expect(handled.wait(timeout: .now() + 15) == .success)
+            harness.assertSuccessfulHook(result)
+            let commands = Array(context.state.snapshot().dropFirst(start))
+            #expect(
+                commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle ") },
+                "source=\(source) must publish idle so a ready agent is not read as no agent; saw \(commands)"
+            )
+            #expect(
+                !commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") },
+                "source=\(source) must not report the agent as working; saw \(commands)"
+            )
+            #expect(
+                !commands.contains { $0.hasPrefix("set_status claude_code Running ") },
+                "source=\(source) must not set a Running pill; saw \(commands)"
+            )
+        }
+    }
+
     @Test func notificationWithoutTypeFallsBackToCueClassification() throws {
         // Older claude clients omit notification_type; the permission cue in the
         // message must still gate the alert under "Agent Needs Permission".
