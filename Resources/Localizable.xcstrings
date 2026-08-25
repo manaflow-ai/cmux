@@ -53929,16 +53929,124 @@
     "cli.ssh.error.mixedTTYOptionCluster": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: مجموعة خيارات قصيرة مختلطة '%@' غير مدعومة بعد الوجهة؛ استخدم --ssh-option لخيارات SSH أو -- لوسائط الأمر البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: miješani klaster kratkih opcija '%@' nije podržan nakon odredišta; koristite --ssh-option za SSH zastavice ili -- za argumente udaljene naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kort indstillingsklynge '%@' understøttes ikke efter destinationen; brug --ssh-option til SSH-flag eller -- til argumenter til fjernkommandoen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Gemischter Kurzoptions-Cluster „%@“ wird nach dem Ziel nicht unterstützt; verwenden Sie --ssh-option für SSH-Optionen oder -- für Argumente des Remote-Befehls"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh: mixed short-option cluster '%@' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: el grupo de opciones cortas mixtas '%@' no se admite después del destino; usa --ssh-option para las opciones de SSH o -- para los argumentos del comando remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : le groupe d’options courtes mixtes « %@ » n’est pas pris en charge après la destination ; utilisez --ssh-option pour les options SSH ou -- pour les arguments de commande distante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: il gruppo di opzioni brevi miste \"%@\" non è supportato dopo la destinazione; usa --ssh-option per le opzioni SSH o -- per gli argomenti del comando remoto"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh: 宛先の後の混在した短いオプションクラスター「%@」はサポートされていません。SSH フラグには --ssh-option、リモートコマンド引数には -- を使用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ក្រុមជម្រើសខ្លីចម្រុះ '%@' មិនត្រូវបានគាំទ្របន្ទាប់ពីទិសដៅទេ; ប្រើ --ssh-option សម្រាប់ជម្រើស SSH ឬ -- សម្រាប់អាគុយម៉ង់ពាក្យបញ្ជាពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 대상 뒤의 혼합 짧은 옵션 클러스터 '%@'는 지원되지 않습니다. SSH 플래그에는 --ssh-option을, 원격 명령 인수에는 --를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kortalternativklynge '%@' støttes ikke etter målet; bruk --ssh-option for SSH-flagg eller -- for argumenter til fjernkommandoen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mieszany klaster krótkich opcji „%@” nie jest obsługiwany po miejscu docelowym; użyj --ssh-option dla flag SSH lub -- dla argumentów zdalnego polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: o agrupamento misto de opções curtas \"%@\" não é compatível após o destino; use --ssh-option para opções SSH ou -- para argumentos do comando remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: смешанная группа коротких параметров «%@» после адресата не поддерживается; используйте --ssh-option для параметров SSH или -- для аргументов удалённой команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ไม่รองรับกลุ่มตัวเลือกแบบสั้นที่ผสมกัน '%@' หลังปลายทาง โปรดใช้ --ssh-option สำหรับแฟล็ก SSH หรือ -- สำหรับอาร์กิวเมนต์คำสั่งระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: hedefin ardından gelen karma kısa seçenek kümesi '%@' desteklenmiyor; SSH seçenekleri için --ssh-option, uzak komut bağımsız değişkenleri için -- kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: змішаний кластер коротких параметрів «%@» після призначення не підтримується; використовуйте --ssh-option для параметрів SSH або -- для аргументів віддаленої команди"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目标之后不支持混合短选项集“%@”；SSH 选项请使用 --ssh-option，远程命令参数请使用 --"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目的地後不支援混合短選項叢集「%@」；SSH 選項請使用 --ssh-option，遠端命令引數請使用 --"
           }
         }
       }
