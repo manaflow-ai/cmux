@@ -154,6 +154,21 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func workspaceReorderPreservesDividerAnchoredToMovedWorkspace() {
+        let (model, _, _, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let third = CoordinatorStubTab()
+        let fourth = CoordinatorStubTab()
+        model.tabs = [first, second, third, fourth]
+        _ = model.insertSidebarDivider(after: first.id)
+
+        #expect(reorder.reorderWorkspace(tabId: first.id, toIndex: 1))
+        #expect(model.tabs.map(\.id) == [second.id, first.id, third.id, fourth.id])
+        #expect(model.sidebarDivider(after: first.id) != nil)
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
