@@ -184,7 +184,7 @@ extension GitMetadataService {
             [
                 path,
                 URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-            ]
+            ].filter(isWatchableConfigDependency)
         }
     }
 
@@ -298,6 +298,14 @@ extension GitMetadataService {
             )
             return isAllowedDirectoryWatchRoot(resolved, repository: repository)
         }
+    }
+
+    private nonisolated static func isWatchableConfigDependency(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            return true
+        }
+        return !isDirectory.boolValue
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path
