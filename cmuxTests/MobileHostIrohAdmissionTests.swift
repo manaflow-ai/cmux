@@ -219,6 +219,20 @@ extension MobileHostAuthorizationTests {
 @MainActor
 @Suite(.serialized)
 struct IrohTailscaleVersionSkewMacGateTests {
+    @Test func artifactCapabilitiesFollowTheExplicitGate() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: false,
+            includingArtifacts: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: false,
+            includingArtifacts: false
+        )
+        #expect(enabled.contains("chat.artifact.save.v1"))
+        #expect(!disabled.contains("chat.artifact.save.v1"))
+        #expect(!disabled.contains("chat.artifact.v1"))
+    }
+
     #if DEBUG
     @Test func testIrohRPCMethodInventorySurvivesTheFramedWirePath() async throws {
         let requestID = "iroh-rpc-inventory"

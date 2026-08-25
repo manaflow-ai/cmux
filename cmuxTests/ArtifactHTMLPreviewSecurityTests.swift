@@ -93,6 +93,10 @@ struct ArtifactHTMLPreviewSecurityTests {
         try FileManager.default.removeItem(at: parent)
         try FileManager.default.createSymbolicLink(at: parent, withDestinationURL: outside)
 
+        #expect(ArtifactSidebarFileAccess().validatedFileURL(
+            for: source,
+            artifactRoot: root
+        ) == nil)
         await #expect(throws: CocoaError.self) {
             _ = try await ArtifactHTMLPreviewDocument.load(
                 sourceURL: source,
