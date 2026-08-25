@@ -3722,7 +3722,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ event: TerminalPointerStyleEvent,
         focusGeneration: UInt64? = nil
     ) -> Bool {
-        if case .ghosttyShape = event,
+        // Base Ghostty shapes include persistent OSC 22 state and must survive
+        // focus epochs; only transient hyperlink hover is epoch-sensitive.
+        if case .ghosttyLinkHoverChanged = event,
            let focusGeneration,
            focusGeneration != pointerStyleFocusGeneration {
             return false
