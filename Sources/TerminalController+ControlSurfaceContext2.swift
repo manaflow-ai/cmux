@@ -377,13 +377,15 @@ extension TerminalController {
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newPanelId: UUID?
         if panelType == .browser {
-            newPanelId = ws.newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: focus,
-                creationPolicy: .automationPreload,
-                bypassRemoteProxy: useLocalContext
-            )?.id
+            newPanelId = ws.withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+                ws.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload,
+                    bypassRemoteProxy: useLocalContext
+                )
+            }?.id
         } else if panelType == .simulator {
             newPanelId = ws.newSimulatorSurface(
                 inPane: paneId,
@@ -398,18 +400,20 @@ extension TerminalController {
                 focus: focus
             )?.id
         } else {
-            switch ws.newTerminalSurfaceOutcome(
-                inPane: paneId,
-                focus: focus,
-                workingDirectory: inputs.workingDirectory,
-                initialCommand: inputs.initialCommand,
-                tmuxStartCommand: inputs.tmuxStartCommand,
-                startupEnvironment: inputs.startupEnvironment,
-                remotePTYSessionID: inputs.remotePTYSessionID,
-                suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
-            ) {
+            switch ws.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+                ws.newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: focus,
+                    workingDirectory: inputs.workingDirectory,
+                    initialCommand: inputs.initialCommand,
+                    tmuxStartCommand: inputs.tmuxStartCommand,
+                    startupEnvironment: inputs.startupEnvironment,
+                    remotePTYSessionID: inputs.remotePTYSessionID,
+                    suppressWorkspaceRemoteStartupCommand: useLocalContext,
+                    inheritWorkingDirectoryFallback: true,
+                    allowTextBoxFocusDefault: false
+                )
+            }) {
             case .created(let panel):
                 newPanelId = panel.id
             case .routedToRemote:

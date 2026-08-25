@@ -252,7 +252,7 @@ extension TerminalController {
         }
 
         if isBrowser {
-            guard let id = tab.withNewTabZoomPolicy(inPane: targetPaneId, {
+            guard let id = tab.withNewTabZoomPolicy(inPane: targetPaneId, applyPolicy: focus, {
                 tab.newBrowserSurface(
                     inPane: targetPaneId,
                     url: url,
@@ -264,7 +264,7 @@ extension TerminalController {
             }
             return .created(id)
         }
-        switch tab.withNewTerminalTabZoomPolicy(inPane: targetPaneId, {
+        switch tab.withNewTerminalTabZoomPolicy(inPane: targetPaneId, applyPolicy: focus, {
             tab.newTerminalSurfaceOutcome(
                 inPane: targetPaneId,
                 focus: focus,

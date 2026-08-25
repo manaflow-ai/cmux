@@ -10595,12 +10595,14 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
-                inPane: pane,
-                url: url,
-                focus: true,
-                creationPolicy: .automationPreload
-            ) else {
+            guard let panel = ws.withNewTabZoomPolicy(inPane: pane, {
+                ws.newBrowserSurface(
+                    inPane: pane,
+                    url: url,
+                    focus: true,
+                    creationPolicy: .automationPreload
+                )
+            }) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -15014,7 +15016,7 @@ class TerminalController {
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
-        let outcome = workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+        let outcome = workspace.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: false) {
             workspace.newTerminalSurfaceOutcome(
                 inPane: paneId,
                 focus: false,

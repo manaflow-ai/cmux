@@ -10630,8 +10630,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func withNewTabZoomPolicy<Result>(
         inPane paneId: PaneID,
+        applyPolicy: Bool = true,
         _ operation: () -> Result?
     ) -> Result? {
+        guard applyPolicy else { return operation() }
         let previousZoomedPaneId = bonsplitController.zoomedPaneId
         applyNewTabZoomPolicy(inPane: paneId)
         let result = operation()
@@ -10651,8 +10653,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func withNewTerminalTabZoomPolicy(
         inPane paneId: PaneID,
+        applyPolicy: Bool = true,
         _ operation: () -> TerminalPanelCreationOutcome
     ) -> TerminalPanelCreationOutcome {
+        guard applyPolicy else { return operation() }
         let previousZoomedPaneId = bonsplitController.zoomedPaneId
         applyNewTabZoomPolicy(inPane: paneId)
         let outcome = operation()
