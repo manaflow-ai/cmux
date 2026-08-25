@@ -1761,15 +1761,14 @@ async fn run_git_status_until(
     if let Err(error) = read_result {
         stop_git(&mut child).await;
         process_guard.kill_group();
-        disarm_if_reaped(&child, &mut process_guard);
         if let Some(task) = stderr_task.take() {
             let result = task.finish().await?;
             if !result.complete {
-                // Keep the process-group guard armed until inherited pipes
-                // are closed. Its Drop will terminate any surviving helper.
+                process_guard.kill_group();
                 return Err(Refusal::failed(format!("could not read git status: {error}")));
             }
         }
+        disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed(format!("could not read git status: {error}")));
     }
     let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
@@ -1777,7 +1776,6 @@ async fn run_git_status_until(
         stdout_bytes.truncate(STATUS_MAX_BYTES);
         stop_git(&mut child).await;
         process_guard.kill_group();
-        disarm_if_reaped(&child, &mut process_guard);
     }
     let status = match wait_git_until(&mut child, deadline).await {
         Ok(status) => status,
@@ -1788,22 +1786,24 @@ async fn run_git_status_until(
         }
     };
     // The leader is reaped at this point. Kill helpers which may still own an
-    // inherited pipe while the process-group identity is fresh, then disarm
-    // the numeric-PID guard before awaiting the bounded stderr drain.
+    // inherited pipe while the process-group identity is fresh. Keep the
+    // guard armed until the bounded stderr drain confirms that no helper is
+    // still holding the pipe.
     process_guard.kill_group();
-    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
             if !result.complete {
-                // The guard is deliberately still armed. A helper retaining
-                // stderr after git exited must be killed before this scope
-                // is released.
+                process_guard.kill_group();
                 return Err(Refusal::failed("git status stderr drain timed out"));
             }
+            process_guard.disarm();
             result.bytes
         }
-        None => Vec::new(),
+        None => {
+            process_guard.disarm();
+            Vec::new()
+        }
     };
     if !status.success() {
         return Err(git_refusal("git status failed", &stderr));
@@ -1972,7 +1972,6 @@ async fn run_git_diff_until(
                     Err(error) => {
                         stop_git(&mut child).await;
                         process_guard.kill_group();
-                        disarm_if_reaped(&child, &mut process_guard);
                         if let Some(task) = stderr_task.take() {
                             let _ = task.finish().await;
                         }
@@ -1982,7 +1981,6 @@ async fn run_git_diff_until(
                 Err(_) => {
                     stop_git(&mut child).await;
                     process_guard.kill_group();
-                    disarm_if_reaped(&child, &mut process_guard);
                     if let Some(task) = stderr_task.take() {
                         let _ = task.finish().await;
                     }
@@ -1992,7 +1990,6 @@ async fn run_git_diff_until(
             None => {
                 stop_git(&mut child).await;
                 process_guard.kill_group();
-                disarm_if_reaped(&child, &mut process_guard);
                 if let Some(task) = stderr_task.take() {
                     let _ = task.finish().await;
                 }
@@ -2031,21 +2028,24 @@ async fn run_git_diff_until(
         }
     };
     // The leader is reaped at this point. Kill helpers which may still own an
-    // inherited pipe while the process-group identity is fresh, then disarm
-    // the numeric-PID guard before awaiting the bounded stderr drain.
+    // inherited pipe while the process-group identity is fresh. Keep the
+    // guard armed until the bounded stderr drain confirms that no helper is
+    // still holding the pipe.
     process_guard.kill_group();
-    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
             if !result.complete {
-                // Keep the group guard armed when a descendant still owns
-                // stderr. Dropping it sends SIGKILL to the private group.
+                process_guard.kill_group();
                 return Err(Refusal::failed("git diff stderr drain timed out"));
             }
+            process_guard.disarm();
             result.bytes
         }
-        None => Vec::new(),
+        None => {
+            process_guard.disarm();
+            Vec::new()
+        }
     };
     if !status.success() {
         return Err(git_refusal("git diff failed", &stderr));
