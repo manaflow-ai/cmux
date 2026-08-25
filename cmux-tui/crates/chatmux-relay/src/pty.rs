@@ -1584,12 +1584,22 @@ impl OrderedControlQueue {
         let completed = self.drain_closing().await;
         self.closing_running.store(false, Ordering::Release);
         self.closing_notify.notify_waiters();
-        if !completed && !self.state.lock().expect("ordered control queue lock").closing_failed {
-            // If the bounded wire queue was full, retry once the current
-            // worker has drained it. The wire worker also performs this check
-            // when it reaches an empty queue; this call closes the race where
-            // it finished while this waiter still owned `closing_running`.
-            self.schedule_closing();
+        if !completed {
+            let closing_failed =
+                { self.state.lock().expect("ordered control queue lock").closing_failed };
+            if closing_failed {
+                // The close worker may observe a dropped reply independently
+                // of the wire worker. Apply the same target-wide detach in
+                // that path so replacements cannot remain stuck.
+                self.fail_target_after_close();
+            } else {
+                // If the bounded wire queue was full, retry once the current
+                // worker has drained it. The wire worker also performs this
+                // check when it reaches an empty queue; this call closes the
+                // race where it finished while this waiter still owned
+                // `closing_running`.
+                self.schedule_closing();
+            }
         }
         completed
     }
@@ -1620,6 +1630,11 @@ impl OrderedControlQueue {
                     // detached endpoint's close queue was full. Reconcile
                     // it only after the daemon-acknowledged close barrier.
                     coordinator.request_reconcile(Arc::clone(&target));
+                } else if { queue.state.lock().expect("ordered control queue lock").closing_failed }
+                {
+                    // `drain_closing` can fail after its reply is dropped,
+                    // without the wire worker seeing the close command.
+                    coordinator.fail_target_after_close(&target);
                 }
                 coordinator.remove_retired_target(&target);
             }
@@ -1656,9 +1671,12 @@ impl OrderedControlQueue {
             if !response.await.unwrap_or(false) {
                 // No daemon-observed barrier means no later authority command
                 // is safe. Leave this endpoint in `closing` and freeze.
-                let mut state = self.state.lock().expect("ordered control queue lock");
-                state.closing_inflight.retain(|current| *current != pointer);
-                state.closing_failed = true;
+                {
+                    let mut state = self.state.lock().expect("ordered control queue lock");
+                    state.closing_inflight.retain(|current| *current != pointer);
+                    state.closing_failed = true;
+                }
+                self.fail_target_after_close();
                 return false;
             }
             let mut state = self.state.lock().expect("ordered control queue lock");
