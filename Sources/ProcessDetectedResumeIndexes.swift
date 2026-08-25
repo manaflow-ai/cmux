@@ -66,6 +66,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
                     ttyDeviceBindings: ttyDeviceBindings
                 )
                 _ = gate.resume(returning: result)
+                return result
             }
             onWorkerCreated(worker)
             Task {

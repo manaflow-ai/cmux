@@ -483,12 +483,11 @@ struct MainWindowLifecycleCoordinatorTests {
         )
         #expect(coordinator.transitionToOrphaned(route, from: context))
 
-        let task: Task<Bool, Never> = Task { @MainActor in
+        let task: Task<Void, Never> = Task { @MainActor in
             for _ in 0..<256 {
-                if Task.isCancelled { return true }
+                if Task.isCancelled { return }
                 await Task.yield()
             }
-            return false
         }
         coordinator.retainWindowlessRouteFreezeTask(
             task,
@@ -497,7 +496,8 @@ struct MainWindowLifecycleCoordinatorTests {
         )
         coordinator.removeRecoverableRoute(windowId: windowId)
 
-        #expect(await task.value)
+        _ = await task.value
+        #expect(task.isCancelled)
     }
 
     private func emptyWindowSnapshot(windowId: UUID) -> SessionWindowSnapshot {
