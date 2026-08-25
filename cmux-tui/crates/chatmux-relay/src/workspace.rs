@@ -1468,11 +1468,22 @@ async fn stop_git(child: &mut tokio::process::Child) {
 }
 
 struct GitProcessGuard(Option<u32>);
-impl GitProcessGuard { fn new(child: &tokio::process::Child) -> Self { Self(child.id()) } fn disarm(&mut self) { self.0 = None; } }
+impl GitProcessGuard {
+    fn new(child: &tokio::process::Child) -> Self {
+        Self(child.id())
+    }
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
 impl Drop for GitProcessGuard {
     fn drop(&mut self) {
         #[cfg(unix)]
-        if let Some(pid) = self.0 { unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL); } }
+        if let Some(pid) = self.0 {
+            unsafe {
+                libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
     }
 }
 
