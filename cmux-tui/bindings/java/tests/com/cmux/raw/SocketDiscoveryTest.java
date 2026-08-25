@@ -63,6 +63,7 @@ public final class SocketDiscoveryTest {
             SocketDiscovery.resolve(null, "main", env, "501").equals(Path.of("   ")),
             "whitespace socket value is preserved"
         );
+        env.remove("CMUX_TUI_SOCKET");
         env.remove("CMUX_MUX_SOCKET");
         check(
             SocketDiscovery.resolve(null, "main", env, "501")
