@@ -1031,6 +1031,35 @@ impl Inner {
         }));
     }
 
+    fn emit_raw_exit(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        stream: &TerminalStream,
+        code: i64,
+        context: &FrameContext,
+        control: &Weak<dyn PtyControl>,
+    ) {
+        if !stream.overflowed() {
+            self.emit_exit(pty_id, generation, code, context, control);
+            return;
+        }
+        let Some(control) = control.upgrade() else { return };
+        // A stale overflow callback must not send an error after a replacement
+        // attachment has taken the same pty ID. The generation check and
+        // removal are one operation; only the owner of the current entry may
+        // kill it or report overflow.
+        if self.remove_attachment_if_current(pty_id, generation, &control) {
+            control.kill();
+            send_pty_error(
+                context,
+                pty_id,
+                operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
+                "pty output backlog overflowed; reattach to continue receiving output",
+            );
+        }
+    }
+
     fn emit_exit(
         &self,
         pty_id: &str,
@@ -2169,27 +2198,14 @@ impl Inner {
         let gate_for_exit = Arc::clone(&gate);
         let on_exit: ExitSink = Arc::new(move |code| {
             let _guard = gate_for_exit.lock().expect("attachment gate");
-            if stream_for_exit.overflowed() {
-                if let Some(control) = control_identity.upgrade()
-                    && relay.remove_attachment_if_current(&pty_id_for_exit, generation, &control)
-                {
-                    control.kill();
-                }
-                send_pty_error(
-                    &context_for_exit,
-                    &pty_id_for_exit,
-                    operational_pty_error_code(&context_for_exit, RelayPtyErrorCode::Overflow),
-                    "pty output backlog overflowed; reattach to continue receiving output",
-                );
-            } else {
-                relay.emit_exit(
-                    &pty_id_for_exit,
-                    generation,
-                    code,
-                    &context_for_exit,
-                    &control_identity,
-                );
-            }
+            relay.emit_raw_exit(
+                &pty_id_for_exit,
+                generation,
+                &stream_for_exit,
+                code,
+                &context_for_exit,
+                &control_identity,
+            );
         });
         let start_stream = Arc::clone(&stream);
         Ok(Some(Opened {
@@ -3034,6 +3050,41 @@ mod tests {
         assert_eq!(
             frames.last().and_then(|frame| frame.get("code")).and_then(Value::as_i64),
             Some(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_overflow_after_reopen_cannot_error_replacement() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let old = h.manager.inner.attachments.lock().unwrap().get("p1").unwrap().clone();
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let replacement_generation =
+            h.manager.inner.attachments.lock().unwrap().get("p1").unwrap().generation;
+
+        let stale_stream = TerminalStream::new();
+        stale_stream.push_output(Bytes::from(vec![b'x'; RAW_ATTACH_BACKLOG_CAP]));
+        stale_stream.push_output(Bytes::from_static(b"late"));
+        assert!(stale_stream.overflowed());
+
+        let old_control = Arc::clone(&old.control);
+        let old_identity = Arc::downgrade(&old_control);
+        let before = h.sent().len();
+        h.manager.inner.emit_raw_exit(
+            "p1",
+            old.generation,
+            &stale_stream,
+            1,
+            &h.context("supervised", h.owner.clone()),
+            &old_identity,
+        );
+
+        let after = h.sent();
+        assert!(!after[before..].iter().any(|frame| ty(frame) == "pty_error"));
+        assert_eq!(
+            h.manager.inner.attachments.lock().unwrap().get("p1").unwrap().generation,
+            replacement_generation
         );
     }
 
