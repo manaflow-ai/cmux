@@ -2122,8 +2122,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context
         ) { session in
             session["autoNameLastTitle"] = "Investigate auth"
-            session["autoNameLastLineCount"] = 500
-            session["autoNameLastObservedLineCount"] = 500
+            session["autoNameLastLineCount"] = 1
+            session["autoNameLastObservedLineCount"] = 1
             session["autoNameTitleReconciliationAttemptCount"] = 4
             session["autoNameTitleReconciliationGeneration"] = nil
             session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
@@ -2150,6 +2150,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             autoNamingProbeRequestCount(in: commands),
             1,
             "An exhausted reconciliation must not keep forking detached workers"
+        )
+
+        let expandedTranscript = try String(contentsOf: transcriptURL, encoding: .utf8)
+            + "\n"
+            + String(repeating: "x", count: 2048)
+        try expandedTranscript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let recoveryProbe = expectation(description: "reconciliation recovery detached probe")
+        let recoveryStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: recoveryProbe
+        )
+        let recovery = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"More work"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(recovery.timedOut, recovery.stderr)
+        XCTAssertEqual(recovery.status, 0, recovery.stderr)
+        wait(for: [recoveryProbe], timeout: 5)
+        let recoveryCommands = Array(context.state.snapshot().dropFirst(recoveryStart))
+        XCTAssertGreaterThanOrEqual(
+            autoNamingProbeRequestCount(in: recoveryCommands),
+            2,
+            "New transcript progress must open a fresh reconciliation epoch"
         )
     }
 
@@ -11366,7 +11392,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "version": 1,
             "sessions": sessions,
             "activeSessionsByWorkspace": [context.workspaceId: active],
-            "activeSessionsBySurface": [resolvedSurfaceId: active],
+            "activeSessionsBySurface": [activeSurfaceId ?? resolvedSurfaceId: active],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(
