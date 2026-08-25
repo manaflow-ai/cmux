@@ -170,8 +170,7 @@ extension AppDelegate {
         _ routes: [RecoverableMainWindowRoute],
         windowsByWindowId: [UUID: NSWindow],
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
-        includeScrollback: Bool
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> [RecoverableMainWindowRoute] {
         var updatedRoutes: [RecoverableMainWindowRoute] = []
         for route in routes {
@@ -191,8 +190,7 @@ extension AppDelegate {
             if let replacement = freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex,
-                includeScrollback: includeScrollback
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
             ) {
                 updatedRoutes.append(replacement)
             }
@@ -202,14 +200,13 @@ extension AppDelegate {
         }
     }
 
-    /// Freezes one route into a bounded value snapshot. Full snapshots carry
-    /// scrollback; lightweight projections pass an empty index and omit it.
+    /// Freezes one route into a bounded, full-fidelity value snapshot. Lightweight
+    /// projections strip scrollback only from the emitted session copy.
     @discardableResult
     private func freezeWindowlessRecoverableMainWindowRoute(
         _ route: RecoverableMainWindowRoute,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
-        includeScrollback: Bool = true
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> RecoverableMainWindowRoute? {
         guard route.frozenWindowSnapshot == nil else { return route }
         guard route.window == nil,
@@ -223,7 +220,9 @@ extension AppDelegate {
 
         let frozenWindowSnapshot = sessionWindowSnapshot(
             for: liveRoute,
-            includeScrollback: includeScrollback,
+            // Teardown is irreversible. Keep the frozen route at full fidelity;
+            // lightweight callers strip scrollback only from their emitted copy.
+            includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex,
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
@@ -416,8 +415,7 @@ extension AppDelegate {
     /// asynchronous refresh or snapshot builder supplies a complete index.
     private func mainWindowPersistenceRouteSnapshots(
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
-        includeScrollback: Bool
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
@@ -434,20 +432,20 @@ extension AppDelegate {
                 continue
             }
             guard candidateOrphanedRoutes.count < maximumRecoverableRoutes else {
+                // The persistence cap is an explicit retention boundary. Do not
+                // keep a live panel graph for an orphan that cannot be emitted.
+                retireWindowlessRecoverableMainWindowRoute(route)
                 continue
             }
             candidateOrphanedRoutes.append(route)
         }
-        let restorableAgentIndexForFreeze = includeScrollback
-            ? suppliedRestorableAgentIndex
-                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            : suppliedRestorableAgentIndex ?? .empty
+        let restorableAgentIndexForFreeze = suppliedRestorableAgentIndex
+            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
         _ = freezeWindowlessRecoverableMainWindowRoutes(
             candidateOrphanedRoutes,
             windowsByWindowId: windowsByWindowId,
             restorableAgentIndex: restorableAgentIndexForFreeze,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
-            includeScrollback: includeScrollback
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
         let orphanedRoutes = mainWindowLifecycleCoordinator.orphanedRoutes()
             .compactMap { route in
@@ -482,13 +480,11 @@ extension AppDelegate {
     /// produce a restorable window.
     func orderedSessionRouteSnapshots(
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
-        includeScrollback: Bool = true
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> [MainWindowPersistenceRouteSnapshot] {
         mainWindowPersistenceRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
-            includeScrollback: includeScrollback
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
             .filter(\.isEligibleForSessionPersistence)
             .sorted { lhs, rhs in
