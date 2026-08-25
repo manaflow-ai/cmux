@@ -86,6 +86,7 @@ final class SharedLiveAgentIndex {
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
+    private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
@@ -468,7 +469,8 @@ final class SharedLiveAgentIndex {
     /// running. All process inspection stays off the main actor.
     func refreshCachedProcessLivenessForSidebar(
         panelIDs: Set<UUID>,
-        currentWorkspaceIDByPanelID: [UUID: UUID]
+        currentWorkspaceIDByPanelID: [UUID: UUID],
+        force: Bool = false
     ) {
         ensureWatchingHookStoreDirectory()
         guard let cachedIndex = index else {
@@ -481,7 +483,7 @@ final class SharedLiveAgentIndex {
         guard !panelIDs.isEmpty else { return }
         synchronizeSidebarProcessExitWatchers(index: cachedIndex, panelIDs: panelIDs)
         let now = dateProvider()
-        if let lastSidebarLivenessRefreshAt,
+        if !force, let lastSidebarLivenessRefreshAt,
            now.timeIntervalSince(lastSidebarLivenessRefreshAt)
                 < Self.sidebarLivenessRefreshCadence {
             return
@@ -542,6 +544,13 @@ final class SharedLiveAgentIndex {
     /// Requests an event-driven full index reload for a newly bound agent PID.
     /// Calls coalesce behind the existing reload task and never scan inline.
     func requestSidebarIndexRefresh() {
+        let now = dateProvider()
+        if let lastExplicitSidebarRefreshAt,
+           now.timeIntervalSince(lastExplicitSidebarRefreshAt) < 2 {
+            changePending = true
+            return
+        }
+        lastExplicitSidebarRefreshAt = now
         if refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil {
             changePending = true
             return
@@ -566,9 +575,7 @@ final class SharedLiveAgentIndex {
         var panelKeysByPID: [Int: Set<RestorableAgentSessionIndex.PanelKey>] = [:]
         for (panelKey, entry) in index.forkValidationEntries()
         where panelIDs.contains(panelKey.panelId) {
-            let processIDs = entry.agentProcessIDs.isEmpty
-                ? entry.processIDs
-                : entry.agentProcessIDs
+            let processIDs = entry.agentProcessIDs
             for processID in processIDs where processID > 0 {
                 panelKeysByPID[processID, default: []].insert(panelKey)
             }
@@ -607,7 +614,8 @@ final class SharedLiveAgentIndex {
         let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
         refreshCachedProcessLivenessForSidebar(
             panelIDs: panelIDs,
-            currentWorkspaceIDByPanelID: [:]
+            currentWorkspaceIDByPanelID: [:],
+            force: true
         )
     }
 

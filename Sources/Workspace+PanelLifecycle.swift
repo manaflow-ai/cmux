@@ -200,6 +200,7 @@ extension Workspace {
                     panelID: panelId
                 )
             }
+            SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime
