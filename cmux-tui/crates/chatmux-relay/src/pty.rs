@@ -787,15 +787,15 @@ impl Inner {
             }
         };
 
-        // Keep the opening reservation held until the attachment is installed.
-        // `close` takes this lock first, so it cannot observe a gap between
-        // removing the opening marker and inserting the attachment.
-        let mut opening = self.opening_ids.lock().expect("opening lock");
-        let cancelled =
-            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
+        // Keep the opening marker until the attachment is installed. Release
+        // its mutex while waiting for an older delivery gate, so a callback
+        // cannot deadlock by asking `close` to cancel this opening.
+        let cancelled = {
+            let _opening = self.opening_ids.lock().expect("opening lock");
+            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id)
+        };
         if cancelled {
-            opening.remove(&pty_id);
-            drop(opening);
+            self.opening_ids.lock().expect("opening lock").remove(&pty_id);
             reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
@@ -807,8 +807,20 @@ impl Inner {
             .expect("attach lock")
             .get(&pty_id)
             .map(|attachment| Arc::clone(&attachment.gate));
-        let _previous_gate_guard =
+        let previous_gate_guard =
             previous_gate.as_ref().map(|gate| gate.lock().expect("attachment gate"));
+        let mut opening = self.opening_ids.lock().expect("opening lock");
+        let cancelled =
+            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
+        if cancelled {
+            opening.remove(&pty_id);
+            drop(opening);
+            drop(previous_gate_guard);
+            reservation.active = false;
+            opened.closing.store(true, Ordering::SeqCst);
+            opened.control.kill();
+            return;
+        }
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
@@ -819,12 +831,13 @@ impl Inner {
                 actor_id: actor.to_owned(),
             },
         );
+        opening.remove(&pty_id);
+        drop(opening);
+        drop(previous_gate_guard);
         if let Some(previous) = previous {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
-        opening.remove(&pty_id);
-        drop(opening);
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
