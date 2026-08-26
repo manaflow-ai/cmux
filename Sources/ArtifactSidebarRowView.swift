@@ -48,7 +48,8 @@ struct ArtifactSidebarRowView: View {
                       artifactRoot: projectRoot.appendingPathComponent(
                           ".cmux",
                           isDirectory: true
-                      )
+                      ),
+                      isDirectory: snapshot.isDirectory
                   ) else {
                 return NSItemProvider()
             }

@@ -171,7 +171,7 @@ struct ClaudeTranscriptParserTests {
                 ["type": "tool_use", "id": "toolu_unknown", "name": "Grep",
                  "input": ["pattern": "needle", "path": "/tmp"]],
             ]),
-            toolResultLine(toolUseID: "toolu_unknown", content: "unexpected failure text", isError: nil),
+            toolResultLine(toolUseID: "toolu_unknown", content: "Failure: unexpected failure text", isError: nil),
         ]
         let result = parser.parse(lines: lines, startingSeq: 0)
         guard case .toolUse(let tool) = result.messages[0].kind else {
@@ -179,6 +179,27 @@ struct ClaudeTranscriptParserTests {
             return
         }
         #expect(tool.status == .failed)
+    }
+
+    @Test("Successful tool output mentioning errors remains successful")
+    func successfulOutputMentioningErrors() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_grep", "name": "Grep",
+                 "input": ["pattern": "error", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_grep",
+                content: "Found 2 error records",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .succeeded)
     }
 
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")

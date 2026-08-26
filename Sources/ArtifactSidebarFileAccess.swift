@@ -20,7 +20,7 @@ struct ArtifactSidebarFileAccess {
         let sourceURL: URL
         let artifactRoot: URL
         private let descriptor: Int32
-        private let isDirectory: Bool
+        let isDirectory: Bool
 
         var readURL: URL {
             URL(fileURLWithPath: "/dev/fd/\(descriptor)", isDirectory: isDirectory)
@@ -432,11 +432,19 @@ struct ArtifactSidebarFileAccess {
     /// handler returns from the validated `/dev/fd` descriptor, so pathname
     /// replacement cannot redirect the copy; directories use the same pinned
     /// descriptor path.
-    func dragItemProvider(for sourceURL: URL, artifactRoot: URL) -> NSItemProvider? {
+    /// - Parameter isDirectory: The row's snapshot kind, used to advertise a
+    ///   folder representation only for directory rows.
+    func dragItemProvider(
+        for sourceURL: URL,
+        artifactRoot: URL,
+        isDirectory: Bool
+    ) -> NSItemProvider? {
         guard sourceURL.isFileURL else { return nil }
         let provider = NSItemProvider()
         provider.suggestedName = sourceURL.lastPathComponent
-        let typeIdentifiers = [UTType.fileURL.identifier, UTType.folder.identifier]
+        let typeIdentifiers = isDirectory
+            ? [UTType.folder.identifier, UTType.fileURL.identifier]
+            : [UTType.fileURL.identifier]
         for typeIdentifier in typeIdentifiers {
             provider.registerFileRepresentation(
                 forTypeIdentifier: typeIdentifier,
@@ -448,6 +456,10 @@ struct ArtifactSidebarFileAccess {
                     for: sourceURL,
                     artifactRoot: artifactRoot
                 ) {
+                    if typeIdentifier == UTType.folder.identifier, !opened.isDirectory {
+                        completion(nil, false, nil)
+                        return nil
+                    }
                     completion(opened.readURL, false, nil)
                     let progress = Progress(totalUnitCount: 1)
                     // NSItemProvider owns the returned progress for the

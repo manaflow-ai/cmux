@@ -3062,8 +3062,17 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onScreenshotCopied = { [weak self] in
             self?.screenshotCopiedToken &+= 1
         }
-        webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
-            self?.openLinkInNewTab(url: url)
+        if contentMode.artifactDocumentURL == nil {
+            webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
+                self?.openLinkInNewTab(url: url)
+            }
+            webView.contextMenuDefaultBrowserOpener = nil
+        } else {
+            // Artifact previews are isolated documents. Their context-menu
+            // links must not escape into a normal browser surface or the
+            // system browser, which would bypass the preview navigation policy.
+            webView.onContextMenuOpenLinkInNewTab = nil
+            webView.contextMenuDefaultBrowserOpener = { _ in false }
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)

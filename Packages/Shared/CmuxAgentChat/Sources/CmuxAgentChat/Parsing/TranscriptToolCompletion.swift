@@ -192,20 +192,25 @@ struct TranscriptToolCompletion: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(400)
             .lowercased()
-        return prefix.hasPrefix("script failed")
-            || prefix.hasPrefix("tool failed")
-            || prefix.hasPrefix("apply_patch verification failed")
-            || prefix.hasPrefix("error:")
-            || prefix.hasPrefix("permission denied")
-            || prefix.hasPrefix("access denied")
-            || prefix.hasPrefix("operation not permitted")
-            || prefix.contains("failed")
-            || prefix.contains("failure")
-            || prefix.contains("error")
-            || prefix.contains("denied")
-            || prefix.contains("unable")
-            || prefix.contains("exception")
-            || prefix.hasPrefix("no matches")
+        let firstLine = prefix.split(whereSeparator: \.isNewline).first ?? ""
+        return firstLine.hasPrefix("script failed")
+            || firstLine.hasPrefix("tool failed")
+            || firstLine.hasPrefix("apply_patch verification failed")
+            || firstLine.hasPrefix("error:")
+            || firstLine.hasPrefix("permission denied")
+            || firstLine.hasPrefix("access denied")
+            || firstLine.hasPrefix("operation not permitted")
+            || firstLine == "failed"
+            || firstLine.hasPrefix("failed:")
+            || firstLine.hasPrefix("failed to ")
+            || firstLine == "failure"
+            || firstLine.hasPrefix("failure:")
+            || firstLine == "unable"
+            || firstLine.hasPrefix("unable to ")
+            || firstLine == "exception"
+            || firstLine.hasPrefix("exception:")
+            || firstLine == "no matches"
+            || firstLine.hasPrefix("no matches ")
     }
 
     private var reportsFailureWithoutExitStatus: Bool {

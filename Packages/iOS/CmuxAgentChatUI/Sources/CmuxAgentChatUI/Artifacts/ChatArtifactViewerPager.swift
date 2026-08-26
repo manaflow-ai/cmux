@@ -323,19 +323,34 @@ struct ChatArtifactViewerPager: View {
         clock: any Clock<Duration>,
         timeout: Duration
     ) async throws -> ChatArtifactSaveResult {
-        try await withThrowingTaskGroup(of: ChatArtifactSaveResult.self) { group in
-            group.addTask {
-                try await loader.save(path: path)
+        let (stream, continuation) = AsyncThrowingStream<ChatArtifactSaveResult, any Error>.makeStream()
+        let operationTask = Task {
+            do {
+                continuation.yield(try await loader.save(path: path))
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
             }
-            group.addTask {
+        }
+        let timeoutTask = Task {
+            do {
                 try await clock.sleep(for: timeout)
-                throw ChatArtifactSaveTimeout.expired
+            } catch {
+                return
             }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else {
-                throw ChatArtifactSaveTimeout.expired
+            continuation.finish(throwing: ChatArtifactSaveTimeout.expired)
+        }
+        continuation.onTermination = { _ in
+            operationTask.cancel()
+            timeoutTask.cancel()
+        }
+        return try await withTaskCancellationHandler {
+            for try await result in stream {
+                return result
             }
-            return result
+            throw ChatArtifactSaveTimeout.expired
+        } onCancel: {
+            continuation.finish(throwing: CancellationError())
         }
     }
 
