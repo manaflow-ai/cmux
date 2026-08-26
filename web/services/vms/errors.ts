@@ -70,6 +70,18 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The caller asked for a session transport the machine's provider does not serve
+ * (e.g. the legacy websocket/SSH attach on a Blaxel machine, which only runs the
+ * cmux-tui remote daemon). Not retryable: the client must switch transports.
+ */
+export class VmAttachTransportUnsupportedError extends Data.TaggedError("VmAttachTransportUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly vmId: string;
+  readonly requested: string;
+  readonly supported: readonly string[];
+}> {}
+
 export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   "VmAccountDeletionIdentityRevocationError",
 )<{
@@ -90,6 +102,7 @@ export type VmWorkflowError =
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
+  | VmAttachTransportUnsupportedError
   | VmAccountDeletionIdentityRevocationError;
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
@@ -138,6 +151,10 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmAttachTransportUnsupportedError(err: unknown): err is VmAttachTransportUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAttachTransportUnsupportedError";
+}
+
 export function isVmAccountDeletionIdentityRevocationError(
   err: unknown,
 ): err is VmAccountDeletionIdentityRevocationError {
@@ -165,6 +182,7 @@ const vmWorkflowErrorTags = new Set([
   "VmLimitExceededError",
   "VmCreateCreditsInsufficientError",
   "VmBillingError",
+  "VmAttachTransportUnsupportedError",
   "VmAccountDeletionIdentityRevocationError",
 ]);
 

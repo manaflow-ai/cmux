@@ -213,8 +213,8 @@ VM subcommands:
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
-| `vm new`, `vm create` | Create a VM with a desktop (xfce + noVNC) by default; `--base` makes a shell-only machine. Supports `--image`, `--provider`, `--detach`, and `-d`. |
-| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
+| `vm new`, `vm create` | Create a VM with a desktop (xfce + noVNC) by default; `--base` makes a shell-only machine. Supports `--image`, `--provider`, `--detach`, and `-d`. Without `--detach`, opens the machine's workspace through the shared cmux-tui open path (see `vm shell`). |
+| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses one path: the machine's cmux-tui remote daemon (`vm.cmux_remote_info` with the local client's `client_capabilities`, then `workspace.create` or, for `--workspace`, `workspace.cloud_vm_terminal_ready`, then `workspace.cloud_vm_bind`). The websocket/SSH transports remain only for deployments whose control plane reports no cmux-tui daemon; a machine that answers `vm_attach_transport_unsupported` is cmux-tui only and never falls back. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the workspace you are in (or `--workspace <id|ref|index>`); desktop-image machines only. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
@@ -223,7 +223,7 @@ VM subcommands:
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
-| `vm tui <id>` | Open a workspace attached through the machine's cmux-tui remote daemon; enrolls this Mac's device on first use (hidden helper: `vm-tui-connect --config <file>`). |
+| `vm tui <id>` | Open a workspace attached through the machine's cmux-tui remote daemon; enrolls this Mac's device on first use (hidden helpers: `vm-tui-connect --config <file>` execs the local cmux-tui client in the pane; `vm-tui-approve --id <vm> --invitation-id <id> [--invite-file <path>]` is the detached process that approves the pending enrollment through the app and removes the invite file). |
 | `vm run -- <command...>` | Run a command without naming a machine: reuses an idle machine the router provisioned earlier (persisted in `~/.cmuxterm/vm-run-pool.json`, labeled `agent-pool`), wakes a sleeper, or provisions a fresh one; `--sync` pushes the cwd first, `--pull <remote>` fetches results, and the remote exit code passes through. |
 | `vm push <id> <local> [remote]`, `vm upload` | Copy a local file or directory onto a VM over the exec channel (base64-chunked, SHA-256 verified; directories travel as tarballs). |
 | `vm pull <id> <remote> [local]`, `vm download` | Copy a file or directory from a VM to local disk over the exec channel. |

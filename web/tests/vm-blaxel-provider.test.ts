@@ -1,40 +1,21 @@
-import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
   DESKTOP_VNC_HEAL_COMMAND,
+  SMART_SLEEP_SCRIPT,
+  brandedPreviewPrefix,
   hostnameSetupCommand,
   parseMachineStats,
+  defaultHomeVolumeMbForMemory,
   resolveBlaxelMemoryMb,
-  resolveDaemonSource,
+  resolveHomeVolumeMb,
+  sandboxPorts,
   usablePrivatePreviewUrl,
-  verifyDaemonDigest,
 } from "../services/vms/drivers/blaxel";
-import { ProviderError, type WebSocketPtyEndpoint } from "../services/vms/drivers/types";
+import { ProviderError } from "../services/vms/drivers/types";
 import { providerEnabledEnvKey } from "../services/vms/config";
 import { providerImageEnvKey, resolveVmImage } from "../services/vms/images/resolver";
 import { defaultProviderId, getProvider } from "../services/vms/drivers";
-
-const websocketEndpoint: WebSocketPtyEndpoint = {
-  transport: "websocket",
-  url: "wss://abc123.us-pdx-1.preview.bl.run/terminal",
-  headers: { "X-Blaxel-Preview-Token": "preview-token" },
-  token: "pty-token",
-  sessionId: "pty-session",
-  attachmentId: "attachment-1",
-  expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
-};
-
-class TestBlaxelProvider extends BlaxelProvider {
-  websocketResult: WebSocketPtyEndpoint | Error = websocketEndpoint;
-
-  override async openWebSocketPty(_vmId: string): Promise<WebSocketPtyEndpoint> {
-    if (this.websocketResult instanceof Error) {
-      throw this.websocketResult;
-    }
-    return this.websocketResult;
-  }
-}
 
 describe("BlaxelProvider registry wiring", () => {
   test("is registered and resolvable", () => {
@@ -76,51 +57,46 @@ describe("BlaxelProvider registry wiring", () => {
   });
 });
 
-describe("BlaxelProvider attach", () => {
-  test("returns the WebSocket endpoint when daemon metadata is present", async () => {
-    const provider = new TestBlaxelProvider();
-    const endpointWithDaemon: WebSocketPtyEndpoint = {
-      ...websocketEndpoint,
-      daemon: {
-        url: "wss://abc123.us-pdx-1.preview.bl.run/rpc",
-        headers: { "X-Blaxel-Preview-Token": "preview-token" },
-        token: "rpc-token",
-        sessionId: "rpc-session",
-        expiresAtUnix: Math.floor(Date.now() / 1000) + 600,
-      },
-    };
-    provider.websocketResult = endpointWithDaemon;
-
-    const endpoint = await provider.openAttach("cmux-vm-test", { requireDaemon: true });
-
-    expect(endpoint).toEqual(endpointWithDaemon);
+describe("BlaxelProvider session transport", () => {
+  // Blaxel machines run the cmux-tui remote daemon and nothing else: no cmuxd-remote is
+  // installed, so the legacy websocket PTY attach cannot exist. The driver declares the
+  // one transport it serves and refuses openAttach outright instead of fabricating an
+  // endpoint nothing listens on.
+  test("declares cmux-remote as the only attach transport", () => {
+    expect(new BlaxelProvider().attachTransports).toEqual(["cmux-remote"]);
   });
 
-  test("requires the cmuxd RPC daemon when the caller asks for one", async () => {
-    const provider = new TestBlaxelProvider();
-    provider.websocketResult = websocketEndpoint;
-
-    await expect(provider.openAttach("cmux-vm-test", { requireDaemon: true })).rejects.toThrow(
-      "requires a cmuxd RPC endpoint",
-    );
+  test("openAttach is refused and points at the cmux-tui transport", async () => {
+    const provider = new BlaxelProvider();
+    await expect(provider.openAttach("cmux-vm-test", { requireDaemon: true })).rejects.toThrow(ProviderError);
+    await expect(provider.openAttach("cmux-vm-test")).rejects.toThrow("transport cmux-remote");
   });
 
-  test("does not fall back to SSH when the WebSocket attach fails", async () => {
-    const provider = new TestBlaxelProvider();
-    provider.websocketResult = new Error("blaxel cmuxd websocket health check failed");
+  test("the sandbox exposes only the cmux-tui daemon port", () => {
+    expect(sandboxPorts()).toEqual([{ name: "cmuxtui", protocol: "HTTP", target: 1337 }]);
+  });
 
-    await expect(provider.openAttach("cmux-vm-test")).rejects.toThrow(
-      "websocket health check failed",
-    );
+  test("the smart-sleep watcher only knows the cmux-tui daemon", () => {
+    expect(SMART_SLEEP_SCRIPT).toContain("pidof cmux-tui");
+    expect(SMART_SLEEP_SCRIPT).toContain("0539");
+    expect(SMART_SLEEP_SCRIPT).not.toContain("cmuxd");
+    expect(SMART_SLEEP_SCRIPT).not.toContain("7777");
+    expect(SMART_SLEEP_SCRIPT).not.toContain("1E61");
+  });
+
+  test("the machine's bare branded hostname belongs to the cmux-tui daemon preview", () => {
+    expect(brandedPreviewPrefix("noble-wren", "cmuxtui", 1337)).toBe("noble-wren");
+    expect(brandedPreviewPrefix("noble-wren", "port-3000", 3000)).toBe("noble-wren-3000");
+    expect(brandedPreviewPrefix("Not Valid!", "cmuxtui", 1337)).toBeNull();
   });
 });
 
 describe("BlaxelProvider SSH surface", () => {
-  test("openSSH is unsupported and points at the WebSocket attach path", async () => {
+  test("openSSH is unsupported and points at the cmux-tui transport", async () => {
     const provider = new BlaxelProvider();
 
     await expect(provider.openSSH("cmux-vm-test")).rejects.toThrow(ProviderError);
-    await expect(provider.openSSH("cmux-vm-test")).rejects.toThrow("WebSocket-only");
+    await expect(provider.openSSH("cmux-vm-test")).rejects.toThrow("cmux-tui remote daemon");
   });
 
   test("revokeSSHIdentity is a safe no-op", async () => {
@@ -130,7 +106,7 @@ describe("BlaxelProvider SSH surface", () => {
     await expect(provider.revokeSSHIdentity("")).resolves.toBeUndefined();
   });
 
-  test("revokes daemon and preview ingress credentials", async () => {
+  test("revokes the cmux-tui daemon and every preview ingress on sign-out", async () => {
     const previousKey = process.env.BL_API_KEY;
     const previousWorkspace = process.env.BL_WORKSPACE;
     process.env.BL_API_KEY = "test-key";
@@ -148,7 +124,8 @@ describe("BlaxelProvider SSH surface", () => {
       }
       if (url.endsWith("/sandboxes/machine-a/previews")) {
         return new Response(JSON.stringify([
-          { metadata: { name: "cmuxd" } },
+          { metadata: { name: "cmuxtui" } },
+          { metadata: { name: "cmuxtui-raw" } },
           { metadata: { name: "port-3000" } },
         ]), { status: 200 });
       }
@@ -159,9 +136,12 @@ describe("BlaxelProvider SSH surface", () => {
       await new BlaxelProvider().revokeEndpointLeases("machine-a");
       const processCall = calls.find((call) => call.url === "https://sandbox-api.test/process");
       expect(processCall?.method).toBe("POST");
-      expect(processCall?.body).toContain("attach-pty-lease.json");
-      expect(processCall?.body).toContain("pkill");
-      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(2);
+      // cmux-tui only: stop the keepalive watcher and the daemon, nothing cmuxd-shaped.
+      expect(processCall?.body).toContain("pkill -TERM -x 'cmux-keepalive'");
+      expect(processCall?.body).toContain("server start");
+      expect(processCall?.body).not.toContain("cmuxd");
+      expect(processCall?.body).not.toContain("attach-pty-lease.json");
+      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(3);
     } finally {
       globalThis.fetch = originalFetch;
       if (previousKey === undefined) delete process.env.BL_API_KEY;
@@ -196,85 +176,26 @@ describe("BlaxelProvider configuration errors", () => {
     await expect(provider.create({ image: "  " })).rejects.toThrow("create requires a resolved image");
   });
 
+  test("home volume follows memory in dev-box tiers unless the env pins a size", () => {
+    expect(defaultHomeVolumeMbForMemory(2048)).toBe(32 * 1024);
+    expect(defaultHomeVolumeMbForMemory(8 * 1024)).toBe(32 * 1024);
+    expect(defaultHomeVolumeMbForMemory(16 * 1024)).toBe(32 * 1024);
+    // The plan default (24 GB) lands in the 64 GB tier, not a flat 5 GB.
+    expect(defaultHomeVolumeMbForMemory(24 * 1024)).toBe(64 * 1024);
+    expect(defaultHomeVolumeMbForMemory(32 * 1024)).toBe(64 * 1024);
+    expect(defaultHomeVolumeMbForMemory(48 * 1024)).toBe(128 * 1024);
+    expect(() => defaultHomeVolumeMbForMemory(0)).toThrow("positive");
+
+    expect(resolveHomeVolumeMb(24 * 1024, {})).toBe(64 * 1024);
+    expect(resolveHomeVolumeMb(24 * 1024, { CMUX_VM_BLAXEL_HOME_VOLUME_MB: "5120" })).toBe(5120);
+    expect(resolveHomeVolumeMb(24 * 1024, { CMUX_VM_BLAXEL_HOME_VOLUME_MB: "nope" })).toBe(64 * 1024);
+  });
+
   test("uses the request memory and preserves the env fallback", () => {
     expect(resolveBlaxelMemoryMb(8192, { CMUX_VM_BLAXEL_MEMORY_MB: "4096" })).toBe(8192);
     expect(resolveBlaxelMemoryMb(undefined, { CMUX_VM_BLAXEL_MEMORY_MB: "16384" })).toBe(16384);
     expect(resolveBlaxelMemoryMb(undefined, {})).toBe(4096);
     expect(() => resolveBlaxelMemoryMb(0, {})).toThrow("memoryMb must be a positive integer");
-  });
-});
-
-function withDaemonEnv(
-  values: { path?: string; url?: string; sha256?: string },
-  run: () => void,
-): void {
-  const keys = [
-    "CMUX_VM_BLAXEL_DAEMON_PATH",
-    "CMUX_VM_BLAXEL_DAEMON_URL",
-    "CMUX_VM_BLAXEL_DAEMON_SHA256",
-  ] as const;
-  const previous = keys.map((key) => [key, process.env[key]] as const);
-  delete process.env.CMUX_VM_BLAXEL_DAEMON_PATH;
-  delete process.env.CMUX_VM_BLAXEL_DAEMON_URL;
-  delete process.env.CMUX_VM_BLAXEL_DAEMON_SHA256;
-  if (values.path !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_PATH = values.path;
-  if (values.url !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_URL = values.url;
-  if (values.sha256 !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_SHA256 = values.sha256;
-  try {
-    run();
-  } finally {
-    for (const [key, value] of previous) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
-}
-
-describe("BlaxelProvider daemon binary integrity", () => {
-  const sha = createHash("sha256").update("cmuxd-remote-bytes").digest("hex");
-
-  test("a URL source without a sha256 pin fails closed before any download", () => {
-    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote" }, () => {
-      expect(() => resolveDaemonSource()).toThrow("requires CMUX_VM_BLAXEL_DAEMON_SHA256");
-    });
-  });
-
-  test("a URL source with a pin resolves and lowercases the digest", () => {
-    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote", sha256: sha.toUpperCase() }, () => {
-      expect(resolveDaemonSource()).toEqual({
-        kind: "url",
-        url: "https://r2.example.com/cmuxd-remote",
-        sha256: sha,
-      });
-    });
-  });
-
-  test("a local path may run unpinned but honors a pin when set", () => {
-    withDaemonEnv({ path: "/tmp/cmuxd-remote" }, () => {
-      expect(resolveDaemonSource()).toEqual({ kind: "path", path: "/tmp/cmuxd-remote", sha256: undefined });
-    });
-    withDaemonEnv({ path: "/tmp/cmuxd-remote", sha256: sha }, () => {
-      expect(resolveDaemonSource()).toEqual({ kind: "path", path: "/tmp/cmuxd-remote", sha256: sha });
-    });
-  });
-
-  test("a malformed pin is rejected", () => {
-    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote", sha256: "not-a-digest" }, () => {
-      expect(() => resolveDaemonSource()).toThrow("64 hex characters");
-    });
-  });
-
-  test("no source configured is a clear error", () => {
-    withDaemonEnv({}, () => {
-      expect(() => resolveDaemonSource()).toThrow("set CMUX_VM_BLAXEL_DAEMON_PATH");
-    });
-  });
-
-  test("verifyDaemonDigest accepts the pinned binary and rejects any other bytes", () => {
-    const binary = Buffer.from("cmuxd-remote-bytes");
-    expect(() => verifyDaemonDigest(binary, sha)).not.toThrow();
-    expect(() => verifyDaemonDigest(Buffer.from("tampered-bytes"), sha)).toThrow(ProviderError);
-    expect(() => verifyDaemonDigest(Buffer.from("tampered-bytes"), sha)).toThrow("sha256 mismatch");
   });
 });
 

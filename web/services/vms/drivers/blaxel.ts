@@ -1,19 +1,14 @@
-import { constants as zlibConstants, gzip } from "node:zlib";
-import { promisify } from "node:util";
-
-const gzipAsync = promisify(gzip);
-import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   NotImplementedError,
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
+  type AttachTransport,
   type CreateOptions,
   type ExecResult,
   type SSHEndpoint,
-  type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
@@ -24,47 +19,29 @@ import {
   type CmuxRemoteEndpoint,
 } from "./types";
 import { withVmSpan } from "../telemetry";
-import {
-  isReusableRpcLease,
-  ensurePrivateDirectoryCommand,
-  leaseClientMetadata,
-  makeWebSocketAttachmentId,
-  makeWebSocketLease,
-  shellQuote,
-  type ReusableRpcLease,
-} from "./wsLease";
+import { shellQuote } from "./wsLease";
 
 // Blaxel sandboxes are name-addressed micro-VMs reached over HTTPS only: a per-sandbox
 // "sandbox API" (process exec + filesystem) on the control side, and per-port preview URLs
 // (`https://<id>.<region>.preview.bl.run` + `X-Blaxel-Preview-Token` header) for ingress.
-// There is no raw TCP, so like E2B/Daytona the attach path is cmuxd-remote WebSocket PTY only
-// and `openSSH` throws.
+// There is no raw TCP, so `openSSH` throws: Blaxel machines attach through the cmux-tui
+// remote daemon (transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md), the machine's
+// only session daemon.
 //
 // Unlike the other drivers this one does not need a pre-baked provider image: `create`
-// bootstraps a stock Blaxel image by injecting the cmuxd-remote linux binary through the
-// sandbox filesystem API (gzip+base64, ~3 MB, sub-second) and starting `serve --ws` as a
-// keepAlive process. keepAlive matters: Blaxel freezes a sandbox ~15 s after the last open
-// connection otherwise, which would pause user workloads the moment the client disconnects.
-// Standby time is free on Blaxel, so the cost lever ("smart sleep" while every PTY sits at
-// an idle prompt) is a later optimization on top of the same bootstrap.
-const CMUXD_WS_PORT = 7777;
+// bootstraps a stock Blaxel image by having the sandbox download the pinned cmux-tui
+// build onto its persistent home volume and starting `cmux-tui server start` under the
+// sandbox supervisor. Blaxel freezes a sandbox ~15 s after the last open connection
+// unless a keepAlive process runs; the smart-sleep watcher below is that process, so a
+// busy machine stays awake and an idle one drops to (free) standby.
 // 8080 is the Blaxel sandbox-api (control channel); never expose it through a preview.
 const CMUX_SANDBOX_API_PORT = 8080;
-const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
-const CMUXD_WS_RPC_LEASE_PATH = "/tmp/cmux/attach-rpc-lease.json";
-const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
-const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
-const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
-const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
-const CMUXD_BINARY_PATH = "/usr/local/bin/cmuxd-remote";
-const CMUXD_PROCESS_NAME = "cmuxd-ws";
 const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
 const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
-// cmux-tui remote daemon (Phase 1 of the cmuxd-remote → cmux-tui migration,
-// docs/cloud-cmux-tui-daemon.md): runs alongside cmuxd-remote on its own port with
-// its own private preview. The binary lives on the persistent home volume so a
-// resurrected sandbox reuses it; daemon identity and enrolled devices live under
-// /root too (the daemon's default state dir), so they survive as well.
+// cmux-tui remote daemon: listens on its own port behind a private preview. The binary
+// lives on the persistent home volume so a resurrected sandbox reuses it; daemon identity
+// and enrolled devices live under /root too (the daemon's default state dir), so they
+// survive as well.
 const CMUX_TUI_PORT = 1337;
 // Two previews for the same port: the branded one for clients that can pass the
 // custom-domain ingress, the raw one for everything else (see cmuxTuiPreviewBranded).
@@ -77,25 +54,25 @@ const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
 const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // Blaxel keeps a sandbox awake while any keepAlive process runs and freezes it ~15 s after the
 // last connection otherwise. The watcher is that keepAlive process: it stays alive while any
-// PTY shell has a foreground/background job (cmuxd child with descendants) or any client is
-// connected to :7777, and exits after a sustained idle grace so the sandbox drops to standby
-// ($0, memory snapshot, ~25 ms wake). Every attach re-arms it, so "wake" is just reconnecting.
-const SMART_SLEEP_SCRIPT = `#!/bin/sh
+// cmux-tui shell has a foreground/background job (a daemon child with descendants) or any
+// client is connected to the daemon port, and exits after a sustained idle grace so the
+// sandbox drops to standby ($0, memory snapshot, ~25 ms wake). Every attach re-arms it, so
+// "wake" is just reconnecting.
+export const SMART_SLEEP_SCRIPT = `#!/bin/sh
 # cmux smart sleep: hold the sandbox awake while work is running or a client is attached.
-PORT_HEX=1E61 # 7777 (cmuxd-remote)
 TUI_PORT_HEX=0539 # 1337 (cmux-tui remote daemon)
 IDLE_LIMIT=\${CMUX_SMART_SLEEP_IDLE_CHECKS:-8}
 INTERVAL=\${CMUX_SMART_SLEEP_INTERVAL:-15}
 idle=0
 while true; do
   busy=""
-  for cm in $(pidof cmuxd-remote cmux-tui 2>/dev/null); do
+  for cm in $(pidof cmux-tui 2>/dev/null); do
     for c in $(pgrep -P "$cm" 2>/dev/null); do
       if pgrep -P "$c" >/dev/null 2>&1; then busy=jobs; break 2; fi
     done
   done
   if [ -z "$busy" ]; then
-    if awk -v port="$PORT_HEX" -v tui="$TUI_PORT_HEX" '($2 ~ ":"port"$" || $2 ~ ":"tui"$") && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    if awk -v tui="$TUI_PORT_HEX" '$2 ~ ":"tui"$" && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
       busy=conn
     fi
   fi
@@ -147,7 +124,6 @@ export const DESKTOP_VNC_HEAL_COMMAND = [
   "exec runuser -u cua -- env HOME=/home/cua USER=cua DISPLAY=:1 bash /usr/local/bin/start-vnc.sh",
 ].join(" ");
 
-const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 // Desktop/port panes are long-lived surfaces a person leaves open for days; a
 // 12h token turned every long-lived pane into a silent white screen at hour
@@ -155,14 +131,44 @@ const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const PREVIEW_OPEN_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
-const HEALTH_RETRY_ATTEMPTS = 12;
-const HEALTH_RETRY_INTERVAL_MS = 1_000;
 const CONTROL_PLANE_BASE = "https://api.blaxel.ai/v0";
 const DEFAULT_MEMORY_MB = 4096;
 // The persistent-home volume mounts over root's home so dotfiles, repos, and agent state
 // survive sandbox destruction. The sandbox is disposable compute; the volume is the machine.
 const HOME_VOLUME_MOUNT_PATH = "/root";
-const DEFAULT_HOME_VOLUME_MB = 5120;
+// Disk scales with memory the way hosted dev boxes do (Codespaces-style tiers), so the
+// 24 GB plan default gets a 64 GB home instead of a flat 5 GB. Volumes are created once
+// and never resized, so existing machines keep whatever they were born with.
+const HOME_VOLUME_MB_BY_MEMORY: ReadonlyArray<readonly [maxMemoryMb: number, volumeMb: number]> = [
+  [8 * 1024, 32 * 1024],
+  [16 * 1024, 32 * 1024],
+  [32 * 1024, 64 * 1024],
+];
+const HOME_VOLUME_MB_ABOVE_TABLE = 128 * 1024;
+
+/** Home volume size for a machine's memory: ≤8 GB → 32 GB, ≤16 GB → 32 GB, ≤32 GB → 64 GB, above → 128 GB. */
+export function defaultHomeVolumeMbForMemory(memoryMb: number): number {
+  if (!Number.isFinite(memoryMb) || memoryMb <= 0) {
+    throw new ProviderError("blaxel", "memoryMb must be a positive number to size the home volume");
+  }
+  for (const [maxMemoryMb, volumeMb] of HOME_VOLUME_MB_BY_MEMORY) {
+    if (memoryMb <= maxMemoryMb) return volumeMb;
+  }
+  return HOME_VOLUME_MB_ABOVE_TABLE;
+}
+
+/** `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every new volume to one size; otherwise disk follows memory. */
+export function resolveHomeVolumeMb(
+  memoryMb: number,
+  envValues: Record<string, string | undefined> = process.env,
+): number {
+  const raw = envValues.CMUX_VM_BLAXEL_HOME_VOLUME_MB?.trim();
+  if (raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return defaultHomeVolumeMbForMemory(memoryMb);
+}
 
 type BlaxelSandbox = {
   metadata?: { name?: string; url?: string; createdAt?: string };
@@ -191,10 +197,11 @@ type BlaxelPreview = {
   };
 };
 
-// The preview URL is the only ingress to cmuxd, and it must stay token-gated: a preview that
-// is (or has been flipped) public would expose the daemon's WebSocket endpoints to anyone
-// holding the URL, leaving the lease token as the sole barrier. Only a private preview's URL
-// is ever usable; a public one is treated as absent so callers replace or reject it.
+// The preview URL is the only ingress to the cmux-tui daemon, and it must stay token-gated:
+// a preview that is (or has been flipped) public would expose the daemon's `/v1/link`
+// listener to anyone holding the URL, leaving device enrollment as the sole barrier. Only a
+// private preview's URL is ever usable; a public one is treated as absent so callers replace
+// or reject it.
 export function usablePrivatePreviewUrl(preview: BlaxelPreview | null | undefined): string | null {
   const url = preview?.spec?.url;
   if (!url) return null;
@@ -216,7 +223,7 @@ function requireEnv(name: string): string {
 
 // Step-level latency attribution for the create path. The workflow recorder only
 // shows provider_create as one block, so CMUX_VM_DEBUG_TIMINGS=1 additionally logs
-// one line per driver step (volume, sandbox create, daemon upload, preview) — slow
+// one line per driver step (volume, sandbox create, daemon install, preview) — slow
 // creates get measured, not guessed at.
 async function timedStep<T>(step: string, run: () => Promise<T>): Promise<T> {
   if (env("CMUX_VM_DEBUG_TIMINGS") !== "1") return run();
@@ -255,96 +262,6 @@ async function blaxelFetch<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-// The cmuxd-remote linux/amd64 binary this driver injects at create time. Local dev points
-// CMUX_VM_BLAXEL_DAEMON_PATH at a `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build` output;
-// deployed runtimes point CMUX_VM_BLAXEL_DAEMON_URL at the R2 build artifact. Cached as the
-// in-flight promise of the gzipped base64 payload the filesystem API write wants, so
-// concurrent creates share one read+encode and repeated creates don't refetch. A failed
-// load clears the cache so the next create retries instead of replaying the rejection.
-let cachedDaemonB64: Promise<string> | null = null;
-
-export type BlaxelDaemonSource =
-  | { kind: "path"; path: string; sha256?: string }
-  | { kind: "url"; url: string; sha256: string };
-
-// The injected daemon runs with root-equivalent access in every sandbox users pipe their
-// credentials and agent sessions through, so a remote fetch must be integrity-pinned: a URL
-// source without CMUX_VM_BLAXEL_DAEMON_SHA256 fails closed before any bytes are fetched.
-// A local path is a developer's own build and may run unpinned; the pin is honored there too
-// when set.
-export function resolveDaemonSource(): BlaxelDaemonSource {
-  const sha256 = env("CMUX_VM_BLAXEL_DAEMON_SHA256")?.toLowerCase();
-  if (sha256 && !/^[0-9a-f]{64}$/.test(sha256)) {
-    throw new ProviderError(
-      "blaxel",
-      "CMUX_VM_BLAXEL_DAEMON_SHA256 must be 64 hex characters (sha256 of the raw cmuxd-remote binary)",
-    );
-  }
-  const localPath = env("CMUX_VM_BLAXEL_DAEMON_PATH");
-  if (localPath) {
-    return { kind: "path", path: localPath, sha256 };
-  }
-  const url = env("CMUX_VM_BLAXEL_DAEMON_URL");
-  if (!url) {
-    throw new ProviderError(
-      "blaxel",
-      "set CMUX_VM_BLAXEL_DAEMON_PATH (local cmuxd-remote linux/amd64 build) or CMUX_VM_BLAXEL_DAEMON_URL",
-    );
-  }
-  if (!sha256) {
-    throw new ProviderError(
-      "blaxel",
-      "CMUX_VM_BLAXEL_DAEMON_URL requires CMUX_VM_BLAXEL_DAEMON_SHA256; the downloaded daemon runs in every sandbox, so the fetch must be integrity-pinned",
-    );
-  }
-  return { kind: "url", url, sha256 };
-}
-
-export function verifyDaemonDigest(binary: Buffer, expectedSha256: string): void {
-  const actual = createHash("sha256").update(binary).digest("hex");
-  if (actual !== expectedSha256) {
-    throw new ProviderError(
-      "blaxel",
-      `cmuxd-remote binary sha256 mismatch: expected ${expectedSha256}, got ${actual}; refusing to inject it into sandboxes`,
-    );
-  }
-}
-
-function daemonBinaryBase64Gzip(): Promise<string> {
-  if (cachedDaemonB64) return cachedDaemonB64;
-  const load = (async () => {
-    const source = resolveDaemonSource();
-    let binary: Buffer;
-    if (source.kind === "path") {
-      binary = await readFile(source.path);
-    } else {
-      const response = await fetch(source.url, { signal: AbortSignal.timeout(120_000) });
-      if (!response.ok) {
-        throw new ProviderError("blaxel", `daemon download ${source.url} -> ${response.status}`);
-      }
-      binary = Buffer.from(await response.arrayBuffer());
-    }
-    if (source.sha256) {
-      verifyDaemonDigest(binary, source.sha256);
-    }
-    // Compression level is create latency, not egress savings: on a ~10.7MB Go
-    // binary, level 9 measured 32s for 5.86MB vs level 1's 2.6s for 6.20MB — 29s
-    // of every cold create to save 0.3MB (<1s of upload). Best-speed, and async
-    // so the encode does not stall every other request on the event loop.
-    return (await gzipAsync(binary, { level: zlibConstants.Z_BEST_SPEED })).toString("base64");
-  })();
-  cachedDaemonB64 = load.catch((err) => {
-    cachedDaemonB64 = null;
-    throw err;
-  });
-  return cachedDaemonB64;
-}
-
-// Warm the payload cache at module init so the first create after a boot does not
-// pay the read+encode on its critical path. A missing daemon config just leaves the
-// cache empty here; create() surfaces the real configuration error to the caller.
-void daemonBinaryBase64Gzip().catch(() => undefined);
-
 export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
 
 export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
@@ -352,18 +269,11 @@ export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/la
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * cmux-tui is the machine session daemon by default. CMUX_VM_CMUX_TUI_ENABLED=0 is the
- * kill switch (machines fall back to cmuxd-remote); CMUX_VM_CMUX_TUI_MANIFEST_URL pins a
- * deployment to one commit's manifest (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`)
+ * cmux-tui is the machine's session daemon; there is no other. CMUX_VM_CMUX_TUI_MANIFEST_URL
+ * pins a deployment to one commit's manifest (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`)
  * instead of the rolling `latest`. Nothing else is configured by hand: the build and its
  * sha256 come from the manifest the artifacts workflow publishes.
  */
-export function isCmuxTuiEnabled(): boolean {
-  const raw = env("CMUX_VM_CMUX_TUI_ENABLED");
-  if (raw === undefined || raw === "") return true;
-  return !/^(0|false|no|off)$/i.test(raw);
-}
-
 export function cmuxTuiManifestUrl(): string {
   const url = env("CMUX_VM_CMUX_TUI_MANIFEST_URL") || CMUX_TUI_DEFAULT_MANIFEST_URL;
   if (!/^https:\/\//.test(url)) {
@@ -395,9 +305,8 @@ export function parseCmuxTuiManifest(manifestUrl: string, manifest: unknown): Cm
 
 let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
 
-/** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). Null when disabled. */
-export async function resolveCmuxTuiSource(): Promise<CmuxTuiSource | null> {
-  if (!isCmuxTuiEnabled()) return null;
+/** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). */
+export async function resolveCmuxTuiSource(): Promise<CmuxTuiSource> {
   const manifestUrl = cmuxTuiManifestUrl();
   if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
     return cmuxTuiSourceCache.source;
@@ -490,7 +399,7 @@ const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 export const CMUX_TUI_CLIENT_CAPABILITY_USER_AGENT = "direct-ws-user-agent";
 
 /**
- * The branded machine host (`<machine>-tui.vm.cmux.sh`) sits behind a CloudFront
+ * The branded machine host (`<machine>.vm.cmux.sh`) sits behind a CloudFront
  * distribution that refuses WebSocket upgrades without a User-Agent (measured
  * 2026-08-26: 403 without, 101 with). cmux-tui clients that send one advertise
  * `direct-ws-user-agent`; every other client gets the raw `<hash>.preview.bl.run`
@@ -535,6 +444,8 @@ export class BlaxelProvider implements VMProvider {
       async (span) => {
         try {
           const memoryMb = resolveMemoryMb(options.memoryMb);
+          // Memory is settled before any volume exists: the home's size follows it.
+          const homeVolumeMb = resolveHomeVolumeMb(memoryMb);
           // A `{machine}` token in homeVolume is resolved against the generated
           // machine name, giving every fresh machine its own durable home. The
           // resolved name (never the template) is what lands in providerMetadata,
@@ -548,7 +459,7 @@ export class BlaxelProvider implements VMProvider {
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
             if (homeVolume) {
               const volume = homeVolume;
-              await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume));
+              await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume, homeVolumeMb));
             }
             try {
               created = await timedStep("create_sandbox", () => blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
@@ -574,18 +485,20 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
-          // The daemon preview is minted through the same branded path attach uses, so a
+          // The daemon previews are minted through the same paths attach uses, so a
           // machine is born at https://<name>.vm.cmux.sh (or <name>-cmux.preview.bl.run)
-          // rather than an opaque hash it would then keep for life. The preview lives on
-          // the control plane and only needs the sandbox to exist, so it is created in
+          // rather than an opaque hash it would then keep for life; the raw preview is
+          // the route for clients that cannot pass the branded ingress. Previews live on
+          // the control plane and only need the sandbox to exist, so they are created in
           // parallel with the in-sandbox daemon bootstrap.
-          // Both branches settle before any rollback (allSettled, not all): a
-          // fast-failing bootstrap must not start deleting the sandbox while the
+          // All branches settle before any rollback (allSettled, not all): a
+          // fast-failing bootstrap must not start deleting the sandbox while a
           // preview POST is still in flight, or the late preview recreates the
           // orphaned branded route the rollback exists to remove.
-          const [bootstrapResult, previewResult] = await Promise.allSettled([
-            timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl)),
-            timedStep("ensure_preview", () => this.ensurePreview(name)),
+          const [bootstrapResult, previewResult, rawPreviewResult] = await Promise.allSettled([
+            timedStep("bootstrap_daemon", () => this.bootstrapMachine(name, sandboxUrl)),
+            timedStep("ensure_preview", () => this.ensurePreview(name, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: true })),
+            timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
           ]);
           // A machine that failed to bootstrap must not survive as an orphaned
           // sandbox (its previews die with it); the durable home volume is kept —
@@ -605,6 +518,10 @@ export class BlaxelProvider implements VMProvider {
             await rollback();
             throw previewResult.reason;
           }
+          if (rawPreviewResult.status === "rejected") {
+            await rollback();
+            throw rawPreviewResult.reason;
+          }
           const previewUrl = previewResult.value;
           span.setAttribute("cmux.vm.id", name);
           return {
@@ -614,7 +531,7 @@ export class BlaxelProvider implements VMProvider {
             image,
             createdAt: Date.now(),
             providerMetadata: homeVolume
-              ? { sandboxUrl, previewUrl, homeVolume, image, memoryMb }
+              ? { sandboxUrl, previewUrl, homeVolume, homeVolumeMb, image, memoryMb }
               : { sandboxUrl, previewUrl, image, memoryMb },
           };
         } catch (err) {
@@ -624,80 +541,24 @@ export class BlaxelProvider implements VMProvider {
     );
   }
 
-  private async bootstrapDaemon(name: string, sandboxUrl: string): Promise<void> {
-    // With a cmux-tui pin configured, cmux-tui is the machine's only session daemon:
-    // cmuxd-remote is neither installed nor started (the legacy websocket attach can
-    // still self-heal it on demand through ensureDaemonRunning for machines that need
-    // it). Exec, ports, stats and the desktop never depended on cmuxd.
-    if (isCmuxTuiEnabled()) {
-      await this.bootstrapCmuxTuiOnly(name, sandboxUrl);
-      return;
-    }
-    const b64 = await timedStep("daemon_binary_encode", () => daemonBinaryBase64Gzip());
-    // Both filesystem writes are independent; the install exec below is the barrier
-    // that needs them on disk.
-    await Promise.all([
-      timedStep("daemon_upload", () => blaxelFetch(
-        "PUT",
-        // Leading slash after /filesystem: relative paths root at /blaxel, absolute paths need
-        // the extra separator (`/filesystem//tmp/...`).
-        `${sandboxUrl}/filesystem//tmp/cmuxd.b64`,
-        { content: b64, permissions: "0600" },
-        { timeoutMs: 180_000 },
-      )),
-      blaxelFetch(
-        "PUT",
-        `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
-        { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
-      ),
-    ]);
-    const install = await timedStep("daemon_install", () => this.sandboxExec(
-      sandboxUrl,
-      `base64 -d /tmp/cmuxd.b64 | gunzip > ${CMUXD_BINARY_PATH} && chmod 755 ${CMUXD_BINARY_PATH} && rm /tmp/cmuxd.b64 && chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux && ${CMUXD_BINARY_PATH} version`,
-    ));
-    if (install.exitCode !== 0) {
-      throw new ProviderError("blaxel", `daemon install in ${name} failed: ${install.stderr || install.stdout}`);
-    }
-    // Everything after the install is mutually independent: the daemon and watcher
-    // processes, the hostname→VNC-heal chain (ordered within itself — the heal only
-    // succeeds once the hostname resolves; runtime state, so it re-applies on
-    // resurrection too), and the background provision process (agents and dev
-    // essentials come with the machine without delaying attach; the .bashrc seed is
-    // write-once — /root persists, and a user's edits win).
-    await Promise.all([
-      timedStep("daemon_start", () => this.startDaemonProcess(sandboxUrl)),
-      timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
-      (async () => {
-        await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
-        await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
-      })(),
-      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-        name: "cmux-provision",
-        command: CMUX_PROVISION_COMMAND,
-        waitForCompletion: false,
-      }).catch(() => undefined),
-      // Phase 1: the cmux-tui daemon is best-effort at create so a bad pin or a slow
-      // download can never fail a machine; openCmuxRemote makes it deterministic when
-      // the transport is actually used.
-      timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)).catch((err) => {
-        console.error(`[blaxel] cmux-tui daemon bootstrap in ${name} failed (attach will retry)`, err);
-      }),
-    ]);
-  }
-
   // MARK: cmux-tui remote daemon
 
-  /** Create-time bootstrap for cmux-tui deployments: the watcher, hostname/VNC chain and provisioning as before, cmux-tui instead of cmuxd-remote. */
-  private async bootstrapCmuxTuiOnly(name: string, sandboxUrl: string): Promise<void> {
+  /** Create-time bootstrap: the smart-sleep watcher, the cmux-tui daemon, the hostname/VNC chain and background provisioning. */
+  private async bootstrapMachine(name: string, sandboxUrl: string): Promise<void> {
     // A just-created sandbox answers 404 ("VM not found") on its API for a few
-    // seconds. The cmuxd path never noticed because encoding the Go binary took
-    // that long; here the first write is the readiness probe and retries instead.
+    // seconds; the first write is the readiness probe and retries instead.
     await this.awaitSandboxApi(name, sandboxUrl, () =>
       blaxelFetch("PUT", `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`, { content: SMART_SLEEP_SCRIPT, permissions: "0755" }));
     const prep = await this.sandboxExec(sandboxUrl, `chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux`);
     if (prep.exitCode !== 0) {
       throw new ProviderError("blaxel", `machine prep in ${name} failed: ${prep.stderr || prep.stdout}`);
     }
+    // Everything after the prep is mutually independent: the daemon install/start, the
+    // watcher process, the hostname→VNC-heal chain (ordered within itself — the heal only
+    // succeeds once the hostname resolves; runtime state, so it re-applies on
+    // resurrection too), and the background provision process (agents and dev
+    // essentials come with the machine without delaying attach; the .bashrc seed is
+    // write-once — /root persists, and a user's edits win).
     await Promise.all([
       timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)),
       timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
@@ -729,17 +590,15 @@ export class BlaxelProvider implements VMProvider {
     throw new ProviderError("blaxel", `sandbox API for ${name} did not become reachable`, lastError);
   }
 
-  /** Installs (or re-verifies) the pinned binary and starts the daemon. No-op when the deployment has not opted in. */
-  private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<boolean> {
+  /** Installs (or re-verifies) the pinned binary and starts the daemon. */
+  private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<void> {
     const source = await resolveCmuxTuiSource();
-    if (!source) return false;
     const install = await this.sandboxExec(sandboxUrl, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
     }
     await this.startCmuxTuiProcess(sandboxUrl);
     await this.waitForCmuxTuiReady(name, sandboxUrl);
-    return true;
   }
 
   private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
@@ -783,16 +642,7 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
-    if (!isCmuxTuiEnabled()) {
-      throw new ProviderError(
-        "blaxel",
-        "the cmux-tui remote daemon is not enabled for this deployment (CMUX_VM_CMUX_TUI_ENABLED=0)",
-      );
-    }
     const source = await resolveCmuxTuiSource();
-    if (!source) {
-      throw new ProviderError("blaxel", "the cmux-tui remote daemon is not enabled for this deployment");
-    }
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status !== "running") {
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
@@ -809,13 +659,20 @@ export class BlaxelProvider implements VMProvider {
         await this.waitForCmuxTuiReady(vmId, sandboxUrl);
       }
     }
+    // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake
+    // while this session works, and can freeze again once it goes idle.
     const watcher = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${SMART_SLEEP_PROCESS_NAME}`).catch(() => null);
     if (watcher?.status !== "running") {
       await this.startWatcherProcess(sandboxUrl);
     }
   }
 
-  /** Same wake/resurrect dance as the PTY attach: a status read wakes standby, a dead sandbox with a home volume is recreated. */
+  /**
+   * A status read doubles as the wake request for a sandbox in standby. A persistent-home
+   * machine whose sandbox is gone gets resurrected around its volume. "Gone" is either a
+   * 404 or a still-listed TERMINATED/DELETING record — Blaxel deletion is asynchronous, so
+   * both shapes mean the compute is dead.
+   */
   private async liveSandboxForAttach(vmId: string, providerMetadata?: Record<string, unknown>): Promise<BlaxelSandbox> {
     let sandbox: BlaxelSandbox | null = null;
     try {
@@ -950,20 +807,6 @@ export class BlaxelProvider implements VMProvider {
   // The daemon itself is NOT keepAlive: while every shell is idle and no client is attached,
   // nothing pins the sandbox and Blaxel freezes it (processes preserved in the memory
   // snapshot). The smart-sleep watcher is the only keepAlive process, and it exits when idle.
-  private async startDaemonProcess(sandboxUrl: string): Promise<void> {
-    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-      name: CMUXD_PROCESS_NAME,
-      command:
-        `${CMUXD_BINARY_PATH} serve --ws --listen 0.0.0.0:${CMUXD_WS_PORT} ` +
-        `--auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} ` +
-        `--shell /bin/bash`,
-      waitForCompletion: false,
-      keepAlive: false,
-      restartOnFailure: true,
-      maxRestarts: 10,
-    });
-  }
-
   private async startWatcherProcess(sandboxUrl: string): Promise<void> {
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: SMART_SLEEP_PROCESS_NAME,
@@ -1067,118 +910,21 @@ export class BlaxelProvider implements VMProvider {
       async () => {
         throw new ProviderError(
           "blaxel",
-          "Blaxel sandboxes are WebSocket-only (HTTPS preview ingress, no raw TCP). " +
-            "Use the WebSocket attach path, or another provider for SSH.",
+          "Blaxel sandboxes have no raw TCP ingress, so there is no SSH. " +
+            "Blaxel machines attach through the cmux-tui remote daemon (transport cmux-remote).",
         );
       },
     );
   }
 
+  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
+
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    const endpoint = await this.openWebSocketPty(vmId, options);
-    if (options?.requireDaemon && !endpoint.daemon) {
-      throw new ProviderError(
-        "blaxel",
-        `openAttach(${vmId}) requires a cmuxd RPC endpoint, but the sandbox daemon has no RPC lease path.`,
-      );
-    }
-    return endpoint;
-  }
-
-  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
-    return withVmSpan(
-      "cmux.vm.provider.open_websocket_pty",
-      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_websocket_pty", "cmux.vm.id": vmId },
-      async (span) => {
-        try {
-          // The status read doubles as the wake request for a sandbox in standby. A
-          // persistent-home machine whose sandbox is gone gets resurrected around its volume.
-          // "Gone" is either a 404 or a still-listed TERMINATED/DELETING record — Blaxel
-          // deletion is asynchronous, so both shapes mean the compute is dead.
-          let sandbox: BlaxelSandbox | null = null;
-          try {
-            const fetched = await this.getSandbox(vmId);
-            sandbox = mapStatus(fetched) === "destroyed" ? null : fetched;
-          } catch (err) {
-            const gone = err instanceof ProviderError && /-> 404/.test(err.message);
-            if (!gone) throw err;
-          }
-          if (!sandbox) {
-            sandbox = options?.providerMetadata
-              ? await this.resurrectSandbox(vmId, options.providerMetadata)
-              : null;
-            if (!sandbox) {
-              throw new ProviderError("blaxel", `sandbox ${vmId} is gone and has no persistent home to resurrect from`);
-            }
-          }
-          const sandboxUrl = sandbox.metadata?.url;
-          if (!sandboxUrl) {
-            throw new Error("sandbox is missing metadata.url");
-          }
-          await this.ensureDaemonRunning(vmId, sandboxUrl);
-
-          const pty = makeWebSocketLease("blaxel", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
-          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("blaxel");
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(CMUXD_WS_PTY_LEASE_PATH),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)}`,
-            `chmod 600 ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)}`,
-          ];
-
-          let daemon: ReusableRpcLease | null = null;
-          const existingDaemon = await this.readReusableRpcLease(sandboxUrl);
-          const newDaemon = existingDaemon
-            ? null
-            : makeWebSocketLease("blaxel", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-          daemon = existingDaemon ?? newDaemon!;
-          if (newDaemon) {
-            const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-            const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-            commands.push(
-              ensurePrivateDirectoryCommand(CMUXD_WS_RPC_LEASE_PATH),
-              `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-              `chmod 600 ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-              `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-            );
-          }
-          const leaseWrite = await this.sandboxExec(sandboxUrl, commands.join(" && "));
-          if (leaseWrite.exitCode !== 0) {
-            throw new Error(`lease write failed: ${leaseWrite.stderr || leaseWrite.stdout}`);
-          }
-
-          const preview = await this.ensurePreview(vmId);
-          const previewToken = await this.mintPreviewToken(vmId);
-          const headers = { "X-Blaxel-Preview-Token": previewToken };
-          await ensureWebSocketHealthy(preview, headers);
-
-          const wsBase = preview.replace(/^https:/, "wss:").replace(/\/+$/, "");
-          span.setAttribute("cmux.vm.attach.transport", "websocket");
-          span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
-          span.setAttribute("cmux.vm.attach.daemon_available", true);
-          return {
-            transport: "websocket",
-            url: `${wsBase}/terminal`,
-            headers,
-            token: pty.token,
-            sessionId: pty.sessionId,
-            attachmentId,
-            expiresAtUnix: pty.expiresAtUnix,
-            daemon: {
-              url: `${wsBase}/rpc`,
-              headers,
-              token: daemon.token,
-              sessionId: daemon.sessionId,
-              expiresAtUnix: daemon.expiresAtUnix,
-            },
-          };
-        } catch (err) {
-          throw err instanceof ProviderError
-            ? err
-            : new ProviderError("blaxel", `openWebSocketPty(${vmId}) failed`, err);
-        }
-      },
+    void options;
+    throw new ProviderError(
+      "blaxel",
+      `openAttach(${vmId}) is not supported: Blaxel machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
     );
   }
 
@@ -1192,8 +938,8 @@ export class BlaxelProvider implements VMProvider {
    *
    * Blaxel preview tokens are independent of Stack Auth, so deleting only the
    * Postgres lease row would leave a copied preview URL usable until its TTL.
-   * Remove the private previews and stop cmuxd before returning; the next
-   * authenticated attach recreates both idempotently.
+   * Remove the private previews and stop the cmux-tui daemon before returning;
+   * the next authenticated attach recreates both idempotently.
    */
   async revokeEndpointLeases(vmId: string): Promise<void> {
     const previewsBase = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
@@ -1209,10 +955,7 @@ export class BlaxelProvider implements VMProvider {
       const result = await this.sandboxExec(
         sandboxUrl,
         [
-          `rm -f ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)} ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)} ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-          `pkill -TERM -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
           `pkill -TERM -x ${shellQuote(SMART_SLEEP_PROCESS_NAME)} 2>/dev/null || true`,
-          `pkill -KILL -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
           `pkill -TERM -f ${shellQuote(`${CMUX_TUI_BINARY_PATH} server start`)} 2>/dev/null || true`,
         ].join("; "),
         15_000,
@@ -1220,7 +963,7 @@ export class BlaxelProvider implements VMProvider {
       if (result.exitCode !== 0) {
         throw new ProviderError(
           "blaxel",
-          `revokeEndpointLeases(${vmId}) failed to stop cmuxd: ${result.stderr || result.stdout}`,
+          `revokeEndpointLeases(${vmId}) failed to stop the cmux-tui daemon: ${result.stderr || result.stdout}`,
         );
       }
     }
@@ -1259,8 +1002,9 @@ export class BlaxelProvider implements VMProvider {
     return blaxelFetch<BlaxelSandbox>("GET", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
   }
 
-  private async ensureHomeVolume(name: string): Promise<void> {
-    const sizeMb = positiveIntEnv("CMUX_VM_BLAXEL_HOME_VOLUME_MB", DEFAULT_HOME_VOLUME_MB);
+  // A size the volume API rejects surfaces as the provider's own message (non-409
+  // responses propagate); there is no silent fallback to a smaller disk.
+  private async ensureHomeVolume(name: string, sizeMb: number): Promise<void> {
     try {
       await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, {
         metadata: { name },
@@ -1286,10 +1030,14 @@ export class BlaxelProvider implements VMProvider {
     const homeVolume = typeof metadata.homeVolume === "string" ? metadata.homeVolume : null;
     const image = typeof metadata.image === "string" ? metadata.image : null;
     if (!homeVolume || !image) return null;
-    await this.ensureHomeVolume(homeVolume);
     const memoryMb = resolveMemoryMb(
       typeof metadata.memoryMb === "number" ? metadata.memoryMb : undefined,
     );
+    // The volume already exists (409 → steady state); the size only matters if it was lost.
+    const homeVolumeMb = typeof metadata.homeVolumeMb === "number" && metadata.homeVolumeMb > 0
+      ? metadata.homeVolumeMb
+      : resolveHomeVolumeMb(memoryMb);
+    await this.ensureHomeVolume(homeVolume, homeVolumeMb);
     const created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
       metadata: { name: vmId },
       spec: {
@@ -1306,7 +1054,7 @@ export class BlaxelProvider implements VMProvider {
     if (!sandboxUrl) {
       throw new ProviderError("blaxel", `resurrect(${vmId}) returned no sandbox url`);
     }
-    await this.bootstrapDaemon(vmId, sandboxUrl);
+    await this.bootstrapMachine(vmId, sandboxUrl);
     return created;
   }
 
@@ -1344,56 +1092,6 @@ export class BlaxelProvider implements VMProvider {
     };
   }
 
-  private async ensureDaemonRunning(vmId: string, sandboxUrl: string): Promise<void> {
-    const proc = await blaxelFetch<BlaxelProcess>(
-      "GET",
-      `${sandboxUrl}/process/${CMUXD_PROCESS_NAME}`,
-    ).catch(() => null);
-    if (proc?.status !== "running") {
-      // A sandbox can exist without the daemon binary (a create/resurrect that died between
-      // the sandbox POST and the install, or an image rollout that wiped /usr/local/bin).
-      // Starting the process would just crash-loop with exit 127, so re-run the full
-      // bootstrap — install is idempotent and bootstrap also starts daemon and watcher.
-      const installed = await this.sandboxExec(sandboxUrl, `test -x ${CMUXD_BINARY_PATH}`).catch(() => null);
-      if (installed?.exitCode !== 0) {
-        await this.bootstrapDaemon(vmId, sandboxUrl);
-        return;
-      }
-      await this.startDaemonProcess(sandboxUrl);
-    }
-    // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake while
-    // this session works, and can freeze again once it goes idle.
-    const watcher = await blaxelFetch<BlaxelProcess>(
-      "GET",
-      `${sandboxUrl}/process/${SMART_SLEEP_PROCESS_NAME}`,
-    ).catch(() => null);
-    if (watcher?.status !== "running") {
-      await this.startWatcherProcess(sandboxUrl);
-    }
-  }
-
-  private async readReusableRpcLease(sandboxUrl: string): Promise<ReusableRpcLease | null> {
-    const result = await this.sandboxExec(
-      sandboxUrl,
-      [
-        `test -s ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-        `test -s ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-        `cat ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-      ].join(" && "),
-    ).catch(() => null);
-    const raw = result?.exitCode === 0 ? result.stdout.trim() : "";
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (!isReusableRpcLease(parsed)) return null;
-      const nowUnix = Math.floor(Date.now() / 1000);
-      if (parsed.expiresAtUnix <= nowUnix + CMUXD_WS_RPC_RENEW_BEFORE_SECONDS) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
   // One in-flight ensure per (machine, preview): a create that races the attach it triggers
   // must not mint the same preview twice. Cross-process races are handled below by re-reading
   // the preview after a failed branded create instead of clobbering it.
@@ -1401,8 +1099,8 @@ export class BlaxelProvider implements VMProvider {
 
   private ensurePreview(
     vmId: string,
-    previewName = CMUXD_PREVIEW_NAME,
-    port = CMUXD_WS_PORT,
+    previewName: string,
+    port: number,
     options: { branded?: boolean } = {},
   ): Promise<string> {
     const key = `${vmId}/${previewName}`;
@@ -1416,10 +1114,10 @@ export class BlaxelProvider implements VMProvider {
   }
 
   // `branded: false` keeps the preview on Blaxel's own opaque `<hash>.preview.bl.run` host.
-  // The cmux-tui remote daemon needs this: a WebSocket upgrade carrying the preview token
-  // as a query parameter completes on the raw host (101) but is refused through the
-  // vm.cmux.sh custom domain (400, measured 2026-08-26), and the Rust dialer can only pass
-  // the token in the URL. Browser-facing previews keep the branded, cookie-friendly host.
+  // The cmux-tui daemon has one of each: the branded machine host sits behind an ingress
+  // that refuses WebSocket upgrades without a User-Agent, so only clients advertising
+  // `direct-ws-user-agent` are routed there (see cmuxTuiPreviewBranded); everything else
+  // dials the raw host. Browser-facing port previews keep the branded, cookie-friendly host.
   private async ensurePreviewUncoalesced(vmId: string, previewName: string, port: number, branded = true): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
     const readExisting = () =>
@@ -1506,7 +1204,7 @@ export class BlaxelProvider implements VMProvider {
 
   private async mintPreviewToken(
     vmId: string,
-    previewName = CMUXD_PREVIEW_NAME,
+    previewName: string,
     ttlSeconds = PREVIEW_TOKEN_TTL_SECONDS,
   ): Promise<string> {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
@@ -1650,12 +1348,12 @@ export function parseMachineStats(
   return { cpus, cpuPercent, loadAverage1m, memoryTotalMb, memoryUsedMb, diskTotalMb, diskUsedMb };
 }
 
-function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {
+// The machine's bare name is its daemon address (`<machine>.vm.cmux.sh`); port previews
+// hang off it as `<machine>-<port>`.
+export function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {
   const machine = vmId.toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(machine)) return null;
-  const prefix = previewName === CMUXD_PREVIEW_NAME
-    ? machine
-    : previewName === CMUX_TUI_PREVIEW_NAME ? `${machine}-tui` : `${machine}-${port}`;
+  const prefix = previewName === CMUX_TUI_PREVIEW_NAME ? machine : `${machine}-${port}`;
   return prefix.length <= 48 ? prefix : null;
 }
 
@@ -1675,22 +1373,6 @@ function mapStatus(sandbox: BlaxelSandbox): VMStatus {
   }
 }
 
-async function ensureWebSocketHealthy(previewUrl: string, headers: Record<string, string>): Promise<void> {
-  const url = `${previewUrl.replace(/\/+$/, "")}/healthz`;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < HEALTH_RETRY_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-      if (response.ok) return;
-      lastError = new Error(`healthz returned ${response.status}`);
-    } catch (err) {
-      lastError = err;
-    }
-    await new Promise((resolve) => setTimeout(resolve, HEALTH_RETRY_INTERVAL_MS));
-  }
-  throw new ProviderError("blaxel", "cmuxd websocket health check failed", lastError);
-}
-
 // Machines are addressed by name everywhere (`cmux vm ssh brave-otter`), so names are
 // generated memorable instead of opaque. Blaxel sandbox names ARE the provider VM id, so
 // this is the whole naming story — no display-name mapping to keep in sync. Collisions
@@ -1708,14 +1390,8 @@ const NAME_ANIMALS = [
   "raven", "seal", "sparrow", "stoat", "swan", "tern", "wombat", "wren",
 ];
 
-function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
-  const ports: Array<{ name: string; protocol: "HTTP"; target: number }> = [
-    { name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT },
-  ];
-  if (isCmuxTuiEnabled()) {
-    ports.push({ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT });
-  }
-  return ports;
+export function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
+  return [{ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT }];
 }
 
 export function friendlyVmName(withSuffix = false): string {
@@ -1745,11 +1421,4 @@ export function resolveBlaxelMemoryMb(
 
 function resolveMemoryMb(requested: number | undefined): number {
   return resolveBlaxelMemoryMb(requested);
-}
-
-function positiveIntEnv(name: string, fallback: number): number {
-  const raw = env(name);
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

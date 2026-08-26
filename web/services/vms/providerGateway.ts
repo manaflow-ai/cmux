@@ -5,6 +5,7 @@ import {
   getProvider,
   type AttachEndpoint,
   type AttachOptions,
+  type AttachTransport,
   type CreateOptions,
   type ExecResult,
   type ProviderId,
@@ -47,6 +48,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  /** Session transports the provider serves; undefined = legacy websocket/ssh. */
+  readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
   readonly openAttach: (
     provider: ProviderId,
     vmId: string,
@@ -134,6 +137,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return impl.getStats(vmId);
     }),
+  attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
   openCmuxRemote: (provider, vmId, options) =>

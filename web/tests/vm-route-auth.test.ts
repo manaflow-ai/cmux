@@ -153,6 +153,7 @@ mock.module("../db/client", () => ({
   },
 }));
 
+const { VmAttachTransportUnsupportedError } = await import("../services/vms/errors");
 const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const baseOpenRoute = await import("../app/api/vm/base/open/route");
 const baseResetRoute = await import("../app/api/vm/base/reset/route");
@@ -990,6 +991,42 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");
     expect(payload.invitation.invitationId).toBe("inv-1");
+  });
+
+  test("attach-endpoint answers 409 vm_attach_transport_unsupported when the machine only runs cmux-tui", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+    (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void }).mockImplementation(
+      async () => {
+        throw new VmAttachTransportUnsupportedError({
+          provider: "blaxel",
+          vmId: "provider-vm-team-1",
+          requested: "websocket",
+          supported: ["cmux-remote"],
+        });
+      },
+    );
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ requireDaemon: true }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload.error).toBe("vm_attach_transport_unsupported");
+    expect(payload.retryable).toBe(false);
+    expect(payload.details).toMatchObject({
+      provider: "blaxel",
+      requestedTransport: "websocket",
+      supportedTransports: ["cmux-remote"],
+      phase: "attach",
+    });
+    expect(payload.action).toContain('transport "cmux-remote"');
+    expect(openAttachEndpoint).toHaveBeenCalledTimes(1);
+    expect(openVmCmuxRemote).not.toHaveBeenCalled();
   });
 
   test("attach-endpoint rejects an unknown transport before any workflow runs", async () => {

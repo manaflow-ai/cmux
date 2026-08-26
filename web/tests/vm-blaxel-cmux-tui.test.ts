@@ -4,7 +4,6 @@ import {
   cmuxTuiPreviewBranded,
   cmuxTuiInstallCommand,
   cmuxTuiManifestUrl,
-  isCmuxTuiEnabled,
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
 } from "../services/vms/drivers/blaxel";
@@ -32,13 +31,6 @@ function withEnv(values: Record<string, string | undefined>, run: () => void) {
 }
 
 describe("cmux-tui daemon source", () => {
-  test("is on by default and only CMUX_VM_CMUX_TUI_ENABLED=0 turns it off", () => {
-    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: undefined }, () => expect(isCmuxTuiEnabled()).toBe(true));
-    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "0" }, () => expect(isCmuxTuiEnabled()).toBe(false));
-    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "false" }, () => expect(isCmuxTuiEnabled()).toBe(false));
-    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "1" }, () => expect(isCmuxTuiEnabled()).toBe(true));
-  });
-
   test("follows the rolling latest manifest unless a deployment pins one", () => {
     withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: undefined }, () =>
       expect(cmuxTuiManifestUrl()).toBe("https://files.cmux.com/cmux-tui/latest/manifest.json"));
@@ -77,6 +69,15 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain("ln -sfn '/root/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
     expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
+  });
+
+  // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
+  // image) rejects `-s` ("invalid option -- 's'"), which failed every create with a 502.
+  test("the pin check never uses the BusyBox-only sha256sum -s flag", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(command).not.toMatch(/sha256sum[^|&;]*\s-s\b/);
+    expect(command).not.toContain("--status");
+    expect(command).toContain("sha256sum -c >/dev/null 2>&1");
   });
 
   test("the daemon serves /v1/link on its own port from the persistent home", () => {

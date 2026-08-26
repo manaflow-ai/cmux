@@ -90,9 +90,12 @@ export type WebSocketPtyEndpoint = {
 
 export type AttachEndpoint = SSHEndpoint | WebSocketPtyEndpoint;
 
+/** Session transports a provider can hand out; `attachTransports` on VMProvider lists a driver's. */
+export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
+
 /**
- * Attach through the cmux-tui remote daemon running in the VM (Phase 1 of the
- * cmuxd-remote → cmux-tui migration, docs/cloud-cmux-tui-daemon.md). The route
+ * Attach through the cmux-tui remote daemon running in the VM
+ * (docs/cloud-cmux-tui-daemon.md). The route
  * is the provider's tokenized ingress to the daemon's `/v1/link` listener; the
  * token only gates reachability — session auth is the daemon's Noise device
  * enrollment. `invitation` is present when the caller's device is not yet
@@ -209,12 +212,19 @@ export interface VMProvider {
   restore(snapshotId: string): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 
-  // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote
-  // WebSocket PTY with a short-lived one-use lease, with provider-specific fallbacks.
+  // Session transports this driver supports. Undefined means the legacy set (`websocket`
+  // and/or `ssh` via openAttach/openSSH). A driver that lists only `cmux-remote` (Blaxel)
+  // never serves openAttach: workflows fail such requests with
+  // VmAttachTransportUnsupportedError before reaching the provider.
+  readonly attachTransports?: readonly AttachTransport[];
+
+  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
+  // with a short-lived one-use lease (E2B/Daytona/Freestyle), or SSH.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
-  // Providers that have not been migrated leave this undefined.
+  // Blaxel machines run only this daemon; providers that have not been migrated leave
+  // this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
   // Optional: approve the pending enrollment a previous openCmuxRemote invited.
   approveCmuxRemoteEnrollment?(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult>;

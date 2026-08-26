@@ -15,6 +15,7 @@ import {
 import {
   isVmBillingError,
   isVmAccountDeletionInProgressError,
+  isVmAttachTransportUnsupportedError,
   isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
@@ -331,6 +332,24 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       action: "Wait for account deletion to finish before creating Cloud VMs.",
       phase: workflowError.phase ?? "create",
       retryable: true,
+    });
+  }
+
+  if (isVmAttachTransportUnsupportedError(workflowError)) {
+    const supported = workflowError.supported.join(", ");
+    return vmErrorResponse({
+      error: "vm_attach_transport_unsupported",
+      status: 409,
+      message: `Cloud VM ${workflowError.vmId} does not serve the "${workflowError.requested}" attach transport.`,
+      action: `Request the attach endpoint with transport "cmux-remote" (supported: ${supported}), ` +
+        "or update cmux — this machine runs the cmux-tui remote daemon only.",
+      phase: "attach",
+      retryable: false,
+      details: {
+        provider: workflowError.provider,
+        requestedTransport: workflowError.requested,
+        supportedTransports: [...workflowError.supported],
+      },
     });
   }
 

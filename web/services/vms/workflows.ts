@@ -20,6 +20,7 @@ import {
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
+  VmAttachTransportUnsupportedError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
@@ -1581,10 +1582,11 @@ export function openVmPort(input: {
 }
 
 /**
- * Attach through the cmux-tui remote daemon (Phase 1: opt-in transport beside the
- * cmuxd-remote PTY/RPC endpoints). The ingress token lands in the same lease ledger
- * as previews so sign-out revokes it; session auth is the daemon's device
- * enrollment, which the client completes with approveVmCmuxRemoteEnrollment.
+ * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * machines (other providers still serve the legacy websocket/SSH attach). The ingress
+ * token lands in the same lease ledger as previews so sign-out revokes it; session
+ * auth is the daemon's device enrollment, which the client completes with
+ * approveVmCmuxRemoteEnrollment.
  */
 export function openVmCmuxRemote(input: {
   readonly userId: string;
@@ -1794,6 +1796,19 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // websocket/SSH attach at all; say so before waking or mutating anything.
+    const supportedTransports = providers.attachTransports?.(vm.provider);
+    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+      return yield* Effect.fail(
+        new VmAttachTransportUnsupportedError({
+          provider: vm.provider,
+          vmId: input.providerVmId,
+          requested: "websocket",
+          supported: supportedTransports,
+        }),
+      );
+    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must

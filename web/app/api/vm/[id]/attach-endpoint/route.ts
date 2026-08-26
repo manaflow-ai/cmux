@@ -38,8 +38,10 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      // Opt-in transport: the cmux-tui remote daemon (Phase 1 of the cmuxd-remote
-      // migration). Clients that do not ask keep the WebSocket PTY/RPC endpoint.
+      // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
+      // transport Blaxel machines serve. Clients that do not ask keep the legacy
+      // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
+      // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
       if (transport === "cmux-remote") {
         let deviceFingerprint: string | undefined;
