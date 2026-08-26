@@ -57426,6 +57426,57 @@
         }
       }
     },
+    "cli.vm.pull.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulled %1$@:%2$@ to %3$@ (%4$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@:%2$@ を %3$@ にプルしました（%4$@）"
+          }
+        }
+      }
+    },
+    "cli.vm.push.excludedNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped: %1$@ (pass --no-default-excludes to send everything)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ: %1$@（すべて送るには --no-default-excludes を指定）"
+          }
+        }
+      }
+    },
+    "cli.vm.push.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pushed %1$@ to %2$@:%3$@ (%4$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@:%3$@ にプッシュしました（%4$@）"
+          }
+        }
+      }
+    },
     "cli.vm.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -57484,6 +57535,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux vm rename <id> <new-label>\n        cmux vm rename <id> --clear\n\nラベルは表示専用です。マシンのアドレスは id のままです。\nid の確認:\n  cmux vm ls"
+          }
+        }
+      }
+    },
+    "cli.vm.wait.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is ready (%2$@) after %3$ds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は準備完了です（%2$@、%3$d 秒）"
           }
         }
       }
