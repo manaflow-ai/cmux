@@ -33,6 +33,11 @@ enum RenderableSystemSymbol {
     private static var appKitImageCache: [AppKitImageCacheKey: NSImage] = [:]
     @MainActor
     private static var appKitImageCacheInsertionOrder: [AppKitImageCacheKey] = []
+    @MainActor
+    private static var appKitImageRetryCache = AppKitImageRetryCache(
+        limit: appKitImageCacheLimit,
+        retryInterval: negativeRenderabilityRetryInterval
+    )
 
     struct RenderabilityCache {
         private let limit: Int
@@ -108,10 +113,61 @@ enum RenderableSystemSymbol {
         }
     }
 
-    private struct AppKitImageCacheKey: Hashable {
+    struct AppKitImageCacheKey: Hashable {
         let systemName: String
         let rasterSize: CGFloat
         let weightRawValue: CGFloat
+    }
+
+    /// Coalesces repeated blank rasterization attempts until a lifecycle retry is due.
+    struct AppKitImageRetryCache {
+        private let limit: Int
+        private let retryInterval: TimeInterval
+        private let now: () -> Date
+        private var failures: [AppKitImageCacheKey: Date] = [:]
+        private var insertionOrder: [AppKitImageCacheKey] = []
+
+        init(
+            limit: Int,
+            retryInterval: TimeInterval,
+            now: @escaping () -> Date = Date.init
+        ) {
+            self.limit = limit
+            self.retryInterval = retryInterval
+            self.now = now
+        }
+
+        mutating func shouldAttempt(_ key: AppKitImageCacheKey) -> Bool {
+            guard let failedAt = failures[key] else { return true }
+            guard now().timeIntervalSince(failedAt) >= retryInterval else { return false }
+            removeFailure(for: key)
+            return true
+        }
+
+        mutating func recordFailure(for key: AppKitImageCacheKey) {
+            if failures[key] == nil {
+                insertionOrder.append(key)
+            }
+            failures[key] = now()
+            while insertionOrder.count > limit {
+                let evictedKey = insertionOrder.removeFirst()
+                failures.removeValue(forKey: evictedKey)
+            }
+        }
+
+        mutating func recordSuccess(for key: AppKitImageCacheKey) {
+            removeFailure(for: key)
+        }
+
+        mutating func reset() {
+            failures.removeAll()
+            insertionOrder.removeAll()
+        }
+
+        private mutating func removeFailure(for key: AppKitImageCacheKey) {
+            failures.removeValue(forKey: key)
+            insertionOrder.removeAll { $0 == key }
+        }
     }
 
     static func trimmed(_ raw: String?) -> String? {
@@ -206,6 +262,12 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
+        // This synchronous @MainActor path has no suspension window for a
+        // concurrent materialization; coalesce repeated body evaluations and
+        // let the AppKit lifecycle owner perform the immediate retry.
+        guard appKitImageRetryCache.shouldAttempt(cacheKey) else {
+            return nil
+        }
         if !renderabilityCache.isRenderable(systemName) {
             return nil
         }
@@ -221,8 +283,10 @@ enum RenderableSystemSymbol {
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         guard let image = materializedImage(configuredImage, size: imageSize) else {
+            appKitImageRetryCache.recordFailure(for: cacheKey)
             return nil
         }
+        appKitImageRetryCache.recordSuccess(for: cacheKey)
         // Keep the template contract used by the SwiftUI and AppKit callers,
         // while replacing AppKit's lazy symbol representation with a bitmap
         // that cannot be materialized again from an NSWindow layout pass.
@@ -343,6 +407,7 @@ enum RenderableSystemSymbol {
         renderabilityCache.reset()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
+        appKitImageRetryCache.reset()
     }
     #endif
 }

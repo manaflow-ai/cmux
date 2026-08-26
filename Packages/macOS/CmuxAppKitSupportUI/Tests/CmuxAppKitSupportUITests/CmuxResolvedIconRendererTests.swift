@@ -262,7 +262,9 @@ import Testing
     /// Workspace-backed fallbacks resolve lazily in the renderer and retain
     /// Finder's concrete folder artwork without sharing a mutable NSImage.
     @Test func rendererUsesWorkspaceIconFallback() throws {
-        let renderer = CmuxResolvedIconRenderer()
+        let workspaceImage = NSImage(size: NSSize(width: 16, height: 16))
+        workspaceImage.addRepresentation(solidBitmapRepresentation(color: .systemBlue, pixels: 16))
+        let renderer = CmuxResolvedIconRenderer { _ in workspaceImage }
         let appearance = try #require(NSAppearance(named: .aqua))
 
         let result = renderer.render(

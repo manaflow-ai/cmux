@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 /// Renders a magnified system symbol through the AppKit-backed icon renderer.

@@ -249,6 +249,29 @@ struct RenderableSystemSymbolTests {
         #expect(resolveCount == 2)
     }
 
+    @Test func blankAppKitImageRetryCacheCoalescesRepeatedAttempts() {
+        var now = Date(timeIntervalSince1970: 2_000)
+        var cache = RenderableSystemSymbol.AppKitImageRetryCache(
+            limit: 8,
+            retryInterval: 60,
+            now: { now }
+        )
+        let key = RenderableSystemSymbol.AppKitImageCacheKey(
+            systemName: "folder.fill",
+            rasterSize: 14,
+            weightRawValue: NSFont.Weight.regular.rawValue
+        )
+
+        #expect(cache.shouldAttempt(key))
+        cache.recordFailure(for: key)
+        #expect(cache.shouldAttempt(key) == false)
+
+        now = now.addingTimeInterval(61)
+        #expect(cache.shouldAttempt(key))
+        cache.recordSuccess(for: key)
+        #expect(cache.shouldAttempt(key))
+    }
+
     @MainActor
     private static func renderedBitmap(
         _ image: NSImage,

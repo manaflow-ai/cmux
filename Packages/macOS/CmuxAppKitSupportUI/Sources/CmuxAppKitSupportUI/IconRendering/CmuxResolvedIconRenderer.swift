@@ -1,13 +1,19 @@
 public import AppKit
 public import Foundation
+public import UniformTypeIdentifiers
 
 /// Renders small AppKit icons after resolving asset variants, template masks, and dynamic colors.
 @MainActor
 public final class CmuxResolvedIconRenderer {
     private let rasterScale: CGFloat = 2
+    private let workspaceIconResolver: (UTType) -> NSImage?
 
     /// Creates an icon renderer.
-    public init() {}
+    /// - Parameter workspaceIconResolver: Resolver used for workspace-icon
+    ///   sources; the default delegates to ``NSWorkspace.shared``.
+    public init(workspaceIconResolver: @escaping (UTType) -> NSImage? = { NSWorkspace.shared.icon(for: $0) }) {
+        self.workspaceIconResolver = workspaceIconResolver
+    }
 
     /// Returns a non-template image rasterized for the supplied appearance.
     /// - Parameters:
@@ -133,7 +139,8 @@ public final class CmuxResolvedIconRenderer {
             image.recache()
             return copiedImage(image)
         case .workspaceIcon(let type):
-            return copiedImage(NSWorkspace.shared.icon(for: type))
+            guard let image = workspaceIconResolver(type) else { return nil }
+            return copiedImage(image)
         }
     }
 
