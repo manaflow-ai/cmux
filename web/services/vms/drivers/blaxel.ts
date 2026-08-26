@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 const gzipAsync = promisify(gzip);
 import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
   NotImplementedError,
@@ -18,6 +19,9 @@ import {
   type VMProvider,
   type VMStats,
   type VMStatus,
+  type CmuxRemoteApprovalResult,
+  type CmuxRemoteAttachOptions,
+  type CmuxRemoteEndpoint,
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import {
@@ -56,6 +60,18 @@ const CMUXD_BINARY_PATH = "/usr/local/bin/cmuxd-remote";
 const CMUXD_PROCESS_NAME = "cmuxd-ws";
 const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
 const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
+// cmux-tui remote daemon (Phase 1 of the cmuxd-remote → cmux-tui migration,
+// docs/cloud-cmux-tui-daemon.md): runs alongside cmuxd-remote on its own port with
+// its own private preview. The binary lives on the persistent home volume so a
+// resurrected sandbox reuses it; daemon identity and enrolled devices live under
+// /root too (the daemon's default state dir), so they survive as well.
+const CMUX_TUI_PORT = 1337;
+const CMUX_TUI_PREVIEW_NAME = "cmuxtui";
+const CMUX_TUI_SESSION = "cloud";
+const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
+const CMUX_TUI_PROCESS_NAME = "cmux-tui-daemon";
+const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
+const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // Blaxel keeps a sandbox awake while any keepAlive process runs and freezes it ~15 s after the
 // last connection otherwise. The watcher is that keepAlive process: it stays alive while any
 // PTY shell has a foreground/background job (cmuxd child with descendants) or any client is
@@ -63,7 +79,8 @@ const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
 // ($0, memory snapshot, ~25 ms wake). Every attach re-arms it, so "wake" is just reconnecting.
 const SMART_SLEEP_SCRIPT = `#!/bin/sh
 # cmux smart sleep: hold the sandbox awake while work is running or a client is attached.
-PORT_HEX=1E61 # 7777
+PORT_HEX=1E61 # 7777 (cmuxd-remote)
+TUI_PORT_HEX=0539 # 1337 (cmux-tui remote daemon)
 IDLE_LIMIT=\${CMUX_SMART_SLEEP_IDLE_CHECKS:-8}
 INTERVAL=\${CMUX_SMART_SLEEP_INTERVAL:-15}
 idle=0
@@ -76,7 +93,7 @@ while true; do
     done
   fi
   if [ -z "$busy" ]; then
-    if awk -v port="$PORT_HEX" '$2 ~ ":"port"$" && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    if awk -v port="$PORT_HEX" -v tui="$TUI_PORT_HEX" '($2 ~ ":"port"$" || $2 ~ ":"tui"$") && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
       busy=conn
     fi
   fi
@@ -326,6 +343,98 @@ function daemonBinaryBase64Gzip(): Promise<string> {
 // cache empty here; create() surfaces the real configuration error to the caller.
 void daemonBinaryBase64Gzip().catch(() => undefined);
 
+export type CmuxTuiSource = { url: string; sha256: string };
+
+// Phase 1 is opt-in per deployment: no CMUX_VM_BLAXEL_TUI_URL means no cmux-tui daemon
+// and no behavior change. Like the Go daemon, a remote fetch is integrity-pinned and
+// fails closed without its sha256 — the VM verifies the pin itself before installing.
+export function resolveCmuxTuiSource(): CmuxTuiSource | null {
+  const url = env("CMUX_VM_BLAXEL_TUI_URL");
+  if (!url) return null;
+  const sha256 = env("CMUX_VM_BLAXEL_TUI_SHA256")?.toLowerCase();
+  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new ProviderError(
+      "blaxel",
+      "CMUX_VM_BLAXEL_TUI_SHA256 must be 64 hex characters (sha256 of the raw cmux-tui binary) when CMUX_VM_BLAXEL_TUI_URL is set",
+    );
+  }
+  if (!/^https:\/\//.test(url)) {
+    throw new ProviderError("blaxel", "CMUX_VM_BLAXEL_TUI_URL must be an https:// URL");
+  }
+  return { url, sha256 };
+}
+
+/**
+ * Installs the pinned cmux-tui binary onto the persistent home volume, skipping the
+ * download when the installed copy already matches the pin. The VM fetches the ~50 MB
+ * static musl binary itself (in-region, seconds) instead of the driver pushing a
+ * ~30 MB base64 payload through the sandbox API on every cold create.
+ */
+export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
+  const bin = shellQuote(CMUX_TUI_BINARY_PATH);
+  const tmp = shellQuote(`${CMUX_TUI_BINARY_PATH}.tmp`);
+  const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c -s`;
+  return [
+    `mkdir -p ${shellQuote(dirname(CMUX_TUI_BINARY_PATH))}`,
+    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
+      `curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+    `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    `${bin} --version`,
+  ].join(" && ");
+}
+
+/** The daemon command the sandbox supervisor runs. Launch cwd = /root so new terminals open in the persistent home. */
+export function cmuxTuiDaemonCommand(): string {
+  return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws 0.0.0.0:${CMUX_TUI_PORT} --remote-ws-insecure-bind`;
+}
+
+/** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
+export function parseEnrollmentInvitationUri(uri: string): { id: string; expiresAtUnix: number; daemonFingerprint: string | null } {
+  const prefix = "cmux://enroll/";
+  if (!uri.startsWith(prefix)) {
+    throw new ProviderError("blaxel", "cmux-tui returned an invitation with an unexpected scheme");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(uri.slice(prefix.length), "base64url").toString("utf8"));
+  } catch (err) {
+    throw new ProviderError("blaxel", "cmux-tui returned an undecodable invitation", err);
+  }
+  const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  const id = typeof record.id === "string" ? record.id : "";
+  const expiresAtUnix = typeof record.expires_at_unix === "number" ? record.expires_at_unix : 0;
+  if (!id || !expiresAtUnix) {
+    throw new ProviderError("blaxel", "cmux-tui returned an invitation without an id or expiry");
+  }
+  return {
+    id,
+    expiresAtUnix,
+    daemonFingerprint: typeof record.daemon_fingerprint === "string" ? record.daemon_fingerprint : null,
+  };
+}
+
+const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+function parseJsonObject(text: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(text.trim());
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseJsonArray(text: string): Array<Record<string, unknown>> {
+  try {
+    const value = JSON.parse(text.trim());
+    return Array.isArray(value)
+      ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export class BlaxelProvider implements VMProvider {
   readonly id = "blaxel" as const;
 
@@ -363,7 +472,7 @@ export class BlaxelProvider implements VMProvider {
                     image,
                     memory: memoryMb,
                     envs: [{ name: "LANG", value: "C.UTF-8" }],
-                    ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
+                    ports: sandboxPorts(),
                   },
                   ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
                 },
@@ -473,7 +582,205 @@ export class BlaxelProvider implements VMProvider {
         command: CMUX_PROVISION_COMMAND,
         waitForCompletion: false,
       }).catch(() => undefined),
+      // Phase 1: the cmux-tui daemon is best-effort at create so a bad pin or a slow
+      // download can never fail a machine; openCmuxRemote makes it deterministic when
+      // the transport is actually used.
+      timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)).catch((err) => {
+        console.error(`[blaxel] cmux-tui daemon bootstrap in ${name} failed (attach will retry)`, err);
+      }),
     ]);
+  }
+
+  // MARK: cmux-tui remote daemon
+
+  /** Installs (or re-verifies) the pinned binary and starts the daemon. No-op when the deployment has not opted in. */
+  private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<boolean> {
+    const source = resolveCmuxTuiSource();
+    if (!source) return false;
+    const install = await this.sandboxExec(sandboxUrl, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    if (install.exitCode !== 0) {
+      throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
+    }
+    await this.startCmuxTuiProcess(sandboxUrl);
+    await this.waitForCmuxTuiReady(name, sandboxUrl);
+    return true;
+  }
+
+  private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
+    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+      name: CMUX_TUI_PROCESS_NAME,
+      command: cmuxTuiDaemonCommand(),
+      waitForCompletion: false,
+      // Not keepAlive: the smart-sleep watcher counts connections on the daemon's port,
+      // so an idle machine still drops to standby.
+      keepAlive: false,
+      restartOnFailure: true,
+      maxRestarts: 10,
+    });
+  }
+
+  private async waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
+    let last = "";
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const status = await this.cmuxTuiExec(sandboxUrl, `server status --session ${CMUX_TUI_SESSION}`).catch(() => null);
+      if (status?.exitCode === 0) return;
+      last = status ? (status.stderr || status.stdout) : "status probe failed";
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new ProviderError("blaxel", `cmux-tui daemon in ${name} did not become ready: ${last}`);
+  }
+
+  private cmuxTuiExec(sandboxUrl: string, args: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
+    return this.sandboxExec(sandboxUrl, `env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}`, timeoutMs);
+  }
+
+  private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
+    const source = resolveCmuxTuiSource();
+    if (!source) {
+      throw new ProviderError(
+        "blaxel",
+        "the cmux-tui remote daemon is not enabled for this deployment (set CMUX_VM_BLAXEL_TUI_URL and CMUX_VM_BLAXEL_TUI_SHA256)",
+      );
+    }
+    const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
+    if (proc?.status !== "running") {
+      // The binary lives on the persistent volume, so a resurrected sandbox usually only
+      // needs the process started; a pin change or a fresh volume re-runs the install.
+      const installed = await this.sandboxExec(sandboxUrl, `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)}`).catch(() => null);
+      if (installed?.exitCode !== 0) {
+        await this.bootstrapCmuxTui(vmId, sandboxUrl);
+      } else {
+        await this.startCmuxTuiProcess(sandboxUrl);
+        await this.waitForCmuxTuiReady(vmId, sandboxUrl);
+      }
+    }
+    const watcher = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${SMART_SLEEP_PROCESS_NAME}`).catch(() => null);
+    if (watcher?.status !== "running") {
+      await this.startWatcherProcess(sandboxUrl);
+    }
+  }
+
+  /** Same wake/resurrect dance as the PTY attach: a status read wakes standby, a dead sandbox with a home volume is recreated. */
+  private async liveSandboxForAttach(vmId: string, providerMetadata?: Record<string, unknown>): Promise<BlaxelSandbox> {
+    let sandbox: BlaxelSandbox | null = null;
+    try {
+      const fetched = await this.getSandbox(vmId);
+      sandbox = mapStatus(fetched) === "destroyed" ? null : fetched;
+    } catch (err) {
+      const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+      if (!gone) throw err;
+    }
+    if (!sandbox) {
+      sandbox = providerMetadata ? await this.resurrectSandbox(vmId, providerMetadata) : null;
+      if (!sandbox) {
+        throw new ProviderError("blaxel", `sandbox ${vmId} is gone and has no persistent home to resurrect from`);
+      }
+    }
+    return sandbox;
+  }
+
+  async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
+    return withVmSpan(
+      "cmux.vm.provider.open_cmux_remote",
+      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_cmux_remote", "cmux.vm.id": vmId },
+      async (span) => {
+        try {
+          const sandbox = await this.liveSandboxForAttach(vmId, options?.providerMetadata);
+          const sandboxUrl = sandbox.metadata?.url;
+          if (!sandboxUrl) {
+            throw new Error("sandbox is missing metadata.url");
+          }
+          await this.ensureCmuxTuiRunning(vmId, sandboxUrl);
+          const previewUrl = await this.ensurePreview(vmId, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false });
+          const token = await this.mintPreviewToken(vmId, CMUX_TUI_PREVIEW_NAME);
+          const expiresAtUnix = Math.floor(Date.now() / 1000) + PREVIEW_TOKEN_TTL_SECONDS;
+          const host = previewUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+          // The gateway accepts the preview token as a query parameter and the Rust dialer
+          // passes the URL through verbatim, so the tokenized route is the whole story
+          // (proven by scripts/spike-cmux-tui-blaxel.sh). It travels only in this response,
+          // never inside an invitation.
+          const route = `wss://${host}/v1/link?bl_preview_token=${encodeURIComponent(token)}`;
+
+          let invitation: CmuxRemoteEndpoint["invitation"];
+          const enrolled = options?.deviceFingerprint
+            ? await this.isDeviceEnrolled(sandboxUrl, options.deviceFingerprint)
+            : false;
+          if (!enrolled) {
+            const created = await this.cmuxTuiExec(
+              sandboxUrl,
+              `remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`,
+            );
+            if (created.exitCode !== 0) {
+              throw new ProviderError("blaxel", `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+            }
+            const uri = parseJsonObject(created.stdout).uri;
+            if (typeof uri !== "string" || !uri) {
+              throw new ProviderError("blaxel", `cmux-tui enrollment invitation in ${vmId} returned no uri`);
+            }
+            const parsed = parseEnrollmentInvitationUri(uri);
+            invitation = { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
+          }
+          span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
+          return {
+            transport: "cmux-remote",
+            route,
+            token,
+            expiresAtUnix,
+            session: CMUX_TUI_SESSION,
+            ...(invitation ? { invitation } : {}),
+          };
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("blaxel", `openCmuxRemote(${vmId}) failed`, err);
+        }
+      },
+    );
+  }
+
+  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+    return withVmSpan(
+      "cmux.vm.provider.approve_cmux_remote_enrollment",
+      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
+      async () => {
+        if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
+          throw new ProviderError("blaxel", "invitation id has an unexpected shape");
+        }
+        try {
+          const sandboxUrl = await this.sandboxApiUrl(vmId);
+          const pending = await this.cmuxTuiExec(sandboxUrl, `remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
+          if (pending.exitCode !== 0) {
+            throw new ProviderError("blaxel", `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
+          }
+          const entries = parseJsonArray(pending.stdout);
+          const match = entries.find((entry) => entry.invitation_id === invitationId);
+          if (!match) {
+            // The client has not claimed the invitation yet (or it expired); the caller polls.
+            return { approved: false, state: "pending" };
+          }
+          const approved = await this.cmuxTuiExec(
+            sandboxUrl,
+            `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+          );
+          if (approved.exitCode !== 0) {
+            throw new ProviderError("blaxel", `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
+          }
+          const device = parseJsonObject(approved.stdout);
+          const fingerprint = typeof device.fingerprint === "string"
+            ? device.fingerprint
+            : typeof match.device_fingerprint === "string" ? match.device_fingerprint : undefined;
+          return { approved: true, state: "approved", ...(fingerprint ? { deviceFingerprint: fingerprint } : {}) };
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("blaxel", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
+        }
+      },
+    );
+  }
+
+  private async isDeviceEnrolled(sandboxUrl: string, fingerprint: string): Promise<boolean> {
+    const devices = await this.cmuxTuiExec(sandboxUrl, `remote enroll devices --session ${CMUX_TUI_SESSION} --json`).catch(() => null);
+    if (!devices || devices.exitCode !== 0) return false;
+    return parseJsonArray(devices.stdout).some((device) =>
+      device.fingerprint === fingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
+    );
   }
 
   // The daemon itself is NOT keepAlive: while every shell is idle and no client is attached,
@@ -742,6 +1049,7 @@ export class BlaxelProvider implements VMProvider {
           `pkill -TERM -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
           `pkill -TERM -x ${shellQuote(SMART_SLEEP_PROCESS_NAME)} 2>/dev/null || true`,
           `pkill -KILL -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
+          `pkill -TERM -f ${shellQuote(`${CMUX_TUI_BINARY_PATH} server start`)} 2>/dev/null || true`,
         ].join("; "),
         15_000,
       );
@@ -825,7 +1133,7 @@ export class BlaxelProvider implements VMProvider {
           image,
           memory: memoryMb,
           envs: [{ name: "LANG", value: "C.UTF-8" }],
-          ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
+          ports: sandboxPorts(),
         },
         volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }],
       },
@@ -927,26 +1235,42 @@ export class BlaxelProvider implements VMProvider {
   // the preview after a failed branded create instead of clobbering it.
   private readonly inflightPreviews = new Map<string, Promise<string>>();
 
-  private ensurePreview(vmId: string, previewName = CMUXD_PREVIEW_NAME, port = CMUXD_WS_PORT): Promise<string> {
+  private ensurePreview(
+    vmId: string,
+    previewName = CMUXD_PREVIEW_NAME,
+    port = CMUXD_WS_PORT,
+    options: { branded?: boolean } = {},
+  ): Promise<string> {
     const key = `${vmId}/${previewName}`;
     const inflight = this.inflightPreviews.get(key);
     if (inflight) return inflight;
-    const task = this.ensurePreviewUncoalesced(vmId, previewName, port).finally(() => {
+    const task = this.ensurePreviewUncoalesced(vmId, previewName, port, options.branded !== false).finally(() => {
       this.inflightPreviews.delete(key);
     });
     this.inflightPreviews.set(key, task);
     return task;
   }
 
-  private async ensurePreviewUncoalesced(vmId: string, previewName: string, port: number): Promise<string> {
+  // `branded: false` keeps the preview on Blaxel's own opaque `<hash>.preview.bl.run` host.
+  // The cmux-tui remote daemon needs this: a WebSocket upgrade carrying the preview token
+  // as a query parameter completes on the raw host (101) but is refused through the
+  // vm.cmux.sh custom domain (400, measured 2026-08-26), and the Rust dialer can only pass
+  // the token in the URL. Browser-facing previews keep the branded, cookie-friendly host.
+  private async ensurePreviewUncoalesced(vmId: string, previewName: string, port: number, branded = true): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
     const readExisting = () =>
       blaxelFetch<BlaxelPreview>("GET", `${base}/${previewName}`).catch(() => null);
-    const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
+    const prefixUrl = branded ? brandedPreviewPrefix(vmId, previewName, port) : null;
     const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
     const existing = await readExisting();
     const existingUrl = usablePrivatePreviewUrl(existing);
-    if (existingUrl) {
+    if (existingUrl && !branded) {
+      // An unbranded preview must not carry a prefix or custom domain; rotate one that does.
+      const spec = existing?.spec ?? {};
+      const isBranded = !!(spec.prefixUrl?.trim() || spec.customDomain?.trim());
+      if (!isBranded) return existingUrl;
+      await blaxelFetch("DELETE", `${base}/${previewName}`).catch(() => undefined);
+    } else if (existingUrl) {
       const existingCustomDomain = existing?.spec?.customDomain?.trim().toLowerCase();
       const existingHost = (() => {
         try {
@@ -1217,6 +1541,16 @@ const NAME_ANIMALS = [
   "newt", "orca", "osprey", "otter", "owl", "panda", "petrel", "puffin",
   "raven", "seal", "sparrow", "stoat", "swan", "tern", "wombat", "wren",
 ];
+
+function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
+  const ports: Array<{ name: string; protocol: "HTTP"; target: number }> = [
+    { name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT },
+  ];
+  if (resolveCmuxTuiSource()) {
+    ports.push({ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT });
+  }
+  return ports;
+}
 
 export function friendlyVmName(withSuffix = false): string {
   const pick = (list: readonly string[]) => list[randomBytes(1)[0] % list.length];

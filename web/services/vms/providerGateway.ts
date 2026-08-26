@@ -13,6 +13,9 @@ import {
   type VMHandle,
   type VMStatus,
   type VMStats,
+  type CmuxRemoteApprovalResult,
+  type CmuxRemoteAttachOptions,
+  type CmuxRemoteEndpoint,
 } from "./drivers";
 import { VmProviderOperationError } from "./errors";
 
@@ -49,6 +52,16 @@ export type VmProviderGatewayShape = {
     vmId: string,
     options?: AttachOptions,
   ) => Effect.Effect<AttachEndpoint, VmProviderOperationError>;
+  readonly openCmuxRemote?: (
+    provider: ProviderId,
+    vmId: string,
+    options?: CmuxRemoteAttachOptions,
+  ) => Effect.Effect<CmuxRemoteEndpoint, VmProviderOperationError>;
+  readonly approveCmuxRemoteEnrollment?: (
+    provider: ProviderId,
+    vmId: string,
+    invitationId: string,
+  ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -123,6 +136,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
+  openCmuxRemote: (provider, vmId, options) =>
+    providerEffect(provider, "openCmuxRemote", () => {
+      const impl = getProvider(provider);
+      if (!impl.openCmuxRemote) {
+        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+      }
+      return impl.openCmuxRemote(vmId, options);
+    }),
+  approveCmuxRemoteEnrollment: (provider, vmId, invitationId) =>
+    providerEffect(provider, "approveCmuxRemoteEnrollment", () => {
+      const impl = getProvider(provider);
+      if (!impl.approveCmuxRemoteEnrollment) {
+        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+      }
+      return impl.approveCmuxRemoteEnrollment(vmId, invitationId);
+    }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", () => getProvider(provider).openSSH(vmId)),
   revokeSSHIdentity: (provider, identityHandle) =>
