@@ -4183,6 +4183,42 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     "Cursor oversized tool-call id surfaced native attention"
                 )
 
+            malformed_surface_tool_call_id = (
+                f"cursor-call-malformed-surface-{id_suffix}"
+            )
+            malformed_surface_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-malformed-surface",
+                "tool_use_id": malformed_surface_tool_call_id,
+                "surface_id": "not-a-surface-uuid",
+            }
+            before_malformed_surface = len(fake.frames)
+            malformed_surface_stdout = run_cursor_feed(
+                "preToolUse",
+                malformed_surface_payload,
+            )
+            if malformed_surface_stdout != {}:
+                raise AssertionError(
+                    "Cursor malformed-surface hook changed its neutral output: "
+                    f"{malformed_surface_stdout!r}"
+                )
+            try:
+                wait_for_cursor_observer(
+                    malformed_surface_tool_call_id,
+                    present=False,
+                )
+            except AssertionError:
+                for pid in cursor_observer_pids(malformed_surface_tool_call_id):
+                    subprocess.run(["/bin/kill", str(pid)], check=False)
+                raise
+            if any(
+                frame.get("method") == "agent.attention.begin"
+                for frame in fake.frames[before_malformed_surface:]
+            ):
+                raise AssertionError(
+                    "Cursor malformed-surface hook surfaced native attention"
+                )
+
             concurrent_start = len(fake.frames)
             concurrent_requested = {
                 **requested_payload,

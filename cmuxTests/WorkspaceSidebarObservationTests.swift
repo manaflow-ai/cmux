@@ -1144,6 +1144,26 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func unknownProcessLivenessRetiresExitObservation() throws {
+        let generation = AgentPIDProcessIdentity(
+            pid: pid_t(getpid()),
+            startSeconds: 0,
+            startMicroseconds: 0
+        )
+        let monitor = AgentProcessExitMonitor(
+            livenessProbe: { _ in .unknown }
+        )
+        var didRetire = false
+        monitor.observe(key: "unknown-liveness", generation: generation) { _, _ in
+            didRetire = true
+        }
+
+        #expect(
+            didRetire,
+            "An unverified process generation must be retired conservatively instead of retaining a stuck watcher."
+        )
+    }
+
     @Test func processExitTombstoneRejectsDelayedLifecycleHook() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
