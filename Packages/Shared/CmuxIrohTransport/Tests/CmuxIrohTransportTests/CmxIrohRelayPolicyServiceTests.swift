@@ -336,6 +336,52 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func expireManagedPolicyFailsClosedWithoutDiscardingACommittedRenewal() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        let oldExpiry = Int64(fixture.now.timeIntervalSince1970) + 300
+        let renewedExpiry = Int64(fixture.now.timeIntervalSince1970) + 1_800
+        let firstResponse = try CmxIrohRelayPolicyResponse(
+            policy: fixture.token(sequence: 1, expiresAt: oldExpiry),
+            preference: .automatic,
+            preferenceRevision: 1
+        )
+        _ = try await stores.service.install(
+            response: firstResponse,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1, expiresAt: renewedExpiry),
+                preference: .automatic,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        let expired = await stores.service.expireManagedPolicy(accountID: "account-a")
+        #expect(expired.source == .managedUnavailable)
+        #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(await stores.service.diagnosticsSnapshot().policyExpiresAt == nil)
+        #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
+
+        // The durable cache remains available for the next reachable refresh;
+        // expiring the currently installed endpoint policy must not erase its
+        // rollback floor or the newer signed catalog.
+        let cached = try await stores.policyCache.load(
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now.addingTimeInterval(600)
+        )
+        #expect(cached?.expiresAt == renewedExpiry)
+    }
+
+    @Test
     func implicitRevisionZeroStillRejectsEquivocation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()

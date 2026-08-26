@@ -131,6 +131,25 @@ import Testing
         #expect(!MobileHostNetworkPathMonitor.isOnline(status: .requiresConnection))
     }
 
+    @Test func reachabilityCallbackOnlyReportsBooleanTransitions() {
+        #expect(MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: nil,
+            newReachability: true
+        ))
+        #expect(!MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: true,
+            newReachability: true
+        ))
+        #expect(MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: true,
+            newReachability: false
+        ))
+        #expect(!MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: false,
+            newReachability: false
+        ))
+    }
+
     @Test func relayPolicyRetryParksOnlyForOfflineEvidence() {
         #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
             failure: .offline,
@@ -197,6 +216,45 @@ import Testing
                 policyExpiresAt: nil,
                 now: now
             ) == nil
+        )
+    }
+
+    @Test func offlineDeadlineUsesTheEarlierAppliedOrCachedExpiry() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let appliedExpiry = now.addingTimeInterval(120)
+        let cachedRenewalExpiry = now.addingTimeInterval(900)
+
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: cachedRenewalExpiry,
+                appliedPolicyExpiresAt: appliedExpiry
+            ) == appliedExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: appliedExpiry,
+                appliedPolicyExpiresAt: cachedRenewalExpiry
+            ) == appliedExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: nil,
+                appliedPolicyExpiresAt: appliedExpiry
+            ) == appliedExpiry
+        )
+    }
+
+    @Test func failedOfflineDeactivationUsesItsBoundedRetryDeadline() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let expiredAt = now.addingTimeInterval(-1)
+        let retryAt = now.addingTimeInterval(60)
+
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: expiredAt,
+                retryAt: retryAt,
+                now: now
+            ) == retryAt
         )
     }
 

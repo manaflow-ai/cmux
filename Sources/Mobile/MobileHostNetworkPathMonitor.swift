@@ -9,17 +9,20 @@ import Foundation
 /// ``DeviceRegistryClient`` mirrors from `statusUpdates()`) needs an explicit
 /// trigger to refresh; ``MobileHostService`` owns the republish action and
 /// this type owns the observation: one `NWPathMonitor`, a path signature for
-/// duplicate suppression, and nothing else.
+/// route duplicate suppression, and a separate typed reachability baseline.
 ///
-/// Every observation that differs from the previous one fires `onPathChange`
-/// and the optional reachability callback, *including the first*: the initial
-/// callback can arrive after the
+/// Every observation that differs from the previous one fires `onPathChange`,
+/// *including the first*: the initial callback can arrive after the
 /// listener-ready route publish and describe a different path than those
 /// routes were computed on (e.g. Tailscale came up in between), so treating
-/// it as a silent baseline would swallow that first real change. Republishing
-/// is cheap because downstream consumers dedup unchanged routes; only an
-/// observation identical to the previous one is skipped (`NWPathMonitor` can
-/// deliver duplicate callbacks).
+/// it as a silent baseline would swallow that first real change. The optional
+/// reachability callback has a narrower contract: it fires for the first
+/// observation and only when the Boolean usable-path value changes after
+/// that. Keeping route freshness separate from reachability transitions means
+/// interface/address churn cannot repeatedly restart relay-policy recovery.
+/// Republishing is cheap because downstream consumers dedup unchanged routes;
+/// only an observation identical to the previous one is skipped
+/// (`NWPathMonitor` can deliver duplicate callbacks).
 ///
 /// The signature includes the local IPv4 addresses (from `getifaddrs`) on top
 /// of `NWPath`'s status/interfaces/gateways: two networks can present the same
@@ -35,6 +38,10 @@ final class MobileHostNetworkPathMonitor {
     private let monitor = NWPathMonitor()
     /// Signature of the last observed path, for duplicate suppression.
     private var lastSignature: String?
+    /// Last typed reachability value delivered to the optional lifecycle sink.
+    /// This is separate from `lastSignature`: route changes can be meaningful
+    /// without changing whether the path is usable.
+    private var lastReachability: Bool?
     private let onPathChange: @MainActor () -> Void
     private let onReachabilityChange: @MainActor (Bool) -> Void
     /// Returns the machine's local IPv4 addresses; injectable for tests.
@@ -82,9 +89,16 @@ final class MobileHostNetworkPathMonitor {
             previousSignature: lastSignature,
             newSignature: signature
         )
+        let reachabilityChanged = Self.shouldReportReachabilityChange(
+            previousReachability: lastReachability,
+            newReachability: isOnline
+        )
         lastSignature = signature
+        lastReachability = isOnline
         guard changed else { return }
-        onReachabilityChange(isOnline)
+        if reachabilityChanged {
+            onReachabilityChange(isOnline)
+        }
         onPathChange()
     }
 
@@ -162,5 +176,14 @@ final class MobileHostNetworkPathMonitor {
         newSignature: String
     ) -> Bool {
         previousSignature != newSignature
+    }
+
+    /// Reports the first reachability sample and later Boolean transitions,
+    /// while ignoring route/interface churn that leaves usability unchanged.
+    nonisolated static func shouldReportReachabilityChange(
+        previousReachability: Bool?,
+        newReachability: Bool
+    ) -> Bool {
+        previousReachability != newReachability
     }
 }

@@ -241,6 +241,33 @@ public actor CmxIrohRelayPolicyService {
         }
     }
 
+    /// Returns a fail-closed policy for an expired managed endpoint authority.
+    ///
+    /// This deliberately does not reload the cached catalog. A broker refresh
+    /// can commit a newer catalog before the live endpoint accepts it; using
+    /// that newer value here would postpone revocation of the policy that is
+    /// actually installed. The caller should install the returned empty
+    /// managed profile, then allow a later reachable refresh to restore relay
+    /// service.
+    ///
+    /// - Parameter accountID: Account whose persisted preference is retained.
+    /// - Returns: A managed-unavailable effective policy with no relay URLs.
+    public func expireManagedPolicy(
+        accountID: String
+    ) async -> CmxIrohEffectiveRelayPolicy {
+        let operation = beginOperation()
+        let persisted = try? await preferenceStore.load(accountID: accountID)
+        let configuration = currentEffective?.requestedConfiguration ?? persisted?.requested
+        let revision = currentEffective?.preferenceRevision ?? persisted?.revision
+        return publishUnavailable(
+            configuration: configuration,
+            revision: revision,
+            source: .managedUnavailable,
+            operation: operation,
+            failure: .policyExpired
+        )
+    }
+
     /// Updates only the active preference while retaining dormant account fields.
     @discardableResult
     public func setPreference(

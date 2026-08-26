@@ -45,11 +45,12 @@ public struct TransportSentryEventNoiseFilter: Sendable {
     /// - Returns: `true` for socket-listener operational messages.
     public func shouldDrop(message: String?) -> Bool {
         guard let message else { return false }
-        // Startup failures are admitted by SocketListenerFailurePolicy, which
-        // applies the longer per-key cooldown before capture. Keep that one
-        // actionable message available; only surrounding health/retry
+        // Listener failures are admitted by SocketListenerFailurePolicy, which
+        // applies the longer per-key cooldown before capture. Keep those
+        // actionable messages available; only surrounding health/retry
         // breadcrumbs are filtered here.
-        guard message != "socket.listener.start.failed" else { return false }
+        guard message != "socket.listener.start.failed",
+              message != "socket.listener.path.missing" else { return false }
         return Self.droppedMessagePrefixes.contains { message.hasPrefix($0) }
     }
 

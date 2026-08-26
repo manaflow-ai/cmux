@@ -528,6 +528,7 @@ extension MobileHostIrohRuntime {
             a: DiagnosticTransportKind.iroh.rawValue
         ))
         relayPolicyService = resolvedPolicyService
+        relayPolicyAppliedEffective = resolvedEffectivePolicy
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
         relayPolicyEndpointID = derivedEndpointID

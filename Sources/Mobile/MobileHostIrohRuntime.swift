@@ -108,6 +108,11 @@ final class MobileHostIrohRuntime {
     var transitionTask: Task<Void, Never>?
     var runtime: CmxIrohHostRuntime?
     var relayPolicyService: CmxIrohRelayPolicyService?
+    /// The policy most recently accepted by the live endpoint. The policy
+    /// service may resolve a newer value before the endpoint installs it, so
+    /// lifecycle expiry decisions must retain this applied snapshot separately
+    /// from `relayPolicyEffective` (the service's latest resolved value).
+    var relayPolicyAppliedEffective: CmxIrohEffectiveRelayPolicy?
     var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
