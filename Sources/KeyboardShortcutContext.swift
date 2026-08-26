@@ -98,6 +98,21 @@ extension AppDelegate {
         return true
     }
 
+    /// Gives hard reload precedence only when an explicit Rename Workspace
+    /// binding still overlaps its browser chord, preserving unrelated shortcut
+    /// ordering for hand-edited settings files.
+    @discardableResult
+    func handleLegacyRenameWorkspaceHardReloadShortcut(
+        _ event: NSEvent,
+        renameWorkspaceMatches: Bool
+    ) -> Bool {
+        guard renameWorkspaceMatches,
+              KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .renameWorkspace) else {
+            return false
+        }
+        return handleBrowserHardReloadShortcut(event)
+    }
+
     func shortcutEventBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
         shortcutEventFocusContext(event).browserPanel
     }

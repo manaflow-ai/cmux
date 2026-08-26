@@ -15098,13 +15098,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Browser hard refresh owns its browser-scoped chord before an older
-        // persisted Rename Workspace binding can claim the same keystroke.
-        if handleBrowserHardReloadShortcut(event) {
+        // Preserve browser hard refresh for an explicitly persisted legacy
+        // Rename Workspace binding without changing unrelated shortcut order.
+        let renameWorkspaceMatches = matchConfiguredShortcut(event: event, action: .renameWorkspace)
+        if handleLegacyRenameWorkspaceHardReloadShortcut(
+            event,
+            renameWorkspaceMatches: renameWorkspaceMatches
+        ) {
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
+        if renameWorkspaceMatches {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
@@ -15753,6 +15757,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             reloadBrowserPanelForShortcut(focusedBrowserPanel)
+            return true
+        }
+
+        // Ordinary hard reload stays in its established browser-routing position;
+        // only the explicit legacy Rename Workspace overlap is pre-routed above.
+        if handleBrowserHardReloadShortcut(event) {
             return true
         }
 
