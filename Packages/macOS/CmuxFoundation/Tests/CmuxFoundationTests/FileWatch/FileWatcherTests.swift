@@ -22,6 +22,26 @@ import Testing
         )
     }
 
+    @Test func pathResolverRejectsSymlinkedFilesystemRootAncestor() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rootLink = directory.appendingPathComponent("root-link")
+        try FileManager.default.createSymbolicLink(
+            atPath: rootLink.path,
+            withDestinationPath: "/"
+        )
+        let missingPath = rootLink.appendingPathComponent("future/file.txt").path
+
+        #expect(
+            FileWatchPathResolver().nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: false
+            ) == nil
+        )
+    }
+
     /// Awaits the watcher's first event, bounded so a broken watcher fails the
     /// test instead of hanging CI.
     private func firstEvent(_ watcher: FileWatcher, within seconds: Double) async -> Bool {
