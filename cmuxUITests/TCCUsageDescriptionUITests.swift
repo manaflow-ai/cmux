@@ -44,6 +44,14 @@ final class TCCUsageDescriptionUITests: XCTestCase {
         }
     }
 
+    func testBuiltAppOptsOutOfSecurityCodeAutoFill() throws {
+        let appBundle = try XCTUnwrap(Bundle(url: builtAppBundleURL()))
+        XCTAssertEqual(
+            appBundle.object(forInfoDictionaryKey: "NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac") as? Bool,
+            true
+        )
+    }
+
     private func builtAppBundleURL() throws -> URL {
         let testBundle = Bundle(for: Self.self)
         let productsDirectory = testBundle.bundleURL
