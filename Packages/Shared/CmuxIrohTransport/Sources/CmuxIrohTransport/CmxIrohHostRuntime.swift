@@ -417,6 +417,12 @@ public actor CmxIrohHostRuntime {
                         revision: revision,
                         retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
                     )
+                    // The retry loop owns the next broker round, but only the
+                    // ready gate observes a relay that becomes usable without
+                    // a network-change event. Arm it here too so a pending
+                    // first publication always has a relay-readiness owner;
+                    // it defers to the armed retry round when one exists.
+                    scheduleInitialPublication(revision: revision)
                 } else {
                     allowsReplacedBindingAdoption = cachedStartPolicy != nil
                     if let retryAfterSeconds = publishedPolicy

@@ -69,6 +69,80 @@ struct CmxIrohEndpointServerStalledHandshakeTests {
         await server.stop()
         await supervisor.deactivate()
     }
+
+    /// A timed-out handshake cannot be aborted once the native attempt is
+    /// consumed (task cancellation does not reach the driver), so its
+    /// admission slot must stay occupied until the attempt itself resolves.
+    /// Releasing the slot at the admission deadline lets a remote peer mint
+    /// more live handshake work than `maximumPendingAdmissions` permits.
+    @Test
+    func timedOutHandshakeKeepsItsSlotUntilTheAttemptResolves() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "e", count: 64)
+        )
+        let healthyIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "f", count: 64)
+        )
+        let endpoint = StalledHandshakeIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 10, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let clock = EndpointServerManualClock()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumPendingAdmissions: 1,
+            admissionTimeout: 15,
+            clock: clock
+        ) { connection, generation, _ in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            await connection.close(errorCode: 0, reason: "test_complete")
+        }
+
+        await server.start()
+        await endpoint.enqueueStalledHandshake()
+        await clock.waitUntilSleeping()
+        await clock.fire()
+        // The admission deadline fired against a handshake that never
+        // resolves on cancellation. The dialer is refused fast...
+        await endpoint.waitForAbandonCount(1)
+
+        // ...but the slot must still be occupied: the next attempt has to be
+        // abandoned by the accept loop, not admitted alongside the live
+        // stalled handshake. Deterministic either way: the fix abandons the
+        // attempt ("admission_abandoned"), the defect admits it and the
+        // handler closes it "test_complete".
+        let overCapacity = TestIrohConnection(
+            remoteIdentity: healthyIdentity,
+            bidirectionalStreams: []
+        )
+        var overCapacityCloses = await overCapacity.closeEvents().makeAsyncIterator()
+        await endpoint.enqueue(overCapacity)
+        let close = try #require(await overCapacityCloses.next())
+        #expect(close.reason == "admission_abandoned")
+
+        // The driver finally bounds the stalled attempt. Its resolution, not
+        // the earlier deadline, releases the slot.
+        await endpoint.releaseStalledHandshakes()
+        let admittedAfterResolution = TestIrohConnection(
+            remoteIdentity: healthyIdentity,
+            bidirectionalStreams: []
+        )
+        await endpoint.enqueue(admittedAfterResolution)
+        #expect(await recorder.next().identity == healthyIdentity)
+
+        await server.stop()
+        await supervisor.deactivate()
+    }
 }
 
 /// An endpoint whose accept queue can contain a connection attempt that stops
@@ -84,6 +158,8 @@ private actor StalledHandshakeIrohEndpoint: CmxIrohEndpoint {
     private var acceptEvents: [AcceptEvent] = []
     private var acceptWaiters: [UUID: CheckedContinuation<AcceptEvent, Never>] = [:]
     private var stallWaiters: [CheckedContinuation<Void, Never>] = []
+    private var abandonCount = 0
+    private var abandonWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private let health: AsyncStream<CmxIrohEndpointHealthEvent>
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
 
@@ -129,6 +205,20 @@ private actor StalledHandshakeIrohEndpoint: CmxIrohEndpoint {
         await withCheckedContinuation { stallWaiters.append($0) }
     }
 
+    func recordAbandon() {
+        abandonCount += 1
+        let ready = abandonWaiters.filter { abandonCount >= $0.minimum }
+        abandonWaiters.removeAll { abandonCount >= $0.minimum }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func waitForAbandonCount(_ minimum: Int) async {
+        guard abandonCount < minimum else { return }
+        await withCheckedContinuation {
+            abandonWaiters.append((minimum, $0))
+        }
+    }
+
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
     func isHealthy() -> Bool { true }
 
@@ -171,5 +261,9 @@ private struct StalledIncomingConnection: CmxIrohIncomingConnection {
         throw TestIrohTransportError.unsupported
     }
 
-    func abandon() async {}
+    func abandon() async {
+        // Refusing a consumed attempt cannot stop the in-flight handshake,
+        // exactly like `Incoming.refuse()` after `accept()`.
+        await endpoint.recordAbandon()
+    }
 }

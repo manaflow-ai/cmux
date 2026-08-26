@@ -60,6 +60,28 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         )
     }
 
+    /// Records each admission-marker result so tests can await the exact
+    /// authenticate step of one connection deterministically.
+    private actor AdmissionMarkerOutcomeRecorder {
+        typealias Outcome = (identity: CmxIrohPeerIdentity, admitted: Bool)
+        private var outcomes: [Outcome] = []
+        private var waiters: [CheckedContinuation<Outcome, Never>] = []
+
+        func record(identity: CmxIrohPeerIdentity, admitted: Bool) {
+            let outcome = (identity, admitted)
+            if waiters.isEmpty {
+                outcomes.append(outcome)
+            } else {
+                waiters.removeFirst().resume(returning: outcome)
+            }
+        }
+
+        func next() async -> Outcome {
+            if !outcomes.isEmpty { return outcomes.removeFirst() }
+            return await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+
     @Test
     func sameIdentityRedialAfterAbnormalPeerDeathIsAdmittedPromptly() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
@@ -259,6 +281,95 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         #expect(close.reason == "connection_capacity")
         #expect(await occupant.observedCloseCallCount() == 0)
         #expect(await recorder.recordedCount() == 1)
+
+        await blocker.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
+
+    @Test
+    func capacityFilledDuringAdmissionClosesTheUnplaceableConnection() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "e", count: 64)
+        )
+        let occupantIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "f", count: 64)
+        )
+        let strandedIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "0", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = try Self.makeSupervisor(endpoint: endpoint, keyByte: 15)
+        _ = try await supervisor.activate()
+        let strandedGate = EndpointServerHandlerBlocker()
+        let blocker = EndpointServerHandlerBlocker()
+        let established = EndpointServerRecorder()
+        let outcomes = AdmissionMarkerOutcomeRecorder()
+        // Global capacity 2. The stranded identity passes registerEstablished
+        // while one slot is still free, then both slots fill before its
+        // handler calls the admission marker.
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumConnections: 2,
+            maximumConnectionsPerIdentity: 2
+        ) { connection, generation, admission in
+            let identity = await connection.remoteIdentity()
+            await established.record(identity: identity, generation: generation)
+            if identity == strandedIdentity {
+                await strandedGate.wait()
+            }
+            await outcomes.record(
+                identity: identity,
+                admitted: await admission()
+            )
+            await blocker.wait()
+        }
+        let occupant = TestIrohConnection(
+            remoteIdentity: occupantIdentity,
+            bidirectionalStreams: []
+        )
+        let stranded = TestIrohConnection(
+            remoteIdentity: strandedIdentity,
+            bidirectionalStreams: []
+        )
+        let occupantRedial = TestIrohConnection(
+            remoteIdentity: occupantIdentity,
+            bidirectionalStreams: []
+        )
+
+        await server.start()
+        await endpoint.enqueue(occupant)
+        _ = await established.next()
+        _ = await outcomes.next()
+
+        // The stranded connection completes its handshake and passes the
+        // registerEstablished capacity check (one global slot is free), then
+        // parks before authenticating.
+        await endpoint.enqueue(stranded)
+        #expect(await established.next().identity == strandedIdentity)
+
+        // The occupant's same-identity redial reserves the replacement slot
+        // and is admitted, filling global capacity while the stranded
+        // admission is still parked.
+        await endpoint.enqueue(occupantRedial)
+        #expect(await established.next().identity == occupantIdentity)
+        let redialOutcome = await outcomes.next()
+        #expect(redialOutcome.admitted)
+
+        // The stranded admission now finds capacity full with nothing of its
+        // own to replace. Refusal is correct, but the server must close the
+        // connection it still owns instead of orphaning it outside every
+        // capacity table.
+        await strandedGate.releaseAll()
+        let strandedOutcome = await outcomes.next()
+        #expect(strandedOutcome.identity == strandedIdentity)
+        #expect(!strandedOutcome.admitted)
+        #expect(await stranded.observedCloseCallCount() == 1)
+        var strandedCloses = await stranded.closeEvents().makeAsyncIterator()
+        if await stranded.observedCloseCallCount() == 1 {
+            let close = await strandedCloses.next()
+            #expect(close?.reason == "connection_capacity")
+        }
 
         await blocker.releaseAll()
         await server.stop()
