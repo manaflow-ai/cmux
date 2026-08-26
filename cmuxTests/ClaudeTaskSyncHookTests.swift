@@ -69,6 +69,88 @@ struct ClaudeTaskSyncHookTests {
         #expect(!shouldApply)
     }
 
+    @Test("Task ownership survives an older writer rewriting the main hook store")
+    func preservesTaskOwnershipAcrossLegacyStoreRewrite() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-task-sidecar-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("sessions.json")
+        let tasksRoot = root.appendingPathComponent("tasks", isDirectory: true)
+        let identity = ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        let sessionId = "sidecar-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+        ])
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: "03030303-0303-0303-0303-030303030303",
+            surfaceId: "04040404-0404-0404-0404-040404040404",
+            cwd: root.path,
+            markActive: true
+        )
+        let record = try #require(try store.lookup(sessionId: sessionId))
+        #expect(try store.bindClaudeTaskDirectory(
+            sessionId: sessionId,
+            directoryName: "sidecar-list",
+            taskStoreIdentity: identity,
+            workspaceId: record.workspaceId,
+            surfaceId: record.surfaceId,
+            expectedStartedAt: record.startedAt,
+            source: .directSession
+        ) != nil)
+        try store.retireClaudeTaskList(taskListID: "retired-list", taskStoreIdentity: identity)
+
+        var mainState = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: storeURL)
+            ) as? [String: Any]
+        )
+        for key in [
+            "endedSessionIDs",
+            "endedSessionGenerationStarts",
+            "retiredClaudeTaskLists",
+            "claudeTaskSyncLatestTokens",
+            "claudeTaskSyncGeneration",
+            "pendingLegacyClaudeTaskOwnerCleanup",
+            "pendingLegacyClaudeTaskOwnerCleanupOverflowEntries",
+            "pendingLegacyClaudeTaskOwnerCleanupSpill",
+            "claudeTeamTaskBindings",
+            "claudeTaskListDestinations",
+        ] {
+            mainState.removeValue(forKey: key)
+        }
+        var sessions = try #require(mainState["sessions"] as? [String: [String: Any]])
+        if var session = sessions[sessionId] {
+            for key in [
+                "claudeTaskDirectoryName",
+                "claudeTaskStoreID",
+                "claudeTaskLegacyOwnerCleared",
+                "claudeTaskBindingStartedAt",
+                "claudeTaskBindingSource",
+            ] {
+                session.removeValue(forKey: key)
+            }
+            sessions[sessionId] = session
+        }
+        mainState["sessions"] = sessions
+        try JSONSerialization.data(
+            withJSONObject: mainState,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: storeURL)
+
+        let reloaded = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+        ])
+        let restoredRecord = try #require(try reloaded.lookup(sessionId: sessionId))
+        #expect(restoredRecord.claudeTaskDirectoryName == "sidecar-list")
+        #expect(restoredRecord.claudeTaskStoreID == identity.rawValue)
+        #expect(try reloaded.isClaudeTaskListRetired(
+            taskListID: "retired-list",
+            taskStoreIdentity: identity
+        ))
+    }
+
     @Test("Task-tool hooks publish one authoritative snapshot to Feed and workspace todos")
     func publishesAuthoritativeSnapshot() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync")

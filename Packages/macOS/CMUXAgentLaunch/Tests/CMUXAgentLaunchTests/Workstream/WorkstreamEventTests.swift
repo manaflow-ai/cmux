@@ -149,6 +149,23 @@ struct WorkstreamEventTests {
         #expect(encodedFuture["count"] as? Int == 2)
     }
 
+    @Test("Transient Feed events round-trip their live-only persistence marker")
+    func transientMarkerRoundTrip() throws {
+        let event = WorkstreamEvent(
+            sessionId: "claude-task-session",
+            hookEventName: .todoWrite,
+            source: "claude",
+            isTransient: true
+        )
+        let encoded = try JSONEncoder().encode(event)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(object["_cmux_transient"] as? Bool == true)
+        let decoded = try JSONDecoder().decode(WorkstreamEvent.self, from: encoded)
+        #expect(decoded.isTransient)
+    }
+
     @Test("Non-JSON tool input re-encodes as a string")
     func encodesRawToolInputString() throws {
         let event = WorkstreamEvent(
