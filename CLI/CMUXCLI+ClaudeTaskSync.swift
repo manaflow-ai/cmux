@@ -98,7 +98,8 @@ extension CMUXCLI {
                 loader: loader
             )
             let taskStoreIdentity = ClaudeTaskStoreIdentity(
-                tasksRootURL: tasksRootURL
+                tasksRootURL: tasksRootURL,
+                hostNamespace: client.taskStoreHostNamespace
             )
             let agentID = nonEmptyClaudeHookIdentifier(
                 parsedInput.rawObject?["agent_id"] as? String

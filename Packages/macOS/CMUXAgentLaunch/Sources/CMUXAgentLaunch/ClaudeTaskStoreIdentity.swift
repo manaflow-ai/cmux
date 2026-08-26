@@ -13,9 +13,21 @@ public struct ClaudeTaskStoreIdentity: Codable, Hashable, Sendable {
     /// Creates the stable namespace for a resolved Claude tasks directory.
     ///
     /// - Parameter tasksRootURL: The profile's resolved `tasks` directory.
-    public init(tasksRootURL: URL) {
+    /// - Parameter hostNamespace: Optional remote-host namespace for relay-backed
+    ///   sessions whose remote paths may match another host's path.
+    public init(tasksRootURL: URL, hostNamespace: String? = nil) {
         let canonicalRootURL = tasksRootURL.canonicalClaudeTaskStoreDirectoryURL
-        let payload = Data("cmux.claude-task-store.v1\0\(canonicalRootURL.path)".utf8)
+        let normalizedHostNamespace = hostNamespace?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let payloadString: String
+        if let normalizedHostNamespace, !normalizedHostNamespace.isEmpty {
+            payloadString = "cmux.claude-task-store.v2\0\(normalizedHostNamespace)\0\(canonicalRootURL.path)"
+        } else {
+            // Preserve the v1 digest for local profiles so existing durable
+            // ownership records remain valid across upgrades.
+            payloadString = "cmux.claude-task-store.v1\0\(canonicalRootURL.path)"
+        }
+        let payload = Data(payloadString.utf8)
         rawValue = Data(SHA256.hash(data: payload))
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

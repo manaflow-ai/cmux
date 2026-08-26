@@ -444,7 +444,7 @@ final class ClaudeHookSessionStore {
             // completion, while leaving the byte for the bounded caller read.
             handle.readabilityHandler = nil
             if !readyCompletion.isCancelled {
-                readyCompletion.merge(data: 1)
+                readyCompletion.add(data: 1)
             }
         }
         defer {
@@ -469,7 +469,7 @@ final class ClaudeHookSessionStore {
             // Wake the bounded readiness wait if lockf times out or exits
             // before acquiring the lease.
             if !readyCompletion.isCancelled {
-                readyCompletion.merge(data: 1)
+                readyCompletion.add(data: 1)
             }
             processExitSignal.leave()
         }
@@ -3991,6 +3991,12 @@ final class SocketClient {
 
     var isRelayBacked: Bool {
         relayEndpoint != nil
+    }
+
+    /// Stable namespace for task ownership on a remote relay host.
+    var taskStoreHostNamespace: String? {
+        guard let relayEndpoint else { return nil }
+        return "relay:\(relayEndpoint.host):\(relayEndpoint.port)"
     }
 
     func connectionAppearsOpen() -> Bool {
@@ -27393,7 +27399,8 @@ struct CMUXCLI {
                 tasksRootURL: ClaudeTaskRootResolver(
                     environment: ProcessInfo.processInfo.environment,
                     homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
-                ).resolve()
+                ).resolve(),
+                hostNamespace: client.taskStoreHostNamespace
             )
             let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
                 let accepted = (try? sessionStore.withClaudeTaskSyncLock(
@@ -28136,7 +28143,8 @@ struct CMUXCLI {
                 tasksRootURL: ClaudeTaskRootResolver(
                     environment: ProcessInfo.processInfo.environment,
                     homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
-                ).resolve()
+                ).resolve(),
+                hostNamespace: client.taskStoreHostNamespace
             )
             let sessionEndTaskStoreScope = sessionEndTaskStoreIdentity.rawValue
             let sessionEndHookPID = claudeAgentPID(from: ProcessInfo.processInfo.environment)
