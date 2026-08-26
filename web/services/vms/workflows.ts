@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type {
   AttachEndpoint,
   AttachOptions,
@@ -27,7 +30,6 @@ import {
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
-  vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
@@ -95,14 +97,39 @@ export type VmProviderStatusReconcileResult = {
   readonly skippedNoGetStatus: boolean;
 };
 
+/** Result of running a VM workflow: success value, or the typed workflow error. */
+export type VmWorkflowResult<A> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly error: VmWorkflowError };
+
+/**
+ * The single Effect-to-Promise boundary for VM workflows. Runs the program to
+ * an Exit and matches on its Cause: an expected failure comes back as the
+ * tagged `VmWorkflowError` in a discriminated union; a defect or interruption
+ * (a bug, not a modeled failure) is rethrown raw so the route boundary
+ * returns a 500 and captures it. No FiberFailure ever escapes, so callers
+ * never need to unwrap Effect runtime internals.
+ */
+export async function runVmWorkflowExit<A>(
+  program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
+): Promise<VmWorkflowResult<A>> {
+  const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(VmWorkflowLive)));
+  if (Exit.isSuccess(exit)) return { ok: true, value: exit.value };
+  const failure = Cause.failureOption(exit.cause);
+  if (Option.isSome(failure)) return { ok: false, error: failure.value };
+  throw Cause.squash(exit.cause);
+}
+
+/**
+ * Promise adapter over `runVmWorkflowExit` for route handlers: resolves with
+ * the success value, rejects with the tagged `VmWorkflowError` itself.
+ */
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
 ): Promise<A> {
-  try {
-    return await Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
-  } catch (err) {
-    throw vmWorkflowErrorCause(err) ?? err;
-  }
+  const result = await runVmWorkflowExit(program);
+  if (result.ok) return result.value;
+  throw result.error;
 }
 
 export function listUserVms(userId: string, billingTeamId?: string | null) {

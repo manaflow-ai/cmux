@@ -18,7 +18,6 @@ import {
   isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
-  vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
@@ -302,7 +301,8 @@ export function vmActiveLimitExceededResponse(input: {
 }
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
-  const workflowError = vmWorkflowErrorCause(err) ?? err;
+  // runVmWorkflow rejects with the tagged error itself; no unwrapping needed.
+  const workflowError = err;
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",

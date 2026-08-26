@@ -65,7 +65,6 @@ import {
   VmAccountDeletionIdentityRevocationError,
   isVmAccountDeletionIdentityRevocationError,
   isVmProviderOperationError,
-  vmWorkflowErrorCause,
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -905,8 +904,8 @@ async function destroyPersonalCloudVms(
 }
 
 function didVmDestroyReachProvider(error: unknown): boolean {
-  const workflowError = vmWorkflowErrorCause(error) ?? error;
-  return isVmProviderOperationError(workflowError) && workflowError.operation === "destroy";
+  // runVmWorkflow rejects with the tagged error itself; no unwrapping needed.
+  return isVmProviderOperationError(error) && error.operation === "destroy";
 }
 
 async function listAccountDeletionCloudVms(

@@ -33,7 +33,6 @@ import {
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateDisabledError,
-  vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
@@ -1847,13 +1846,10 @@ describe("VM Effect workflows", () => {
       openBaseVm(input),
       resetBaseVm({ ...input, reason: "try during deletion" }),
     ]) {
-      try {
-        await Effect.runPromise(workflow.pipe(Effect.provide(layer)));
-        throw new Error("expected Base VM creation to be blocked");
-      } catch (error) {
-        const workflowError = vmWorkflowErrorCause(error) ?? error;
-        expect(workflowError).toBeInstanceOf(VmAccountDeletionInProgressError);
-      }
+      const workflowError = await Effect.runPromise(
+        Effect.flip(workflow.pipe(Effect.provide(layer))),
+      );
+      expect(workflowError).toBeInstanceOf(VmAccountDeletionInProgressError);
     }
 
     expect(createCalls).toBe(0);

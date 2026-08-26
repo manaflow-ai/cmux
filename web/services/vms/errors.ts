@@ -145,6 +145,7 @@ const vmWorkflowErrorTags = new Set([
   "VmDatabaseError",
   "VmProviderOperationError",
   "VmNotFoundError",
+  "VmSnapshotNotFoundError",
   "VmCreateInProgressError",
   "VmCreateFailedError",
   "VmCreateDisabledError",
@@ -156,38 +157,14 @@ const vmWorkflowErrorTags = new Set([
   "VmAccountDeletionIdentityRevocationError",
 ]);
 
-export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {
-  if (!err || typeof err !== "object") return null;
+/**
+ * The `runVmWorkflow` boundary (workflows.ts) unwraps Effect exits with
+ * `Effect.runPromiseExit` + `Cause.failureOption`, so a rejected workflow
+ * promise is always the tagged error itself — never a FiberFailure wrapper.
+ * This guard is for boundaries that receive `unknown` (route catch blocks).
+ */
+export function isVmWorkflowError(err: unknown): err is VmWorkflowError {
+  if (!err || typeof err !== "object") return false;
   const tag = (err as { _tag?: unknown })._tag;
-  if (typeof tag === "string" && vmWorkflowErrorTags.has(tag)) {
-    return err as VmWorkflowError;
-  }
-  const fiberCause = effectFiberFailureCause(err);
-  const fiberFailure = vmWorkflowErrorFromEffectCause(fiberCause);
-  if (fiberFailure) return fiberFailure;
-  const cause = (err as { cause?: unknown }).cause;
-  if (cause && cause !== err) return vmWorkflowErrorCause(cause);
-  return null;
-}
-
-function effectFiberFailureCause(err: object): unknown {
-  const symbol = Object.getOwnPropertySymbols(err).find((candidate) =>
-    candidate.description === "effect/Runtime/FiberFailure/Cause"
-  );
-  return symbol ? (err as Record<symbol, unknown>)[symbol] : null;
-}
-
-function vmWorkflowErrorFromEffectCause(cause: unknown): VmWorkflowError | null {
-  if (!cause || typeof cause !== "object") return null;
-  const tag = (cause as { _tag?: unknown })._tag;
-  if (tag === "Fail") {
-    const failure = (cause as { failure?: unknown; error?: unknown }).failure ??
-      (cause as { error?: unknown }).error;
-    return vmWorkflowErrorCause(failure);
-  }
-  if (tag === "Sequential" || tag === "Parallel") {
-    return vmWorkflowErrorFromEffectCause((cause as { left?: unknown }).left) ??
-      vmWorkflowErrorFromEffectCause((cause as { right?: unknown }).right);
-  }
-  return vmWorkflowErrorFromEffectCause((cause as { cause?: unknown }).cause);
+  return typeof tag === "string" && vmWorkflowErrorTags.has(tag);
 }
