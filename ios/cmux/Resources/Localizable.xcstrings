@@ -5090,6 +5090,40 @@
         }
       }
     },
+    "mobile.onboarding.connect.method.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイレクト"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.directDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dials only the direct addresses you add for each computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各コンピュータに追加したダイレクトアドレスのみにダイヤルします。"
+          }
+        }
+      }
+    },
     "mobile.onboarding.connect.method.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -5171,6 +5205,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.directTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect over a direct address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイレクトアドレスで接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.directBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux dials only the addresses you add for each computer, with no relay discovery. Add addresses in each computer's settings after pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxは各コンピュータに追加したアドレスのみにダイヤルし、リレー探索は行いません。ペアリング後に各コンピュータの設定からアドレスを追加してください。"
           }
         }
       }

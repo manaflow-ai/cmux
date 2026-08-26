@@ -25,12 +25,11 @@ struct OnboardingConnectionView: View {
         }
     }
 
-    /// The method choice stays visible while there is still a decision to act
-    /// on; once connected it disappears (Settings keeps the control).
-    private var showsMethodPicker: Bool {
-        phase == .idle || phase == .fallback
-    }
-
+    // The method choice stays available in every phase, including after a
+    // connection is up, so switching to Tailscale or Direct never requires
+    // finishing onboarding and digging into Settings. Selecting a method on a
+    // live connection is safe: the shared store's change observer replaces the
+    // current connection under the newly selected method.
     private var visual: some View {
         ViewThatFits(in: .vertical) {
             connectionVisual(density: .regular)
@@ -40,7 +39,7 @@ struct OnboardingConnectionView: View {
 
     @ViewBuilder
     private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
-        if verticalSizeClass == .compact, showsMethodPicker {
+        if verticalSizeClass == .compact {
             HStack(alignment: .center, spacing: density.sectionSpacing) {
                 OnboardingConnectionPreview(phase: phase, density: density)
                     .frame(maxWidth: .infinity)
@@ -55,13 +54,11 @@ struct OnboardingConnectionView: View {
         } else {
             VStack(spacing: density.sectionSpacing) {
                 OnboardingConnectionPreview(phase: phase, density: density)
-                if showsMethodPicker {
-                    OnboardingConnectionMethodPicker(
-                        method: connectionMethod,
-                        density: density,
-                        onSelect: onSelectConnectionMethod
-                    )
-                }
+                OnboardingConnectionMethodPicker(
+                    method: connectionMethod,
+                    density: density,
+                    onSelect: onSelectConnectionMethod
+                )
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -78,6 +75,12 @@ struct OnboardingConnectionView: View {
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleTitle",
                 defaultValue: "Connect over Tailscale"
+            )
+        }
+        if connectionMethod == .direct {
+            return L10n.string(
+                "mobile.onboarding.connect.directTitle",
+                defaultValue: "Connect over a direct address"
             )
         }
         return L10n.string(
@@ -99,6 +102,15 @@ struct OnboardingConnectionView: View {
                 defaultValue: """
                 Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. \
                 On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once.
+                """
+            )
+        }
+        if connectionMethod == .direct {
+            return L10n.string(
+                "mobile.onboarding.connect.directBody",
+                defaultValue: """
+                cmux dials only the addresses you add for each computer, with no relay discovery. \
+                Add addresses in each computer's settings after pairing.
                 """
             )
         }
