@@ -50,13 +50,22 @@ extension MobileHostService {
             return nil
         case "mobile.chat.artifact.stat", "mobile.chat.artifact.fetch",
              "mobile.chat.artifact.thumbnail", "mobile.chat.artifact.list",
-             "mobile.chat.artifact.save", "mobile.chat.artifact.gallery":
+             "mobile.chat.artifact.gallery":
             // Chat artifact requests are authorized by the session-scoped
             // transcript/index handlers. Their session_id is not a live
             // workspace selector, so an attach ticket cannot safely narrow
             // these requests here; the same-account Stack gate remains the
             // authority, just as it does for the other chat data-plane reads.
             return nil
+        case "mobile.chat.artifact.save":
+            // Saving mutates the session project's `.cmux` tree (and its Git
+            // exclude state). A workspace/terminal-scoped ticket cannot
+            // prove that its session belongs to that scope, so require a
+            // Mac-wide ticket while the attach token is valid. The
+            // same-account Stack gate remains authoritative after expiry.
+            return ticketMacScopedWorkspaceMutationAuthorizationError(
+                authorization: authorization
+            )
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.

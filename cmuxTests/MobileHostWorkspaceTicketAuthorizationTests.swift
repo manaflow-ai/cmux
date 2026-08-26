@@ -486,12 +486,17 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
                         stackAccessToken: nil
                     )
                 )
+                let error = MobileHostService.ticketAuthorizationError(
+                    ticket: ticket,
+                    request: request
+                )
+                let expectedCode = method == "mobile.chat.artifact.save"
+                    && !workspaceID.isEmpty
+                    ? "forbidden"
+                    : nil
                 #expect(
-                    MobileHostService.ticketAuthorizationError(
-                        ticket: ticket,
-                        request: request
-                    ) == nil,
-                    "\(method) should use session authorization for workspaceID=\(workspaceID)"
+                    error?.code == expectedCode,
+                    "\(method) authorization mismatch for workspaceID=\(workspaceID)"
                 )
             }
         }

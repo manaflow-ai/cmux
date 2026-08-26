@@ -708,11 +708,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "mobile.chat.artifact.stat", "mobile.chat.artifact.fetch",
              "mobile.chat.artifact.thumbnail", "mobile.chat.artifact.list",
-             "mobile.chat.artifact.save", "mobile.chat.artifact.gallery":
+             "mobile.chat.artifact.gallery":
             // Chat artifact handlers authorize the requested path against the
             // session transcript. There is no workspace selector in these
             // requests for an attach ticket to prove, so retain the ticket
             // context and let the host's session-scoped policy decide.
+            return false
+        case "mobile.chat.artifact.save":
+            // Save is a Mac-scoped mutation. Retain a valid ticket context so
+            // the host can reject a workspace/terminal-scoped ticket instead
+            // of silently widening it to Stack-only account authorization.
             return false
         case "workspace.create", "mobile.task.attachment.upload":
             return false
