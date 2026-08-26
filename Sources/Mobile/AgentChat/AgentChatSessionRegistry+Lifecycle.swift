@@ -80,7 +80,7 @@ extension AgentChatSessionRegistry {
         switch event.hookEventName {
         case .sessionStart:
             return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
+        case .userPromptSubmit, .preToolUse, .postToolUse, .postToolUseFailure, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
         case .preCompact, .postCompact:

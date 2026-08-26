@@ -33,6 +33,18 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
+        Self::start_with_options(name, config_contents, None)
+    }
+
+    fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
+        Self::start_with_options(name, None, Some(launch_cwd))
+    }
+
+    fn start_with_options(
+        name: &str,
+        config_contents: Option<&str>,
+        launch_cwd: Option<&std::path::Path>,
+    ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -44,16 +56,19 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let child = Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        if let Some(launch_cwd) = launch_cwd {
+            command.current_dir(launch_cwd);
+        }
+        let child = command.spawn().unwrap();
         let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
@@ -3860,6 +3875,31 @@ fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Outp
 fn git(dir: &PathBuf, args: &[&str]) {
     let output = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
     assert_success(&output);
+}
+
+#[test]
+fn new_terminals_default_to_the_daemon_launch_directory() {
+    // Regression for https://github.com/manaflow-ai/cmux/issues/10756: a
+    // terminal created without an explicit cwd must start where the daemon
+    // was launched, not in $HOME. $HOME-rooted agents recursively scan and
+    // watch the whole home directory.
+    let launch = unique_temp_dir("launch-cwd-dir");
+    fs::create_dir_all(&launch).unwrap();
+    // The daemon reports its physical working directory, so compare against
+    // the resolved path (macOS /tmp is a symlink to /private/tmp).
+    let launch = launch.canonicalize().unwrap();
+    let server = HeadlessServer::start_in("launch-cwd", &launch);
+
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let listed = json_output(&json_cli(&server, &["terminal", "list"]));
+    let terminals = listed.as_array().expect("terminal list returns an array");
+    assert_eq!(terminals.len(), 1, "expected one terminal: {listed}");
+    assert_eq!(
+        terminals[0]["cwd"].as_str(),
+        launch.to_str(),
+        "terminal cwd must be the daemon launch directory"
+    );
 }
 
 fn cli(server: &HeadlessServer, args: &[&str]) -> Output {

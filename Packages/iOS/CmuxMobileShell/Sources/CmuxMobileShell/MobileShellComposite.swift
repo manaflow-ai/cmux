@@ -60,6 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -69,6 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -78,6 +80,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -4279,7 +4282,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
         }
     }
@@ -4301,7 +4305,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         displayName: String?,
         instanceTag: String?,
         clientNamespace: String? = nil,
-        macAppVersion: String? = nil
+        macAppVersion: String? = nil,
+        compatibleMacTags: [String]? = nil
     ) async {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4393,6 +4398,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         adoptForegroundMacIdentity(
             reportedID,
             previousKey: foregroundKeyBeforeTagAdoption
+        )
+        // Adopt the anchor Mac's sibling-tag grant set only after this
+        // connection's identity was accepted, so an incompatible or
+        // mismatched Mac can never influence the allowlist.
+        await applyAdvertisedCompatibleMacTags(
+            compatibleMacTags,
+            reportedInstanceTag: resolvedTag
         )
     }
 
@@ -12121,7 +12133,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
             guard isCurrentRemoteConnection(
                 client: client,
@@ -12334,6 +12347,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client,
                         generation: listenerConnectionGeneration
                     )
+                } else if event.topic == "mobile.compatible_tags.changed" {
+                    await self.handleCompatibleMacTagsChangedEvent(event)
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {

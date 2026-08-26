@@ -1881,7 +1881,7 @@ final class cmuxUITests: XCTestCase {
         let selectedProbeID =
             "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
         let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
-        let computerOrderTileLabel = "Computer Order"
+        let computerOrderTileLabel = "Custom Order"
         let recentTileID = "MobileWorkspaceSortTile-recentActivity"
         let recentTileLabel = "Recent Activity"
         let automaticTileID = "MobileWorkspaceSortTile-automatic"
@@ -1971,7 +1971,7 @@ final class cmuxUITests: XCTestCase {
         ]
         guard let computerFrames = orderedFrames(
             computerOrder,
-            state: "Computer Order"
+            state: "Custom Order"
         ) else { return }
         XCTAssertFalse(element(alphaAnchorID).exists)
         XCTAssertFalse(element(betaAnchorID).exists)
