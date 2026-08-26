@@ -1667,14 +1667,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if NSApp.windows.isEmpty {
+                // The SwiftUI WindowGroup's hidden bootstrap window may still
+                // be present while the registered cmux.main window is being
+                // created. Never treat that transient window as the UI-test
+                // target: doing so can move/close the bootstrap window and
+                // leave the real terminal window absent.
+                if self.mainWindowsForVisibilityController().isEmpty {
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 // On headless CI runners, activate() silently fails (no GUI session).
                 // Force windows visible so the terminal surface starts rendering.
-                for window in NSApp.windows {
+                for window in self.mainWindowsForVisibilityController() {
                     window.orderFrontRegardless()
                 }
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
@@ -1903,7 +1908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let window = NSApp.windows.first else {
+        guard let window = mainWindowsForVisibilityController().first else {
             if attempt < 20 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
