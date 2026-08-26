@@ -10,6 +10,6 @@ public enum CmxTransportSessionPurpose: UInt8, Equatable, Sendable {
     case backgroundControl = 2
     /// A short-lived request that discovers or validates a route.
     case probe = 3
-    /// An independent feature lane sharing an admitted Iroh session.
+    /// An independent feature lane sharing an admitted transport session.
     case featureLane = 4
 }

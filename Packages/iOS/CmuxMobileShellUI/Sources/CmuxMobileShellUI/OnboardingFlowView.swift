@@ -5,13 +5,11 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// A short product tour that routes into authentication after the tour, then
-/// same-account computer discovery, with pairing available for Tailscale.
+/// Tailscale pairing.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
-    let connectionMethod: MobileConnectionMethod
-    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onEnablePush: () async -> Bool
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
@@ -31,8 +29,6 @@ struct OnboardingFlowView: View {
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
-        connectionMethod: MobileConnectionMethod = .automatic,
-        onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
@@ -43,8 +39,6 @@ struct OnboardingFlowView: View {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
-        self.connectionMethod = connectionMethod
-        self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onEnablePush = onEnablePush
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
@@ -95,8 +89,7 @@ struct OnboardingFlowView: View {
         OnboardingSceneChrome(
             stage: stage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: connectionPhase,
-            connectionMethod: connectionMethod
+            connectionPhase: connectionPhase
         )
     }
 
@@ -110,11 +103,7 @@ struct OnboardingFlowView: View {
         case .push:
             OnboardingPushView()
         case .connect:
-            OnboardingConnectionView(
-                phase: connectionPhase,
-                connectionMethod: connectionMethod,
-                onSelectConnectionMethod: selectConnectionMethod
-            )
+            OnboardingConnectionView(phase: connectionPhase)
         }
     }
 
@@ -207,22 +196,11 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            if connectionMethod == .tailscale {
-                startTailscalePairing()
-            } else {
-                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
-                onRetryConnection()
-            }
+            startTailscalePairing()
         case .searching:
             break
         case .fallback:
-            if connectionMethod == .tailscale {
-                startTailscalePairing()
-            } else {
-                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
-                analytics.capture("ios_onboarding_connection_retried", eventProperties)
-                onRetryConnection()
-            }
+            startTailscalePairing()
         case .ready:
             diagnosticLog?.recordAppEvent(.onboardingCompleted)
             analytics.capture("ios_onboarding_completed", eventProperties)
@@ -233,27 +211,17 @@ struct OnboardingFlowView: View {
     /// Push's secondary action declines the opt-in without touching the OS.
     /// Once Enable is in flight the pending system alert owns the decision, so
     /// a racing Not Now tap is ignored rather than recorded as a contradictory
-    /// intent. On Connect, Tailscale's secondary action retries discovery;
-    /// Auto-Connect has no secondary manual-pairing action.
+    /// intent. On Connect, the secondary action retries the connection check.
     private func handleSecondary() {
         if stage == .push {
             guard !isPushEnableInFlight else { return }
             declinePush()
             return
         }
-        guard connectionMethod == .tailscale, connectionPhase == .fallback else { return }
+        guard connectionPhase == .fallback else { return }
         diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
         analytics.capture("ios_onboarding_connection_retried", eventProperties)
         onRetryConnection()
-    }
-
-    private func selectConnectionMethod(_ method: MobileConnectionMethod) {
-        guard method != connectionMethod else { return }
-        diagnosticLog?.recordAppEvent(.onboardingConnectionMethodChanged)
-        var properties = eventProperties
-        properties["connection_method"] = .string(method.rawValue)
-        analytics.capture("ios_onboarding_connection_method_selected", properties)
-        onSelectConnectionMethod(method)
     }
 
     private func startTailscalePairing() {

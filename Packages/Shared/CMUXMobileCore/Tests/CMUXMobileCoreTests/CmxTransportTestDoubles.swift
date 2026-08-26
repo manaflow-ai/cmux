@@ -17,7 +17,7 @@ struct RequestTaggedTransportFactory: CmxByteTransportFactory {
     func makeTransport(
         for request: CmxByteTransportRequest
     ) throws -> any CmxByteTransport {
-        let mode = request.authorizationMode == .transportAdmission ? "admission" : "stack"
+        let mode = request.authorizationMode == .stackBearer ? "stack" : "other"
         return TaggedTransport(
             tag: "\(request.expectedPeerDeviceID ?? "missing"):\(mode)",
             route: request.route

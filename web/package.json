@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
-    "build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && bun tools/build-docs-search.mjs && next build",
-    "vercel-build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && bun tools/build-docs-search.mjs && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build",
+    "build": "bun tools/build-docs-search.mjs && next build",
+    "vercel-build": "bun tools/build-docs-search.mjs && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build",
     "search:index": "bun tools/build-docs-search.mjs",
     "subrouter:migrate-legacy": "bun scripts/subrouter/migrate-legacy-tenants.ts",
     "coderouter:migrate-encrypted-credentials": "bun scripts/coderouter/migrate-encrypted-credentials.ts",

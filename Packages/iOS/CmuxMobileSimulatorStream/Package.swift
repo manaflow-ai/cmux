@@ -6,8 +6,7 @@ let package = Package(
     name: "CmuxMobileSimulatorStream",
     platforms: [
         .iOS(.v18),
-        // macOS so the engine, mapping, and store logic unit-test locally;
-        // the display view itself is UIKit-gated.
+        // macOS so the mapping logic unit-tests locally.
         .macOS(.v14),
     ],
     products: [
@@ -16,19 +15,11 @@ let package = Package(
             targets: ["CmuxMobileSimulatorStream"]
         ),
     ],
-    dependencies: [
-        .package(path: "../../Shared/CmuxSimulatorStreamKit"),
-        .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../CmuxMobileRPC"),
-    ],
+    dependencies: [],
     targets: [
         .target(
             name: "CmuxMobileSimulatorStream",
-            dependencies: [
-                "CmuxSimulatorStreamKit",
-                "CMUXMobileCore",
-                "CmuxMobileRPC",
-            ],
+            dependencies: [],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

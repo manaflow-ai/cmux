@@ -48,17 +48,12 @@ public struct MobileCatalogSection: SettingCatalogSection {
     private static let iOSPairingHostDefault = false
     #endif
 
-    /// Port both Mac-side iOS listeners prefer to bind: the legacy TCP
-    /// pairing listener and the Iroh endpoint's UDP socket (the port Direct
-    /// addresses dial).
+    /// Port the TCP pairing listener prefers to bind.
     ///
-    /// This is a *preference*: when the port is already in use each listener
-    /// independently falls back to an OS-assigned ephemeral port. The TCP
-    /// listener hands the iOS app its actual bound port, and the Iroh
-    /// endpoint registers its actual socket addresses with the broker, so
-    /// pairing still works either way. Applying a change rebinds the TCP
-    /// listener live; the Iroh endpoint adopts the new port the next time it
-    /// activates (in practice, app relaunch). Configure a fixed port when you
+    /// This is a *preference*: when the port is already in use the listener
+    /// falls back to an OS-assigned ephemeral port and hands the iOS app its
+    /// actual bound port, so pairing still works either way. Applying a
+    /// change rebinds the TCP listener live. Configure a fixed port when you
     /// need predictable firewall rules or to avoid a conflict. The default
     /// mirrors `CmxMobileDefaults.defaultHostPort`, the protocol default
     /// mobile clients dial when a pairing payload omits a port.

@@ -578,49 +578,8 @@ import Testing
         await firstSession.tearDown(error: .connectionClosed)
     }
 
-    @Test func connectAttemptKeySeparatesPeersAndIgnoresIrohHintChurn()
+    @Test func connectAttemptKeySeparatesPhysicalEndpoints()
         async throws {
-        let identityA = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        let identityB = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "b", count: 64)
-        )
-        let refreshedHint = try CmxIrohPathHint(
-            kind: .relayURL,
-            value: "https://relay.example.test/",
-            source: .native,
-            privacyScope: .publicInternet
-        )
-        let initialRoute = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(identity: identityA, pathHints: [])
-        )
-        let refreshedRoute = try CmxAttachRoute(
-            id: "iroh-refreshed",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: identityA,
-                pathHints: [refreshedHint]
-            )
-        )
-        let otherPeerRoute = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(identity: identityB, pathHints: [])
-        )
-        let initialKey = MobileRPCConnectAttemptKey(route: initialRoute)
-        let refreshedKey = MobileRPCConnectAttemptKey(route: refreshedRoute)
-        let otherPeerKey = MobileRPCConnectAttemptKey(route: otherPeerRoute)
-        let adoptedIdentityKey = MobileRPCConnectAttemptKey(
-            route: initialRoute
-        )
-
-        #expect(initialKey == refreshedKey)
-        #expect(initialKey != otherPeerKey)
-        #expect(initialKey == adoptedIdentityKey)
-
         let firstWebSocketRoute = try CmxAttachRoute(
             id: "websocket-first",
             kind: .websocket,
@@ -675,19 +634,24 @@ import Testing
         )
 
         let registry = MobileRPCConnectAttemptRegistry()
-        guard case let .granted(initialLease) =
-                await registry.beginConnect(key: initialKey) else {
-            Issue.record("Expected first peer admission")
+        let firstKey = MobileRPCConnectAttemptKey(route: firstWebSocketRoute)
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: firstKey) else {
+            Issue.record("Expected first endpoint admission")
             return
         }
-        #expect(await registry.beginConnect(key: refreshedKey) == .busy)
-        guard case let .granted(otherPeerLease) =
-                await registry.beginConnect(key: otherPeerKey) else {
-            Issue.record("Expected unrelated peer admission")
+        #expect(await registry.beginConnect(
+            key: MobileRPCConnectAttemptKey(route: rotatedWebSocketRoute)
+        ) == .busy)
+        guard case let .granted(otherLease) =
+                await registry.beginConnect(
+                    key: MobileRPCConnectAttemptKey(route: otherWebSocketRoute)
+                ) else {
+            Issue.record("Expected unrelated endpoint admission")
             return
         }
-        await registry.finishConnect(lease: initialLease)
-        await registry.finishConnect(lease: otherPeerLease)
+        await registry.finishConnect(lease: firstLease)
+        await registry.finishConnect(lease: otherLease)
     }
 
     @Test func connectAttemptKeyCanonicalizesEquivalentHostSpellings()

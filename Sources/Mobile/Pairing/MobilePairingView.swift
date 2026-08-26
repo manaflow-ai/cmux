@@ -6,26 +6,14 @@ import SwiftUI
 
 /// The macOS window for pairing an iPhone with this Mac.
 ///
-/// A transport chooser leads the page: Iroh pairing is automatic for
-/// signed-in iPhones and needs no QR, while the Tailscale tab shows the QR
-/// used when the iPhone's connection method is explicitly set to Tailscale.
-/// Each tab ends in a status row that doubles as the debugging surface
-/// (live transport state, manual-entry routes, signed-in account).
+/// The page shows the Tailscale pairing QR and ends in a status row that
+/// doubles as the debugging surface (live transport state, manual-entry
+/// routes, signed-in account).
 struct MobilePairingView: View {
-    /// The transport whose pairing flow the window presents.
-    enum TransportChoice: Hashable {
-        case iroh
-        case tailscale
-    }
-
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
         flow: AppDelegate.shared?.auth?.accountFlow
     )
-    /// The user's explicit tab pick. `nil` until they touch the chooser; the
-    /// effective tab then follows Iroh readiness (Iroh when ready, else
-    /// Tailscale) so the page opens on the transport that will work.
-    @State private var chosenTransport: TransportChoice?
     /// The manual-entry value that was just copied (the host or the port
     /// string), so only the matching button shows the brief "Copied" flash.
     /// The two values can never collide: one is a host, the other a port.
@@ -98,29 +86,6 @@ struct MobilePairingView: View {
         }
     }
 
-    // MARK: Transport chooser
-
-    private func effectiveTransport(reachableViaIroh: Bool) -> TransportChoice {
-        chosenTransport ?? (reachableViaIroh ? .iroh : .tailscale)
-    }
-
-    private func transportPicker(reachableViaIroh: Bool) -> some View {
-        Picker(
-            String(localized: "mobile.pairing.transportPicker", defaultValue: "Connection"),
-            selection: Binding(
-                get: { effectiveTransport(reachableViaIroh: reachableViaIroh) },
-                set: { chosenTransport = $0 }
-            )
-        ) {
-            // Transport product names are literal tokens, not translatable copy.
-            Text(verbatim: "Iroh").tag(TransportChoice.iroh)
-            Text(verbatim: "Tailscale").tag(TransportChoice.tailscale)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 280)
-    }
-
     /// The App Store-badge-styled button for getting cmux on the iPhone.
     private var getIPhoneAppBadge: some View {
         Link(destination: Self.iphoneAppURL) {
@@ -171,8 +136,8 @@ struct MobilePairingView: View {
                 Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
                     .foregroundStyle(.secondary)
             }
-        case let .needsReachableTransport(reachableViaIroh):
-            needsReachableTransportContent(reachableViaIroh: reachableViaIroh)
+        case .needsReachableTransport:
+            needsReachableTransportContent
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
@@ -215,27 +180,16 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
-        let transport = effectiveTransport(reachableViaIroh: ready.reachableViaIroh)
-
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(reachableViaIroh: ready.reachableViaIroh)
             getIPhoneAppBadge
-            if transport == .tailscale {
-                tailscaleReadyBody(ready)
-            } else {
-                irohBody(waiting: ready.reachableViaIroh)
-            }
+            tailscaleReadyBody(ready)
         }
         .frame(maxWidth: .infinity)
 
         Divider()
 
-        if transport == .tailscale {
-            tailscaleRow(ready)
-            manualEntry(ready)
-        } else {
-            irohRow(reachableViaIroh: ready.reachableViaIroh)
-        }
+        tailscaleRow(ready)
+        manualEntry(ready)
 
         footer
     }
@@ -262,37 +216,13 @@ struct MobilePairingView: View {
 
         Text(String(
             localized: "mobile.pairing.scanInstruction",
-            defaultValue: "In cmux on your iPhone, sign in with the same account, choose Tailscale, then scan this code."
+            defaultValue: "In cmux on your iPhone, sign in with the same account, then scan this code."
         ))
         .cmuxFont(.caption)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
 
-        if model.availableIOSAppTargets.count > 1 {
-            pairingTargetPicker
-        }
-    }
-
-    @ViewBuilder
-    private func irohBody(waiting: Bool) -> some View {
-        Text(String(
-            localized: "mobile.pairing.irohInstruction",
-            defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed."
-        ))
-        .cmuxFont(.callout)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 420)
-
-        if waiting {
-            waitingIndicator
-        }
-
-        // The selected iOS app matters beyond the QR: it addresses the
-        // paired-Mac records Iroh discovery hands to that exact app, so the
-        // picker stays available on the automatic path too.
         if model.availableIOSAppTargets.count > 1 {
             pairingTargetPicker
         }
@@ -349,25 +279,14 @@ struct MobilePairingView: View {
     // MARK: No reachable Tailscale route
 
     @ViewBuilder
-    private func needsReachableTransportContent(reachableViaIroh: Bool) -> some View {
-        let transport = effectiveTransport(reachableViaIroh: reachableViaIroh)
-
+    private var needsReachableTransportContent: some View {
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(reachableViaIroh: reachableViaIroh)
             getIPhoneAppBadge
-            if transport == .iroh {
-                irohBody(waiting: reachableViaIroh)
-            } else {
-                tailscaleMissingBody
-            }
+            tailscaleMissingBody
         }
         .frame(maxWidth: .infinity)
 
         Divider()
-
-        if transport == .iroh {
-            irohRow(reachableViaIroh: reachableViaIroh)
-        }
 
         footer
     }
@@ -395,26 +314,7 @@ struct MobilePairingView: View {
         refreshButton
     }
 
-    // MARK: Transport status rows (debugging surface)
-
-    private func irohRow(reachableViaIroh: Bool) -> some View {
-        transportRow(
-            name: "Iroh",
-            healthy: reachableViaIroh,
-            status: reachableViaIroh
-                ? String(localized: "mobile.pairing.transport.status.ready", defaultValue: "Ready")
-                : String(localized: "mobile.pairing.transport.status.notRegistered", defaultValue: "Not registered"),
-            detail: String(
-                localized: "mobile.pairing.transport.iroh.detail",
-                defaultValue: """
-                iPhones signed in to your account find this Mac automatically over Iroh — \
-                end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed.
-                """
-            )
-        ) {
-            EmptyView()
-        }
-    }
+    // MARK: Transport status row (debugging surface)
 
     private func tailscaleRow(_ ready: MobilePairingModel.Ready) -> some View {
         transportRow(
@@ -425,7 +325,7 @@ struct MobilePairingView: View {
                 : String(localized: "mobile.pairing.transport.status.notDetected", defaultValue: "Not detected"),
             detail: String(
                 localized: "mobile.pairing.transport.tailscale.detail",
-                defaultValue: "This code pairs over Tailscale instead. Both devices must be connected to the same Tailscale network."
+                defaultValue: "This code pairs over Tailscale. Both devices must be connected to the same Tailscale network."
             )
         ) {
             if !ready.reachableViaTailscale {

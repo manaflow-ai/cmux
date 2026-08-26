@@ -6,14 +6,6 @@ import Foundation
 import OSLog
 import SwiftUI
 import cmuxFeature
-#if DEBUG
-import CmuxIrohReleaseGateSupport
-#endif
-
-nonisolated private let cmuxAppConnectivityLog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-    category: "connectivity"
-)
 
 @main
 struct cmuxApp: App {
@@ -39,29 +31,6 @@ struct cmuxApp: App {
             buildScope: MobileIOSBuildScope.current(),
             additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
-        let iroh = MobileIrohRuntimeComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability,
-            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
-            appNamespace: auth.appNamespace,
-            keychainAccessGroup: auth.keychainAccessGroup,
-            diagnosticLog: diagnosticLog
-        )
-        let connectivityInvalidationServiceURL = PresenceClient
-            .resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
-            )
-        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
-            .flatMap { URL(string: $0) }
-        if connectivityInvalidationBaseURL == nil {
-            cmuxAppConnectivityLog.error(
-                "Connectivity invalidation disabled: presence service URL unavailable"
-            )
-        }
-        iroh.configure(
-            auth: auth.coordinator,
-            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
-        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -73,15 +42,9 @@ struct cmuxApp: App {
         let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
-        let fallbackRegistrations = supportedKinds.map { kind in
+        let registrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        let registrations = [
-            CmxRouteTransportFactoryRegistration(
-                kind: .iroh,
-                factory: iroh.transportFactory
-            ),
-        ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)
@@ -93,42 +56,12 @@ struct cmuxApp: App {
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
-            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
-            independentEventByteStreamProvider: { request in
-                try await iroh.serverEventByteStream(for: request)
-            },
-            terminalLaneProvider: { request, surfaceID, cursor in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
-                    throw MobileIrohTerminalLaneError.invalidSurfaceID
-                }
-                return try await iroh.openTerminalLane(
-                    for: request,
-                    surfaceID: surfaceUUID,
-                    cursor: cursor
-                )
-            },
-            artifactLaneProvider: { request, resourceID, offset in
-                try await iroh.openArtifactLane(
-                    for: request,
-                    resourceID: resourceID,
-                    offset: offset
-                )
-            },
-            simulatorStreamLaneProvider: { request, panelID in
-                guard let panelUUID = UUID(uuidString: panelID) else {
-                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
-                }
-                return try await iroh.openSimulatorStreamLane(
-                    for: request,
-                    panelID: panelUUID
-                )
-            }
+            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 
         return AppCompositionRoot(
             runtime: runtime,
             auth: auth,
-            iroh: iroh,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -157,24 +90,8 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        Group {
-            #if DEBUG
-            MobileIrohReleaseGateScene(
-                root: mobileRootScene,
-                iroh: Self.root.iroh
-            )
-            #else
-            mobileRootScene
-            #endif
-        }
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
-        )
+        mobileRootScene
+            .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
     }
 
     private var mobileRootScene: CMUXMobileRootScene {
@@ -190,9 +107,6 @@ struct cmuxApp: App {
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog

@@ -52,7 +52,7 @@ final class MobileStartupConnectionCoordinator {
     /// Applies each authenticated account/team scope once before startup may
     /// dial. SwiftUI can deliver the bootstrap task and the matching `onChange`
     /// callback in either order; coalescing them here prevents the later
-    /// callback from invalidating a healthy in-flight Iroh admission.
+    /// callback from invalidating a healthy in-flight admission.
     ///
     /// - Returns: `nil` when no authenticated account is available, otherwise
     ///   whether this call applied a new scope.

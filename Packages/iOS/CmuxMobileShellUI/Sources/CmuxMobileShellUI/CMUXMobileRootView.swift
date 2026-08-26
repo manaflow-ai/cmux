@@ -287,7 +287,7 @@ struct CMUXMobileRootView: View {
             // Auth launch restore can publish `isAuthenticated` and finish
             // `isRestoringSession` in one main-actor turn. SwiftUI is allowed
             // to coalesce those observations, which would skip the one-shot
-            // attach callback for a tagged Iroh launch. Awaiting the
+            // attach callback for a tagged dev launch. Awaiting the
             // coordinator's bootstrap gives startup a durable completion
             // barrier; the coordinator still serializes this with the normal
             // lifecycle callbacks, so it cannot start a duplicate dial.
@@ -335,8 +335,8 @@ struct CMUXMobileRootView: View {
                 store.resumeForegroundRefresh()
                 // The user may have toggled Tailscale while we were backgrounded.
                 tailscaleStatusMonitor?.refresh()
-                // Auth resume belongs to the process-owned Iroh composition,
-                // which distinguishes real background returns from system UI.
+                // Auth resume is owned by the app composition root, which
+                // distinguishes real background returns from system UI.
             case .background:
                 store.suspendForegroundRefresh()
             case .inactive:
@@ -737,7 +737,6 @@ struct CMUXMobileRootView: View {
         case .acknowledgeAutoConnectMigration:
             autoConnectMigrationStore?.acknowledge()
         case .useAutoConnect:
-            connectionMethodStore?.method = .automatic
             autoConnectMigrationStore?.acknowledge()
         case let .setUpTailscale(requiresPairing):
             connectionMethodStore?.method = .tailscale
@@ -849,8 +848,6 @@ struct CMUXMobileRootView: View {
             context: .firstRun,
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
@@ -873,8 +870,6 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             // The deterministic preview must never raise the OS alert.
             onEnablePush: { true },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -1072,9 +1067,8 @@ struct CMUXMobileRootView: View {
     }
 
     /// Add Computer (including its manual host:port form) is always available:
-    /// entering the address where a same-account Mac is reachable IS discovery
-    /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
-    /// Only the Tailscale pairing-code scanner keeps a method gate.
+    /// entering the address where a same-account Mac is reachable IS discovery.
+    /// Only the Tailscale pairing-code scanner keeps a readiness gate.
     private var addComputerAction: (() -> Void)? {
         showAddDevice
     }

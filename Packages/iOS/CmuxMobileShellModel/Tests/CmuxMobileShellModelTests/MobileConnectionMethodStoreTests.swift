@@ -12,9 +12,9 @@ import Testing
         return defaults
     }
 
-    @Test func defaultsToAutomatic() {
+    @Test func defaultsToTailscale() {
         let store = MobileConnectionMethodStore(defaults: makeDefaults())
-        #expect(store.method == .automatic)
+        #expect(store.method == .tailscale)
     }
 
     @Test func persistsSelectionAcrossInstances() {
@@ -24,42 +24,18 @@ import Testing
 
         let reloaded = MobileConnectionMethodStore(defaults: defaults)
         #expect(reloaded.method == .tailscale)
-
-        reloaded.method = .automatic
-        #expect(MobileConnectionMethodStore(defaults: defaults).method == .automatic)
     }
 
-    @Test func ignoresUnknownPersistedValue() {
+    /// Retired persisted choices from older builds ("automatic", "iroh",
+    /// "direct") and unknown values all read as Tailscale, so a stored
+    /// preference never crashes or drops an existing pairing.
+    @Test(arguments: ["automatic", "iroh", "direct", "carrier-pigeon"])
+    func retiredPersistedValuesReadAsTailscale(rawValue: String) {
         let defaults = makeDefaults()
-        defaults.set("carrier-pigeon", forKey: MobileConnectionMethodStore.methodKey)
+        defaults.set(rawValue, forKey: MobileConnectionMethodStore.methodKey)
 
         let store = MobileConnectionMethodStore(defaults: defaults)
-        #expect(store.method == .automatic)
-    }
-
-    @Test func recordsPreferenceChangesAtThePersistenceOwner() async {
-        let log = DiagnosticLog(capacity: 4)
-        let store = MobileConnectionMethodStore(
-            defaults: makeDefaults(),
-            diagnosticLog: log
-        )
-
-        store.method = .tailscale
-
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while await log.processedCount() < 2, clock.now < deadline {
-            await Task.yield()
-        }
-        #expect(await log.processedCount() >= 2)
-        let events = await log.snapshot().events
-        #expect(events.first?.a
-            == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
-        #expect(events.first?.c == 0)
-        let change = events.last
-        #expect(change?.a
-            == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
-        #expect(change?.c == 1)
+        #expect(store.method == .tailscale)
     }
 
     /// A shared report window must state the configured method even when the

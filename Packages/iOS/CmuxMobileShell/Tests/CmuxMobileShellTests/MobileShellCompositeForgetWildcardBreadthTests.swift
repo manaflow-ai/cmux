@@ -4,21 +4,6 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-/// A forget capability that records each revoke's exact target, so a test can
-/// see whether the revoke was tag-exact or a device-wide wildcard.
-@MainActor
-private final class WildcardRecordingForget: MobileIrohMacForgetting {
-    private(set) var revokes: [(macDeviceID: String, instanceTag: String?)] = []
-
-    func forgetComputer(
-        macDeviceID: String,
-        instanceTag: String?,
-        expectedAccountID _: String
-    ) async throws {
-        revokes.append((macDeviceID, instanceTag))
-    }
-}
-
 /// A store double whose cross-team enumeration fails, modeling a read error
 /// during wildcard cleanup. Everything else forwards to the wrapped store.
 private struct EnumerationFailingStore: MobilePairedMacStoring {
@@ -130,12 +115,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: base,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -151,9 +134,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         #expect(ok)
         // The nil-tag row cannot name its binding, so the revoke was the
         // device-wide wildcard (instanceTag nil = all tags).
-        #expect(forget.revokes.count == 1)
-        #expect(forget.revokes.first?.macDeviceID == "mac-a")
-        #expect(forget.revokes.first?.instanceTag == nil)
         // Local cleanup must match the wildcard's breadth: EVERY row of the
         // device is gone, including the tagged sibling whose binding was just
         // revoked. Leaving it saved strands a dead entry in the computer list.
@@ -192,12 +172,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: base,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -211,8 +189,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         let ok = await store.forgetHiddenComputer(hidden)
 
         #expect(ok)
-        #expect(forget.revokes.count == 1)
-        #expect(forget.revokes.first?.instanceTag == "feature")
         // Only the tagged row is gone; the untagged sibling survives.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "feature" })
@@ -266,12 +242,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             backup: backup,
             teamIDProvider: { nil }
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: backingUp,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -328,7 +302,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
-        let forget = WildcardRecordingForget()
         // Realistic rail: the team-scoping decorator is what normally hides
         // other teams' rows from the composite, so the cross-team cleanup must
         // work through it. "team-a" is selected the whole time — the team-less
@@ -338,7 +311,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { "team-a" }),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -352,8 +324,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         let ok = await store.forgetHiddenComputer(hidden)
 
         #expect(ok)
-        #expect(forget.revokes.count == 1)
-        #expect(forget.revokes.first?.instanceTag == nil)
         // EVERY row of the device is gone, including the other team's: its
         // binding was revoked account-wide and an offline Mac cannot self-heal.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
@@ -405,12 +375,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             backup: backup,
             teamIDProvider: { "team-a" }
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: backingUp,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -463,12 +431,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 1)
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: EnumerationFailingStore(inner: base),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -528,12 +494,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 3)
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { "team-a" }),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -548,8 +512,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
 
         #expect(ok)
         // The revoke stayed tag-exact.
-        #expect(forget.revokes.count == 1)
-        #expect(forget.revokes.first?.instanceTag == "feature")
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         // Both teams' "feature" rows are gone: their shared binding is revoked.
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "feature" })
@@ -594,7 +556,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
-        let forget = WildcardRecordingForget()
         // Development rail: the Stable row is incompatible, visible to the
         // cleanup enumeration but historically
         // silently skipped by the compatibility guard on exact-scope deletes.
@@ -605,7 +566,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: compatible,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -669,12 +629,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         )
         let team = TeamBox()
         team.value = "team-a"
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -751,12 +709,10 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
-        let forget = WildcardRecordingForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: ExactScopeFailingStore(inner: base, failingInstanceTag: "bad"),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -825,7 +781,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         )
         let team = TeamBox()
         team.value = "team-a"
-        let forget = WildcardRecordingForget()
         // Production shape: the batching store attempts EVERY row even when
         // one fails, so team B's row is deleted while team A's throws.
         let failing = ExactScopeFailingStore(
@@ -842,7 +797,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: backingUp,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -930,7 +884,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         )
         let team = TeamBox()
         team.value = "team-a"
-        let forget = WildcardRecordingForget()
         let failing = ExactScopeFailingStore(
             inner: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
             failingInstanceTag: nil,
@@ -949,7 +902,6 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
                 backup: FakeBackup(failNextFetches: 99),
                 teamIDProvider: { team.value }
             ),
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()

@@ -149,6 +149,32 @@ actor RetryDelayRecorder {
     }
 }
 
+/// Counts session-snapshot requests so tests can prove a path never asked for
+/// session authorization (not merely that it tolerated a failed one).
+actor SnapshotCountingTokenProvider: TokenProviding {
+    private(set) var snapshotRequests = 0
+
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot {
+        snapshotRequests += 1
+        return AuthenticatedSessionSnapshot(
+            generation: 1,
+            accountID: "push-user-1",
+            accessToken: "access",
+            refreshToken: "refresh"
+        )
+    }
+
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool { true }
+
+    func accessToken() async throws -> String { "access" }
+    func storedAccessToken() async -> String? { "access" }
+    func refreshToken() async -> String? { "refresh" }
+    func forceRefreshAccessToken() async throws -> String { "access" }
+}
+
 // The push service records every request into the process-wide
 // `RecordingURLProtocol.recorder` singleton (URLProtocol only accepts protocol
 // *types*, not per-instance recorders, so the recorder must be reachable
@@ -258,6 +284,21 @@ actor RetryDelayRecorder {
     @Test func disabledByDefault() async {
         let (service, _) = makeService()
         #expect(await service.isEnabled == false)
+    }
+
+    /// Privacy cleanup with an EMPTY queue must not request session
+    /// authorization. The post-sign-in hook runs `syncTokenIfPossible()` on
+    /// the launch bootstrap task, where a session snapshot cannot be served
+    /// until bootstrap itself finishes (the sign-in flow still owns the token
+    /// store), so a snapshot requested with nothing to clean up can only park
+    /// on its 15s deadline and holds the whole auth bootstrap — and every
+    /// startup connect gated behind it — for nothing.
+    @Test func disabledSyncWithoutQueuedCleanupNeverRequestsSessionAuthorization() async {
+        let provider = SnapshotCountingTokenProvider()
+        let (service, _) = makeScriptedService(tokenProvider: provider)
+        await service.syncTokenIfPossible()
+        #expect(await provider.snapshotRequests == 0)
+        #expect(await service.snapshot == .disabled)
     }
 
     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {

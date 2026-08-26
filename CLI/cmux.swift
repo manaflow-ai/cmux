@@ -5359,10 +5359,6 @@ struct CMUXCLI {
             let response = try sendV1Command("ping", client: client)
             print(response)
 
-        case "iroh-diag":
-            let response = try sendV1Command("iroh_diag", client: client)
-            print(response)
-
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
@@ -17721,16 +17717,6 @@ struct CMUXCLI {
 
             Check connectivity to the cmux socket server.
             """
-        case "iroh-diag":
-            return String(
-                localized: "cli.help.irohDiag",
-                defaultValue: """
-                Usage: cmux iroh-diag
-
-                Print the host's Iroh Connection Report as a plain-language timeline,
-                the same data as Settings > Networking > Connection Report.
-                """
-            )
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -39563,7 +39549,6 @@ export default CMUXSessionRestore;
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
           ping
-          iroh-diag
           version
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]

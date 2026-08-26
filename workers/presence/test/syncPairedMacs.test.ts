@@ -165,7 +165,7 @@ describe("parsePairedMacBackup", () => {
     }).ok).toBe(false);
   });
 
-  it("strips private Iroh hints from backup ingestion and keeps legacy routes", () => {
+  it("drops retired iroh routes from backup ingestion and keeps other routes", () => {
     const legacy = record("x", "100.64.1.2", 49152).routes[0];
     const parsed = parsePairedMacBackup({
       ops: [{
@@ -193,19 +193,8 @@ describe("parsePairedMacBackup", () => {
     if (!parsed.ok) throw new Error(parsed.error);
     const op = parsed.ops[0];
     if (op?.kind !== "upsert") throw new Error("expected an upsert op");
-    expect(op.record.routes).toEqual([
-      legacy,
-      {
-        id: "iroh",
-        kind: "iroh",
-        priority: 1,
-        endpoint: {
-          type: "peer",
-          id: "a".repeat(64),
-          relay_url: "https://use4.relay.cmux.dev/",
-        },
-      },
-    ]);
+    expect(op.record.routes).toEqual([legacy]);
+    expect(JSON.stringify(op.record.routes)).not.toContain("iroh");
   });
 });
 
@@ -412,8 +401,8 @@ describe("applyBackupOps", () => {
     const stored = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
     expect(JSON.stringify(stored)).not.toContain("192.168.1.20");
 
-    // Seed an unsafe pre-hardening record directly. Restore must scrub it even
-    // before the next client write migrates the stored payload.
+    // Seed an unsafe pre-teardown record directly. Restore must drop the iroh
+    // route even before the next client write migrates the stored payload.
     await upsertRecord(
       storage,
       pairedMacsCollection("legacy-user"),
@@ -424,18 +413,7 @@ describe("applyBackupOps", () => {
     const restored = await listBackupSnapshot(storage, "legacy-user");
     expect(JSON.stringify(restored)).not.toContain("192.168.1.20");
     expect(JSON.stringify(restored)).not.toContain("legacy-private-relay-hint");
-    expect(restored.records[0]?.routes).toEqual([
-      unsafe.routes[0],
-      {
-        id: "iroh",
-        kind: "iroh",
-        endpoint: {
-          type: "peer",
-          id: "a".repeat(64),
-          relay_url: "https://use4.relay.cmux.dev/",
-        },
-      },
-    ]);
+    expect(restored.records[0]?.routes).toEqual([unsafe.routes[0]]);
 
     const legacyFrame = sanitizePairedMacSyncFrame({
       type: "sync.delta",

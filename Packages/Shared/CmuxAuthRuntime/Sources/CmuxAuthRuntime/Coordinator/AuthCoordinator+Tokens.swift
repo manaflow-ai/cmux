@@ -239,7 +239,7 @@ extension AuthCoordinator {
         }
         // A transition-owned token store is transient: every foreground return
         // revalidates the session over the network, and classifying that
-        // window as unauthorized made the iroh broker source fail closed on
+        // window as unauthorized made token consumers fail closed on
         // every app launch. Match `accessToken()`'s classification.
         guard !sessionTokenTransitionIsActive else {
             throw AuthError.networkError

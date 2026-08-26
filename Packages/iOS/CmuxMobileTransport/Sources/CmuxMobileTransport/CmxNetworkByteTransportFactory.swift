@@ -79,7 +79,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 guard authorization.authorizes(host: host, port: port) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
-            case .stackBearer, .transportAdmission:
+            case .stackBearer:
                 // A generic Stack bearer never opts into the legacy risk.
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
             }
@@ -104,7 +104,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 maximumReceiveLength: maximumReceiveLength,
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
-        case .iroh, .websocket:
+        case .websocket:
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
     }

@@ -2,39 +2,33 @@ public import Foundation
 public import CMUXMobileCore
 import Observation
 
-/// How the phone should reach a paired Mac.
+/// How the phone reaches a paired Mac. Tailscale is the only connection
+/// method: an authorized Tailscale route established by entering the pairing
+/// code shown on the Mac once, which authorizes that exact peer.
+///
+/// Older builds persisted other method choices ("automatic", "iroh",
+/// "direct"); ``MobileConnectionMethodStore`` and the paired-Mac store map
+/// every persisted value to `.tailscale` on read so stored pairings survive.
 public enum MobileConnectionMethod: String, CaseIterable, Sendable {
-    /// Dial the built-in encrypted peer-to-peer transport (direct paths with
-    /// managed relays as fallback). The default; no setup required.
-    case automatic
-    /// Require the user's Tailscale network. Requires entering the Tailscale
-    /// pairing code shown on the Mac once, which authorizes that exact peer;
-    /// Iroh is never used as a fallback while this method is selected.
     case tailscale
-    /// Dial only the user-enabled direct addresses configured on the
-    /// Computer (LAN, WireGuard, or any other reachable network). No other
-    /// method is ever used as a fallback while this method is selected.
-    case direct
 }
 
 extension MobileConnectionMethod {
-    /// Exhaustive mapping into the diagnostics payload enum, so a future third
-    /// method becomes a compile error here instead of silently misreporting.
+    /// Mapping into the diagnostics payload enum, so a future second method
+    /// becomes a compile error here instead of silently misreporting.
     var diagnosticMethod: DiagnosticConnectionMethod {
         switch self {
-        case .automatic: .automatic
         case .tailscale: .tailscale
-        case .direct: .direct
         }
     }
 }
 
 /// Persists the user's connection-method choice.
 ///
-/// The choice is exclusive: `automatic` uses the built-in encrypted transport,
-/// while `tailscale` dials only an authorized Tailscale route. It never
-/// manufactures Tailscale authorization by itself; a pairing code entry remains
-/// the authorization event for each Mac.
+/// Tailscale is the only method; the store keeps reading (and normalizing)
+/// values persisted by older builds. It never manufactures Tailscale
+/// authorization by itself; a pairing code entry remains the authorization
+/// event for each Mac.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root.
@@ -66,15 +60,15 @@ public final class MobileConnectionMethodStore {
     }
 
     /// Create a store backed by the given defaults.
+    ///
+    /// Every persisted raw value (including the retired "automatic", "iroh",
+    /// and "direct" choices from older builds) reads as `.tailscale`, so a
+    /// stored preference never crashes or drops an existing pairing.
     public init(defaults: UserDefaults, diagnosticLog: DiagnosticLog? = nil) {
         self.defaults = defaults
         self.diagnosticLog = diagnosticLog
-        if let rawValue = defaults.string(forKey: Self.methodKey),
-           let method = MobileConnectionMethod(rawValue: rawValue) {
-            self.method = method
-        } else {
-            self.method = .automatic
-        }
+        self.method = defaults.string(forKey: Self.methodKey)
+            .flatMap(MobileConnectionMethod.init(rawValue:)) ?? .tailscale
         recordConfiguredMethodDiagnostic()
     }
 

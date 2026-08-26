@@ -237,7 +237,7 @@ extension TerminalController {
         a: Int? = nil,
         b: Int? = nil
     ) {
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             code,
             a: a,
             b: b,

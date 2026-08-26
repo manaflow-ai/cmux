@@ -75,14 +75,12 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
             try c.decode(String.self, forKey: .macDeviceID)
         )
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
-        let decodedRoutes = try c.decodeIfPresent(
+        // Unsupported route entries (for example the removed transport kinds
+        // older phones still back up) drop per element; the record restores.
+        routes = try c.decodeIfPresent(
             [PairedMacBackupFailableRoute].self,
             forKey: .routes
         )?.compactMap(\.value) ?? []
-        // Decoding must be deterministic. Upload boundaries already prune
-        // expired hints with an injected clock; restore defensively removes
-        // every non-public Iroh hint without consulting wall time.
-        routes = PairedMacBackupRouteDisclosure(routes: decodedRoutes).cloudPrivacySafe()
         createdAt = try c.decode(Double.self, forKey: .createdAt)
         lastSeenAt = try c.decode(Double.self, forKey: .lastSeenAt)
         isActive = try c.decode(Bool.self, forKey: .isActive)
@@ -98,10 +96,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(cmxCanonicalDeviceID(macDeviceID), forKey: .macDeviceID)
         try c.encodeIfPresent(displayName, forKey: .displayName)
-        try c.encode(
-            PairedMacBackupRouteDisclosure(routes: routes).cloudPrivacySafe(),
-            forKey: .routes
-        )
+        try c.encode(routes, forKey: .routes)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(lastSeenAt, forKey: .lastSeenAt)
         try c.encode(isActive, forKey: .isActive)

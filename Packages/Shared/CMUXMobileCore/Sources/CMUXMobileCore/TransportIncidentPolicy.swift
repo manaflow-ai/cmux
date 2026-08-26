@@ -70,7 +70,7 @@ public struct TransportIncidentPolicy: Sendable {
         }
 
         /// Stable grouping fingerprint, e.g.
-        /// `transportDialFailed/policyUnavailable/iroh`.
+        /// `transportDialFailed/policyUnavailable/tailscale`.
         public let signature: String
         /// Human-readable one-line summary suitable as an event title.
         public let title: String

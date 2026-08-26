@@ -121,13 +121,13 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// Connection recovery exhausted its current attempt. `b`, when present,
     /// is ``DiagnosticFailureKind``.
     case recoveryFailed = 32
-    /// The local Iroh endpoint started initialization.
+    /// The local peer endpoint started initialization.
     case endpointStarting = 33
-    /// The local Iroh endpoint became active.
+    /// The local peer endpoint became active.
     case endpointActive = 34
-    /// The local Iroh endpoint stopped.
+    /// The local peer endpoint stopped.
     case endpointStopped = 35
-    /// The local Iroh endpoint failed to start or remain active. `b`, when
+    /// The local peer endpoint failed to start or remain active. `b`, when
     /// present, is ``DiagnosticFailureKind``.
     case endpointFailed = 36
     /// A signed relay-policy refresh started.
@@ -186,13 +186,13 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// Device reachability changed. `a` is 1 when a usable network path
     /// exists, else 0. Correlates drops with WiFi/cellular transitions.
     case reachabilityChanged = 53
-    /// The Iroh boundary reported why a shared QUIC connection closed. `a` is
+    /// The transport boundary reported why a shared connection closed. `a` is
     /// the stable close-initiator kind (0 unknown, 1 local, 2 remote, 3 timed
     /// out), `b` is ``DiagnosticFailureKind``, `ms` is the application error
     /// code clamped to the nonnegative `Int32` range when parseable, and `c` is
     /// the matching positive, process-local session correlation ID.
     case transportCloseAttribution = 54
-    /// One Iroh path opened, closed, became selected, or reported lag. `a` is
+    /// One transport path opened, closed, became selected, or reported lag. `a` is
     /// the stable path-event kind (1 opened, 2 closed, 3 selected, 4 lagged),
     /// `b` is ``DiagnosticPathKind`` for the affected path, and `c` is the
     /// matching positive, process-local session correlation ID.
@@ -264,7 +264,7 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
 
     // Raw values 66-70 are reserved for app-wide diagnostic expansion.
 
-    // MARK: Iroh bootstrap diagnostics
+    // MARK: Peer dial bootstrap diagnostics
 
     /// One direct dial plan was assembled before any connect attempt. `a` is
     /// the public path hint count, `b` is the private fallback path hint

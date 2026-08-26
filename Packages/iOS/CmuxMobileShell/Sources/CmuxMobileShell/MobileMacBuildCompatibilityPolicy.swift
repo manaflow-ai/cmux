@@ -134,7 +134,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     ///
     /// cmux 0.64.17 predates the authenticated instance-tag field. Distributed
     /// iOS builds may retain that one legacy release only when the user has
-    /// authorized the exact Tailscale endpoint locally. Discovery and Iroh stay
+    /// authorized the exact Tailscale endpoint locally. Everything else stays
     /// fail-closed, as do development builds and newer untagged Mac releases.
     public func allowsAuthenticatedHost(
         instanceTag: String?,

@@ -1,5 +1,9 @@
 # iOS simulator streaming v2
 
+> **Note (2026-08-25):** the iroh transport was removed from cmux; TCP over
+> Tailscale is the only remaining Mac-to-phone connectivity path. Mentions of
+> iroh below are historical and no longer describe shipping code.
+
 cmux iOS mirrors a booted iPhone/iPad Simulator hosted by the paired Mac. v2
 replaces per-frame still images pushed through the shared mobile event queue
 with a dedicated low-latency video pipeline. The design goal is that

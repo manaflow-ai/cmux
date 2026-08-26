@@ -280,7 +280,7 @@ struct DisconnectedWorkspaceShellView: View {
         #endif
         return L10n.string(
             "mobile.devices.emptyDescription",
-            defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            defaultValue: "Pair this iPhone with your Mac by scanning the code in cmux's Tailscale Pairing window. Both devices must be signed in to the same cmux account and connected to the same Tailscale network."
         )
     }
 
@@ -380,7 +380,7 @@ struct DisconnectedWorkspaceShellView: View {
                 savedMacs.isEmpty
                     ? L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        defaultValue: "Pair this iPhone with your Mac by scanning the code in cmux's Tailscale Pairing window. Both devices must be signed in to the same cmux account and connected to the same Tailscale network."
                     )
                     : savedMacDescription
             )

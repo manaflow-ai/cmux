@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "iroh-ffi",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
-      "state" : {
-        "revision" : "20f0e67cc3cb5179e816ef45b7a7ec5c8c58b0e0",
-        "version" : "1.0.2-cmux.7"
-      }
-    },
-    {
       "identity" : "sentry-cocoa",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/getsentry/sentry-cocoa.git",

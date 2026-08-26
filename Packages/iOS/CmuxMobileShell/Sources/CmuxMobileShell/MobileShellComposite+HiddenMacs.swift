@@ -169,31 +169,19 @@ extension MobileShellComposite {
         }
     }
 
-    /// Revokes a hidden computer's account bindings, then drops its local row.
+    /// Drops a hidden computer's local rows and backup entries.
     ///
-    /// The revoke is the meaningful action: it removes the binding from every
-    /// device on the account. On success the paired-Mac row and its hidden
-    /// marker are cleared so the computer disappears from every section; a Mac
-    /// that is still online re-registers a fresh binding and reappears on its
-    /// next connect. Returns `false` (leaving the row untouched) when no forget
-    /// capability is wired or the revoke fails, so the caller can surface an
+    /// On success the paired-Mac row and its hidden marker are cleared so the
+    /// computer disappears from every section; a Mac that is still online and
+    /// paired again reappears on its next connect. Returns `false` (leaving
+    /// the row untouched) when cleanup fails, so the caller can surface an
     /// error instead of a silent no-op.
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerForgetStarted, correlationID: computer.id)
-        guard let personalIrohForget else {
-            recordAppEvent(
-                .computerForgetFailed,
-                correlationID: computer.id,
-                startedAt: startedAt,
-                failure: .unsupportedRoute
-            )
-            return false
-        }
-        // Capture the scope BEFORE the network revoke so local cleanup targets the
-        // account/team that owned the row, not whatever scope is current after the
-        // await (the user can sign out or switch accounts while the call is in
-        // flight).
+        // Capture the scope up front so local cleanup targets the account/team
+        // that owned the row, not whatever scope is current after an await
+        // (the user can sign out or switch accounts mid-flight).
         guard let scope = await currentScopeSnapshot() else {
             recordAppEvent(
                 .computerForgetFailed,
@@ -203,45 +191,13 @@ extension MobileShellComposite {
             )
             return false
         }
-        do {
-            // Pin the revoke to the ROW's owning account, not the live session.
-            // A row owned by account A can still be on screen right after auth
-            // switches to account B (the list has not refreshed yet). The runtime
-            // forget checks this pinned account against the live session and fails
-            // closed on a mismatch, so passing the live account here would let it
-            // revoke B's matching device/tag while local cleanup deletes A's row.
-            // `computer.stackUserID` is the row's captured owner; fall back to the
-            // display scope only for a legacy row that never stored one.
-            try await personalIrohForget.forgetComputer(
-                macDeviceID: computer.macDeviceID,
-                instanceTag: computer.instanceTag,
-                expectedAccountID: computer.stackUserID ?? scope.userID
-            )
-        } catch {
-            hiddenMacsLog.error(
-                "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
-            )
-            recordAppEvent(
-                .computerForgetFailed,
-                correlationID: computer.id,
-                startedAt: startedAt,
-                failure: DiagnosticFailureKind.classify(error)
-            )
-            return false
-        }
-        // Always clear the durable row(s) and hidden marker, even if the scope
-        // changed while the revoke was in flight. Every row is deleted against
-        // ITS OWN stored scope, never the live display scope: a team-less row
-        // is visible under any selected team (legacy visibility), so deleting
-        // with the display team would miss it and it would resurface once the
-        // marker cleared. For a tag-less row the revoke above was the
-        // device-wide wildcard (every tag of this device, for the pinned
-        // account), so cleanup matches that breadth: every account-owned row of
-        // the device, across teams, in ONE batched store call whose backup
-        // tombstones flush once per destination — per-row deletion would issue
-        // one sequential backup request per row, and a device can carry up to
-        // the discovery snapshot's 256 bindings. Rows owned by other accounts
-        // keep their bindings (the revoke was account-pinned) and stay.
+        // Every row is deleted against ITS OWN stored scope, never the live
+        // display scope: a team-less row is visible under any selected team
+        // (legacy visibility), so deleting with the display team would miss it
+        // and it would resurface once the marker cleared. For a tag-less row
+        // cleanup covers every account-owned row of the device, across teams,
+        // in ONE batched store call whose backup tombstones flush once per
+        // destination. Rows owned by other accounts stay.
         let cleaned = await deleteStoredPairedMacRows(
             for: computer,
             pinnedAccountID: computer.stackUserID ?? scope.userID,

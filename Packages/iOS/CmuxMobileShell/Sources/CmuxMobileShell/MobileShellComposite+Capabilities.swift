@@ -174,9 +174,6 @@ extension MobileShellComposite {
     public func supportsPanelArtifacts(in workspaceID: MobileWorkspacePreview.ID) -> Bool {
         workspaceMutationTarget(for: workspaceID).isForeground && supportsPanelArtifacts
     }
-    public var supportsIrohArtifactLane: Bool {
-        supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
-    }
     /// Whether the Mac supports terminal-scoped directory listing.
     public var supportsTerminalArtifactList: Bool {
         supportedHostCapabilities.contains(Self.terminalArtifactListCapability)

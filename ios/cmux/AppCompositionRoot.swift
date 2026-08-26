@@ -21,10 +21,9 @@ import cmuxFeature
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
-    let iroh: MobileIrohRuntimeComposition
-    /// One build-compatibility policy shared by discovery, persistence, and
-    /// connection validation. Keeping it here prevents composition paths from
-    /// admitting different Mac app instances.
+    /// One build-compatibility policy shared by persistence and connection
+    /// validation. Keeping it here prevents composition paths from admitting
+    /// different Mac app instances.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
@@ -58,10 +57,10 @@ final class AppCompositionRoot {
     /// turned off mid-session).
     let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
-    /// The bounded, structured connection log shared by the Iroh runtime and
-    /// mobile shell. It is present in release builds, but its schema accepts
-    /// only fixed categories and integer magnitudes, never terminal contents,
-    /// credentials, peer identities, addresses, or free-form errors.
+    /// The bounded, structured connection log shared by the transport layers
+    /// and mobile shell. It is present in release builds, but its schema
+    /// accepts only fixed categories and integer magnitudes, never terminal
+    /// contents, credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
 
     /// Owns UIKit lifecycle observers and removes them with the app graph.
@@ -82,7 +81,6 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        iroh: MobileIrohRuntimeComposition,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -95,7 +93,6 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
-        self.iroh = iroh
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -200,24 +197,12 @@ final class AppCompositionRoot {
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
-            let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        await pushCoordinator.unregisterFromServer(
-                            accountID: signingOutAccountID,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
-                    group.addTask {
-                        await iroh.completeSignOutAfterAuthClear(
-                            preparation,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
-                }
+                await pushCoordinator.unregisterFromServer(
+                    accountID: signingOutAccountID,
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
                 await diagnosticLog.clear()
             }
         }
@@ -346,6 +331,11 @@ final class AppCompositionRoot {
     /// The most recent scene phase, so a `.active` transition is classified as a
     /// cold first foreground vs. a warm resume.
     private var hasForegrounded = false
+    /// Whether the next `.active` transition is a real foreground return (cold
+    /// launch or return from background) rather than a transient inactive edge
+    /// (system UI, permission prompts, the app switcher). Transient edges must
+    /// not re-run the session funnel or auth revalidation.
+    private var requiresFullForegroundRefreshOnNextActive = true
     /// When the current session started, for the best-effort `ios_session_ended`
     /// duration emitted on background.
     private var currentSessionStartedAt: Date?
@@ -367,11 +357,16 @@ final class AppCompositionRoot {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
-            let isFullForegroundReturn = iroh.didBecomeActive()
+            let isFullForegroundReturn = requiresFullForegroundRefreshOnNextActive
+            requiresFullForegroundRefreshOnNextActive = false
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
             guard isFullForegroundReturn else { return }
+            // The user is looking at the app after a real background return:
+            // revalidate the restored session so a stale token is refreshed
+            // before the shell dials.
+            auth.revalidateSessionOnForeground()
             featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
@@ -397,12 +392,9 @@ final class AppCompositionRoot {
             hasForegrounded = true
         case .inactive:
             diagnosticLog.recordAppEvent(.appBecameInactive)
-            // The switcher opened; a swipe-kill from here may skip the
-            // background transition entirely, so snapshot diagnostics now.
-            iroh.archiveDiagnostics()
         case .background:
             diagnosticLog.recordAppEvent(.appBackgrounded)
-            iroh.didEnterBackground()
+            requiresFullForegroundRefreshOnNextActive = true
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])

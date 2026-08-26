@@ -7,10 +7,9 @@ import Foundation
 /// grammar revision that still carry `e` (expiry) and `n` (display name)
 /// decode here with both intentionally dropped: a pairing QR never expires,
 /// and the Mac's name is read post-handshake from `mobile.host.status`.
-/// Compact Iroh fallbacks disclose only EndpointID identity. The primary
-/// retained Iroh attach-code path uses ``CmxPairingQRCode`` instead; the
-/// explicit compatibility mode temporarily retains released clients' legacy
-/// routes.
+/// Routes whose kind or endpoint shape this build no longer understands
+/// (peer routes from older Macs) are dropped during expansion instead of
+/// failing the whole payload.
 struct CompactAttachTicket: Codable {
     let v: Int
     let w: String?
@@ -64,19 +63,6 @@ struct CompactAttachTicket: Codable {
 private extension Array where Element == CmxAttachRoute {
     func disclosed(for mode: CmxPairingRouteDisclosureMode) -> Self {
         switch mode {
-        case .irohIdentityOnly:
-            return compactMap { route in
-                guard route.kind == .iroh,
-                      case let .peer(identity, _) = route.endpoint else {
-                    return nil
-                }
-                return try? CmxAttachRoute(
-                    id: route.id,
-                    kind: route.kind,
-                    endpoint: .peer(identity: identity, pathHints: []),
-                    priority: route.priority
-                )
-            }
         case .legacyPrivateNetworkCompatibility:
             return self
         }
@@ -98,16 +84,24 @@ private extension Array where Element == CmxAttachRoute {
 
 private extension Array where Element == CompactAttachRoute {
     /// Decode routes, resynthesizing each omitted route id.
+    ///
+    /// Tolerant: a route whose kind or endpoint shape this build no longer
+    /// understands (for example the removed `iroh` peer routes older Macs
+    /// still emit) is dropped instead of failing the whole payload. Dropped
+    /// kinds never enter the per-kind occurrence counts, so the resynthesized
+    /// ids of the surviving routes are unaffected.
     func expanded() throws -> [CmxAttachRoute] {
         var kindCounts: [CmxAttachTransportKind: Int] = [:]
-        return try map { compactRoute in
-            let kind = try compactRoute.kind()
+        return compactMap { compactRoute in
+            guard let kind = try? compactRoute.kind() else {
+                return nil
+            }
             let occurrence = (kindCounts[kind] ?? 0) + 1
             kindCounts[kind] = occurrence
             let synthesized = occurrence == 1
                 ? kind.rawValue
                 : "\(kind.rawValue)_\(occurrence)"
-            return try compactRoute.route(synthesizedID: synthesized)
+            return try? compactRoute.route(synthesizedID: synthesized)
         }
     }
 }

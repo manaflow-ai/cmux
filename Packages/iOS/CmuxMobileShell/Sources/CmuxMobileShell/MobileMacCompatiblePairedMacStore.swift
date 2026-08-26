@@ -204,23 +204,6 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String?,
-        teamID: String?
-    ) async throws {
-        guard isCompatible(instanceTag: instanceTag) else { return }
-        try await inner.setDirectAddresses(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            rawJSON: rawJSON,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
-    }
-
     func setConnectionMethod(
         macDeviceID: String,
         instanceTag: String?,

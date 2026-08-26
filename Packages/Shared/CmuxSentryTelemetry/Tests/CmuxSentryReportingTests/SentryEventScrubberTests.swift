@@ -196,7 +196,7 @@ import Testing
         )
         log.setAttribute(SentryLog.Attribute(string: "/Users/lawrence/dev"), forKey: "cwd")
         log.setAttribute(SentryLog.Attribute(string: "s3cr3ts3cr3ts3cr3t"), forKey: "access_token")
-        log.setAttribute(SentryLog.Attribute(string: "iroh"), forKey: "transport.kind")
+        log.setAttribute(SentryLog.Attribute(string: "tailscale"), forKey: "transport.kind")
         log.setAttribute(SentryLog.Attribute(integer: 42), forKey: "attempt")
 
         let scrubbed = scrubber.scrub(log)
@@ -204,7 +204,7 @@ import Testing
         #expect(scrubbed.attributes["cwd"]?.value as? String == "/Users/<redacted>/dev")
         // A secret-like attribute key is redacted by name.
         #expect(scrubbed.attributes["access_token"]?.value as? String == "<redacted-secret>")
-        #expect(scrubbed.attributes["transport.kind"]?.value as? String == "iroh")
+        #expect(scrubbed.attributes["transport.kind"]?.value as? String == "tailscale")
         #expect(scrubbed.attributes["attempt"]?.value as? Int == 42)
     }
 

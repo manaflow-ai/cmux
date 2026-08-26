@@ -5,8 +5,8 @@ import Testing
 
 /// The diagnostics timeline must state which transport actually carries the
 /// foreground connection, both at connect and when the route is swapped
-/// mid-connection, so shared reports distinguish Iroh from Tailscale usage
-/// without inferring it from surviving dial events.
+/// mid-connection, so shared reports name the transport without inferring it
+/// from surviving dial events.
 @MainActor
 @Suite struct MobileForegroundTransportDiagnosticsTests {
     @Test func connectAndRouteChangeRecordSelectedTransport() async throws {
@@ -20,20 +20,15 @@ import Testing
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.42", port: 56_584)
         )
-        let iroh = try CmxAttachRoute(
-            id: "iroh-route",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: []
-            )
+        let loopback = try CmxAttachRoute(
+            id: "loopback-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_585)
         )
 
         store.connectionState = .connected
         store.activeRoute = tailscale
-        store.activeRoute = iroh
+        store.activeRoute = loopback
 
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
@@ -50,7 +45,7 @@ import Testing
         }
         #expect(await selectedTransports() == [
             DiagnosticTransportKind.tailscale.rawValue,
-            DiagnosticTransportKind.iroh.rawValue,
+            DiagnosticTransportKind.debugLoopback.rawValue,
         ])
     }
 

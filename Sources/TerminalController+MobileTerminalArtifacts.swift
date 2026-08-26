@@ -182,45 +182,12 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
-            if v2RawString(params, "transport") == "iroh_artifact_v1" {
-                guard let executionContext else {
-                    return .err(
-                        code: "unsupported_transport",
-                        message: String(
-                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
-                            defaultValue: "Artifact transfer requires an authenticated session."
-                        ),
-                        data: nil
-                    )
-                }
-                let canonicalPath = try await Task.detached(priority: .utility) {
-                    try context.authorizedRead { _, canonicalPath in canonicalPath }
-                }.value
-                return TerminalArtifactWire.result(
-                    try await executionContext.issueArtifactTransfer(
-                        canonicalPath: canonicalPath
-                    )
-                )
-            }
             let chunk = try await Task.detached(priority: .utility) {
                 try context.authorizedRead { reader, canonicalPath in
                     try reader.fetch(path: canonicalPath, offset: offset, length: length)
                 }
             }.value
             return TerminalArtifactWire.result(chunk)
-        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
-            switch error.issueFailure {
-            case .fileNotFound:
-                return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
-            case .permissionDenied:
-                return mobileArtifactReadFailure(.permissionDenied, path: context.requestedPath)
-            case .notRegularFile:
-                return mobileArtifactReadFailure(.notRegularFile, path: context.requestedPath)
-            case .readFailed:
-                return mobileArtifactReadFailure(.readFailed, path: context.requestedPath)
-            case .unavailable:
-                return mobileTerminalArtifactError(.unavailable, path: context.requestedPath)
-            }
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "fetch", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)

@@ -580,10 +580,11 @@ export class TeamPresence extends DurableObject {
   /** Opens the quiet account-scoped connectivity channel.
    *
    * It is intentionally separate from team presence and device-owner pins:
-   * Iroh route authority belongs to a personal Stack account even while two
+   * connectivity state belongs to a personal Stack account even while two
    * app instances have different selected teams. The worker pins the verified
    * account id in the socket attachment, and this DO is itself named from that
-   * account id. */
+   * account id. The phone inline-reply relay depends on this channel for its
+   * `connectivity.invalidate` nudge (see replies.ts). */
   private async subscribeConnectivity(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response(JSON.stringify({ error: "websocket_required" }), {

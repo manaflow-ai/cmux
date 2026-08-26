@@ -1,6 +1,6 @@
 import Foundation
 
-/// Invalid input for a persisted pre-Iroh Tailscale compatibility grant.
+/// Invalid input for a persisted legacy Tailscale compatibility grant.
 public enum CmxLegacyTailscaleAuthorizationEvidenceError: Error, Equatable, Sendable {
     /// The Mac device identifier was empty or surrounded by whitespace.
     case invalidMacDeviceID
@@ -10,7 +10,7 @@ public enum CmxLegacyTailscaleAuthorizationEvidenceError: Error, Equatable, Send
     case invalidPort(Int)
 }
 
-/// A narrow capability allowing one pre-Iroh pairing to keep using its exact
+/// A narrow capability allowing one legacy pairing to keep using its exact
 /// plaintext Tailscale route while both sides move through a staggered update.
 ///
 /// This value is transport evidence, not route discovery. It authorizes only

@@ -5,8 +5,7 @@ import Foundation
 /// the cmux iOS companion app.
 ///
 /// When an administrator's configuration profile enforces
-/// `DisableRemoteControl`, every hosting surface shuts off: the Iroh host
-/// runtime (including its Bonjour LAN advertisement), the legacy TCP
+/// `DisableRemoteControl`, every hosting surface shuts off: the TCP
 /// pairing listener, the universal transport-admission funnel, and the
 /// pairing flow. The policy gates the Mac acting as a *server*; outbound
 /// features (Sparkle updates, notification forwarding to the phone,

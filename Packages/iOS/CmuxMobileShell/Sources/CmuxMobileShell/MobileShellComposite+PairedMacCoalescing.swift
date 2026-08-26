@@ -90,74 +90,6 @@ extension MobileShellComposite {
             .map(\.value)
     }
 
-    /// Selects one logical client for each cryptographic Iroh endpoint.
-    ///
-    /// Presentation coalescing intentionally includes the reported name and
-    /// instance tag. Iroh endpoint authority is also scoped by the stored
-    /// instance tag, so a shared endpoint cannot merge Stable and Nightly.
-    static func coalescePairedMacsByIrohEndpointAuthority(
-        _ macs: [MobilePairedMac],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
-    ) -> [MobilePairedMac] {
-        var selectedByKey: [String: MobilePairedMac] = [:]
-        var orderByKey: [String: Int] = [:]
-
-        for (index, mac) in macs.enumerated() {
-            let key = irohEndpointID(
-                for: mac,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
-            ).map {
-                "iroh-authority:\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
-            }
-                ?? "device:\(mac.id)"
-            orderByKey[key] = min(orderByKey[key] ?? index, index)
-            guard let existing = selectedByKey[key] else {
-                selectedByKey[key] = mac
-                continue
-            }
-            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
-        }
-
-        return selectedByKey
-            .sorted { lhs, rhs in
-                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
-            }
-            .map(\.value)
-    }
-
-    static func irohEndpointID(
-        for mac: MobilePairedMac,
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
-    ) -> String? {
-        let reconnectRoutes = storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        )
-        guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
-            return nil
-        }
-        return identity.endpointID
-    }
-
-    /// Returns an Iroh endpoint identity scoped to one authenticated app build.
-    /// Stable, Nightly, and legacy pairings therefore cannot share control
-    /// ownership solely because they expose the same cryptographic endpoint.
-    static func scopedIrohEndpointID(
-        endpointID: String,
-        instanceTag: String?
-    ) -> String {
-        let normalizedTag = CmxMacAppInstanceIdentity(
-            macDeviceID: "",
-            instanceTag: instanceTag
-        ).instanceTag
-        let instanceScope = normalizedTag.map { "tagged:\($0)" } ?? "untagged"
-        return "\(instanceScope):\(endpointID)"
-    }
-
     static func macDeviceIDsForLogicalPairedMac(
         _ macDeviceID: String,
         instanceTag: String?,
@@ -217,10 +149,9 @@ extension MobileShellComposite {
 }
 
 /// Index every stored pairing id to the physical-route alias component it
-/// belongs to. Dial endpoints preserve the presentation alias model, while
-/// the cryptographic Iroh endpoint joins renamed rows that still compete for
-/// one physical control connection. The alias component is scoped by the
-/// authenticated app instance, so Stable and Nightly never share a component.
+/// belongs to. Dial endpoints preserve the presentation alias model. The
+/// alias component is scoped by the authenticated app instance, so Stable
+/// and Nightly never share a component.
 @MainActor
 func physicalMacAliasCanonicalIDsByCanonicalID(
     in macs: [MobilePairedMac],
@@ -230,7 +161,6 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
     var unionFind = PairedMacAliasUnionFind()
     var pairingIDs: Set<String> = []
     var firstCanonicalIDByDialEndpoint: [String: String] = [:]
-    var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
 
     for mac in macs where !mac.macDeviceID.isEmpty {
         let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
@@ -249,24 +179,6 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
                 unionFind.union(pairingID, first)
             } else {
                 firstCanonicalIDByDialEndpoint[dialEndpoint] = pairingID
-            }
-        }
-        if let irohEndpoint = MobileShellComposite.irohEndpointID(
-            for: mac,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ) {
-            // One physical Iroh endpoint can serve sibling app builds. The
-            // endpoint is useful for historical alias repair only within the
-            // same authenticated build instance, never across Stable/Nightly.
-            let scopedIrohEndpoint = MobileShellComposite.scopedIrohEndpointID(
-                endpointID: irohEndpoint,
-                instanceTag: mac.instanceTag
-            )
-            if let first = firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] {
-                unionFind.union(pairingID, first)
-            } else {
-                firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] = pairingID
             }
         }
     }
@@ -298,16 +210,13 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
-        let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        )
-        if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
-        }
+        // Presentation identity, not authorization: two stored rows that dial
+        // the same host/port under the same reported name are one computer on
+        // the Computers screen whether or not a local Tailscale grant exists
+        // yet. Grant enforcement stays on the reconnect path
+        // (`storedReconnectRoutes` requires a `TailscaleRouteRequirement`).
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
-            reconnectRoutes,
+            routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {

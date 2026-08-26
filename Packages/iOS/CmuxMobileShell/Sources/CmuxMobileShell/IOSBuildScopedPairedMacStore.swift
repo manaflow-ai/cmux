@@ -238,7 +238,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
                 }
             }
         }
-        return removingAuthenticatedLegacyAliases(from: Array(byID.values)).sorted { lhs, rhs in
+        return Array(byID.values).sorted { lhs, rhs in
             if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
             return lhs.id < rhs.id
         }
@@ -342,40 +342,6 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now
         )
-    }
-
-    /// Device-local per-Computer Direct addresses; same build-scoped owner
-    /// key rule as `setConnectionMethod`.
-    public func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String?,
-        teamID: String?
-    ) async throws {
-        try await mutationGate.withLock {
-            if normalizedTeamID(teamID) != nil {
-                let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
-                let targetTeamID = selectedRows.contains {
-                    matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
-                } ? teamID : nil
-                try await inner.setDirectAddresses(
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag,
-                    rawJSON: rawJSON,
-                    stackUserID: stackUserID,
-                    teamID: scopedTeamID(targetTeamID)
-                )
-                return
-            }
-            try await inner.setDirectAddresses(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                rawJSON: rawJSON,
-                stackUserID: stackUserID,
-                teamID: scopedTeamID(teamID)
-            )
-        }
     }
 
     /// Device-local per-Computer connection method. The stored row's owner
@@ -653,35 +619,6 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    /// A legacy nil-tag row and a tagged row are the same app instance only
-    /// when both the physical Mac id and authenticated Iroh peer id match.
-    /// Distinct tagged builds and legacy rows for other peers remain visible.
-    private func removingAuthenticatedLegacyAliases(
-        from rows: [MobilePairedMac]
-    ) -> [MobilePairedMac] {
-        var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
-        for mac in rows where mac.instanceTag?.isEmpty == false {
-            taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID), default: []]
-                .formUnion(irohPeerEndpointIDs(in: mac.routes))
-        }
-        return rows.filter { mac in
-            guard mac.instanceTag == nil,
-                  let taggedPeers = taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID)] else {
-                return true
-            }
-            return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))
-        }
-    }
-
-    private func irohPeerEndpointIDs(in routes: [CmxAttachRoute]) -> Set<String> {
-        Set(routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
-                return nil
-            }
-            return identity.endpointID
-        })
-    }
 }
 
 private extension MobilePairedMacRouteWriteCondition {

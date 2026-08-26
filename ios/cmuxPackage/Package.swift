@@ -19,16 +19,11 @@ let package = Package(
             name: "cmuxFeature",
             targets: ["cmuxFeature"]
         ),
-        .library(
-            name: "CmuxIrohReleaseGateSupport",
-            targets: ["CmuxIrohReleaseGateSupport"]
-        ),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
-        .package(path: "../../Packages/Shared/CmuxIrohTransport"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
@@ -56,7 +51,6 @@ let package = Package(
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
-                "CmuxIrohTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
@@ -82,33 +76,13 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
-        .target(
-            name: "CmuxIrohReleaseGateSupport",
-            dependencies: [
-                "cmuxFeature",
-                "CMUXMobileCore",
-                "CmuxIrohTransport",
-                "CmuxMobileShell",
-                .product(
-                    name: "CmuxMobileShellReleaseGateSupport",
-                    package: "CmuxMobileShell"
-                ),
-                "CmuxMobileShellModel",
-                "CmuxMobileShellUI",
-            ],
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-            ]
-        ),
         .testTarget(
             name: "cmuxFeatureTests",
             dependencies: [
                 "cmuxFeature",
-                "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
-                "CmuxIrohTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",

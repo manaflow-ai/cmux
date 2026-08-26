@@ -21,7 +21,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// Stable identity for this logical client across focused/control role
     /// handoffs. A replacement client receives a new identity.
     public let instanceID: String = UUID().uuidString
-    private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
@@ -35,7 +34,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch transportRequest.authorizationMode {
         case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
             return true
-        case .stackBearer, .transportAdmission:
+        case .stackBearer:
             return false
         }
     }
@@ -55,11 +54,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
-    ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
-    ///     leaving the raw Tailscale route fail-closed.
-    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
-    ///     complete path allowlist for an Iroh route. Ignored for other route
-    ///     kinds; `nil` = the normal Iroh dial plan.
+    ///     only for a pairing that predates the current pairing flow. Mismatched
+    ///     evidence is ignored, leaving the raw Tailscale route fail-closed.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -69,7 +65,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
-        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -83,16 +78,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.route = route
         self.ticket = ticket
         let authorizationMode: CmxTransportAuthorizationMode
-        if route.kind == .iroh {
-            authorizationMode = .transportAdmission
-        } else if route.kind == .tailscale,
-                  case let .hostPort(host, port) = route.endpoint,
-                  let legacyTailscaleAuthorizationEvidence,
-                  legacyTailscaleAuthorizationEvidence.authorizes(
-                      macDeviceID: ticket.macDeviceID,
-                      host: host,
-                      port: port
-                  ) {
+        if route.kind == .tailscale,
+           case let .hostPort(host, port) = route.endpoint,
+           let legacyTailscaleAuthorizationEvidence,
+           legacyTailscaleAuthorizationEvidence.authorizes(
+               macDeviceID: ticket.macDeviceID,
+               host: host,
+               port: port
+           ) {
             authorizationMode = .legacyTailscaleBearer(
                 legacyTailscaleAuthorizationEvidence
             )
@@ -113,10 +106,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose,
-            irohDirectOnlyDialCandidates: route.kind == .iroh
-                ? irohDirectOnlyDialCandidates
-                : nil
+            sessionPurpose: sessionPurpose
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -126,20 +116,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
-        let independentEventFactory: MobileCoreRPCSession.IndependentEventByteStreamFactory?
-        if route.kind == .iroh,
-           let provider = runtime.independentEventByteStreamProvider {
-            independentEventFactory = {
-                let admission = try lifecycleGate.beginIndependentEventAdmission()
-                let stream = try await provider(transportRequest)
-                return try await lifecycleGate.finishIndependentEventAdmission(
-                    admission,
-                    stream: stream
-                )
-            }
-        } else {
-            independentEventFactory = nil
-        }
         self.session = MobileCoreRPCSession(
             connectAttemptKey: MobileRPCConnectAttemptKey(
                 route: route
@@ -152,7 +128,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                     try runtime.transportFactory.makeTransport(for: transportRequest)
                 }
             },
-            makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
             transportConnectObserver: transportConnectObserver,
             initialTransportSessionPurpose: sessionPurpose
@@ -184,7 +159,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     /// Returns whether `otherRoute` competes for this client's exact physical
     /// connection lease. Shell handoffs use this before the target reports its
-    /// logical Mac identity, so anonymous and refreshed Iroh routes still
+    /// logical Mac identity, so refreshed routes to the same endpoint still
     /// release an existing same-peer owner before dialing.
     public func sharesPhysicalTransportRoute(
         with otherRoute: CmxAttachRoute
@@ -223,34 +198,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// matching any of the requested topics. Cancel by terminating iteration.
     public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
         await session.addEventListener(topics: topics).stream
-    }
-
-    /// Starts the optional Iroh server-event lane before advertising support to
-    /// the host. Returns `false` on unsupported routes or setup failure so the
-    /// caller can retain control-stream event delivery.
-    public func prepareIndependentServerEvents() async -> Bool {
-        await session.prepareIndependentServerEvents()
-    }
-
-    /// Opens an artifact lane bound to this client's immutable admitted route.
-    public func openArtifactLane(
-        resourceID: String,
-        offset: UInt64
-    ) async throws -> any MobileArtifactLaneConnection {
-        guard route.kind == .iroh,
-              let provider = runtime.artifactLaneProvider else {
-            throw MobileShellConnectionError.connectionClosed
-        }
-        let admission = try lifecycleGate.beginArtifactLaneAdmission()
-        let connection = try await provider(
-            transportRequest,
-            resourceID,
-            offset
-        )
-        return try await lifecycleGate.finishArtifactLaneAdmission(
-            admission,
-            connection: connection
-        )
     }
 
     /// Build a JSON-RPC request frame with the given method and params.
@@ -309,8 +256,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///
     /// This path deliberately does not retry an `authorizationFailed` response:
     /// retrying would place the repeated request behind later pipelined work and
-    /// break application order. The terminal-input caller uses it only on Iroh
-    /// transport-admission routes, where no bearer-token refresh is needed.
+    /// break application order.
     ///
     /// Sequential calls from one caller enqueue transport writes in call order.
     ///
@@ -385,13 +331,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let deadline = RPCRequestDeadline(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         )
-        let preparedRequest = await requestAdvertisingIndependentEvents(
-            requestData,
-            deadline: deadline
-        )
         do {
             return try await sendAuthenticatedRequest(
-                preparedRequest,
+                requestData,
                 deadline: deadline,
                 allowAuthRetry: true,
                 hostStatusStackToken: hostStatusStackToken,
@@ -414,42 +356,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
             return try await sendAuthenticatedRequest(
-                preparedRequest,
+                requestData,
                 deadline: deadline,
                 allowAuthRetry: false,
                 hostStatusStackToken: hostStatusStackToken,
                 attachTicketPolicy: attachTicketPolicy
             )
         }
-    }
-
-    /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
-    /// installed. Older hosts ignore the field and continue control delivery.
-    private func requestAdvertisingIndependentEvents(
-        _ requestData: Data,
-        deadline: RPCRequestDeadline
-    ) async -> Data {
-        guard var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-              request["method"] as? String == "mobile.events.subscribe",
-              var params = request["params"] as? [String: Any],
-              params["event_transport"] == nil,
-              let streamID = params["stream_id"] as? String,
-              let remaining = try? deadline.remainingNanoseconds() else {
-            return requestData
-        }
-        let preparationTimeout = min(
-            remaining,
-            Self.independentEventPreparationTimeoutNanoseconds
-        )
-        guard await session.prepareIndependentServerEvents(
-            forSubscriptionStreamID: streamID,
-            timeoutNanoseconds: preparationTimeout
-        ) else {
-            return requestData
-        }
-        params["event_transport"] = "iroh_server_events_v1"
-        request["params"] = params
-        return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -539,13 +452,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ) async throws -> AuthenticatedRequestPayload {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
-        }
-        if transportRequest.authorizationMode == .transportAdmission {
-            request.removeValue(forKey: "auth")
-            return AuthenticatedRequestPayload(
-                data: try JSONSerialization.data(withJSONObject: request),
-                stackAccessToken: nil
-            )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
@@ -652,8 +558,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch transportRequest.authorizationMode {
         case .stackBearer, .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
             true
-        case .transportAdmission:
-            false
         }
     }
 
@@ -681,8 +585,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 return false
             }
             return authorization.authorizes(host: host, port: port)
-        case .transportAdmission:
-            return false
         }
     }
 

@@ -111,16 +111,16 @@ public struct MobileSection: View {
                     displayNameRow
                     SettingsCardDivider()
                     artifactFolderAccessRow
-                    // The Iroh endpoint hosts for every signed-in Mac even when
-                    // the legacy pairing listener is toggled off, so diagnostics
-                    // follow the live snapshot rather than the toggle alone.
+                    // Diagnostics follow the live snapshot rather than the
+                    // toggle alone, so a listener still draining connections
+                    // keeps its rows until it actually stops.
                     if iOSPairingHost.current || status.current?.isRunning == true {
                         SettingsCardDivider()
                         diagnostics
                     }
                     SettingsCardNote(String(
                         localized: "settings.mobile.port.note",
-                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
+                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect."
                     ))
                 }
                 .disabled(remoteControlManagedByPolicy)
@@ -292,7 +292,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535.")
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for the iOS pairing listener (TCP), 1–65535.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -499,7 +499,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
+                    defaultValue: "No reachable addresses yet. Tailscale routes need Tailscale running on this Mac."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {

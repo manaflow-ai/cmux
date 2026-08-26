@@ -34,11 +34,6 @@ extension CmxAttachEndpoint {
         switch self {
         case let .hostPort(host, port):
             return "\(host):\(port)"
-        case let .peer(identity, _):
-            // Peer identities are long hashes; the leading bytes are enough to
-            // tell two Macs apart in a diagnostic line.
-            let id = identity.endpointID
-            return id.count > 12 ? "\(id.prefix(12))…" : id
         case let .url(url):
             return url
         }

@@ -179,7 +179,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .noRoute: localized("diagnostics.failure.noRoute", defaultValue: "No route available")
         case .credentialUnavailable: localized("diagnostics.failure.credentialUnavailable", defaultValue: "Credentials unavailable")
         case .policyUnavailable: localized("diagnostics.failure.policyUnavailable", defaultValue: "Relay policy unavailable")
-        case .endpointUnavailable: localized("diagnostics.failure.endpointUnavailable", defaultValue: "Iroh endpoint unavailable")
+        case .endpointUnavailable: localized("diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint unavailable")
         case .identityMismatch: localized("diagnostics.failure.identityMismatch", defaultValue: "Host identity mismatch")
         case .admissionDenied: localized("diagnostics.failure.admissionDenied", defaultValue: "Client admission denied")
         case .authorizationFailed: localized("diagnostics.failure.authorizationFailed", defaultValue: "Authorization failed")
@@ -206,7 +206,6 @@ public struct DiagnosticEventPresentation: Sendable {
     public func displayName(_ kind: DiagnosticTransportKind) -> String {
         switch kind {
         case .unknown: localized("diagnostics.transport.unknown", defaultValue: "Unknown transport")
-        case .iroh: localized("diagnostics.transport.iroh", defaultValue: "Iroh")
         case .tailscale: localized("diagnostics.transport.tailscale", defaultValue: "Tailscale")
         case .websocket: localized("diagnostics.transport.websocket", defaultValue: "WebSocket")
         case .debugLoopback: localized("diagnostics.transport.debugLoopback", defaultValue: "Debug loopback")
@@ -216,7 +215,7 @@ public struct DiagnosticEventPresentation: Sendable {
     /// Human-readable name of a configured connection method.
     public func displayName(_ method: DiagnosticConnectionMethod) -> String {
         switch method {
-        case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
+        case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect")
         case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
         case .direct: localized("diagnostics.connectionMethod.direct", defaultValue: "Direct")
         }
@@ -428,13 +427,13 @@ public struct DiagnosticEventPresentation: Sendable {
         case .recoveryFailed:
             localized("diagnostics.event.recoveryFailed", defaultValue: "Connection recovery failed")
         case .endpointStarting:
-            localized("diagnostics.event.endpointStarting", defaultValue: "Iroh endpoint starting")
+            localized("diagnostics.event.endpointStarting", defaultValue: "Peer endpoint starting")
         case .endpointActive:
-            localized("diagnostics.event.endpointActive", defaultValue: "Iroh endpoint active")
+            localized("diagnostics.event.endpointActive", defaultValue: "Peer endpoint active")
         case .endpointStopped:
-            localized("diagnostics.event.endpointStopped", defaultValue: "Iroh endpoint stopped")
+            localized("diagnostics.event.endpointStopped", defaultValue: "Peer endpoint stopped")
         case .endpointFailed:
-            localized("diagnostics.event.endpointFailed", defaultValue: "Iroh endpoint failed")
+            localized("diagnostics.event.endpointFailed", defaultValue: "Peer endpoint failed")
         case .relayPolicyRefreshStarted:
             localized("diagnostics.event.relayPolicyRefreshStarted", defaultValue: "Relay policy refresh started")
         case .relayPolicyRefreshSucceeded:
@@ -450,11 +449,11 @@ public struct DiagnosticEventPresentation: Sendable {
         case .retryScheduled:
             localized("diagnostics.event.retryScheduled", defaultValue: "Retry scheduled")
         case .discoveryStarted:
-            localized("diagnostics.event.discoveryStarted", defaultValue: "Iroh route discovery started")
+            localized("diagnostics.event.discoveryStarted", defaultValue: "Route discovery started")
         case .discoverySucceeded:
-            localized("diagnostics.event.discoverySucceeded", defaultValue: "Iroh route discovery succeeded")
+            localized("diagnostics.event.discoverySucceeded", defaultValue: "Route discovery succeeded")
         case .discoveryFailed:
-            localized("diagnostics.event.discoveryFailed", defaultValue: "Iroh route discovery failed")
+            localized("diagnostics.event.discoveryFailed", defaultValue: "Route discovery failed")
         case .admissionSucceeded:
             localized("diagnostics.event.admissionSucceeded", defaultValue: "Client admitted")
         case .admissionFailed:

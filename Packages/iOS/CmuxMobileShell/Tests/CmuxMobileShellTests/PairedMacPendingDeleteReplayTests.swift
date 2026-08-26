@@ -133,7 +133,6 @@ import Testing
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: ReplayForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -207,13 +206,3 @@ import Testing
     }
 }
 
-/// A forget capability that succeeds without side effects, so the flow reaches
-/// its local cleanup.
-@MainActor
-private final class ReplayForget: MobileIrohMacForgetting {
-    func forgetComputer(
-        macDeviceID _: String,
-        instanceTag _: String?,
-        expectedAccountID _: String
-    ) async throws {}
-}

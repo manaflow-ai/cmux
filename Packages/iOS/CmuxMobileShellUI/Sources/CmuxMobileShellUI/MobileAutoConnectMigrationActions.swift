@@ -9,17 +9,6 @@ struct MobileAutoConnectMigrationActions: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Button(action: useAutoConnect) {
-                Text(L10n.string(
-                    "mobile.autoConnectMigration.useAutoConnect",
-                    defaultValue: "Use Auto-Connect"
-                ))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .accessibilityIdentifier("MobileAutoConnectMigrationUseAutoConnect")
-
             Button(action: setUpTailscale) {
                 Text(L10n.string(
                     "mobile.autoConnectMigration.setUpTailscale",
@@ -27,9 +16,20 @@ struct MobileAutoConnectMigrationActions: View {
                 ))
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("MobileAutoConnectMigrationSetUpTailscale")
+
+            Button(action: useAutoConnect) {
+                Text(L10n.string(
+                    "mobile.autoConnectMigration.notNow",
+                    defaultValue: "Not Now"
+                ))
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityIdentifier("MobileAutoConnectMigrationNotNow")
         }
         .frame(maxWidth: .infinity)
     }

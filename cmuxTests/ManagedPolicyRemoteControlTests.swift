@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import Foundation
 import Testing
 
@@ -39,7 +38,7 @@ private actor RecordingManagedPolicyTransport: CmxByteTransport {
 
 /// Behavior tests for the MDM `DisableRemoteControl` policy at the universal
 /// transport-admission funnel: a policy-disabled host must close any
-/// arriving transport (Iroh or legacy TCP) without admitting a session.
+/// arriving transport without admitting a session.
 struct ManagedPolicyRemoteControlTests {
     @Test func admissionRefusesAndClosesTheTransportUnderThePolicy() async throws {
         let registry = MobileHostConnectionRegistry.shared

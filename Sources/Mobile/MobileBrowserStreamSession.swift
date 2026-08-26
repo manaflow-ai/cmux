@@ -111,7 +111,7 @@ final class MobileBrowserStreamSession {
         case let .dirty(focused):
             if let focused, editableFocused != focused {
                 editableFocused = focused
-                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
                     .browserEditableFocus,
                     a: focused ? 1 : 0,
                     b: 3,
@@ -309,7 +309,7 @@ final class MobileBrowserStreamSession {
                 // frame: record it once per session, after delivery succeeds,
                 // never for the capture alone.
                 hasRecordedFirstDeliveredFrame = true
-                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
                     .browserStreamLifecycle,
                     a: 4,
                     c: TerminalController.mobileBrowserPanelCorrelation(panelID)

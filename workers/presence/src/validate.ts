@@ -91,8 +91,8 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   // presence semantics a silent coercion would either wipe pushed routes
   // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
   // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES.
-  // Legacy route semantics stay client-owned. Iroh routes are then reduced to
-  // EndpointID plus an approved managed relay URL.
+  // Route semantics stay client-owned; retired iroh routes are then dropped
+  // by sanitizePublishedRoutes.
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };

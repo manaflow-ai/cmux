@@ -4,33 +4,13 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-/// A forget capability that records the `expectedAccountID` the composite pins
-/// each revoke to, so a test can prove the revoke targets the ROW's owning
-/// account rather than whatever account is live when the revoke runs.
-@MainActor
-private final class RecordingExpectedAccountForget: MobileIrohMacForgetting {
-    private(set) var expectedAccountIDs: [String] = []
-
-    func forgetComputer(
-        macDeviceID _: String,
-        instanceTag _: String?,
-        expectedAccountID: String
-    ) async throws {
-        expectedAccountIDs.append(expectedAccountID)
-    }
-}
-
-/// Regression coverage for the forget path's revoke-account pinning. A paired-Mac
+/// Regression coverage for the forget path's account pinning. A paired-Mac
 /// row owned by account A can still be on screen right after auth switches to
-/// account B (the list has not refreshed yet). Forgetting it must pin the revoke
-/// to the ROW's owning account (A), not the live session (B): the runtime forget
-/// checks the pinned account against the live session and fails closed on a
-/// mismatch, so passing the live account (B) would let it revoke B's matching
-/// device/tag while local cleanup deletes A's row. The row's captured
-/// `stackUserID` is the only correct account to revoke against.
+/// account B (the list has not refreshed yet). Forgetting it must delete the
+/// ROW's owning account's (A) rows, not account B's matching device/tag.
 @MainActor
 @Suite struct MobileShellCompositeForgetRevokeAccountPinningTests {
-    @Test func forgetPinsRevokeToRowOwnerNotLiveAccount() async throws {
+    @Test func forgetPinsDeletionToRowOwnerNotLiveAccount() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -50,14 +30,25 @@ private final class RecordingExpectedAccountForget: MobileIrohMacForgetting {
             now: Date(timeIntervalSince1970: 1)
         )
 
+        // A second pairing on the same device/tag, owned by account B, must
+        // survive account A's forget.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-b",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
         // Signed in as A when the list is read and the row is hidden.
         let identity = StaticIdentityProvider(userID: "user-a")
-        let forget = RecordingExpectedAccountForget()
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: base,
-            personalIrohForget: forget,
             identityProvider: identity,
             teamIDProvider: { nil },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -69,11 +60,13 @@ private final class RecordingExpectedAccountForget: MobileIrohMacForgetting {
         // Auth switches to account B before the user taps forget on the stale row.
         identity.currentUserID = "user-b"
 
-        _ = await store.forgetHiddenComputer(hidden)
+        let cleaned = await store.forgetHiddenComputer(hidden)
 
-        // The revoke must be pinned to the row's owner (A), so the runtime forget
-        // fails closed instead of revoking as the live account (B).
-        #expect(forget.expectedAccountIDs == ["user-a"])
+        // Deletion is pinned to the row's owner (A): A's row is gone while
+        // B's same-device row stays.
+        #expect(cleaned)
+        #expect(try await base.loadAll(stackUserID: "user-a", teamID: nil).isEmpty)
+        #expect(try await base.loadAll(stackUserID: "user-b", teamID: nil).count == 1)
     }
 
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {

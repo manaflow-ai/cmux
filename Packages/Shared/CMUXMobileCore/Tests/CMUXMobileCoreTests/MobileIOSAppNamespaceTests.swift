@@ -20,8 +20,8 @@ import Testing
 
         #expect(namespace.bundleIdentifier == bundleIdentifier)
         #expect(
-            namespace.keychainService(base: "com.cmuxterm.iroh.identity")
-                == "com.cmuxterm.iroh.identity.\(bundleIdentifier)"
+            namespace.keychainService(base: "com.cmuxterm.mobile.identity")
+                == "com.cmuxterm.mobile.identity.\(bundleIdentifier)"
         )
         #expect(
             namespace.keychainAccessGroup(teamIdentifier: "7WLXT3NR37")
@@ -51,7 +51,7 @@ import Testing
         #expect(
             Set(
                 namespaces.map {
-                    $0.keychainService(base: "com.cmuxterm.iroh.identity")
+                    $0.keychainService(base: "com.cmuxterm.mobile.identity")
                 }
             ).count == namespaces.count
         )

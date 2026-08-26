@@ -12,8 +12,7 @@ import Foundation
 /// restricted to **loopback**, which never leaves the machine. iOS cannot prove
 /// that a generic packet-tunnel interface belongs to Tailscale's authenticated
 /// control plane, so a Tailscale-address heuristic is insufficient for sending
-/// an account credential over plaintext TCP. Iroh sessions authenticate RPC out
-/// of band and never carry a Stack bearer token. Plain
+/// an account credential over plaintext TCP. Plain
 /// private-LAN and `.local`/Bonjour hosts are dialed
 /// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
 /// so they are excluded from the Stack-auth-allowed set even though they may still
@@ -75,15 +74,13 @@ public struct MobileShellRouteAuthPolicy {
     /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
     /// so sending the bearer token to such a host would disclose it in plaintext on
     /// the local network before the Mac proves it is the same-account host.
-    /// Iroh routes always return `false`. Their authenticated session context
-    /// authorizes RPC without disclosing the account bearer token to the peer.
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` only for a loopback route.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, .hostPort), (.iroh, .peer):
+        case (.tailscale, .hostPort):
             return false
         default:
             return false

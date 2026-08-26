@@ -8,8 +8,6 @@ import Testing
     private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
     private let twoRoutePayload =
         "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
-    private let irohPayload =
-        "cmux-ios-dev://attach?v=3&i=\(String(repeating: "c", count: 64))"
 
     /// The full 4-module quiet zone is part of the bitmap itself, so it
     /// scales with the code and cannot be cropped away by view layout. Also
@@ -57,7 +55,7 @@ import Testing
     /// breaks that arithmetic means the margin assumption in the renderer is
     /// wrong.
     @Test func moduleCountMatchesAVersionAtOrBelowSix() throws {
-        for payload in [oneRoutePayload, twoRoutePayload, irohPayload] {
+        for payload in [oneRoutePayload, twoRoutePayload] {
             let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
             let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
             #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")

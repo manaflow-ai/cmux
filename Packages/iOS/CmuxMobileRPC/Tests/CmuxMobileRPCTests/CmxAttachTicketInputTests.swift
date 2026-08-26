@@ -262,10 +262,20 @@ import Testing
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&i="
-                + String(repeating: "c", count: 64)
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
         )
         #expect(decoded.routes.count == 1)
-        #expect(decoded.routes.first?.kind == .iroh)
+        #expect(decoded.routes.first?.kind == .tailscale)
+    }
+
+    /// A retired v3 (iroh-era) pairing QR from an older Mac must surface the
+    /// version-mismatch error (which the shell maps to "update"-style copy),
+    /// never a crash or a silent no-op.
+    @Test func retiredV3QRThrowsUnrecognizedVersion() {
+        #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(3)) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios://attach?v=3&i=" + String(repeating: "c", count: 64)
+            )
+        }
     }
 }

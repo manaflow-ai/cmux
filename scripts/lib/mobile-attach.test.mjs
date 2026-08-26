@@ -62,7 +62,7 @@ function waitForUsableSession(
   status = 0,
   baseline = "100",
   timeout = "15",
-  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
+  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"tailscale","stream_id":"events"}}',
   expectedClientID = "phone-a",
 ) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
@@ -184,21 +184,6 @@ function resolveIOSAPIBaseURL(target, extraEnv = {}) {
   );
 }
 
-function resolveIOSIrohBrokerBaseURL(extraEnv = {}) {
-  const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
-  const resolver = extractShellFunction(source, "cmux_ios_resolve_iroh_broker_base_url");
-  return run(
-    "bash",
-    ["-c", `${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
-    {
-      CMUX_IOS_IROH_BROKER_BASE_URL: "",
-      CMUX_IROH_BROKER_BASE_URL: "",
-      PROD_AUTH: "0",
-      ...extraEnv,
-    },
-  );
-}
-
 async function mintAttachURL(target, payload, maxAttempts = 1) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-attach-test-"));
   const scriptsDir = path.join(tempRoot, "scripts");
@@ -313,7 +298,7 @@ async function ensureMacAfterRelaunch({ forceRelaunch = false, readyAtCall = 2 }
           '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
           '  count="$((count + 1))"',
           '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
-          '  if [[ "$count" -ge "$CMUX_TEST_READY_AT_CALL" ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
+          '  if [[ "$count" -ge "$CMUX_TEST_READY_AT_CALL" ]]; then printf "cmux-ios-dev://attach?v=2&kind=tailscale"; return 0; fi',
           '  return 1',
           '}',
           'cmux_attach_terminate_bundle_app() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
@@ -553,7 +538,7 @@ test("dogfood readiness fails when a usable RPC session misses its deadline", ()
 
 test("dogfood readiness writes a secret-free identity and latency receipt", () => {
   const result = writeReadinessReceipt(
-    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"tailscale","access_token":"must-not-appear"}}',
   );
 
   assert.equal(result.status, 0, result.stderr);
@@ -572,7 +557,7 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     client_id: "phone-a",
     workspace_count: 2,
     stream_id: "events",
-    transport: "iroh",
+    transport: "tailscale",
   });
   assert.equal(result.directoryMode, 0o700);
   assert.equal(result.receiptMode, 0o600);
@@ -594,14 +579,11 @@ test("iOS Simulator defaults to its tagged localhost API", () => {
   assert.equal(result.stdout, "http://localhost:4123");
 });
 
-test("iOS physical-device Debug builds default both services to staging", () => {
+test("iOS physical-device Debug builds default to the staging API", () => {
   const api = resolveIOSAPIBaseURL("physical_device", { CMUX_PORT: "4123" });
-  const broker = resolveIOSIrohBrokerBaseURL();
 
   assert.equal(api.status, 0, api.stderr);
   assert.equal(api.stdout, "https://cmux-staging.vercel.app");
-  assert.equal(broker.status, 0, broker.stderr);
-  assert.equal(broker.stdout, "https://cmux-staging.vercel.app");
 });
 
 test("iOS service origin overrides win for every Debug target", () => {
@@ -614,13 +596,6 @@ test("iOS service origin overrides win for every Debug target", () => {
     assert.equal(api.status, 0, api.stderr);
     assert.equal(api.stdout, "https://api.dev.example");
   }
-
-  const broker = resolveIOSIrohBrokerBaseURL({
-    CMUX_IOS_IROH_BROKER_BASE_URL: "https://relay.dev.example",
-    CMUX_IROH_BROKER_BASE_URL: "https://ignored.example",
-  });
-  assert.equal(broker.status, 0, broker.stderr);
-  assert.equal(broker.stdout, "https://relay.dev.example");
 });
 
 test("iOS production-auth builds keep production service origins", () => {
@@ -629,20 +604,6 @@ test("iOS production-auth builds keep production service origins", () => {
     assert.equal(api.status, 0, api.stderr);
     assert.equal(api.stdout, "https://cmux.com");
   }
-
-  const broker = resolveIOSIrohBrokerBaseURL({ PROD_AUTH: "1" });
-  assert.equal(broker.status, 0, broker.stderr);
-  assert.equal(broker.stdout, "https://cmux.com");
-});
-
-test("tagged reloads share a dedicated Iroh broker", () => {
-  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
-  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
-
-  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
-  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IROH_BROKER_BASE_URL_VALUE"/);
-  assert.match(iosReload, /CMUX_IOS_IROH_BROKER_BASE_URL_VALUE=.*cmux_ios_resolve_iroh_broker_base_url/);
-  assert.match(iosReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"/);
 });
 
 test("cloud physical-device archives bake staging origins with override escape hatches", () => {
@@ -655,18 +616,13 @@ test("cloud physical-device archives bake staging origins with override escape h
     workflow,
     /api_base_url="\$\{CMUX_IOS_API_BASE_URL:-\$\{CMUX_DEV_API_BASE_URL:-https:\/\/cmux-staging\.vercel\.app\}\}"/,
   );
-  assert.match(
-    workflow,
-    /iroh_broker_base_url="\$\{CMUX_IOS_IROH_BROKER_BASE_URL:-\$\{CMUX_IROH_BROKER_BASE_URL:-https:\/\/cmux-staging\.vercel\.app\}\}"/,
-  );
   assert.match(workflow, /CMUX_API_BASE_URL="\$api_base_url"/);
-  assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
-test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+test("physical-device mint rejects a ticket with only loopback routes", async () => {
   const result = await mintAttachURL(
     "physical_device",
-    [attachPayload("tailscale"), attachPayload("tailscale")],
+    [attachPayload("loopback"), attachPayload("loopback")],
     2,
   );
   assert.equal(result.status, 2);
@@ -674,11 +630,11 @@ test("physical-device mint rejects a ticket with only plaintext Tailscale routes
   assert.equal(result.callCount, 2);
 });
 
-test("physical-device mint waits for asynchronous Iroh publication", async () => {
-  const payload = attachPayload("iroh");
+test("physical-device mint waits for asynchronous Tailscale publication", async () => {
+  const payload = attachPayload("tailscale");
   const result = await mintAttachURL(
     "physical_device",
-    [attachPayload("tailscale"), payload],
+    [attachPayload("loopback"), payload],
     2,
   );
   assert.equal(result.status, 0, result.stderr);
@@ -711,28 +667,28 @@ test("physical-device mint distinguishes malformed successful output", async () 
   assert.doesNotMatch(result.stderr, /secret-payload-value/);
 });
 
-test("physical-device mint accepts an encrypted Iroh route", async () => {
-  const payload = attachPayload("iroh");
+test("physical-device mint accepts a Tailscale route", async () => {
+  const payload = attachPayload("tailscale");
   const result = await mintAttachURL("physical_device", payload);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
 });
 
-test("QR fallback waits for the exact tagged Mac's authenticated Iroh route", () => {
+test("QR fallback waits for the exact tagged Mac's authenticated Tailscale route", () => {
   const result = runQRGenerator([
+    attachPayload("loopback"),
     attachPayload("tailscale"),
-    attachPayload("iroh"),
   ]);
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.callCount, 2);
   assert.deepEqual(
     result.params.map((params) => params.route_kind),
-    ["iroh", "iroh"],
+    ["tailscale", "tailscale"],
   );
   assert.deepEqual(
     result.filteredPayload.ticket.routes.map((route) => route.kind),
-    ["iroh"],
+    ["tailscale"],
   );
 });
 
@@ -755,7 +711,7 @@ test("simulator mint retains its loopback ticket behavior", async () => {
 });
 
 test("physical-device mint retries transient empty responses", async () => {
-  const payload = attachPayload("iroh");
+  const payload = attachPayload("tailscale");
   const result = await mintAttachURL(
     "physical_device",
     [null, payload],
@@ -786,13 +742,9 @@ test("ensure-mac rotates an armed exact-tag app before using explicit credential
   );
 });
 
-test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+test("mobile launch grants asynchronous route publication a bounded startup window", () => {
   const launcher = fs.readFileSync(
     path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
-    "utf8",
-  );
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
     "utf8",
   );
 
@@ -803,14 +755,6 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   assert.match(
     launcher,
     /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
-  );
-  assert.match(
-    gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,120}cmux_attach_ensure_mac/,
   );
 });
 
@@ -850,44 +794,6 @@ test("simulator launch seeds a deterministic durable device id before app launch
     seedEnvironment < launch,
     "the sandboxed app must receive its durable identity before launch",
   );
-});
-
-test("release gate assigns each mode to its transport proof", () => {
-  const cases = [
-    ["automatic", "app-rpc"],
-    ["relay-only", "app-rpc"],
-    ["relay-expiry", "app-rpc"],
-    ["direct-only", "simulator-direct-transport"],
-    ["private-path", "host-private-path-transport"],
-  ];
-
-  for (const [mode, expectedPlan] of cases) {
-    const result = run("bash", [
-      "scripts/run-iroh-release-gate.sh",
-      "--mode",
-      mode,
-      "--tag",
-      `plan-${mode}`,
-      "--print-plan",
-    ]);
-    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
-    assert.equal(result.stdout.trim(), expectedPlan);
-  }
-});
-
-test("private-path plan ignores the unrelated staging base URL", () => {
-  const result = run("bash", [
-    "scripts/run-iroh-release-gate.sh",
-    "--mode",
-    "private-path",
-    "--tag",
-    "plan-private",
-    "--staging-base-url",
-    "not-a-network-url",
-    "--print-plan",
-  ]);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "host-private-path-transport");
 });
 
 test("mobile launch accepts an explicit no-attach override", () => {
@@ -974,109 +880,14 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   );
 });
 
-test("release gate builds and installs on its exact isolated simulator", () => {
+test("iOS reload builds and installs on an exact isolated simulator id", () => {
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-  const targets = fs.readFileSync(
-    path.join(repoRoot, "scripts/lib/iroh-release-gate-targets.sh"),
-    "utf8",
-  );
 
   assert.match(iosReload, /--simulator-id\)/);
   assert.match(
     iosReload,
     /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
   );
-  assert.match(targets, /--simulator-id "\$simulator_id"/);
-  assert.match(gate, /iroh_release_gate_set_ios_reload_args/);
-  assert.match(gate, /\.\/ios\/scripts\/reload\.sh "\$\{IROH_RELEASE_GATE_IOS_RELOAD_ARGS\[@\]\}"/);
-});
-
-test("release gate shuts down retained same-tag simulators before creating its replacement", () => {
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-  const shutdown = gate.indexOf(
-    'shutdown_prior_gate_simulators "$SIMULATOR_NAME"',
-  );
-  const create = gate.indexOf(
-    'SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME"',
-  );
-
-  assert.notEqual(
-    shutdown,
-    -1,
-    "a retained same-tag simulator can keep replacing the deterministic device binding",
-  );
-  assert.notEqual(create, -1, "release-gate simulator creation is missing");
-  assert.ok(
-    shutdown < create,
-    "all prior same-tag simulators must stop before the replacement is created",
-  );
-  assert.match(
-    gate,
-    /device\.get\("name"\) == os\.environ\["SIMULATOR_NAME"\]/,
-  );
-  assert.match(gate, /xcrun simctl shutdown "\$prior_simulator_id"/);
-});
-
-test("release gate points Mac and iOS at one explicit presence backend", () => {
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-
-  assert.match(gate, /--presence-base-url <url>/);
-  assert.match(
-    gate,
-    /--presence-base-url\) PRESENCE_BASE_URL="\$\{2:-\}"; shift 2 ;;/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,240}\.\/scripts\/reload\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,320}\.\/ios\/scripts\/reload\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,160}cmux_attach_ensure_mac/,
-  );
-});
-
-test("physical-route attach reports a missing tagged Mac before blaming Iroh", () => {
-  const tag = `missing-mac-${process.pid}`;
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-missing-mac-test-"));
-  fs.mkdirSync(path.join(tempRoot, ".secrets"));
-  fs.writeFileSync(
-    path.join(tempRoot, ".secrets/cmuxterm-dev.env"),
-    "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASSWORD=test-password\n",
-    { mode: 0o600 },
-  );
-  const result = run("bash", [
-    "scripts/mobile-dev-launch.sh",
-    "--tag",
-    tag,
-    "--simulator",
-    "iPhone 17",
-    "--attach",
-    "--agent",
-    "--detach",
-    "--iroh-release-gate",
-    "automatic",
-  ], { HOME: tempRoot });
-  fs.rmSync(tempRoot, { recursive: true, force: true });
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /tagged Mac.*not running|debug socket.*not ready/i);
-  assert.match(result.stderr, /--ensure-mac/);
-  assert.doesNotMatch(result.stderr, /must advertise an encrypted Iroh route/i);
-  assert.doesNotMatch(result.stderr, /--no-attach/);
 });
 
 for (const entrypoint of [

@@ -198,17 +198,6 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
-    /// Persist THIS device's Direct-method dial candidates for one tagged Mac
-    /// (a JSON payload owned by the shell; `nil` clears the list). Device-local
-    /// like the connection method.
-    func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String?,
-        teamID: String?
-    ) async throws
-
     /// Record device-local authorization for Tailscale routes the user entered
     /// as a pairing code from their Mac.
     ///
@@ -227,16 +216,6 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
-    /// Compatibility no-op for stores that predate per-Computer Direct
-    /// addresses (test fixtures); the SQLite store and decorators override.
-    public func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String?,
-        teamID: String?
-    ) async throws {}
-
     /// Compatibility no-op for stores that predate per-Computer connection
     /// methods (test fixtures); the SQLite store and decorators override.
     public func setConnectionMethod(

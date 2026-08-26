@@ -4,7 +4,7 @@ set -euo pipefail
 TAG="${CMUX_TAG:-swmob}"
 TTL_SECONDS="3600"
 ROUTE_ID=""
-ROUTE_KIND="iroh"
+ROUTE_KIND="tailscale"
 OUT_DIR=""
 OPEN_HTML="0"
 MAX_ATTEMPTS="${CMUX_ATTACH_QR_MAX_ATTEMPTS:-20}"
@@ -101,7 +101,7 @@ routes = ticket.get("routes") if isinstance(ticket, dict) else None
 if not isinstance(attach_url, str) or not attach_url:
     sys.exit(1)
 if not isinstance(routes, list) or not any(
-    isinstance(route, dict) and route.get("kind") == "iroh"
+    isinstance(route, dict) and route.get("kind") == "tailscale"
     for route in routes
 ):
     sys.exit(1)
@@ -116,7 +116,7 @@ PY
 done
 
 if [[ "$READY" != "1" ]]; then
-  echo "error: tagged Mac '$TAG' did not publish an authenticated Iroh route before the QR deadline" >&2
+  echo "error: tagged Mac '$TAG' did not publish an authenticated Tailscale route before the QR deadline" >&2
   exit 1
 fi
 

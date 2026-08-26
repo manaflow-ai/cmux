@@ -197,7 +197,7 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         out.reserveCapacity(320 + events.count * 160)
         out += localization.string(
             "diagnostics.report.title",
-            defaultValue: "cmux Iroh and transport report"
+            defaultValue: "cmux transport report"
         ) + "\n"
         out += localization.string(
             "diagnostics.report.format",

@@ -26,8 +26,8 @@ public struct CmxPairingQRBitmap: Sendable {
     /// over-capacity payload).
     ///
     /// ECC M rather than L: the minimal payloads are small enough that M
-    /// still keeps the code at QR version 6 or lower for routes-only and
-    /// Iroh codes, and version 8 or lower for the account-bound Tailscale
+    /// still keeps the code at QR version 6 or lower for routes-only codes,
+    /// and version 8 or lower for the account-bound Tailscale
     /// compatibility code (both asserted by tests), and the extra redundancy
     /// tolerates the glare, moire, and off-angle blur of photographing a
     /// glossy Mac screen. L would maximize module size, but module size is

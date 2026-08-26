@@ -1,8 +1,6 @@
 #if os(iOS)
-/// Presentation state for the final onboarding scene.
-///
-/// Same-account Iroh discovery always gets the first attempt. QR pairing is
-/// revealed only after that attempt finishes without a live Mac.
+/// Presentation state for the final onboarding scene, which connects the
+/// phone to a Mac by scanning the Tailscale pairing code.
 enum OnboardingConnectionPhase: Equatable, Sendable {
     case idle
     case searching

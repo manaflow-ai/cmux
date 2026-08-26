@@ -571,7 +571,7 @@ cmux_attach_ensure_mac() {
         return 0
       fi
       if [[ "$target" == "physical_device" ]]; then
-        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
+        echo "warning: tagged Mac app for '$tag' launched, but no trusted Tailscale ticket became ready." >&2
       else
         echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
       fi
@@ -587,13 +587,13 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable only with an encrypted Iroh route. Plain
-# Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
-# instead of launching an app that must reject the ticket as untrusted.
+# A physical-device ticket is usable only with a Tailscale route. A loopback
+# hostPort route points at the phone itself, not the Mac, so fail closed here
+# instead of launching an app that must reject the ticket as unreachable.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output url node_status cli_status _i
-  local last_reason="route_not_ready" saw_no_iroh=0
+  local last_reason="route_not_ready" saw_no_tailscale=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -628,7 +628,7 @@ const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
 if (
   process.env.ATTACH_TARGET === "physical_device" &&
-  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
+  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "tailscale"))
 ) {
   process.exit(2);
 }
@@ -636,12 +636,11 @@ if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_
 NODE
       )" || node_status=$?
       if [[ "$node_status" -eq 2 ]]; then
-        # The legacy listener can publish Tailscale before asynchronous Iroh
-        # broker registration finishes. Remember that the Mac is reachable,
-        # but keep polling for the encrypted route until the readiness window
-        # closes.
-        saw_no_iroh=1
-        last_reason="iroh_route_unavailable"
+        # The listener can publish loopback before the Tailscale route
+        # binds. Remember that the Mac is reachable, but keep polling for the
+        # Tailscale route until the readiness window closes.
+        saw_no_tailscale=1
+        last_reason="tailscale_route_unavailable"
       elif [[ "$node_status" -ne 0 ]]; then
         last_reason="malformed_response"
       elif [[ -z "$url" ]]; then
@@ -654,12 +653,12 @@ NODE
     else
       last_reason="empty_response"
     fi
-    # Empty output, malformed output, and a valid ticket that has not gained an
-    # Iroh route yet are all transient during startup. Poll to the deadline.
+    # Empty output, malformed output, and a valid ticket that has not gained a
+    # Tailscale route yet are all transient during startup. Poll to the deadline.
     sleep 0.5
   done
   printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2
-  if [[ "$saw_no_iroh" -eq 1 ]]; then
+  if [[ "$saw_no_tailscale" -eq 1 ]]; then
     return 2
   fi
   return 1

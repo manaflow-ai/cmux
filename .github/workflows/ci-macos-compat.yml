@@ -12,7 +12,6 @@ jobs:
           - os: macos-14
             timeout: 60
             run_unit_tests: false
-            run_mobile_transport_tests: true
             startup_smoke: true
             virtual_display: true
             skip_zig: false
@@ -21,7 +20,6 @@ jobs:
           - os: macos-15-intel
             timeout: 90
             run_unit_tests: false
-            run_mobile_transport_tests: true
             startup_smoke: true
             virtual_display: true
             skip_zig: false
@@ -30,7 +28,6 @@ jobs:
           - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 120
             run_unit_tests: false
-            run_mobile_transport_tests: true
             startup_smoke: true
             virtual_display: true
             skip_zig: false
@@ -39,7 +36,6 @@ jobs:
           - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
             timeout: 120
             run_unit_tests: false
-            run_mobile_transport_tests: true
             startup_smoke: true
             virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
@@ -158,18 +154,6 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
-
-      - name: Run mobile transport package tests on compatibility hosts
-        if: matrix.run_mobile_transport_tests
-        run: |
-          ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CMUXMobileCore
-          ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
-
-      - name: Run mobile transport tests in the compatibility iOS Simulator
-        if: matrix.run_mobile_transport_tests
-        env:
-          CMUX_EXPECTED_SIMULATOR_ARCH: ${{ matrix.expected_arch }}
-        run: ./scripts/ci/run-iroh-ios-simulator-package-tests.sh
 
       - name: Run unit tests
         if: matrix.run_unit_tests

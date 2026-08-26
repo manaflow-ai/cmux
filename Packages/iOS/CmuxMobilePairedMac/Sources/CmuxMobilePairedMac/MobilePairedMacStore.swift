@@ -458,12 +458,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// v8: preserve only the exact raw Tailscale destinations that this local
-    /// installation used before Iroh shipped. The table is deliberately absent
-    /// from account backup, so a new install, a second phone, or a restored row
-    /// cannot acquire this bearer-carrying compatibility capability.
-    ///
-    /// Rows that already contain Iroh are excluded. Once Iroh is persisted,
-    /// ``upsertRecord`` deletes any remaining grants and never recreates them.
+    /// installation had already trusted under the pre-QR pairing flow. The
+    /// table is deliberately absent from account backup, so a new install, a
+    /// second phone, or a restored row cannot acquire this bearer-carrying
+    /// compatibility capability.
     private func migrateToV8() throws {
         try exec("""
             CREATE TABLE legacy_tailscale_route_grants (
@@ -490,12 +488,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                   AND macs.owner_key = routes.owner_key
                   AND macs.stack_user_id IS NOT NULL
                   AND macs.stack_user_id <> ''
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM mac_routes iroh
-                WHERE iroh.mac_device_id = routes.mac_device_id
-                  AND iroh.owner_key = routes.owner_key
-                  AND iroh.kind = 'iroh'
               );
         """)
         try exec("""
@@ -505,11 +497,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// v9: record where each Tailscale compatibility grant came from. The v8
-    /// migration rows keep the `'migration'` origin and its lifecycle (deleted
-    /// forever once Iroh is persisted). `'user'` rows are created when the user
-    /// explicitly enters a Tailscale pairing code from their Mac and survive
-    /// Iroh persistence, because the user chose Tailscale on purpose and may
-    /// keep dialing it while the preference says so.
+    /// migration rows carry the `'migration'` origin; `'user'` rows are
+    /// created when the user explicitly enters a Tailscale pairing code from
+    /// their Mac, a deliberate per-peer authorization.
     private func migrateToV9() throws {
         let columns = try tableColumns("legacy_tailscale_route_grants")
         guard !columns.contains("origin") else { return }
@@ -519,18 +509,19 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         """)
     }
 
-    /// v10: this iPhone's per-Computer connection method ("iroh" or
-    /// "tailscale"). Additive and device-local: the column never rides the
-    /// account backup, and `NULL` means "use the app's default method".
+    /// v10: this iPhone's per-Computer connection method. Additive and
+    /// device-local: the column never rides the account backup, and `NULL`
+    /// means "use the app's default method". Tailscale is the only method
+    /// today; readers normalize every retired persisted value to it.
     private func migrateToV10() throws {
         let columns = try tableColumns("paired_macs")
         guard !columns.contains("connection_method") else { return }
         try exec("ALTER TABLE paired_macs ADD COLUMN connection_method TEXT;")
     }
 
-    /// v11: this iPhone's per-Computer Direct-method dial candidates (JSON
-    /// array of {"address","port"?,"enabled"}). Additive and device-local,
-    /// like `connection_method`.
+    /// v11: a retired per-Computer dial-candidate column. The migration stays
+    /// so every database version has the same schema shape; nothing reads or
+    /// writes the column anymore.
     private func migrateToV11() throws {
         let columns = try tableColumns("paired_macs")
         guard !columns.contains("direct_addresses") else { return }
@@ -580,8 +571,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: nil,
-            onlyIfOlder: false,
-            revokeMigrationTailscaleGrants: true
+            onlyIfOlder: false
         )
     }
 
@@ -610,8 +600,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: (customName, customColor, customIcon),
-            onlyIfOlder: true,
-            revokeMigrationTailscaleGrants: true
+            onlyIfOlder: true
         )
     }
 
@@ -639,15 +628,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             now: now,
             restoredCustomizations: nil,
             onlyIfOlder: false,
-            routeWriteCondition: condition,
-            revokeMigrationTailscaleGrants: false
+            routeWriteCondition: condition
         )
     }
 
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
     /// user entered as a pairing code. Upgrades an existing `'migration'` grant
-    /// for the same destination to `'user'`, so a deliberate re-scan is not
-    /// silently revoked when Iroh is later persisted.
+    /// for the same destination to `'user'`, recording the deliberate re-scan.
     public func authorizeUserTailscaleRoutes(
         macDeviceID: String,
         instanceTag: String?,
@@ -706,8 +693,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         now: Date,
         restoredCustomizations: (String?, String?, String?)?,
         onlyIfOlder: Bool,
-        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil,
-        revokeMigrationTailscaleGrants: Bool
+        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil
     ) throws -> Bool {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
@@ -842,16 +828,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             } else {
                 existingRoutes = []
             }
-            let incomingHasIroh = routes.contains { $0.kind == .iroh }
-            let pinnedIrohRoutes = existingRoutes.filter { $0.kind == .iroh }
-            // Iroh capability is sticky for one paired Mac. Presence, backup, or
-            // an older host build may temporarily publish only raw private-network
-            // routes; replacing the stored Iroh identity in that case would allow
-            // a later admission failure to downgrade into Stack-bearer RPC. A new
-            // Iroh route replaces the old identity normally.
-            let routesToPersist = incomingHasIroh || pinnedIrohRoutes.isEmpty
-                ? routes
-                : routes + pinnedIrohRoutes
+            let routesToPersist = routes
             let createdAt = existing?.createdAt ?? claimable?.createdAt ?? now
             let persistedInstanceTag = routeWriteCondition == nil
                 ? instanceTag
@@ -867,20 +844,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: shouldMarkActive
             )
-            if revokeMigrationTailscaleGrants,
-               routesToPersist.contains(where: { $0.kind == .iroh }) {
-                // Only the staggered-update migration capability dies on Iroh
-                // arrival. A user-entered pairing-code grant is a deliberate
-                // Tailscale choice and remains available for preference-ordered
-                // dials until its row is removed.
-                try exec(
-                    """
-                    DELETE FROM legacy_tailscale_route_grants
-                    WHERE mac_device_id = ? AND owner_key = ? AND origin = 'migration';
-                    """,
-                    binding: [.text(macDeviceID), .text(ownerKey)]
-                )
-            }
             if existing != nil, let selectedUnclaimed,
                selectedUnclaimed.ownerKey != ownerKey {
                 try exec(
@@ -1054,7 +1017,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Persist THIS iPhone's connection-method choice for one tagged paired
-    /// Mac ("iroh"/"tailscale", nil = revert to the app default). Deliberately
+    /// Mac ("tailscale"; nil = revert to the app default). Deliberately
     /// does NOT bump `last_seen_at`: the choice is device-local and must not
     /// become the freshest write that LWW backup propagates to other devices.
     public func setConnectionMethod(
@@ -1072,33 +1035,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             rawValue.map(BindValue.text) ?? .null,
-            .text(macDeviceID),
-            .text(Self.ownerKey(
-                stackUserID: stackUserID,
-                teamID: teamID,
-                instanceTag: instanceTag
-            )),
-        ])
-    }
-
-    /// Persist THIS iPhone's Direct-method dial candidates for one tagged
-    /// paired Mac (JSON payload owned by the shell; nil clears the list).
-    /// Device-local like `connection_method`: never bumps LWW freshness.
-    public func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String? = nil,
-        teamID: String? = nil
-    ) throws {
-        try ensureReady()
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        try exec("""
-            UPDATE paired_macs
-            SET direct_addresses = ?
-            WHERE mac_device_id = ? AND owner_key = ?;
-        """, binding: [
-            rawJSON.map(BindValue.text) ?? .null,
             .text(macDeviceID),
             .text(Self.ownerKey(
                 stackUserID: stackUserID,

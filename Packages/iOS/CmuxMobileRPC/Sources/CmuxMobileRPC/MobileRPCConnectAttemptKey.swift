@@ -4,18 +4,14 @@ import Foundation
 
 /// In-memory identity for one physical peer route.
 ///
-/// Diagnostic route descriptions intentionally redact peer identities and
-/// path hints change as network reachability changes. Admission instead keys
-/// Iroh routes by the authenticated endpoint identity and other routes by a
-/// stable physical endpoint boundary. Cleanup debt therefore survives hint,
-/// credential, and anonymous ticket identity changes.
+/// Diagnostic route descriptions intentionally redact peer identities.
+/// Admission keys routes by a stable physical endpoint boundary, so cleanup
+/// debt survives credential and anonymous ticket identity changes.
 struct MobileRPCConnectAttemptKey: Hashable, Sendable {
     let endpointIdentity: MobileRPCConnectEndpointIdentity
 
     init(route: CmxAttachRoute) {
         switch route.endpoint {
-        case let .peer(identity, _):
-            endpointIdentity = .iroh(endpointID: identity.endpointID)
         case let .hostPort(host, port):
             endpointIdentity = .hostPort(
                 kind: route.kind.rawValue,

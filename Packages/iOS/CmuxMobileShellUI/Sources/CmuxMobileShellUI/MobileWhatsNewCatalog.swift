@@ -50,9 +50,11 @@ struct MobileWhatsNewPage: Identifiable {
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
     /// Newest first. The one-time sheet shows every visible entry newer than
-    /// the acknowledgement marker.
+    /// the acknowledgement marker. The retired `connections.v1` entry
+    /// (the iroh-era connection-methods update) is gone; its id remains
+    /// reserved so acknowledgement markers referencing it stay meaningful.
     static var entries: [MobileWhatsNewPage] {
-        [connectionsUpdate]
+        []
     }
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -64,67 +66,6 @@ enum MobileWhatsNewCatalog {
     /// shift how other entries compare against the marker.
     static func index(ofID id: String) -> Int? {
         entries.firstIndex { $0.id == id }
-    }
-
-    static var connectionsUpdate: MobileWhatsNewPage {
-        MobileWhatsNewPage(
-            id: "connections.v1",
-            releaseLabel: L10n.string(
-                "mobile.connectionsUpdate.releaseLabel",
-                defaultValue: "1.0.5 · August 2026"
-            ),
-            title: L10n.string(
-                "mobile.connectionsUpdate.title",
-                defaultValue: "What's New in cmux"
-            ),
-            body: .features([
-                .init(
-                    symbol: "desktopcomputer.and.macbook",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.perComputer.title",
-                        defaultValue: "Per-computer methods"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.perComputer.detail",
-                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
-                    )
-                ),
-                .init(
-                    symbol: "bolt.horizontal",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.iroh.title",
-                        defaultValue: "Auto-Connect is now Iroh"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.iroh.detail",
-                        defaultValue: "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings."
-                    )
-                ),
-                .init(
-                    symbol: "network",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.direct.title",
-                        defaultValue: "New: Direct addresses"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.direct.detail",
-                        defaultValue: "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
-                    )
-                ),
-                .init(
-                    symbol: "qrcode.viewfinder",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.title",
-                        defaultValue: "Tailscale, on your terms"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.detail",
-                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
-                    )
-                ),
-            ]),
-            isAnnouncement: false
-        )
     }
 }
 #endif

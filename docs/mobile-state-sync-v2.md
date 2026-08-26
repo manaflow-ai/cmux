@@ -2,8 +2,7 @@
 
 Status: implementing, July 2026. Replaces the invalidate-and-refetch workspace
 sync between the Mac host and iOS clients. Transport-agnostic: rides the
-existing framed RPC control stream and event subscription on both the legacy
-TCP path and Iroh; it does not depend on Iroh work in flight.
+existing framed RPC control stream and event subscription on the TCP path.
 
 ## Problem
 

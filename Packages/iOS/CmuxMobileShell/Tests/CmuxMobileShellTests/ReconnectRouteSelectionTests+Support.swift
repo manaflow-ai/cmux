@@ -178,7 +178,7 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private var hangingTransports: [HangingConnectTransport] = []
 
     /// Route kinds whose transports park forever in `connect()` from now on.
-    /// Models an Iroh dial that neither completes nor fails (relay DNS churn,
+    /// Models a dial that neither completes nor fails (DNS churn,
     /// hole-punch stall) so tests can prove recovery attempts stay bounded.
     func setHangingKinds(_ kinds: Set<CmxAttachTransportKind>) {
         lock.withLock { hangingKinds = kinds }

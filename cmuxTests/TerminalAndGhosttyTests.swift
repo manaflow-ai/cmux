@@ -1413,35 +1413,6 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
-#if DEBUG
-    func testMobileRPCMethodInventoryReturnsUniqueSortedCatalog() async throws {
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "rpc-methods",
-                method: "mobile.rpc.methods",
-                params: [:],
-                auth: nil
-            )
-        )
-
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any],
-              let methods = payload["methods"] as? [String] else {
-            XCTFail("Expected the debug Iroh RPC inventory")
-            return
-        }
-        XCTAssertEqual(payload["schema_version"] as? Int, 1)
-        XCTAssertEqual(methods, methods.sorted())
-        XCTAssertEqual(Set(methods).count, methods.count)
-        XCTAssertTrue(methods.contains("mobile.host.status"))
-        XCTAssertTrue(methods.contains("mobile.rpc.methods"))
-        XCTAssertTrue(methods.contains("workspace.list"))
-        XCTAssertTrue(methods.contains("terminal.input"))
-        XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
-        XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
-        XCTAssertTrue(methods.contains("mobile.chat.sessions"))
-    }
-#endif
 
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()

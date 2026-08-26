@@ -19,12 +19,14 @@ import Testing
         #expect(response.streamID.isEmpty)
     }
 
-    @Test func subscribeResponseDecodesIndependentIrohDelivery() throws {
+    /// Older hosts may still echo the retired `event_transport` field; the
+    /// decoder ignores it and the subscription acknowledgement still parses.
+    @Test func subscribeResponseIgnoresRetiredEventTransportField() throws {
         let data = Data(
             #"{"stream_id":"ios-terminal-events-abc","event_transport":"iroh_server_events_v1"}"#.utf8
         )
         let response = try MobileEventSubscribeResponse.decode(data)
-        #expect(response.eventTransport == "iroh_server_events_v1")
+        #expect(response.streamID == "ios-terminal-events-abc")
     }
 
     @Test func hostStatusDecodesRenderGridCapability() throws {

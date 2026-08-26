@@ -36,10 +36,8 @@ import Foundation
 /// value, `p` priority (omitted when 0), `e` endpoint.
 /// Key map (endpoint): the type is implied by the keys present (accepted
 /// explicitly under `t` for first-revision payloads): `h` host + `p` port, or
-/// `i` peer id, or `u` url. New pairing payloads carry no Iroh path hints:
-/// managed relays are app configuration, online discovery is authenticated,
-/// and offline pairing resolves the scanned EndpointID locally. Decoding still
-/// accepts the first compact revision's `ph`, `rh`, `da`, and `ru` fields.
+/// `u` url. Routes carrying the removed peer shape (`i` plus hint fields)
+/// from older Macs are dropped per element during expansion.
 public struct CmxAttachTicketCompactCoder: Sendable {
     /// Creates a coder. The coder is stateless; instances are interchangeable.
     public init() {}

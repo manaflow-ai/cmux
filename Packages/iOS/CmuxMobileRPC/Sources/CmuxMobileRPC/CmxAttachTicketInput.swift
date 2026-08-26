@@ -34,16 +34,17 @@ public struct CmxAttachTicketInput {
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        // A QR minted by a newer cmux whose grammar version this build does not
-        // understand. Distinguished from a malformed code so the user is told
-        // to update the app instead of seeing the generic "not valid" copy (the
-        // real field report: beta 1.0.2 predated the v2 QR a newer Mac emitted).
+        // A QR whose grammar version this build does not understand: minted by
+        // a newer cmux, or by a build of the retired v3 grammar. Distinguished
+        // from a malformed code so the user is told to update cmux instead of
+        // seeing the generic "not valid" copy (the real field report: beta
+        // 1.0.2 predated the v2 QR a newer Mac emitted).
         if let version = CmxPairingQRCode.attachURLVersion(components),
            version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
-        // The plain pairing grammars: v2 carries bare Tailscale routes and v3
-        // carries one Iroh EndpointID. v1 carries a base64 JSON payload.
+        // The plain pairing grammars: v2 carries bare Tailscale routes and
+        // v1 carries a base64 JSON payload.
         if CmxPairingQRCode().isPairingCodeURL(components) {
             return try CmxPairingQRCode().decode(components)
         }

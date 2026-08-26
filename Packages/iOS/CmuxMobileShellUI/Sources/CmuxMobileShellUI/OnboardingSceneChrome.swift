@@ -1,5 +1,4 @@
 #if os(iOS)
-import CmuxMobileShellModel
 import CmuxMobileSupport
 
 struct OnboardingSceneChrome: Equatable {
@@ -11,8 +10,7 @@ struct OnboardingSceneChrome: Equatable {
     init(
         stage: OnboardingStage,
         isAuthenticated: Bool,
-        connectionPhase: OnboardingConnectionPhase,
-        connectionMethod: MobileConnectionMethod = .automatic
+        connectionPhase: OnboardingConnectionPhase
     ) {
         showsBack = stage != .agents
         showsSkip = stage != .connect
@@ -51,32 +49,17 @@ struct OnboardingSceneChrome: Equatable {
 
             switch connectionPhase {
             case .idle:
-                if connectionMethod == .tailscale {
-                    primaryTitle = Self.scanPairingCodeTitle
-                } else {
-                    primaryTitle = L10n.string(
-                        "mobile.onboarding.connect.start",
-                        defaultValue: "Check for My Mac"
-                    )
-                }
+                primaryTitle = Self.scanPairingCodeTitle
                 secondaryTitle = nil
             case .searching:
                 primaryTitle = nil
                 secondaryTitle = nil
             case .fallback:
-                if connectionMethod == .tailscale {
-                    primaryTitle = Self.scanPairingCodeTitle
-                    secondaryTitle = L10n.string(
-                        "mobile.onboarding.connect.primary",
-                        defaultValue: "Check Again"
-                    )
-                } else {
-                    primaryTitle = L10n.string(
-                        "mobile.onboarding.connect.primary",
-                        defaultValue: "Check Again"
-                    )
-                    secondaryTitle = nil
-                }
+                primaryTitle = Self.scanPairingCodeTitle
+                secondaryTitle = L10n.string(
+                    "mobile.onboarding.connect.primary",
+                    defaultValue: "Check Again"
+                )
             case .ready:
                 primaryTitle = L10n.string(
                     "mobile.onboarding.ready.primary",

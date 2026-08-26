@@ -11,7 +11,7 @@ Current phase:
 - isolated preview host data when no concrete transport is installed
 - workspace list, workspace detail, terminal dropdown, and input bar
 
-No Rust, Iroh, or Zig dependency is linked into this shell. Concrete route implementations should enter through `CMUXMobileRuntime`.
+No Rust or Zig dependency is linked into this shell. Concrete route implementations should enter through `CMUXMobileRuntime`.
 
 Build and reload the simulator:
 

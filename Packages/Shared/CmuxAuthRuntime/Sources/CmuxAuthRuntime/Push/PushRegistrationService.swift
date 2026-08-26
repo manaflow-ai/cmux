@@ -951,6 +951,13 @@ public actor PushRegistrationService: PushRegistering {
     private func retryPendingUnregisterIfPossible(
         preferenceGeneration: UUID? = nil
     ) async {
+        // An empty cleanup queue needs no session authorization, and asking
+        // anyway is worse than waste: the post-sign-in hook runs this on the
+        // launch bootstrap task, where the snapshot cannot be served until
+        // bootstrap itself finishes (the sign-in flow still owns the token
+        // store), so the request can only park on its 15s deadline and holds
+        // every startup connect gated on bootstrap behind an idle wait.
+        guard hasQueuedPendingUnregisters else { return }
         guard let session = await boundedSessionSnapshot(
             phase: .pushUnregistrationSession,
             recoveryGeneration: preferenceGeneration
@@ -1256,6 +1263,13 @@ public actor PushRegistrationService: PushRegistering {
         storePendingUnregisters(
             pendingUnregisters.filter { $0.tokenHex != tokenHex }
         )
+    }
+
+    /// Whether any queued token cleanup exists for any account, across the
+    /// durable store and the legacy defaults fallback.
+    private var hasQueuedPendingUnregisters: Bool {
+        durablePendingUnregisterStore()?.hasEntries == true
+            || !pendingUnregisters.isEmpty
     }
 
     private func durablePendingUnregisterStore() -> PendingUnregisterStore? {

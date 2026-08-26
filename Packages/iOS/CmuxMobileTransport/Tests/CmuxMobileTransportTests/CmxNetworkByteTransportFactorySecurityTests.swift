@@ -59,23 +59,6 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
         }
     }
 
-    @Test func rejectsRouteKindAuthorizationSubstitution() throws {
-        let route = try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.1.2", port: 49831)
-        )
-        let request = CmxByteTransportRequest(
-            route: route,
-            expectedPeerDeviceID: "mac-1",
-            authorizationMode: .transportAdmission
-        )
-
-        #expect(throws: (any Error).self) {
-            _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
-        }
-    }
-
     @Test func rejectsMagicDNSBeforeDial() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",

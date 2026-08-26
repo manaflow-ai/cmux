@@ -6,9 +6,9 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// host and mints a Tailscale pairing code. The displayed Tailscale code never
+/// expires and is never regenerated on a timer; Refresh Code re-mints on
+/// demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -28,13 +28,10 @@ final class MobilePairingModel {
         case ready(Ready)
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner. Carries the state to restore when the
-        /// connection count falls back to the baseline (the QR waiting state,
-        /// or the Iroh-only waiting state when no Tailscale route exists).
+        /// connection count falls back to the baseline (the QR waiting state).
         indirect case connected(from: State)
-        /// No phone-reachable Tailscale route is available yet. Carries the
-        /// live Iroh registration state so the window's Iroh tab keeps
-        /// working while Tailscale QR pairing is unavailable.
-        case needsReachableTransport(reachableViaIroh: Bool)
+        /// No phone-reachable Tailscale route is available yet.
+        case needsReachableTransport
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -48,9 +45,6 @@ final class MobilePairingModel {
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
-        /// Whether this Mac's Iroh endpoint is registered, so signed-in
-        /// iPhones can discover it automatically without any QR.
-        let reachableViaIroh: Bool
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
@@ -63,8 +57,7 @@ final class MobilePairingModel {
             Ready(
                 attachURL: attachURL,
                 tailscaleLines: MobilePairingModel.tailscaleLines(routes),
-                manualEntry: CmxManualPairingEntry.best(in: routes),
-                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes)
+                manualEntry: CmxManualPairingEntry.best(in: routes)
             )
         }
     }
@@ -193,9 +186,7 @@ final class MobilePairingModel {
             return
         }
         guard let routePlan = PairingRoutePlan.make(routes: status.routes) else {
-            state = .needsReachableTransport(
-                reachableViaIroh: Self.hasIrohRoute(status.routes)
-            )
+            state = .needsReachableTransport
             observeHostStatus()
             return
         }
@@ -221,17 +212,14 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes),
-                    reachableViaIroh: Self.hasIrohRoute(status.routes)
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
             observeHostStatus()
         } catch MobileAttachTicketStoreError.noRoutes,
                 MobileAttachTicketStoreError.routeUnavailable,
                 MobileAttachTicketStoreError.invalidAttachURL {
-            state = .needsReachableTransport(
-                reachableViaIroh: Self.hasIrohRoute(host.statusSnapshot().routes)
-            )
+            state = .needsReachableTransport
             observeHostStatus()
         } catch {
             state = .failed(
@@ -346,9 +334,9 @@ final class MobilePairingModel {
     /// waiting state was entered (a phone that attached afterwards) flips
     /// `.ready` and `.needsReachableTransport` to `.connected`; dropping back
     /// to the baseline restores the prior waiting state. Waiting states also
-    /// absorb route changes so the transport diagnostics stay live: the Iroh
-    /// flag, the Tailscale lines, and the manual entry follow `routes`, while
-    /// the displayed `attachURL` is deliberately never regenerated here (the
+    /// absorb route changes so the transport diagnostics stay live: the
+    /// Tailscale lines and the manual entry follow `routes`, while the
+    /// displayed `attachURL` is deliberately never regenerated here (the
     /// code on screen never changes behind the user's back; Refresh Code
     /// re-mints on demand).
     static func statusTransition(
@@ -364,13 +352,9 @@ final class MobilePairingModel {
         case let .ready(ready):
             return .ready(ready.updatingRoutes(routes))
         case .needsReachableTransport where connected:
-            return .connected(
-                from: .needsReachableTransport(
-                    reachableViaIroh: hasIrohRoute(routes)
-                )
-            )
+            return .connected(from: .needsReachableTransport)
         case .needsReachableTransport:
-            return .needsReachableTransport(reachableViaIroh: hasIrohRoute(routes))
+            return .needsReachableTransport
         case let .connected(prior) where !connected:
             return statusTransition(
                 from: prior,
@@ -389,11 +373,6 @@ final class MobilePairingModel {
         // Never force the listener on under a managed remote-control disable.
         guard MobileRemoteControlPolicy.isEnabled else { return }
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-    }
-
-    /// Whether this Mac's Iroh endpoint is registered in `routes`.
-    private nonisolated static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {
-        routes.contains { $0.kind == .iroh }
     }
 
     /// Whether `route` can serve a physical iPhone: a Tailscale route that does

@@ -1,19 +1,9 @@
 import Foundation
 
-/// The minimal pairing-QR grammars for Iroh identity and Tailscale routes.
+/// The minimal pairing-QR grammar for Tailscale routes.
 ///
-/// Retained Iroh codes carry only the stable EndpointID:
-/// `cmux-ios://attach?v=3&i=<endpoint-id>`.
-///
-/// The EndpointID is the only value the phone needs before dialing. The
-/// signed-in trust broker verifies same-account ownership while minting the
-/// pair grant, and the authenticated `mobile.host.status` response supplies
-/// the Mac's device id, display name, and build metadata after connection.
-/// Omitting those duplicate fields avoids JSON and base64 overhead, lowering
-/// the QR version while its displayed size stays unchanged.
-///
-/// Tailscale compatibility codes keep the v2 grammar so already-released
-/// clients can still scan them:
+/// Tailscale codes keep the v2 grammar so already-released clients can still
+/// scan them:
 /// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
 ///
 /// The only metadata a Tailscale code carries is what the phone consults
@@ -25,7 +15,7 @@ import Foundation
 /// build (`av`/`ab`) only ever decorated that warning's message, so they are
 /// no longer written; the decoder still reads them from older Macs' codes.
 ///
-/// Both grammars share these properties:
+/// The grammar has these properties:
 /// - **No auth token.** The owner's Stack access token is the host's sole
 ///   authorization gate; a token in the QR authorized nothing and made the
 ///   code look like a leaked credential.
@@ -52,21 +42,22 @@ import Foundation
 /// modules) and makes the code scan faster from a Mac screen.
 ///
 /// Compatibility: the Mac pairing window emits only a Tailscale pairing
-/// payload. v3 remains decodable for existing Iroh links and explicit
-/// device-attach flows. Workspace-scoped tickets, dev loopback tickets, and
-/// every RPC consumer keep the compact v1 JSON payload
+/// payload. The retired v3 grammar (one bare peer EndpointID from the removed
+/// transport) is rejected as an invalid code; it carried no route this build
+/// can dial. Workspace-scoped tickets, dev loopback tickets, and every RPC
+/// consumer keep the compact v1 JSON payload
 /// (``CmxAttachTicketCompactCoder``), and the decoder keeps accepting both that
 /// and the legacy full-key grammar.
 public struct CmxPairingQRCode: Sendable {
     /// The newest grammar version this build can decode.
     ///
     /// Distinct from ``CmxAttachTicket/currentVersion`` (the ticket structure
-    /// version): v1 URLs carry base64 JSON, v2 carries Tailscale routes, and
-    /// v3 carries one bare Iroh EndpointID.
-    public static let version = 3
+    /// version): v1 URLs carry base64 JSON and v2 carries Tailscale routes.
+    /// v3 (a bare peer EndpointID for the removed transport) is retired and
+    /// intentionally not decodable.
+    public static let version = 2
 
     private static let tailscaleVersion = 2
-    private static let irohVersion = 3
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -82,9 +73,8 @@ public struct CmxPairingQRCode: Sendable {
     /// qualify (see ``canEncode(_:routeDisclosureMode:)``); callers fall back
     /// to the compact v1 payload so every ticket still has an attach URL.
     ///
-    /// Iroh mode writes one EndpointID and nothing else. Compatibility mode
-    /// writes only the ticket's Tailscale routes; a DEBUG Mac's dev loopback
-    /// route is dropped, never written into a scannable code.
+    /// Only the ticket's Tailscale routes are written; a DEBUG Mac's dev
+    /// loopback route is dropped, never written into a scannable code.
     public func encode(
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode,
@@ -96,14 +86,6 @@ public struct CmxPairingQRCode: Sendable {
         }
         let items: [String]
         switch routeDisclosureMode {
-        case .irohIdentityOnly:
-            guard let identity = encodableIrohIdentity(of: ticket) else {
-                return nil
-            }
-            items = [
-                "v=\(Self.irohVersion)",
-                "i=\(identity.endpointID)"
-            ]
         case .legacyPrivateNetworkCompatibility:
             guard let routes = encodableTailscaleRoutes(of: ticket) else {
                 return nil
@@ -137,8 +119,6 @@ public struct CmxPairingQRCode: Sendable {
         routeDisclosureMode: CmxPairingRouteDisclosureMode
     ) -> Bool {
         switch routeDisclosureMode {
-        case .irohIdentityOnly:
-            encodableIrohIdentity(of: ticket) != nil
         case .legacyPrivateNetworkCompatibility:
             encodableTailscaleRoutes(of: ticket) != nil
         }
@@ -154,9 +134,9 @@ public struct CmxPairingQRCode: Sendable {
     /// The only routes this grammar may silently drop are loopback ones (a
     /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
     /// Anything else (workspace-scoped tickets, custom route ids, no
-    /// Tailscale route at all, or a non-Tailscale fallback route such as an
-    /// iroh peer that the bare `host:port` grammar cannot express) keeps the
-    /// compact v1 payload so the mapping stays lossless.
+    /// Tailscale route at all, or a fallback route that the bare `host:port`
+    /// grammar cannot express) keeps the compact v1 payload so the mapping
+    /// stays lossless.
     private func encodableTailscaleRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
         guard ticket.version == CmxAttachTicket.currentVersion,
               ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -182,29 +162,6 @@ public struct CmxPairingQRCode: Sendable {
         return routes
     }
 
-    /// The single canonical Iroh identity a v3 code can carry.
-    ///
-    /// Other route kinds and Iroh path hints are deliberately discarded under
-    /// identity-only disclosure. The decoder reconstructs the sole route with
-    /// canonical id `iroh` and priority zero; neither value affects selection
-    /// when the ticket has exactly one disclosed route.
-    private func encodableIrohIdentity(
-        of ticket: CmxAttachTicket
-    ) -> CmxIrohPeerIdentity? {
-        guard ticket.version == CmxAttachTicket.currentVersion,
-              ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
-            return nil
-        }
-        let irohRoutes = ticket.routes.filter { $0.kind == .iroh }
-        guard irohRoutes.count == 1,
-              let route = irohRoutes.first,
-              case let .peer(identity, _) = route.endpoint else {
-            return nil
-        }
-        return identity
-    }
-
     /// Whether `components` speaks a supported plain pairing-code grammar.
     ///
     /// v1 URLs carry a base64 JSON `payload` item instead.
@@ -212,7 +169,7 @@ public struct CmxPairingQRCode: Sendable {
         guard let version = Self.attachURLVersion(components) else {
             return false
         }
-        return version == Self.tailscaleVersion || version == Self.irohVersion
+        return version == Self.tailscaleVersion
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -245,9 +202,11 @@ public struct CmxPairingQRCode: Sendable {
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// - Parameter components: A parsed v2 or v3 attach URL.
+    /// - Parameter components: A parsed v2 attach URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
-    ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
+    ///   input (including the retired v3 grammar, which carried only a route
+    ///   for the removed transport) and
+    ///   ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
@@ -257,8 +216,6 @@ public struct CmxPairingQRCode: Sendable {
         switch version {
         case Self.tailscaleVersion:
             return try decodeTailscale(components)
-        case Self.irohVersion:
-            return try decodeIroh(components)
         default:
             throw MobileSyncPairingPayloadError.invalidURL
         }
@@ -297,39 +254,6 @@ private extension CmxPairingQRCode {
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
-            expiresAt: nil,
-            authToken: nil
-        )
-        try ticket.validate()
-        return ticket
-    }
-
-    /// Decode the v3 endpoint-only Iroh grammar.
-    func decodeIroh(_ components: URLComponents) throws -> CmxAttachTicket {
-        let items = components.queryItems ?? []
-        guard items.count == 2,
-              items.filter({ $0.name == "v" }).count == 1,
-              let endpointID = items.first(where: { $0.name == "i" })?.value,
-              items.filter({ $0.name == "i" }).count == 1,
-              let identity = try? CmxIrohPeerIdentity(endpointID: endpointID) else {
-            throw MobileSyncPairingPayloadError.invalidURL
-        }
-        let route = try CmxAttachRoute(
-            id: CmxAttachTransportKind.iroh.rawValue,
-            kind: .iroh,
-            endpoint: .peer(identity: identity, pathHints: []),
-            priority: 0
-        )
-        let ticket = try CmxAttachTicket(
-            workspaceID: "",
-            terminalID: nil,
-            macDeviceID: "",
-            macDisplayName: nil,
-            // v3 is intentionally endpoint-only. `nil` means the QR did not
-            // make a compatibility claim, unlike v2's explicit unknown value
-            // (0), which must continue to trigger its legacy warning.
-            macPairingCompatibilityVersion: nil,
-            routes: [route],
             expiresAt: nil,
             authToken: nil
         )

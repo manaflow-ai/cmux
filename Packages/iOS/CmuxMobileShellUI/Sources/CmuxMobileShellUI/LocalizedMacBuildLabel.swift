@@ -31,7 +31,7 @@ struct MacAppInstanceDisplayFormatter {
     func displayName(_ displayName: String, instanceTag: String?) -> String {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty
-            ? L10n.string("mobile.iroh.private.custom.unnamedMac", defaultValue: "Mac")
+            ? L10n.string("mobile.computers.unnamedMac", defaultValue: "Mac")
             : trimmed
         guard let label = MacBuildChannel().label(bundleID: nil, tag: instanceTag) else {
             return name
