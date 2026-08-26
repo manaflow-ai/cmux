@@ -320,6 +320,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// whole-pixel offset actually applied to Ghostty. `revision` guards
         /// the row space: the held anchor is only valid while it matches.
         var lastApplied: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)?
+        /// Device pixels of scroll-top reveal: how far past scrollback-top
+        /// the gesture has pulled, realized by the host sliding the
+        /// bottom-pinned render back down to uncover the rows the keyboard-up
+        /// presentation clips above the screen. Only ever nonzero while the
+        /// grid sits at scrollback top; cleared everywhere `lastApplied` is,
+        /// plus on every keyboard leg (the budget it was granted against
+        /// changes with the keyboard).
+        var topRevealPx: Double = 0
         #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
@@ -529,6 +537,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             : bounds.maxY
         let keyboardDockTargetTop = pointValue(dockBottomInSurface)
         let keyboardSlack = pointValue(host?.debugKeyboardAbsorptionSlack ?? 0)
+        let keyboardTopReveal = pointValue(hostedScrollTopReveal)
         let keyboardDockSource = host?.debugUsesNotificationKeyboardDock == true
             ? "notification"
             : "layoutGuide"
@@ -558,6 +567,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "terminalDockPresentationGap=\(terminalDockPresentationGap)",
             "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
             "keyboardSlack=\(keyboardSlack)",
+            "keyboardTopReveal=\(keyboardTopReveal)",
             "screenScale=\(pointValue(preferredScreenScale))",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",
@@ -1413,6 +1423,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 keyboardHeight: keyboardHeight,
                 bottomSafeAreaInset: bottomSafeAreaInset
             )
+    }
+
+    /// Points of scroll-top reveal the pixel-scroll axis has granted: how far
+    /// the host slides the bottom-pinned render back down so the rows the
+    /// keyboard-up presentation clips above the screen become visible. Read
+    /// per frame by the host's content cap alongside the blank band.
+    var hostedScrollTopReveal: CGFloat {
+        CGFloat(localPixelScrollState.withLock { $0.topRevealPx }) / max(preferredScreenScale, 1)
+    }
+
+    /// The scroll-top reveal budget in points: how much of the full-height
+    /// render the keyboard-up bottom-pin clips above the screen once the
+    /// blank band's absorption is spent. Zero with the keyboard down. This is
+    /// exactly how far the render may slide back down before it reaches its
+    /// natural (keyboard-down) position, so a full reveal never over-rotates
+    /// past the natural cap.
+    var hostedScrollTopRevealBudget: CGFloat {
+        let inset = safeAreaInsetsBottom
+        let intrusion = hostedBottomReservation(
+            keyboardHeight: keyboardHeight,
+            bottomSafeAreaInset: inset
+        ) - hostedBottomReservation(keyboardHeight: 0, bottomSafeAreaInset: inset)
+        guard intrusion > 0 else { return 0 }
+        return max(0, intrusion - (hostedBlankBelowContent ?? 0))
+    }
+
+    /// The reveal budget in device pixels, the pixel-scroll batch's unit
+    /// (captured on the main actor at pump time, alongside the epoch).
+    var hostedScrollTopRevealBudgetPx: Double {
+        Double(hostedScrollTopRevealBudget * max(preferredScreenScale, 1))
+    }
+
+    /// Drops any granted reveal without disturbing the held scroll anchor.
+    /// Called on every keyboard leg: the budget the reveal was granted
+    /// against changes with the keyboard, and a stale reveal on the next
+    /// raise would cover the newest rows the user never scrolled away from.
+    func clearHostedScrollTopReveal() {
+        localPixelScrollState.withLock { $0.topRevealPx = 0 }
     }
 
     func hostedTerminalPresentationBottom(in host: UIView) -> CGFloat? {
@@ -2307,6 +2355,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     $0.epoch &+= 1
                     $0.remainderPx = 0
                     $0.lastApplied = nil
+                    $0.topRevealPx = 0
                 }
                 // TUI scroll feel: dispatch whole lines only, carrying the
                 // fraction in its own accumulator, so the app sees clean
@@ -3128,6 +3177,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             $0.epoch &+= 1
             $0.remainderPx = 0
             $0.lastApplied = nil
+            $0.topRevealPx = 0
         }
         let interactionGeneration = recordFollowBottomInteraction()
         scrollToBottomInteractionGeneration = interactionGeneration

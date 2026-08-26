@@ -241,8 +241,17 @@ public struct TerminalLetterboxGeometry {
         maxRevealPx: Double
     ) -> (positionPx: Double, revealPx: Double) {
         let maxPosition = max(0, maxPositionPx)
-        let next = min(max(currentPositionPx + deltaPixels, 0), maxPosition)
-        return (next, 0)
+        let maxReveal = max(0, maxRevealPx)
+        // A held reveal is only meaningful against the CURRENT budget: the
+        // keyboard dismissing (budget 0) or the blank band growing must not
+        // let a stale reveal shift the grid by phantom distance.
+        let reveal = maxReveal > 0 ? min(max(0, currentRevealPx), maxReveal) : 0
+        // One continuous coordinate: negative territory is the reveal zone,
+        // so the seam at scrollback-top needs no ordering special cases —
+        // clamping the combined position derives both outputs.
+        let combined = min(max(currentPositionPx, 0), maxPosition) - reveal
+        let next = min(max(combined + deltaPixels, -maxReveal), maxPosition)
+        return (max(0, next), max(0, -next))
     }
 
     /// The cell size in device pixels derived from a measured surface size.
