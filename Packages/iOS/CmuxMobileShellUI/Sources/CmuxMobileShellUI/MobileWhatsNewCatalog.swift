@@ -137,10 +137,12 @@ enum MobileWhatsNewCatalog {
                         "mobile.connectionsUpdate.macUpdate.title",
                         defaultValue: "Action required: update your Mac"
                     ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.macUpdate.detail",
-                        defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs.",
-                        arguments: requiredMacVersionLabel
+                    detail: String(
+                        format: L10n.string(
+                            "mobile.connectionsUpdate.macUpdate.detail",
+                            defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+                        ),
+                        requiredMacVersionLabel
                     )
                 ),
             ]),
