@@ -3607,7 +3607,10 @@ class TabManager: ObservableObject {
         _ retirement: WorkspaceHandoffRetirementGate.Request
     ) {
         completePendingWorkspaceUnfocus(reason: retirement.reason)
-        workspaceSwitchCoordinator.sourceDidRetire(workspaceID: retirement.workspaceID)
+        workspaceSwitchCoordinator.sourceDidRetire(
+            workspaceID: retirement.workspaceID,
+            targetWorkspaceID: selectedTabId
+        )
     }
 
     private func prepareWorkspaceUnfocusTarget(for workspaceID: UUID) {

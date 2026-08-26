@@ -115,7 +115,6 @@ final class WorkspaceSwitchCoordinator {
         transaction.selectionCommitInterval = nil
         active = transaction
     }
-
     func beginPresentation(
         _ target: WorkspaceSwitchPresentationTarget,
         retiringWorkspaceID: UUID
@@ -174,7 +173,6 @@ final class WorkspaceSwitchCoordinator {
         }
         finishIfPossible(&transaction)
     }
-
     func noteTerminalPortalPresented(
         surfaceID: UUID,
         renderedFrameSequence: UInt64
@@ -253,9 +251,9 @@ final class WorkspaceSwitchCoordinator {
         noteInteractionReady(workspaceID: workspaceID)
     }
 
-    func noteInteractionNoLongerRequired() {
-        guard var transaction = active,
-              var readiness = transaction.readiness else {
+    func noteInteractionNoLongerRequired(workspaceID: UUID? = nil) {
+        guard var transaction = active, var readiness = transaction.readiness, workspaceID == nil ||
+              transaction.targetWorkspaceID == workspaceID else {
             return
         }
         readiness.requiresInteraction = false
@@ -265,9 +263,10 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func sourceWillRetire(workspaceID: UUID) {
+    func sourceWillRetire(workspaceID: UUID, targetWorkspaceID: UUID? = nil) {
         guard var transaction = active, !transaction.sourceRetired,
-              transaction.sourceWorkspaceID == workspaceID else {
+              transaction.sourceWorkspaceID == workspaceID, targetWorkspaceID == nil ||
+              transaction.targetWorkspaceID == targetWorkspaceID else {
             return
         }
         if transaction.portalHideInterval == nil {
@@ -283,9 +282,10 @@ final class WorkspaceSwitchCoordinator {
         active = transaction
     }
 
-    func sourceDidRetire(workspaceID: UUID) {
+    func sourceDidRetire(workspaceID: UUID, targetWorkspaceID: UUID? = nil) {
         guard var transaction = active, !transaction.sourceRetired,
-              transaction.sourceWorkspaceID == workspaceID else {
+              transaction.sourceWorkspaceID == workspaceID, targetWorkspaceID == nil ||
+              transaction.targetWorkspaceID == targetWorkspaceID else {
             return
         }
         signposts.end(transaction.portalHideInterval)
