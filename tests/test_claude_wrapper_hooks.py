@@ -626,10 +626,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(
             h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude task-sync'
-            and h.get("async") is True
+            and h.get("async") is not True
+            and h.get("timeout") == 10
             for h in task_completed_hooks
         ),
-        f"TaskCompleted should asynchronously call hooks claude task-sync, got {task_completed_hooks}",
+        f"TaskCompleted should synchronously call hooks claude task-sync, got {task_completed_hooks}",
         failures,
     )
 

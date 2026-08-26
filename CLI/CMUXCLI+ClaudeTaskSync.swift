@@ -389,7 +389,10 @@ extension CMUXCLI {
                                     destinationRecord
                                 )
                             }
-                        } else if !allDestinationsCleared {
+                        } else if !allDestinationsCleared,
+                                  !namespacedCleanupCompleted,
+                                  matchingRecord == nil,
+                                  destinationRecord == nil {
                             // Preserve a workspace-bearing namespaced proof even
                             // when the transition record was lost before the
                             // first cleanup attempt. Retirement alone is not a
