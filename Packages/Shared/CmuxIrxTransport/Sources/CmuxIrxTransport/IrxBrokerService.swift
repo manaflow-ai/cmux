@@ -114,6 +114,7 @@ public actor IrxBrokerService {
     private let credentialCache: IrxDiskCache<IrxRelayCredentialSnapshot>
     private let grantCache: IrxDiskCache<[String: IrxGrantSnapshot]>
     private var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    private var lastHintRegistered: (url: String?, at: Date)?
     private var lastDiscovery: CmxIrohDiscoveryResponse?
     private var lastDiscoveryAt: Date?
 
@@ -152,6 +153,24 @@ public actor IrxBrokerService {
             snapshot.endpointIDHex == identity.endpointIDHex
         else { return nil }
         return snapshot
+    }
+
+    /// Hint refresh with churn control: every registration write bumps the
+    /// account route revision and fans an invalidation push to EVERY device
+    /// on the account (legacy stacks re-dial pooled sessions on each one), so
+    /// re-register only when the relay URL changed or the 30-minute hint has
+    /// burned half its window. Same never-lapses guarantee, ~5x fewer writes.
+    public func registerHintIfNeeded(
+        pairingEnabled: Bool,
+        relayURLHint: String?
+    ) async throws {
+        if let last = lastHintRegistered,
+            last.url == relayURLHint,
+            Date().timeIntervalSince(last.at) < 15 * 60
+        {
+            return
+        }
+        _ = try await register(pairingEnabled: pairingEnabled, relayURLHint: relayURLHint)
     }
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
@@ -227,6 +246,7 @@ public actor IrxBrokerService {
             registeredAt: Date()
         )
         bindingCache.save(snapshot)
+        lastHintRegistered = (relayURLHint, Date())
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         journal.record(

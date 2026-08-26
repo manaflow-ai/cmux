@@ -198,7 +198,8 @@ final class MobileHostIrxRuntime {
             await pilot.setOnRotation { [weak broker, weak supervisor] in
                 guard let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
-                _ = try? await broker.register(pairingEnabled: true, relayURLHint: relay)
+                try? await broker.registerHintIfNeeded(
+                    pairingEnabled: true, relayURLHint: relay)
             }
             await pilot.start()
             registry = IrxServerSessionRegistry(journal: Self.journal)
