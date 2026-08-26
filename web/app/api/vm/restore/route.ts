@@ -1,5 +1,5 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId } from "../../../../services/vms/drivers";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -10,6 +10,10 @@ import {
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmSnapshotNotFoundError } from "../../../../services/vms/errors";
+import {
+  parseVmProviderOverrideField,
+  vmOptionalTrimmedString,
+} from "../../../../services/vms/requestSchemas";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -41,7 +45,8 @@ export async function POST(request: Request): Promise<Response> {
           action: "Send `{ \"snapshotId\": \"...\" }`.",
         });
       }
-      const snapshotId = stringField(body, "snapshotId") ?? stringField(body, "snapshot_id");
+      const snapshotId = vmOptionalTrimmedString(body.snapshotId) ??
+        vmOptionalTrimmedString(body.snapshot_id);
       if (!snapshotId) {
         return vmErrorResponse({
           error: "vm_invalid_request",
@@ -51,11 +56,13 @@ export async function POST(request: Request): Promise<Response> {
           details: { field: "snapshotId" },
         });
       }
-      const providerResult = providerField(body);
+      const providerResult = parseVmProviderOverrideField(body.provider);
       if (!providerResult.ok) return providerResult.response;
       const provider = providerResult.provider ?? defaultProviderId();
       let user: AuthedUser = initialUser;
-      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
+      const requestedBillingTeamId = vmOptionalTrimmedString(body.billingTeamId) ??
+        vmOptionalTrimmedString(body.teamId) ??
+        requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
         let refreshedUser: AuthedUser | null;
         try {
@@ -145,29 +152,6 @@ async function requiredObjectBody(request: Request): Promise<ParsedObjectBody> {
     };
   }
   return { ok: true, body: parsed as Record<string, unknown> };
-}
-
-function stringField(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; response: Response };
-
-function providerField(body: Record<string, unknown>): ProviderFieldResult {
-  const value = stringField(body, "provider");
-  if (!value) return { ok: true };
-  if (value === "e2b" || value === "freestyle" || value === "daytona" || value === "blaxel") return { ok: true, provider: value };
-  return {
-    ok: false,
-    response: vmErrorResponse({
-      error: "vm_invalid_provider",
-      status: 400,
-      message: "Unsupported Cloud VM service override.",
-      action: "Use the default Cloud VM service, or pass a supported provider.",
-      details: { field: "provider" },
-    }),
-  };
 }
 
 function idempotencyKeyFromRequest(request: Request): string | undefined {

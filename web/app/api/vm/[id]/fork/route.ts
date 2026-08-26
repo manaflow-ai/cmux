@@ -10,6 +10,7 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
+import { vmOptionalTrimmedString } from "../../../../../services/vms/requestSchemas";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -38,7 +39,9 @@ export async function POST(
       const body = parsedBody.body;
       const { id } = await params;
       let user: AuthedUser = initialUser;
-      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
+      const requestedBillingTeamId = vmOptionalTrimmedString(body.billingTeamId) ??
+        vmOptionalTrimmedString(body.teamId) ??
+        requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
         let refreshedUser: AuthedUser | null;
         try {
@@ -63,7 +66,7 @@ export async function POST(
         return vmRequiresProResponse();
       }
       const idempotencyKey = idempotencyKeyFromRequest(request);
-      const name = stringField(body, "name");
+      const name = vmOptionalTrimmedString(body.name);
       setSpanAttributes(span, {
         "cmux.vm.id": id,
         "cmux.billing.team_id_set": !!entitlements.billingTeamId,
@@ -132,11 +135,6 @@ async function optionalObjectBody(request: Request): Promise<ParsedObjectBody> {
     };
   }
   return { ok: true, body: parsed as Record<string, unknown> };
-}
-
-function stringField(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function idempotencyKeyFromRequest(request: Request): string | undefined {

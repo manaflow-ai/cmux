@@ -23,6 +23,7 @@ import {
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
+import { parseVmBaseBody } from "../../../../services/vms/requestSchemas";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
@@ -202,53 +203,7 @@ async function parseBaseRequest(
       }),
     };
   }
-  const candidate = raw as Record<string, unknown>;
-  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-  for (const [field, value] of Object.entries({
-    name: candidate.name,
-    image: candidate.image,
-    provider: candidate.provider,
-    billingTeamId: bodyBillingTeamId,
-    reason: candidate.reason,
-  })) {
-    if (value !== undefined && value !== null && typeof value !== "string") {
-      return {
-        ok: false,
-        response: vmErrorResponse({
-          error: "vm_invalid_request",
-          status: 400,
-          message: `\`${field}\` must be a string when provided.`,
-          action: "Remove the invalid field and retry.",
-          details: { field },
-        }),
-      };
-    }
-  }
-  const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
-    return {
-      ok: false,
-      response: vmErrorResponse({
-        error: "vm_invalid_provider",
-        status: 400,
-        message: "Unsupported Cloud VM service override.",
-        action: "Remove the override to use the default Cloud VM service.",
-        details: { field: "provider" },
-      }),
-    };
-  }
-  return {
-    ok: true,
-    body: {
-      name: stringValue(candidate.name),
-      image: stringValue(candidate.image),
-      provider: provider as ProviderId | undefined,
-      billingTeamId: stringValue(bodyBillingTeamId),
-      reason: stringValue(candidate.reason) ?? null,
-    },
-  };
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const parsed = parseVmBaseBody(raw as Record<string, unknown>);
+  if (!parsed.ok) return parsed;
+  return { ok: true, body: parsed.body };
 }
