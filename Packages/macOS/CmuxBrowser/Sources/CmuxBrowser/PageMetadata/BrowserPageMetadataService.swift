@@ -1,5 +1,5 @@
 import CmuxFoundation
-import Foundation
+public import Foundation
 
 /// Fetches HTML page titles through validated, IP-pinned connections.
 public actor BrowserPageMetadataService: BrowserPageMetadataFetching {

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Fetches bounded metadata for a remote browser page.
 public protocol BrowserPageMetadataFetching: Sendable {
