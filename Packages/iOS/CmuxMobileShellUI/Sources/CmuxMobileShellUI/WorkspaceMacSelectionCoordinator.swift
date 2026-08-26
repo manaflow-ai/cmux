@@ -12,7 +12,9 @@ final class WorkspaceMacSelectionCoordinator {
     typealias CancelMacSwitch = @MainActor (Bool) async -> Void
 
     @ObservationIgnored private var switchTask: Task<Void, Never>?
-    @ObservationIgnored private var switchIsCancellation = false
+    @ObservationIgnored private var switchTaskGeneration: UInt64?
+    @ObservationIgnored private var cancellationTask: Task<Void, Never>?
+    @ObservationIgnored private var cancellationGeneration: UInt64?
     @ObservationIgnored private var switchGeneration: UInt64 = 0
     private(set) var pendingSelection: WorkspaceMacSelection?
     private(set) var deferredWorkspaceSelectionGeneration: UInt64 = 0
@@ -52,7 +54,7 @@ final class WorkspaceMacSelectionCoordinator {
             await apply(selection, generation)
         }
         switchTask = task
-        switchIsCancellation = false
+        switchTaskGeneration = generation
         return task
     }
 
@@ -63,31 +65,42 @@ final class WorkspaceMacSelectionCoordinator {
         cancelMacSwitch: CancelMacSwitch?
     ) -> Task<Void, Never>? {
         let pendingSwitchTask = switchTask
-        let pendingSwitchIsCancellation = pendingSwitchTask != nil && switchIsCancellation
-        if pendingSwitchIsCancellation {
-            return pendingSwitchTask
+        let pendingSwitchGeneration = switchTaskGeneration
+        if pendingSwitchGeneration != cancellationGeneration {
+            pendingSwitchTask?.cancel()
         }
 
-        pendingSwitchTask?.cancel()
         switchTask = nil
-        switchIsCancellation = false
+        switchTaskGeneration = nil
         pendingSelection = nil
         switchGeneration &+= 1
         let generation = switchGeneration
+        if let cancellationTask {
+            return cancellationTask
+        }
         guard pendingSwitchTask != nil, cancelStoreSwitch else { return nil }
 
         let task = Task { @MainActor in
-            defer { finishSwitch(generation: generation) }
+            defer { finishCancellation(generation: generation) }
             await cancelMacSwitch?(restorePreviousOnCancel)
         }
+        cancellationTask = task
+        cancellationGeneration = generation
         switchTask = task
-        switchIsCancellation = true
+        switchTaskGeneration = generation
         return task
     }
 
     private func finishSwitch(generation: UInt64) {
-        guard switchGeneration == generation else { return }
+        guard switchTaskGeneration == generation else { return }
         switchTask = nil
-        switchIsCancellation = false
+        switchTaskGeneration = nil
+    }
+
+    private func finishCancellation(generation: UInt64) {
+        guard cancellationGeneration == generation else { return }
+        cancellationTask = nil
+        cancellationGeneration = nil
+        finishSwitch(generation: generation)
     }
 }
