@@ -2250,6 +2250,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		A10020000000000000000001 /* SurfaceSelectionLineRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000002 /* SurfaceSelectionLineRange.swift */; };
+		A10020000000000000000017 /* SurfaceSelectionNavigationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000018 /* SurfaceSelectionNavigationLoader.swift */; };
 		A1002000000000000000000D /* SurfaceSelectionReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1002000000000000000000E /* SurfaceSelectionReadResult.swift */; };
 		A1002000000000000000000B /* SurfaceSelectionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1002000000000000000000C /* SurfaceSelectionSnapshot.swift */; };
 		A10020000000000000000003 /* SurfaceSelectionSocketCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000004 /* SurfaceSelectionSocketCapture.swift */; };
@@ -5073,6 +5074,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRunPromptBatch.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		A10020000000000000000002 /* SurfaceSelectionLineRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SurfaceSelectionLineRange.swift; sourceTree = "<group>"; };
+		A10020000000000000000018 /* SurfaceSelectionNavigationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionNavigationLoader.swift; sourceTree = "<group>"; };
 		A1002000000000000000000E /* SurfaceSelectionReadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SurfaceSelectionReadResult.swift; sourceTree = "<group>"; };
 		A1002000000000000000000C /* SurfaceSelectionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SurfaceSelectionSnapshot.swift; sourceTree = "<group>"; };
 		A10020000000000000000004 /* SurfaceSelectionSocketCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionSocketCapture.swift; sourceTree = "<group>"; };
@@ -8291,6 +8293,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE75890000000000000004 /* DeflatedAssetTestSupport.swift */,
 				1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */,
 				A1002000000000000000000A /* SurfaceSelectionTests.swift */,
+				A10020000000000000000018 /* SurfaceSelectionNavigationLoader.swift */,
 				A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */,
 				C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */,
 				A10240050000000000000001 /* CodexTeamsAppServerProcessTests.swift */,
@@ -11791,7 +11794,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */,
-					A10020000000000000000009 /* SurfaceSelectionTests.swift in Sources */,
+				A10020000000000000000017 /* SurfaceSelectionNavigationLoader.swift in Sources */,
+				A10020000000000000000009 /* SurfaceSelectionTests.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,
