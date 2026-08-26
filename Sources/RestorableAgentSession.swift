@@ -1157,10 +1157,18 @@ struct RestorableAgentSessionIndex: Sendable {
             } else {
                 revalidatedLiveness
             }
+            // Restore liveness intentionally maps a mismatched generation to
+            // `.exited`, but that is not proof that the PID disappeared. Keep
+            // such a process unsafe for hibernation until the snapshot proves
+            // every recorded generation absent.
             let presentMismatchedProcess = processLiveness == .exited &&
-                recordedAgentProcessIDs.contains { processID in
-                    processSnapshot.process(pid: processID) != nil
-                }
+                entry.processLiveness == .running &&
+                (
+                    recordedAgentProcessIDs.isEmpty ||
+                        recordedAgentProcessIDs.contains { processID in
+                            processSnapshot.process(pid: processID) != nil
+                        }
+                )
             let confirmedAgentProcessIDs = Set(matchesByProcessID.compactMap { processID, match in
                 match == .matches ? processID : nil
             })
@@ -1407,6 +1415,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 } else {
                     liveProcessIdentities = [:]
                 }
+                // A mismatched identity/argv is represented as `.exited` for
+                // restore policy, but a still-present PID is not safe to
+                // reclaim. Preserve that distinction in the scope verdict.
                 let presentMismatchedProcess: Bool = {
                     guard processObservation.liveness == .exited,
                           let processID = effectiveRecord.pid,
