@@ -106,8 +106,10 @@ struct CodexTurnCompletionOwnershipTests {
             "A parent Stop with live children must remain Running: \(pendingCommands)"
         )
         #expect(
-            pendingCommands.contains { $0.hasPrefix("set_agent_lifecycle codex running ") },
-            "The pending parent boundary must be recorded as running: \(pendingCommands)"
+            AgentJournalAppendCapture.captures(in: pendingCommands).contains {
+                $0.kind == "agent.turn.completed" && $0.pendingWork
+            },
+            "The pending parent boundary must be journaled authoritatively: \(pendingCommands)"
         )
 
         try runFeedLifecycle(harness, event: "SubagentStop", id: "child-a")
