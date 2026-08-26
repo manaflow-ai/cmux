@@ -109,6 +109,21 @@ fi
     exit 1
   }
 
+# These capabilities identify cmux as the responsible app for child-process
+# requests to macOS personal-information services. Keep this check next to the
+# signing step so a release cannot silently regress to the old denial behavior.
+for entitlement in \
+  com.apple.security.personal-information.addressbook \
+  com.apple.security.personal-information.calendars \
+  com.apple.security.personal-information.location \
+  com.apple.security.personal-information.photos-library; do
+  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
+    | grep -q "<key>${entitlement}</key>" || {
+      echo "error: signed app missing $entitlement" >&2
+      exit 1
+    }
+done
+
 # Helpers must NOT carry the main app's application-identifier.
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
