@@ -47,6 +47,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let probeLimiter: WorkspaceGitMetadataProbeLimiter
     // Drives the initial-probe retry gaps.
     let clock: any GitPollClock
+    // Reads creation-watch targets off-main; injected for deterministic tests.
+    nonisolated let creationWatchFileManager: FileManager
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
@@ -67,9 +69,12 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherKeysBySourceDirectory: [String: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatchersByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: RecursivePathWatcher] = [:]
     var workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Task<Void, Never>] = [:]
-    var workspaceGitMetadataCreationWatchersByPath: [String: FileWatcher] = [:]
-    var workspaceGitMetadataCreationWatcherTasksByPath: [String: Task<Void, Never>] = [:]
-    var workspaceGitMetadataCreationWatcherProbeKeysByPath: [String: Set<WorkspaceGitProbeKey>] = [:]
+    var workspaceGitMetadataCreationWatchersByAncestor: [String: FileWatcher] = [:]
+    var workspaceGitMetadataCreationWatcherTasksByAncestor: [String: Task<Void, Never>] = [:]
+    var workspaceGitMetadataCreationWatchTargetsByAncestor: [String: Set<String>] = [:]
+    var workspaceGitMetadataCreationWatcherProbeKeysByTargetPath: [String: Set<WorkspaceGitProbeKey>] = [:]
+    var workspaceGitMetadataCreationWatcherAncestorByTargetPath: [String: String] = [:]
+    var workspaceGitMetadataCreationWatcherTargetExistsByPath: [String: Bool] = [:]
     var workspaceGitMetadataCreationWatchPathsByProbeKey: [WorkspaceGitProbeKey: Set<String>] = [:]
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
@@ -95,6 +100,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - pullRequestProbing: The PR poll service driven by probe outcomes.
     ///   - probeLimiter: Process-wide concurrent probe cap.
     ///   - clock: Initial-probe retry clock; tests inject virtual time.
+    ///   - creationWatchFileManager: Filesystem reader for missing config paths.
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
     public init(
@@ -103,6 +109,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         pullRequestProbing: any PullRequestProbing,
         probeLimiter: WorkspaceGitMetadataProbeLimiter,
         clock: any GitPollClock = SystemGitPollClock(),
+        creationWatchFileManager: FileManager = .default,
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -111,6 +118,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.pullRequestProbing = pullRequestProbing
         self.probeLimiter = probeLimiter
         self.clock = clock
+        self.creationWatchFileManager = creationWatchFileManager
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
     }

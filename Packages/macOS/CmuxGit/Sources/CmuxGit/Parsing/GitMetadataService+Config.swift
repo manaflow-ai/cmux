@@ -19,6 +19,9 @@ extension GitMetadataService {
         static let maximumFileCount = 512
         static let maximumByteCount = 4 * 1024 * 1024
         static let maximumIncludeDepth = 32
+        static let maximumDiscoveredRemoteURLCount = 4_096
+        static let maximumHasConfigConditionCount = 1_024
+        static let maximumHasConfigMatchOperationCount = 65_536
 
         var fileCount = 0
         var byteCount = 0
@@ -29,6 +32,9 @@ extension GitMetadataService {
         var configStatuses: [String: GitFileStatus?] = [:]
         var worktreeConfigEnabled = false
         var discoveredRemoteURLs: Set<String> = []
+        var effectiveRemoteLineIndexByName: [String: Int] = [:]
+        var hasConfigConditionCount = 0
+        var hasConfigMatchOperationCount = 0
         let commonConfigPaths: Set<String>
         let fileStatusReader: any GitFileStatusReading
 
@@ -144,6 +150,36 @@ extension GitMetadataService {
                 || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
         }
 
+        mutating func recordDiscoveredRemoteURL(_ remoteURL: String) {
+            guard !discoveredRemoteURLs.contains(remoteURL) else { return }
+            guard discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
+                exceeded = true
+                return
+            }
+            discoveredRemoteURLs.insert(remoteURL)
+        }
+
+        mutating func hasConfigMatches(pattern: String) -> Bool {
+            guard !pattern.isEmpty, !exceeded else { return false }
+            guard hasConfigConditionCount < Self.maximumHasConfigConditionCount else {
+                exceeded = true
+                return false
+            }
+            hasConfigConditionCount += 1
+            let operationCount = discoveredRemoteURLs.count
+            guard operationCount <= Self.maximumHasConfigMatchOperationCount
+                    - hasConfigMatchOperationCount else {
+                exceeded = true
+                return false
+            }
+            hasConfigMatchOperationCount += operationCount
+            return GitMetadataService.gitConfigGlobMatchesAny(
+                discoveredRemoteURLs,
+                pattern: pattern,
+                caseInsensitive: false
+            )
+        }
+
         /// Collects raw remote URLs for Git's deferred hasconfig condition.
         ///
         /// Discovery follows matching non-hasconfig includes, so a hasconfig
@@ -214,7 +250,7 @@ extension GitMetadataService {
                    parts[0].lowercased() == "url" {
                     let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
                     if !remoteURL.isEmpty {
-                        discoveredRemoteURLs.insert(remoteURL)
+                        recordDiscoveredRemoteURL(remoteURL)
                     }
                     continue
                 }
@@ -247,6 +283,27 @@ extension GitMetadataService {
                 return false
             }
             outputByteCount += byteCount
+            return true
+        }
+
+        mutating func recordRemoteURL(
+            remoteName: String,
+            remoteURL: String,
+            lines: inout [String]
+        ) -> Bool {
+            if remoteURL.isEmpty {
+                if let index = effectiveRemoteLineIndexByName.removeValue(forKey: remoteName) {
+                    lines[index] = ""
+                }
+                return true
+            }
+            guard effectiveRemoteLineIndexByName[remoteName] == nil else {
+                return true
+            }
+            let line = "\(remoteName)\t\(remoteURL) (fetch)\n"
+            guard appendOutput(line) else { return false }
+            effectiveRemoteLineIndexByName[remoteName] = lines.endIndex
+            lines.append(line)
             return true
         }
     }
@@ -301,11 +358,13 @@ extension GitMetadataService {
                 isCommonConfigScope: false
             )
         }
+        let discoveryIsComplete = !discoveryBudget.exceeded
         let discoveredRemoteURLs = discoveryBudget.discoveredRemoteURLs
         var budget = GitConfigTraversalBudget(
             fileStatusReader: fileStatusReader,
             commonConfigURL: commonConfigURL
         )
+        budget.discoveredRemoteURLs = discoveredRemoteURLs
         for configURL in rootConfigURLs {
             let isCommonConfigScope = budget.isCommonConfig(configURL)
             appendGitRemoteVLines(
@@ -317,7 +376,6 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: 0,
                 isCommonConfigScope: isCommonConfigScope,
-                discoveredRemoteURLs: discoveredRemoteURLs,
                 homeDirectory: homeDirectory,
                 isHasConfigGated: false
             )
@@ -332,19 +390,20 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: 0,
                 isCommonConfigScope: false,
-                discoveredRemoteURLs: discoveredRemoteURLs,
                 homeDirectory: homeDirectory,
                 isHasConfigGated: false
             )
         }
-        let rawRemoteVOutput = lines.isEmpty ? nil : lines.joined()
+        let effectiveLines = lines.filter { !$0.isEmpty }
+        let rawRemoteVOutput = effectiveLines.isEmpty ? nil : effectiveLines.joined()
         let remoteVOutput = rawRemoteVOutput.flatMap {
             rewrittenRemoteVOutput($0, rewrites: budget.urlRewrites)
         }
         return GitRemoteConfigSnapshot(
             remoteVOutput: remoteVOutput,
             configURLs: configURLs,
-            isComplete: !budget.exceeded
+            isComplete: discoveryIsComplete
+                && !budget.exceeded
                 && (rawRemoteVOutput == nil || remoteVOutput != nil),
             watchFallbackURLs: budget.fallbackURLs,
             configStatuses: budget.configStatuses
@@ -528,6 +587,7 @@ extension GitMetadataService {
     nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
         var currentRemoteName: String?
         var lines: [String] = []
+        var effectiveRemoteLineIndexByName: [String: Int] = [:]
 
         for rawLine in config.components(separatedBy: .newlines) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
@@ -546,25 +606,21 @@ extension GitMetadataService {
             }
             let remoteURL = gitConfigUnquotedValue(parts[1])
             if remoteURL.isEmpty {
-                removeRemoteVLines(named: currentRemoteName, from: &lines)
+                if let index = effectiveRemoteLineIndexByName.removeValue(
+                    forKey: currentRemoteName
+                ) {
+                    lines[index] = ""
+                }
                 continue
             }
+            guard effectiveRemoteLineIndexByName[currentRemoteName] == nil else {
+                continue
+            }
+            effectiveRemoteLineIndexByName[currentRemoteName] = lines.endIndex
             lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
         }
 
-        return lines
-    }
-
-    /// Removes all inherited fetch URLs for one remote after an empty reset.
-    private nonisolated static func removeRemoteVLines(
-        named remoteName: String,
-        from lines: inout [String]
-    ) {
-        lines.removeAll { line in
-            line.split(whereSeparator: \.isWhitespace)
-                .first
-                .map(String.init) == remoteName
-        }
+        return lines.filter { !$0.isEmpty }
     }
 
     /// Appends `git remote -v` fetch lines from a config file (and its matching
@@ -579,7 +635,6 @@ extension GitMetadataService {
         budget: inout GitConfigTraversalBudget,
         depth: Int,
         isCommonConfigScope: Bool,
-        discoveredRemoteURLs: Set<String>,
         homeDirectory: URL,
         isHasConfigGated: Bool
     ) {
@@ -623,14 +678,20 @@ extension GitMetadataService {
                     currentSectionAllowsIncludePath = true
                     currentSectionIsHasConfig = false
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
-                    currentSectionIsHasConfig = condition.lowercased().hasPrefix("hasconfig:")
-                    currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
-                        condition,
-                        repository: repository,
-                        configURL: configURL,
-                        discoveredRemoteURLs: discoveredRemoteURLs,
-                        homeDirectory: homeDirectory
-                    )
+                    if let pattern = gitConfigHasConfigPattern(from: condition) {
+                        currentSectionIsHasConfig = true
+                        currentSectionAllowsIncludePath = budget.hasConfigMatches(
+                            pattern: pattern
+                        )
+                    } else {
+                        currentSectionIsHasConfig = false
+                        currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
+                            condition,
+                            repository: repository,
+                            configURL: configURL,
+                            homeDirectory: homeDirectory
+                        )
+                    }
                 } else {
                     currentSectionAllowsIncludePath = false
                     currentSectionIsHasConfig = false
@@ -652,13 +713,11 @@ extension GitMetadataService {
                parts.count == 2,
                parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
-                if remoteURL.isEmpty {
-                    removeRemoteVLines(named: currentRemoteName, from: &lines)
-                    continue
-                }
-                let line = "\(currentRemoteName)\t\(remoteURL) (fetch)\n"
-                guard budget.appendOutput(line) else { return }
-                lines.append(line)
+                guard budget.recordRemoteURL(
+                    remoteName: currentRemoteName,
+                    remoteURL: remoteURL,
+                    lines: &lines
+                ) else { return }
                 continue
             }
 
@@ -693,7 +752,6 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: depth + 1,
                 isCommonConfigScope: isCommonConfigScope,
-                discoveredRemoteURLs: discoveredRemoteURLs,
                 homeDirectory: homeDirectory,
                 isHasConfigGated: isHasConfigGated || currentSectionIsHasConfig
             )
@@ -948,12 +1006,12 @@ extension GitMetadataService {
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
-        let hasConfigPrefix = "hasconfig:remote.*.url:"
-        if lowercasedCondition.hasPrefix(hasConfigPrefix) {
-            let pattern = String(condition.dropFirst(hasConfigPrefix.count))
-            return !pattern.isEmpty && discoveredRemoteURLs.contains {
-                gitConfigGlobMatches($0, pattern: pattern, caseInsensitive: false)
-            }
+        if let pattern = gitConfigHasConfigPattern(from: condition) {
+            return gitConfigGlobMatchesAny(
+                discoveredRemoteURLs,
+                pattern: pattern,
+                caseInsensitive: false
+            )
         }
         if lowercasedCondition.hasPrefix("gitdir/i:") {
             let pattern = String(condition.dropFirst("gitdir/i:".count))
@@ -1006,6 +1064,15 @@ extension GitMetadataService {
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false
+    }
+
+    private nonisolated static func gitConfigHasConfigPattern(
+        from condition: String
+    ) -> String? {
+        let prefix = "hasconfig:remote.*.url:"
+        guard condition.lowercased().hasPrefix(prefix) else { return nil }
+        let pattern = String(condition.dropFirst(prefix.count))
+        return pattern.isEmpty ? nil : pattern
     }
 
     /// Whether a `gitdir`/`gitdir/i` glob pattern matches any of the repository's
@@ -1133,6 +1200,31 @@ extension GitMetadataService {
         }
         let range = NSRange(candidateValue.startIndex..<candidateValue.endIndex, in: candidateValue)
         return regex.firstMatch(in: candidateValue, range: range) != nil
+    }
+
+    private nonisolated static func gitConfigGlobMatchesAny(
+        _ values: Set<String>,
+        pattern: String,
+        caseInsensitive: Bool
+    ) -> Bool {
+        guard !values.isEmpty else { return false }
+        let candidatePattern = caseInsensitive ? pattern.lowercased() : pattern
+        guard let regex = try? NSRegularExpression(
+            pattern: gitConfigGlobRegexPattern(candidatePattern)
+        ) else {
+            return values.contains { value in
+                let candidateValue = caseInsensitive ? value.lowercased() : value
+                return fnmatch(candidatePattern, candidateValue, 0) == 0
+            }
+        }
+        return values.contains { value in
+            let candidateValue = caseInsensitive ? value.lowercased() : value
+            let range = NSRange(
+                candidateValue.startIndex..<candidateValue.endIndex,
+                in: candidateValue
+            )
+            return regex.firstMatch(in: candidateValue, range: range) != nil
+        }
     }
 
     /// Translates a git-style glob (`*`, `**`, `?`, `[…]`) into an anchored
