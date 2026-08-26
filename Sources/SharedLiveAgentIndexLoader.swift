@@ -142,7 +142,11 @@ struct SharedLiveAgentIndexLoader {
     private static func terminationProcessIdentityFingerprint(
         from index: RestorableAgentSessionIndex
     ) -> Set<String> {
-        Set(index.forkValidationEntries().map { key, entry in
+        Set(index.forkValidationEntries().compactMap { key, entry in
+            guard entry.processLiveness == .running,
+                  !entry.terminationProcessIDs.isEmpty else {
+                return nil
+            }
             let identities: String
             if entry.terminationProcessIDs.count >
                 AgentHibernationController.maximumScopedProcessTerminationCount {
