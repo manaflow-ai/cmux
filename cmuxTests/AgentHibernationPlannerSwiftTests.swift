@@ -234,6 +234,46 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
+    func pressureEvictionOrderIsOldestActivityThenPanelID() {
+        let workspaceID = UUID()
+        let older = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
+        let newer = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: false,
+            idleSeconds: 60,
+            maxLiveTerminals: 8,
+            confirmationSeconds: 5
+        )
+        let ordered = AgentHibernationPlanner.orderedPanelKeys(
+            inputs: [
+                .init(
+                    key: newer,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 200
+                ),
+                .init(
+                    key: older,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 100
+                ),
+            ],
+            settings: settings,
+            now: 300,
+            trigger: .systemMemoryPressure
+        )
+
+        #expect(ordered == [older, newer])
+    }
+
+    @Test
     func criticalPressureSelectsBoundedSafeIdleBatchWhenScheduledHibernationIsDisabled() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000

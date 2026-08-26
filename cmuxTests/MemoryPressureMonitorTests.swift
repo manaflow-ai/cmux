@@ -40,6 +40,14 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
     }
 }
 
+private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
+    let sample: MemoryPressureAggregateSample
+
+    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+        sample.withSampledAt(sampledAt)
+    }
+}
+
 struct MemoryPressureStateTrackerTests {
     @Test func footprintThresholdsMapToSeverity() {
         let thresholds = MemoryPressureFootprintThresholds(
@@ -148,6 +156,45 @@ struct MemoryPressureStateTrackerTests {
             sampledAt: start.addingTimeInterval(40)
         )
         #expect(secondEpisode.didBecomePersistentCritical)
+    }
+
+    @Test func aggregateAccountingDeduplicatesOverlappingDescendants() {
+        let accounting = MemoryPressureAggregateAccounting()
+        let result = accounting.summarize([
+            .init(pid: 10, bytes: 400),
+            .init(pid: 11, bytes: 900),
+            .init(pid: 11, bytes: 900),
+            .init(pid: 12, bytes: 100)
+        ])
+
+        #expect(result.uniquePIDs == [10, 11, 12])
+        #expect(result.aggregateBytes == 1_400)
+        #expect(result.duplicatePIDs == [11])
+    }
+
+    @Test func aggregatePolicyUsesRelativeThresholdsAndFailsSafeWhenUnavailable() {
+        let policy = MemoryPressureAggregatePolicy(
+            warningCoalitionFraction: 0.5,
+            criticalCoalitionFraction: 0.75
+        )
+        let warning = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 4_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 4,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 10)
+        )
+        #expect(policy.severity(for: warning) == .warning)
+
+        let critical = warning.withAggregateBytes(6_000)
+        #expect(policy.severity(for: critical) == .critical)
+
+        let unavailable = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 11)
+        )
+        #expect(policy.severity(for: unavailable) == .normal)
     }
 }
 
@@ -271,6 +318,90 @@ struct MemoryPressureMonitorTests {
         #expect(monitor.currentSeverity == .warning)
         #expect(monitor.physicalFootprintBytes == 1_500)
         #expect(responder.calls.map(\.severity) == [.warning])
+    }
+
+    @Test func aggregateSamplingDrivesSeverityAndIsExposedInSnapshot() {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "renderer",
+            minimumSeverity: .warning,
+            priority: 1
+        )
+        registry.register(responder)
+        let aggregateSample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 6_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 6,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: aggregateSample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10,
+            sampleInterval: 60
+        )
+
+        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 12))
+
+        #expect(monitor.currentSeverity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.severity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.aggregateBytes == 6_000)
+        #expect(responder.calls.map(\.severity) == [.warning])
+    }
+
+    @Test func unavailableAggregateMetricsNeverCreateActionableAggregatePressure() {
+        let sample = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60
+        )
+
+        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 13))
+
+        #expect(monitor.currentSeverity == .normal)
+        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+    }
+
+    @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() {
+        let sample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 500,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 3,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60
+        )
+
+        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 14))
+        monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 15))
+
+        #expect(monitor.currentSeverity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.severity == .normal)
+        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
     }
 
     @Test func samplingPreservesRecentSystemPressureEvent() {
