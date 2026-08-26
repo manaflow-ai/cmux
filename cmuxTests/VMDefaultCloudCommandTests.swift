@@ -94,9 +94,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertNil(params["image"])
+                // Bare `vm new` now lets the backend choose the provider and
+                // requests the desktop image by default.
+                XCTAssertNil(params["provider"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -147,7 +149,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.rename":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
-                XCTAssertEqual(params["title"] as? String, "sshd")
+                XCTAssertEqual(params["title"] as? String, "vm:\(vmID)")
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "workspace.action":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -257,7 +259,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertNil(params["image"])
+                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
@@ -497,9 +499,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertNil(params["image"])
+                // A fresh machine is distinct from the legacy Base slot: the
+                // backend chooses the provider and the CLI requests a desktop.
+                XCTAssertNil(params["provider"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -684,9 +688,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertNil(params["image"])
+                // A fresh bare machine lets the backend choose its provider,
+                // requests the desktop image, and uses a per-create key rather
+                // than the legacy shared Base-slot idempotency key.
+                XCTAssertNil(params["provider"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -747,7 +754,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.rename":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
-                XCTAssertEqual(params["title"] as? String, "sshd")
+                XCTAssertEqual(params["title"] as? String, "vm:\(vmID)")
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": createdWorkspaceID])
             case "workspace.action":
                 let params = payload["params"] as? [String: Any] ?? [:]
