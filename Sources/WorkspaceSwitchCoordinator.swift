@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import WebKit
 
@@ -18,6 +19,7 @@ final class WorkspaceSwitchCoordinator {
     private let notificationCenter: NotificationCenter
     private let beginRendererProtection: @MainActor (UUID, UUID, @escaping () -> Bool) -> Void
     private let endRendererProtection: @MainActor (UUID) -> Void
+    private let presentationExpiryScheduler: MainActorDeferredActionScheduler
     private var active: WorkspaceSwitchActiveTransaction?
     private var reconciledWorkspaceID: UUID?
     init(
@@ -32,12 +34,14 @@ final class WorkspaceSwitchCoordinator {
         },
         endRendererProtection: @escaping @MainActor (UUID) -> Void = { requestID in
             RendererRealizationController.shared.endWorkspaceSwitchPresentationProtection(requestID: requestID)
-        }
+        },
+        presentationExpiryScheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler()
     ) {
         self.signposts = signposts
         self.notificationCenter = notificationCenter
         self.beginRendererProtection = beginRendererProtection
         self.endRendererProtection = endRendererProtection
+        self.presentationExpiryScheduler = presentationExpiryScheduler
     }
 
     /// The current destination's visual diagnostic state.
@@ -262,7 +266,7 @@ final class WorkspaceSwitchCoordinator {
     }
 
     func sourceWillRetire(workspaceID: UUID) {
-        guard var transaction = active,
+        guard var transaction = active, !transaction.sourceRetired,
               transaction.sourceWorkspaceID == workspaceID else {
             return
         }
@@ -280,7 +284,7 @@ final class WorkspaceSwitchCoordinator {
     }
 
     func sourceDidRetire(workspaceID: UUID) {
-        guard var transaction = active,
+        guard var transaction = active, !transaction.sourceRetired,
               transaction.sourceWorkspaceID == workspaceID else {
             return
         }
@@ -294,9 +298,12 @@ final class WorkspaceSwitchCoordinator {
         releaseRendererProtectionIfTargetIsPresented(&transaction)
         guard transaction.readiness?.presentationIsReady == true else {
             // Mount reconciliation has completed, but retain the transaction
-            // until the destination portal presents. This keeps renderer
-            // protection across the asynchronous layout follow-up while the
-            // frame observer remains request-scoped and cancellable.
+            // until the destination portal presents. A two-second safety
+            // deadline bounds this cleanup-only lease; it never delays mount
+            // ownership or selection.
+            presentationExpiryScheduler.schedule(after: .seconds(2)) { [weak self, requestID = transaction.requestID] in
+                self?.expireUnresolvedPresentation(requestID: requestID)
+            }
             active = transaction
             return
         }
@@ -433,14 +440,26 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func finishTransaction() {
+        presentationExpiryScheduler.cancel()
         active = nil
         notificationCenter.post(name: .workspaceSwitchDidFinish, object: self)
     }
 
     private func releaseRendererProtection(_ transaction: inout WorkspaceSwitchActiveTransaction) {
         guard transaction.rendererProtectionActive else { return }
+        presentationExpiryScheduler.cancel()
         endRendererProtection(transaction.requestID)
         transaction.rendererProtectionActive = false
+    }
+
+    private func expireUnresolvedPresentation(requestID: UUID) {
+        guard var transaction = active,
+              transaction.requestID == requestID,
+              transaction.sourceRetired else { return }
+        releaseRendererProtection(&transaction)
+        releaseFrameObservation(&transaction)
+        endAllIntervals(in: transaction)
+        finishTransaction()
     }
 
     private func releaseRendererProtectionIfTargetIsPresented(

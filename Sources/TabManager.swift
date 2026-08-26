@@ -2438,10 +2438,7 @@ class TabManager: ObservableObject {
         pendingWorkspaceUnfocusTarget = nil
         notificationDismissal.setPendingSelectionContext(nil)
         notificationDismissal.setSuppressesFocusFlash(false)
-        workspaceCycleCooldownTask?.cancel()
-        workspaceCycleCooldownTask = nil
-        workspaceCycleGeneration &+= 1
-        isWorkspaceCycleHot = false
+        workspaceHandoffRetirementGate.cancel()
         browserModel.clearRecentlyClosedBrowserPanels()
 
         tabs.removeAll()
