@@ -33091,8 +33091,9 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let codexInvocation = def.name == "codex" ? codexHookInvocation(environment: env) : nil
-        let codexLedger = def.name == "codex" ? codexTurnLedger(environment: env) : nil
+        let codexLifecycle = def.name == "codex"
+            ? CodexTurnLifecycleCoordinator(environment: env, cli: self)
+            : nil
         let cursorShellHasAuthoritativeSession = input.sessionId?.isEmpty == false
         let mappedSessionForPolicy = cursorShellEvent
             ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline)))
@@ -34088,7 +34089,7 @@ export default CMUXSessionRestore;
 
         switch action {
         case .codexSubagentStart, .codexSubagentStop:
-            guard def.name == "codex", let codexLedger, let codexInvocation else {
+            guard def.name == "codex", let codexLifecycle else {
                 break
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -34101,43 +34102,18 @@ export default CMUXSessionRestore;
                 firstString(in: $0, keys: ["agent_id", "agentId"])
             }
             let turnId = normalizedHookValue(input.turnId)
-            let decision: CodexTurnLedgerDecision
-            do {
-                if case .codexSubagentStart = action {
-                    decision = try codexLedger.subagentStart(
-                        sessionID: sessionId,
-                        agentID: agentId,
-                        turnID: turnId,
-                        workspaceID: workspaceId,
-                        surfaceID: surfaceId,
-                        invocation: codexInvocation
-                    )
-                } else {
-                    decision = try codexLedger.subagentStop(
-                        sessionID: sessionId,
-                        agentID: agentId,
-                        turnID: turnId,
-                        workspaceID: workspaceId,
-                        surfaceID: surfaceId,
-                        invocation: codexInvocation
-                    )
-                }
-            } catch {
-                // A failed lifecycle commit is not evidence that work drained.
-                // Keep the event unattributed and let the next parent Stop fail
-                // closed rather than allowing a false completion.
-                telemetry.captureError(stage: "codex-child-lifecycle", error: error)
-                if let workspaceId, let surfaceId {
-                    emitJournal(
-                        .stateChanged,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        isSubagent: true,
-                        detail: "child-lifecycle-commit-failed"
-                    )
-                }
-                return
-            }
+            let starts = {
+                if case .codexSubagentStart = action { return true }
+                return false
+            }()
+            let decision = codexLifecycle.subagent(
+                sessionID: sessionId,
+                agentID: agentId,
+                turnID: turnId,
+                workspaceID: workspaceId,
+                surfaceID: surfaceId,
+                starts: starts
+            )
             if let workspaceId, let surfaceId {
                 let childJournalKind: AgentJournalEventKind = {
                     if case .codexSubagentStart = action {
@@ -34166,14 +34142,13 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = inferredPID
-            if def.name == "codex", let codexLedger, let codexInvocation {
-                let ownership = try? codexLedger.sessionStart(
+            if let codexLifecycle {
+                let ownership = codexLifecycle.sessionStart(
                     sessionID: sessionId,
                     workspaceID: workspaceId,
-                    surfaceID: surfaceId,
-                    invocation: codexInvocation
+                    surfaceID: surfaceId
                 )
-                guard ownership?.ownership == .foreground else {
+                guard ownership.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.session-start.nested-or-unknown")
                     emitJournal(
                         .sessionStarted,
@@ -34336,15 +34311,14 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            if def.name == "codex", let codexLedger, let codexInvocation {
-                let ownership = try? codexLedger.promptSubmit(
+            if let codexLifecycle {
+                let ownership = codexLifecycle.promptSubmit(
                     sessionID: sessionId,
                     turnID: input.turnId,
                     workspaceID: workspaceId,
-                    surfaceID: surfaceId,
-                    invocation: codexInvocation
+                    surfaceID: surfaceId
                 )
-                guard ownership?.ownership == .foreground else {
+                guard ownership.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.prompt-submit.nested-or-unknown")
                     emitJournal(
                         .turnStarted,
@@ -34766,16 +34740,14 @@ export default CMUXSessionRestore;
             let codexStopDecision: CodexTurnLedgerDecision? = {
                 guard def.name == "codex",
                       !sessionId.isEmpty,
-                      let codexLedger,
-                      let codexInvocation else {
+                      let codexLifecycle else {
                     return nil
                 }
-                return try? codexLedger.stop(
+                return codexLifecycle.stop(
                     sessionID: sessionId,
                     turnID: input.turnId,
                     workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
-                    surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId,
-                    invocation: codexInvocation
+                    surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId
                 )
             }()
             if def.name == "codex", !sessionId.isEmpty {
@@ -35303,15 +35275,13 @@ export default CMUXSessionRestore;
             }
 
         case .notification:
-            if def.name == "codex", !sessionId.isEmpty,
-               let codexLedger, let codexInvocation {
-                let ownership = try? codexLedger.observe(
+            if let codexLifecycle, !sessionId.isEmpty {
+                let ownership = codexLifecycle.observe(
                     sessionID: sessionId,
                     workspaceID: resolvedDirectWorkspaceArg,
-                    surfaceID: resolvedDirectSurfaceArg,
-                    invocation: codexInvocation
+                    surfaceID: resolvedDirectSurfaceArg
                 )
-                guard ownership?.ownership == .foreground else {
+                guard ownership.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.notification.nested-or-unknown")
                     print("{}")
                     return
@@ -35748,15 +35718,13 @@ export default CMUXSessionRestore;
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
-            if def.name == "codex", !sessionId.isEmpty,
-               let codexLedger, let codexInvocation {
-                let ownership = try? codexLedger.sessionEnd(
+            if let codexLifecycle, !sessionId.isEmpty {
+                let ownership = codexLifecycle.sessionEnd(
                     sessionID: sessionId,
                     workspaceID: resolvedDirectWorkspaceArg,
-                    surfaceID: resolvedDirectSurfaceArg,
-                    invocation: codexInvocation
+                    surfaceID: resolvedDirectSurfaceArg
                 )
-                guard ownership?.ownership == .foreground else {
+                guard ownership.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.session-end.nested-or-unknown")
                     print("{}")
                     return
@@ -35831,15 +35799,13 @@ export default CMUXSessionRestore;
             }
 
         case .sessionFinalize:
-            if def.name == "codex", !sessionId.isEmpty,
-               let codexLedger, let codexInvocation {
-                let ownership = try? codexLedger.sessionEnd(
+            if let codexLifecycle, !sessionId.isEmpty {
+                let ownership = codexLifecycle.sessionEnd(
                     sessionID: sessionId,
                     workspaceID: resolvedDirectWorkspaceArg,
-                    surfaceID: resolvedDirectSurfaceArg,
-                    invocation: codexInvocation
+                    surfaceID: resolvedDirectSurfaceArg
                 )
-                guard ownership?.ownership == .foreground else {
+                guard ownership.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.session-finalize.nested-or-unknown")
                     print("{}")
                     return
@@ -38222,44 +38188,20 @@ export default CMUXSessionRestore;
         // whether a foreground turn is settled; transcript text is not part of
         // the lifecycle decision.
         if source == "codex",
-           hookEventName == "SubagentStart" || hookEventName == "SubagentStop",
-           let codexInvocation = Optional(codexHookInvocation(environment: env)) {
-            let childID = firstString(in: stdinObj, keys: ["agent_id", "agentId"])
-            let childTurnID = firstString(in: stdinObj, keys: ["turn_id", "turnId"])
-            let childWorkspaceID = feedWorkspaceId(
-                rawObject: stdinObj,
-                fallback: env["CMUX_WORKSPACE_ID"]
+           hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
+            let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)
+            _ = lifecycle.recordFeedLifecycle(
+                sessionID: sessionId,
+                eventName: hookEventName,
+                agentID: firstString(in: stdinObj, keys: ["agent_id", "agentId"]),
+                turnID: firstString(in: stdinObj, keys: ["turn_id", "turnId"]),
+                workspaceID: feedWorkspaceId(
+                    rawObject: stdinObj,
+                    fallback: env["CMUX_WORKSPACE_ID"]
+                ),
+                surfaceID: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+                    ?? env["CMUX_SURFACE_ID"]
             )
-            let childSurfaceID = firstString(
-                in: stdinObj,
-                keys: ["surface_id", "surfaceId"]
-            ) ?? env["CMUX_SURFACE_ID"]
-            let ledger = codexTurnLedger(environment: env)
-            do {
-                if hookEventName == "SubagentStart" {
-                    _ = try ledger.subagentStart(
-                        sessionID: sessionId,
-                        agentID: childID,
-                        turnID: childTurnID,
-                        workspaceID: childWorkspaceID,
-                        surfaceID: childSurfaceID,
-                        invocation: codexInvocation
-                    )
-                } else {
-                    _ = try ledger.subagentStop(
-                        sessionID: sessionId,
-                        agentID: childID,
-                        turnID: childTurnID,
-                        workspaceID: childWorkspaceID,
-                        surfaceID: childSurfaceID,
-                        invocation: codexInvocation
-                    )
-                }
-            } catch {
-                // Feed telemetry remains best-effort, but a lifecycle write
-                // failure must never be interpreted as proof that work drained.
-                telemetry.captureError(stage: "codex-child-lifecycle", error: error)
-            }
         }
 
         var eventDict: [String: Any] = [
