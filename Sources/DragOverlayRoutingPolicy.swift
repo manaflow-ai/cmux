@@ -216,8 +216,25 @@ enum DragOverlayRoutingPolicy {
         hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
     }
 
+    /// Returns whether a file drop payload is live rather than residual.
+    ///
+    /// Finder drops are identified by their file URL. File-preview drags also
+    /// publish a file URL, but their private transfer type is only accepted
+    /// while the process-local capability registry still resolves it.
+    @MainActor
+    static func hasLiveFileDropPayload(from pasteboard: NSPasteboard) -> Bool {
+        let types = pasteboard.types
+        guard hasFileDropPayload(types) else { return false }
+        // A real Finder file URL remains valid even if AppKit leaves a stale
+        // private preview UTI on the same pasteboard. Only preview-only
+        // payloads need a live in-process capability.
+        if hasFileURL(types) { return true }
+        return AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil
+    }
+
     @MainActor
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        guard hasLiveFileDropPayload(from: pasteboard) else { return [] }
         let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return fileURLs

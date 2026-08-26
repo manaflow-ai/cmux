@@ -11061,7 +11061,10 @@ struct VerticalTabsSidebar: View, Equatable {
             // A live coordinator identity is valid for both local reorders and
             // cross-window destination presentations. The registry is the
             // liveness gate; residual pasteboard data never reaches this path.
-            get: { dragState.draggedTabId ?? dragState.currentWorkspaceDragId },
+            get: {
+                guard acceptsLiveSidebarPayloadForBinding() else { return nil }
+                return dragState.draggedTabId ?? dragState.currentWorkspaceDragId
+            },
             set: { newValue in
                 if let newValue {
                     _ = dragState.activateDragging(tabId: newValue)
@@ -11073,6 +11076,15 @@ struct VerticalTabsSidebar: View, Equatable {
                     dragState.dismissPresentation()
                 }
             }
+        )
+    }
+
+    /// Keeps extension-sidebar delegates from falling back to a newer process
+    /// session when a late payload from an older drag is still being delivered.
+    private func acceptsLiveSidebarPayloadForBinding() -> Bool {
+        SidebarTabDragPayload.hasLiveSession(
+            in: NSPasteboard(name: .drag),
+            currentSessionId: dragState.currentWorkspaceDragSessionId
         )
     }
 

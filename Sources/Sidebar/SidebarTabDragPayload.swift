@@ -49,6 +49,19 @@ struct SidebarTabDragPayload {
         sessionId(fromPasteboardString: pasteboardString(from: pasteboard))
     }
 
+    /// Reports whether the pasteboard carries the currently live native
+    /// sidebar session. A residual or legacy payload is never considered live.
+    static func hasLiveSession(
+        in pasteboard: NSPasteboard,
+        currentSessionId: UUID?
+    ) -> Bool {
+        guard let currentSessionId,
+              let payloadSessionId = sessionId(from: pasteboard) else {
+            return false
+        }
+        return payloadSessionId == currentSessionId
+    }
+
     /// Creates an AppKit pasteboard item, optionally fenced to one session.
     func pasteboardItem() -> NSPasteboardItem {
         let item = NSPasteboardItem()
