@@ -227,6 +227,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         let effectiveDeadline = deadline
             ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         [repository.gitDirectory, repository.commonDirectory].contains { directory in
+            guard effectiveDeadline > DispatchTime.now() else { return false }
             let reftableDirectory = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true)
             guard storageProbe.isDirectory(atPath: reftableDirectory.path) else {
@@ -240,11 +241,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             ) {
             case .contents, .oversized:
                 return true
-            case .missing:
-                // An empty reftable directory is valid for an unborn checkout;
-                // the injected directory probe is the authoritative signal.
-                return true
-            case .unavailable:
+            case .missing, .unavailable:
                 return false
             }
         }
@@ -258,7 +255,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     ) -> GitReferenceSnapshot {
         let deadline = deadline ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         guard let runner = runnerSelector.select(repository: repository, deadline: deadline) else {
-            return unreadableSnapshot()
+            return unreadableSnapshot(usesGitPlumbing: true)
         }
         return plumbingSnapshot(
             repository: repository,

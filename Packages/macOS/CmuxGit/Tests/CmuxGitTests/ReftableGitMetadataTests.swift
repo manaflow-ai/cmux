@@ -7,6 +7,10 @@ private nonisolated struct AlwaysExecutableGitProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath _: String) -> Bool { true }
 }
 
+private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
+    func isDirectory(atPath _: String) -> Bool { false }
+}
+
 @Suite struct ReftableGitMetadataTests {
     @Test func referenceResolverRetainsAbsoluteUserPathGitCandidates() {
         let userGitDirectory = "/Users/cmux-tests/.local/bin"
@@ -20,6 +24,53 @@ private nonisolated struct AlwaysExecutableGitProbe: GitExecutableFileProbing {
         let candidates = resolver.referenceExecutableURLs().map(\.path)
 
         #expect(candidates.contains(userGitDirectory + "/git"))
+    }
+
+    @Test func failedReftablePlumbingRemainsMarkedAsPlumbing() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let reftableURL = fixture.gitDirectory.appendingPathComponent("reftable", isDirectory: true)
+        try FileManager.default.createDirectory(at: reftableURL, withIntermediateDirectories: true)
+        try "".write(
+            to: reftableURL.appendingPathComponent("tables.list"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [:])
+        )
+
+        let snapshot = reader.snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .unreadable)
+        #expect(snapshot.usesGitPlumbing)
+    }
+
+    @Test func injectedReferenceStorageProbeControlsBackendDetection() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let reftableURL = fixture.gitDirectory.appendingPathComponent("reftable", isDirectory: true)
+        try FileManager.default.createDirectory(at: reftableURL, withIntermediateDirectories: true)
+        try "".write(
+            to: reftableURL.appendingPathComponent("tables.list"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [:]),
+            storageProbe: NeverDirectoryProbe()
+        )
+
+        let snapshot = reader.snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .branch("main"))
+        #expect(!snapshot.usesGitPlumbing)
     }
 
     /// Reproduces a linked reftable worktree whose HEAD contains `.invalid`.

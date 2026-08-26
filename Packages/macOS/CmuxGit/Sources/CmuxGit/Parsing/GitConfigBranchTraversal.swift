@@ -65,7 +65,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             .prefix(2)
             .map { $0.standardizedFileURL.path }
         if result.isComplete, result.worktreeConfigEnabled {
-            if result.configURLs.contains(where: { $0.standardizedFileURL == worktreeConfigURL }) {
+            if configReader.isLocalRegularFile(at: worktreeConfigURL, deadline: deadline) {
                 rootWatchPaths.append(worktreeConfigURL.path)
             } else {
                 rootWatchPaths.append(worktreeConfigURL.deletingLastPathComponent().path)

@@ -15,13 +15,12 @@ extension GitMetadataService {
         for root in existingRoots {
             watchedPaths.insert(root)
         }
-        let metadataPaths = Set(descriptor.gitMetadataPaths).union(existingRoots)
         let rootIsForced = existingRoots.contains(descriptor.repositoryRoot)
         let anyForcedRoot = !existingRoots.isEmpty
         return GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: descriptor.repositoryRoot,
             watchedPaths: watchedPaths.sorted(),
-            gitMetadataPaths: metadataPaths.sorted(),
+            gitMetadataPaths: descriptor.gitMetadataPaths,
             trackedEntryPaths: rootIsForced ? [] : descriptor.trackedEntryPaths,
             forcedWorkTreeRoots: existingRoots.sorted(),
             acceptsAllWorkTreeEvents: rootIsForced || descriptor.acceptsAllWorkTreeEvents,

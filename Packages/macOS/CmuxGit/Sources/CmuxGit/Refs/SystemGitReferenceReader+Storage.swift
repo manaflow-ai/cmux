@@ -62,8 +62,13 @@ extension SystemGitReferenceReader {
         return hasInclude ? .incomplete : .complete(storageName)
     }
 
-    func unreadableSnapshot() -> GitReferenceSnapshot {
-        GitReferenceSnapshot(checkedOutBranch: .unreadable, headSignature: nil, currentCommit: nil)
+    func unreadableSnapshot(usesGitPlumbing: Bool = false) -> GitReferenceSnapshot {
+        GitReferenceSnapshot(
+            checkedOutBranch: .unreadable,
+            headSignature: nil,
+            currentCommit: nil,
+            usesGitPlumbing: usesGitPlumbing
+        )
     }
 
     /// Reads file-backed refs through the same regular-file and byte bounds as config.

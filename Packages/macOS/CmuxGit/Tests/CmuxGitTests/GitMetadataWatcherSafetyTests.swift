@@ -123,6 +123,25 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.degradation == .unreadableIndex)
     }
 
+    @Test func forcedRootRebuildsOnlyForGitMetadataEvents() throws {
+        let root = "/tmp/cmux-forced-root"
+        let descriptor = GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: root,
+            watchedPaths: [root],
+            gitMetadataPaths: [],
+            trackedEntryPaths: [],
+            forcedWorkTreeRoots: [root],
+            acceptsAllWorkTreeEvents: true,
+            eventCoalescingInterval: .seconds(30),
+            eventFilterIdentity: nil,
+            degradation: .unreadableIndex
+        )
+
+        #expect(descriptor.containsGitMetadataChange(paths: [root + "/.git/config"]))
+        #expect(!descriptor.containsGitMetadataChange(paths: [root + "/Sources/App.swift"]))
+        #expect(!descriptor.containsGitMetadataChange(paths: [root + "/.git/objects/pack/a.pack"]))
+    }
+
     @Test func sha256RepositoriesUseBoundedStatusFallbackForDirtyState() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
