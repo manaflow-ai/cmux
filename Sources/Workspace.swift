@@ -5150,6 +5150,42 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return terminalPanels.contains { $0.surface.surface != nil }
     }
 
+    /// Surface ids of the terminals the current rendered layout would show.
+    /// The workspace handoff waits for each one's first rendered frame before
+    /// the retiring workspace's content is hidden (#1291).
+    func renderedVisibleTerminalSurfaceIds() -> Set<UUID> {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var ids: Set<UUID> = []
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Mirror-rendered window-tab panels are drawn by their split view,
+            // not this panel's surface (see the portal visibility reconcile).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
+            guard visiblePanelIds.contains(terminalPanel.id) else { continue }
+            ids.insert(terminalPanel.surface.id)
+        }
+        return ids
+    }
+
+    /// Whether every rendered-visible terminal is already presented in the
+    /// window, so hiding the retiring workspace's content cannot expose a
+    /// frame with neither workspace's terminals (#1291). False for a freshly
+    /// mounted workspace whose portals have not revealed yet.
+    func visibleTerminalsReadyForImmediateHandoff() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
+            guard visiblePanelIds.contains(terminalPanel.id) else { continue }
+            let hostedView = terminalPanel.hostedView
+            guard !hostedView.isHidden,
+                  hostedView.superview != nil,
+                  terminalPanel.surface.isViewInWindow,
+                  terminalPanel.surface.isRendererPresented else { return false }
+        }
+        return true
+    }
+
     func panelTitle(panelId: UUID) -> String? {
         if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
             return remotePane.pane.title
