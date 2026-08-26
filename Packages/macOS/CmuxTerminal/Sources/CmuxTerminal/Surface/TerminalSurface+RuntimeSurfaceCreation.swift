@@ -43,6 +43,7 @@ extension TerminalSurface {
             },
             rendererFrameNotice: { surfaceID in
                 Task { @MainActor in
+                    NSLog("flickdiag post surface=%@", surfaceID.uuidString)
                     NotificationCenter.default.post(
                         name: .terminalSurfaceDidRenderFrame,
                         object: nil,

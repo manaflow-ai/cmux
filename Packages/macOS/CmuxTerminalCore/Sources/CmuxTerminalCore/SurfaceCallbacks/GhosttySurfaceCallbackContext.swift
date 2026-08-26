@@ -135,6 +135,7 @@ public final class GhosttySurfaceCallbackContext {
     /// Arms one frame notice for the next completed renderer frame.
     public func armRendererFrameNotice() {
         rendererFrameNoticeArmed.storeRelease(true)
+        NSLog("flickdiag arm surface=%@", surfaceId.uuidString)
     }
 
     /// Cancels an armed frame notice (handoff completed another way).
@@ -151,6 +152,7 @@ public final class GhosttySurfaceCallbackContext {
             expected: true,
             desired: false
         ) else { return false }
+        NSLog("flickdiag consume surface=%@", surfaceId.uuidString)
         rendererFrameNoticeHandler(surfaceId)
         return true
     }
