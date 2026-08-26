@@ -171,21 +171,24 @@ extension DockSplitStore {
     ) -> [FilePreviewPanel] {
         guard containsPane(paneId.id) else { return [] }
         let previousFocus = focusedDockPaneSelection()
-        var nextIndex = targetIndex
-        var openedPanels: [FilePreviewPanel] = []
-        for filePath in filePaths {
-            guard let panel = newFilePreviewSurfaceInValidatedPane(
-                inPane: paneId,
-                filePath: filePath,
-                targetIndex: nextIndex
-            ) else {
-                continue
+        let openedPanels = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            var nextIndex = targetIndex
+            var panels: [FilePreviewPanel] = []
+            for filePath in filePaths {
+                guard let panel = newFilePreviewSurfaceInValidatedPane(
+                    inPane: paneId,
+                    filePath: filePath,
+                    targetIndex: nextIndex
+                ) else {
+                    continue
+                }
+                panels.append(panel)
+                if let index = nextIndex {
+                    nextIndex = index + 1
+                }
             }
-            openedPanels.append(panel)
-            if let index = nextIndex {
-                nextIndex = index + 1
-            }
-        }
+            return panels.isEmpty ? nil : panels
+        } ?? []
         if focus, let finalPanel = openedPanels.last {
             focusPanelFromDockInteraction(finalPanel.id, window: nil)
         } else {

@@ -81,7 +81,9 @@ extension Workspace {
             }
             return todoPanel
         }
-        let created = newWorkspaceTodoSurface(inPane: paneId, focus: focus)
+        let created = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            newWorkspaceTodoSurface(inPane: paneId, focus: focus)
+        }
         if focus {
             created?.armAddField()
         }

@@ -540,10 +540,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     /// Runs a Dock tab creation transactionally with the shared pane-zoom policy.
-    private func withNewTabZoomPolicy<Result>(
+    func withNewTabZoomPolicy<Result>(
         inPane paneId: PaneID,
+        applyPolicy: Bool = true,
         _ operation: () -> Result?
     ) -> Result? {
+        guard applyPolicy else { return operation() }
         let previousZoomedPaneId = bonsplitController.zoomedPaneId
         applyNewTabZoomPolicy(inPane: paneId)
         let result = operation()
