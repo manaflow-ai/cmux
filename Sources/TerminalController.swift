@@ -461,6 +461,26 @@ class TerminalController {
         )
         self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
+        // Managed Cloud VM daemon endpoints go stale when the machine's preview rotates
+        // (sandbox recreation, preview re-creation). Before each proxy retry, re-mint the
+        // endpoint through the backend so the broker never redials a dead URL forever.
+        (remoteProxyBroker as? RemoteProxyBroker)?.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID else { return nil }
+            guard let attach = try? await VMClient.shared.openAttach(id: vmID, requireDaemon: true),
+                  case .websocket(let endpoint) = attach,
+                  let daemon = endpoint.daemon else {
+                return nil
+            }
+            return configuration.withDaemonWebSocketEndpoint(
+                WorkspaceRemoteWebSocketDaemonEndpoint(
+                    url: daemon.url,
+                    headers: daemon.headers,
+                    token: daemon.token,
+                    sessionId: daemon.sessionId,
+                    expiresAtUnix: daemon.expiresAtUnix
+                )
+            )
+        }
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
@@ -1530,6 +1550,10 @@ class TerminalController {
             }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
+        case "mobile.compatible_tags.get":
+            return v2Result(id: request.id, v2MobileCompatibleTagsGet())
+        case "mobile.compatible_tags.set":
+            return v2Result(id: request.id, v2MobileCompatibleTagsSet(params: request.params))
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -2752,6 +2776,8 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.compatible_tags.get",
+            "mobile.compatible_tags.set",
             "mobile.task.attachment.upload",
             "mobile.task.models.list",
             "mobile.workspace.list",
@@ -3810,10 +3836,25 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let vmError = error as? VMClientError,
+               Self.isCloudVMAuthenticationError(vmError) {
+                // Keep the auth boundary explicit for every VM verb. The CLI
+                // can then return a stable non-zero auth-required failure
+                // instead of presenting a generic backend error.
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: String(
+                        localized: "socket.cloudVM.authRequired",
+                        defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+                    )
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: error),
+                data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
             return v2Error(
@@ -3821,6 +3862,31 @@ class TerminalController {
                 code: "vm_error",
                 message: "unknown vm error"
             )
+        }
+    }
+
+    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
+    /// can make idempotency decisions structurally instead of parsing the
+    /// formatted display text.
+    private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        guard case let VMClientError.httpStatus(status, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String,
+              !code.isEmpty else {
+            return nil
+        }
+        return ["backend_code": code, "http_status": status]
+    }
+
+    private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
+        switch error {
+        case .notSignedIn:
+            return true
+        case .httpStatus(let status, _):
+            return status == 401
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+            return false
         }
     }
 
@@ -5456,6 +5522,10 @@ class TerminalController {
                     "window_main": hostedWindow?.isMainWindow ?? false,
                     "window_visible": hostedWindow?.isVisible ?? false,
                     "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
+                    "renderer_realized": terminalSurface.isRendererRealized,
+                    "renderer_presented": terminalSurface.isRendererPresented,
+                    "renderer_portal_visible": terminalSurface.isRendererPortalVisible,
+                    "renderer_window_visible": terminalSurface.rendererWindowVisible,
                     "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
                     "window_title": v2OrNull(nonEmpty(hostedWindow?.title)),
                     "window_class": v2OrNull(className(hostedWindow)),
@@ -10377,17 +10447,121 @@ class TerminalController {
             let store = v2MainSync {
                 ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
+            let clearRequiresScopeMessage = String(
+                localized: "cli.browser.cookies.clearRequiresScope",
+                defaultValue: "browser cookies clear requires exactly one of --all or a cookie scope"
+            )
+            let invalidFilterMessage = String(
+                localized: "cli.browser.cookies.invalidFilter",
+                defaultValue: "browser cookies clear received an invalid cookie filter"
+            )
+            let invalidURLMessage = String(
+                localized: "cli.browser.cookies.invalidURL",
+                defaultValue: "browser cookies clear --url requires a valid URL with a host"
+            )
+            let invalidExpiresMessage = String(
+                localized: "cli.browser.cookies.invalidExpires",
+                defaultValue: "browser cookies clear --expires must be an integer Unix timestamp"
+            )
+            let name = v2String(params, "name")
+            let value = v2String(params, "value")
+            let urlString = v2String(params, "url")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+
+            for key in ["name", "value", "domain", "path"] where
+                v2HasNonNullParam(params, key) && v2String(params, key) == nil {
+                return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": key])
+            }
+
+            if v2HasNonNullParam(params, "url"), urlString == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: invalidURLMessage,
+                    data: ["param": "url"]
+                )
+            }
+            let url: URL?
+            if let urlString {
+                guard let parsedURL = URL(string: urlString), parsedURL.host != nil else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidURLMessage,
+                        data: ["param": "url"]
+                    )
+                }
+                url = parsedURL
+            } else {
+                url = nil
+            }
+
+            let expires: Int?
+            if v2HasNonNullParam(params, "expires") {
+                guard let parsedExpires = v2Int(params, "expires") else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidExpiresMessage,
+                        data: ["param": "expires"]
+                    )
+                }
+                expires = parsedExpires
+            } else {
+                expires = nil
+            }
+
+            let secure: Bool?
+            if v2HasNonNullParam(params, "secure") {
+                guard let parsedSecure = v2Bool(params, "secure") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "secure"])
+                }
+                secure = parsedSecure
+            } else {
+                secure = nil
+            }
+
+            let all: Bool
+            if v2HasNonNullParam(params, "all") {
+                guard let parsedAll = v2Bool(params, "all") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "all"])
+                }
+                all = parsedAll
+            } else {
+                all = false
+            }
+
+            let hasFilter = name != nil || value != nil || url != nil || domain != nil || path != nil ||
+                expires != nil || secure != nil
+            guard all || hasFilter else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+            guard !(all && hasFilter) else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+
             guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            let name = v2String(params, "name")
-            let domain = v2String(params, "domain")
-            let clearAll = params["all"] == nil && name == nil && domain == nil
             let targets = cookies.filter { cookie in
-                if clearAll { return true }
+                if all { return true }
                 if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
+                if let value, cookie.value != value { return false }
+                if let url, !CmuxWebView.cookieMatchesURL(cookie, url: url) { return false }
+                if let domain, !CmuxWebView.cookieDomainMatchesFilter(cookie.domain, filter: domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let expires,
+                   cookie.expiresDate.map({ Int($0.timeIntervalSince1970) }) != expires {
+                    return false
+                }
+                if let secure, cookie.isSecure != secure { return false }
                 return true
             }
 
@@ -12619,15 +12793,18 @@ class TerminalController {
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(
+            guard let workspace = tabManager.addWorkspaceIfActive(
                 title: title,
                 select: focus,
                 eagerLoadTerminal: !focus,
                 allowTextBoxFocusDefault: false
-            )
+            ) else { return }
             newTabId = workspace.id
         }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
+        guard let newTabId else {
+            return "ERROR: Failed to create workspace"
+        }
+        return "OK \(newTabId.uuidString)"
     }
 
     /// v1 socket error for a left/up split directed at a mirror workspace
@@ -12785,7 +12962,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12822,7 +13000,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12875,7 +13054,8 @@ class TerminalController {
                         pending: meta?.pending ?? false,
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
-                    )
+                    ),
+                    correlationKey: meta?.correlationKey
                 )
                 return "OK"
             }
@@ -12905,7 +13085,8 @@ class TerminalController {
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12949,7 +13130,8 @@ class TerminalController {
             category: meta?.category,
             pending: meta?.pending ?? false,
             agentKind: meta?.agentKind,
-            isSubagent: meta?.isSubagent
+            isSubagent: meta?.isSubagent,
+            correlationKey: meta?.correlationKey
         ) else {
 #if DEBUG
             if let meta {
@@ -13009,20 +13191,54 @@ class TerminalController {
         let parsed = parseOptions(trimmed)
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "ERROR: Usage: clear_notifications [--tab=X] [--panel=ID]"
+            let usage = String(
+                localized: "cli.error.clearNotificationsUsage",
+                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            )
+            return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
-        let usage = "clear_notifications [--tab=X] [--panel=ID]"
+        let usage = String(
+            localized: "cli.error.clearNotificationsUsage",
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+        )
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
         }
+        let correlationKey: String?
+        if let rawCorrelationKey = parsed.options["correlation-key"] {
+            let normalized = rawCorrelationKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let uuid = UUID(uuidString: normalized) else {
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyInvalid",
+                    defaultValue: "Invalid notification correlation key"
+                )
+            }
+            correlationKey = uuid.uuidString.lowercased()
+            guard panelResolution.panelId != nil else {
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyRequiresPanel",
+                    defaultValue: "--correlation-key requires --panel"
+                )
+            }
+        } else {
+            correlationKey = nil
+        }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
-                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                if let correlationKey {
+                    TerminalMutationBus.shared.enqueueClearNotifications(
+                        forTabId: tabId,
+                        surfaceId: panelId,
+                        correlationKey: correlationKey
+                    )
+                } else {
+                    TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                }
             } else {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
@@ -13032,16 +13248,30 @@ class TerminalController {
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
                 if let panelId = panelResolution.panelId {
                     guard tab.panels.keys.contains(panelId) else { return }
-                    TerminalMutationBus.shared.discardPendingNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelId,
-                        through: clearBoundary
-                    )
-                    TerminalNotificationStore.shared.clearNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelId,
-                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
-                    )
+                    if let correlationKey {
+                        TerminalMutationBus.shared.discardPendingNotifications(
+                            forSurfaceId: panelId,
+                            correlationKey: correlationKey,
+                            through: clearBoundary
+                        )
+                        TerminalNotificationStore.shared.clearNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            correlationKey: correlationKey,
+                            throughNotificationGeneration: clearBoundary
+                        )
+                    } else {
+                        TerminalMutationBus.shared.discardPendingNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            through: clearBoundary
+                        )
+                        TerminalNotificationStore.shared.clearNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
+                        )
+                    }
                 } else {
                     TerminalMutationBus.shared.discardPendingNotifications(
                         forTabId: tab.id,
@@ -14790,6 +15020,47 @@ class TerminalController {
         ])
     }
 
+    /// Returns the sibling Mac dev tags this Mac grants to its paired
+    /// development phones (`cmux mobile compatible-tags list`).
+    nonisolated func v2MobileCompatibleTagsGet() -> V2CallResult {
+        .ok(["tags": MobileCompatibleMacTags.tags()])
+    }
+
+    /// Replaces the sibling-tag grant set and pushes the new set to every
+    /// subscribed phone over `mobile.compatible_tags.changed`, so a connected
+    /// phone re-runs discovery (grant) or prunes (revoke) without a rebuild.
+    /// A phone that is offline right now adopts the set from authenticated
+    /// host status on its next connect.
+    ///
+    /// Params: `{ "tags": [String] }` — the FULL grant set (the CLI implements
+    /// add/remove as read-modify-write), so application is idempotent.
+    nonisolated func v2MobileCompatibleTagsSet(params: [String: Any]) -> V2CallResult {
+        guard let rawTags = params["tags"] as? [String] else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid tags array",
+                data: nil
+            )
+        }
+        let rejected = MobileCompatibleMacTags.rejectedTags(from: rawTags)
+        guard rejected.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: "Release-lane tags cannot be granted to a development phone",
+                data: ["rejected": rejected]
+            )
+        }
+        let stored = MobileCompatibleMacTags.set(rawTags)
+        let topic = "mobile.compatible_tags.changed"
+        let hasSubscribers = MobileHostService.hasEventSubscribers(topic: topic)
+        MobileHostService.emitEvent(topic: topic, payload: ["tags": stored])
+        return .ok([
+            "ok": true,
+            "tags": stored,
+            "delivered": hasSubscribers,
+        ])
+    }
+
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
@@ -15756,10 +16027,19 @@ class TerminalController {
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
-            guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
+            if let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) {
+                surfaceId = target.surfaceID
+            } else if !requireTerminal,
+                      workspace.controlSurfaceTarget(for: requestedSurfaceId) != nil {
+                // Non-terminal panel surfaces (markdown, file preview) have no
+                // terminal input target; callers that don't require a terminal
+                // (mobile.panel.artifact.*) resolve the workspace-owned surface
+                // itself. Hidden remote-tmux mirror wrappers still fail closed
+                // inside controlSurfaceTarget.
+                surfaceId = requestedSurfaceId
+            } else {
                 return nil
             }
-            surfaceId = target.surfaceID
         } else if requireTerminal {
             surfaceId = workspace.focusedTerminalInputTarget()?.surfaceID
                 ?? mobileTerminalPanels(in: workspace).first?.id

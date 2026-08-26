@@ -44,6 +44,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
             | ResourceOperation::TerminalCopy
@@ -73,6 +74,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalScreenRead => terminal_screen_read(mux, &request),
         ResourceOperation::TerminalStateRead => terminal_state_read(mux, &request),
         ResourceOperation::TerminalHistoryRead => terminal_history_read(mux, &request),
+        ResourceOperation::TerminalOutputRead => terminal_output_read(mux, &request),
         ResourceOperation::TerminalWait => terminal_wait(mux, &request),
         ResourceOperation::TerminalWaitExit => terminal_wait_exit(mux, &request),
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
@@ -189,6 +191,22 @@ fn terminal_history_read(
         "next":next.map(|value| value.to_string()),
         "rows":rows,
     }))
+}
+
+/// Bounded plain-text window over one terminal's journaled output stream.
+/// Unlike the other content reads it does not require a live surface: like
+/// `terminal.wait_exit` it resolves through the durable exit receipt, so it
+/// answers for exited terminals under both exit policies (kept views and
+/// detached ones).
+fn terminal_output_read(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
+    let after = optional_decimal(&request.fields, "after")?;
+    // The catalog injects the default and enforces the 1..=4 MiB bounds.
+    let max_bytes = required_u64(&request.fields, "max_bytes")?;
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -312,6 +330,7 @@ fn terminal_process_get(
         "pid":pid,
         "argv":argv,
         "children":children,
+        "foreground_cwd":crate::platform::foreground_cwd(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
@@ -1623,6 +1642,7 @@ mod tests {
             ResourceOperation::TerminalStateRead,
             ResourceOperation::TerminalHistoryRead,
             ResourceOperation::TerminalHistoryClear,
+            ResourceOperation::TerminalOutputRead,
             ResourceOperation::TerminalWait,
             ResourceOperation::TerminalWaitExit,
             ResourceOperation::TerminalCopy,
@@ -2334,6 +2354,8 @@ mod tests {
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
         assert!(process.get("cwd").is_none_or(Value::is_string));
+        let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
+        assert!(foreground.is_null() || foreground.is_string());
     }
 
     #[test]

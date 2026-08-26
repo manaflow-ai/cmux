@@ -60,7 +60,7 @@ extension WorkspaceListView {
     }
 
     var fallbackMacPickerName: String {
-        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
     }
 
     func macDisplayNamesByID() -> [String: String] {
@@ -148,7 +148,7 @@ extension WorkspaceListView {
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
             machineSnapshots.macPickerTitle(for: id, fallback: fallbackMacPickerName)
         }
@@ -167,8 +167,7 @@ extension WorkspaceListView {
             ),
             actions: WorkspaceMacTitlePickerActions(
                 select: { _ = handleMacTitlePickerSelection($0) },
-                addDevice: showAddDevice,
-                reconnect: reconnect
+                addDevice: showAddDevice
             )
         )
         .equatable()
@@ -207,7 +206,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
             } label: {
                 menuRow(
                     title: L10n.string(
-                        "mobile.workspaces.macPicker.allMacs",
+                        "mobile.workspaces.macPicker.allConnections",
                         defaultValue: "All Computers"
                     ),
                     subtitle: nil,
@@ -230,21 +229,11 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
                 .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
             }
-            if value.statusLine == .notConnected, let reconnect = actions.reconnect {
-                Divider()
-                Button(action: reconnect) {
-                    Label(
-                        L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"),
-                        systemImage: "arrow.clockwise"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMacPickerReconnect")
-            }
             if value.canAddDevice {
                 Divider()
                 Button(action: { actions.addDevice?() }) {
                     Label(
-                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                        L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                         systemImage: "plus"
                     )
                 }

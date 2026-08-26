@@ -25,18 +25,26 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
     public let sessionPurpose: CmxTransportSessionPurpose
+    /// When non-nil, the Iroh dial for this request may attempt ONLY these
+    /// user-pinned addresses (the per-Computer "Direct" connection method):
+    /// no relay path, no broker-advertised or discovered paths, and no LAN or
+    /// custom private-path joins. An empty or unusable allowlist must fail
+    /// the dial instead of substituting another path.
+    public let irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]?
 
     /// Creates a route-bound transport request with explicit peer authority.
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
         authorizationMode: CmxTransportAuthorizationMode,
-        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
+        self.irohDirectOnlyDialCandidates = irohDirectOnlyDialCandidates
     }
 
     /// Returns the same route and authority with a different local owner role.
@@ -47,7 +55,8 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
             route: route,
             expectedPeerDeviceID: expectedPeerDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates
         )
     }
 }
