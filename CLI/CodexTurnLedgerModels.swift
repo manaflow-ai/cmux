@@ -18,6 +18,7 @@ struct CodexHookInvocation: Equatable, Sendable {
     let observedPID: Int?
     let ownerGeneration: CodexProcessGeneration?
     let observedGeneration: CodexProcessGeneration?
+    let hasExplicitObservedPID: Bool
     let hasNestedAgentAncestor: Bool
 
     init(
@@ -28,7 +29,9 @@ struct CodexHookInvocation: Equatable, Sendable {
         token = Self.normalized(environment[Self.tokenEnvironmentKey])
         parentToken = Self.normalized(environment[Self.parentTokenEnvironmentKey])
         ownerPID = Self.positivePID(environment[Self.ownerPIDEnvironmentKey])
-        observedPID = Self.positivePID(environment[Self.observedPIDEnvironmentKey])
+        let explicitObservedPID = Self.positivePID(environment[Self.observedPIDEnvironmentKey])
+        hasExplicitObservedPID = explicitObservedPID != nil
+        observedPID = explicitObservedPID
             ?? fallbackObservedPID.flatMap { $0 > 0 ? $0 : nil }
         ownerGeneration = ownerPID.flatMap { CodexProcessGeneration(pid: $0) }
         observedGeneration = observedPID.flatMap { CodexProcessGeneration(pid: $0) }

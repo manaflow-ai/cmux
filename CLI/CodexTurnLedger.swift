@@ -364,6 +364,11 @@ final class CodexTurnLedger {
                let token = invocation.token,
                let ownerToken = owner.owner.token,
                token == ownerToken {
+                if invocation.hasExplicitObservedPID,
+                   let ownerPID = owner.owner.pid,
+                   invocation.observedPID != ownerPID {
+                    return .nested
+                }
                 // A hook shell may sit between the foreground Codex and the
                 // CLI, so its observed PID can differ while the session id and
                 // invocation token remain the same. A second known agent (or an
