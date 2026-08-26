@@ -9,6 +9,7 @@ protocol RendererRealizationSurface: AnyObject {
     var id: UUID { get }
     var hasLiveSurface: Bool { get }
     var isRendererPortalVisible: Bool { get }
+    var isRendererEffectivelyVisible: Bool { get }
     var isRendererRealized: Bool { get }
     var isRendererPresented: Bool { get }
     var rendererLastVisibleAt: TimeInterval { get }
