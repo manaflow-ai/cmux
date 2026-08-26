@@ -43,6 +43,11 @@ public actor ReconnectOwner {
     private var machine = SessionStateMachine()
     private var connection: (any PeerConnection)?
     private var dialTask: Task<Void, Never>?
+    /// One ctl watch loop per live connection, keyed by connection identity.
+    /// Stored so shutdown can CANCEL them: a half-open connection's ctl lane
+    /// never EOFs, and an unstored watch task would keep consuming (and
+    /// surfacing) frames forever after stop().
+    private var watchTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var backoff: Duration
     private var stateContinuations: [Int: AsyncStream<SessionState>.Continuation] = [:]
     private var continuationCounter = 0
@@ -186,6 +191,17 @@ public actor ReconnectOwner {
             case .closeConnection(let reason):
                 let current = connection
                 connection = nil
+                // A requested close with no in-flight attempt emits no
+                // cancelDial (the machine has nothing to cancel), but a
+                // scheduled BACKOFF redial may still be parked in dialTask;
+                // left alive it wakes after shutdown and dials a stopped
+                // owner back up. Same for the ctl watch loops: on a half-open
+                // connection they never EOF, so they must die here, not "when
+                // the lane ends".
+                dialTask?.cancel()
+                dialTask = nil
+                for task in watchTasks.values { task.cancel() }
+                watchTasks.removeAll()
                 if TransportDebugLog.enabled {
                     TransportDebugLog.core.notice(
                         """
@@ -248,6 +264,27 @@ public actor ReconnectOwner {
             }
             switch result {
             case .admitted(let conn, let sessionID):
+                // Validate the attempt is still current BEFORE adopting:
+                // cooperative cancellation can land after the isCancelled
+                // guard above, and a stale attempt that adopts overwrites
+                // (and orphans, never closed) the live connection while the
+                // machine rejects its dialSucceeded as stale.
+                guard machine.currentAttempt == attempt else {
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.notice(
+                            """
+                            owner \(TransportDebugLog.id(self), privacy: .public) dial \
+                            attempt=\(attempt.raw, privacy: .public) admitted-but-stale \
+                            session=\(TransportDebugLog.prefix(sessionID), privacy: .public) \
+                            conn=\(TransportDebugLog.id(conn), privacy: .public); closing \
+                            reason=\(CloseReason.explicitRedial.code, privacy: .public) \
+                            elapsedMs=\(TransportDebugLog.ms(since: dialStart), privacy: .public)
+                            """)
+                    }
+                    await conn.closeAll(
+                        reason: ConnectionTermination(code: CloseReason.explicitRedial.code))
+                    return
+                }
                 connection = conn
                 backoff = config.initialBackoff  // success resets backoff (4.6)
                 admissions += 1
@@ -264,6 +301,15 @@ public actor ReconnectOwner {
                         """)
                 }
                 apply(machine.handle(.dialSucceeded(attempt)))
+                guard machine.state == .ready else {
+                    // The machine rejected the success (defense in depth: the
+                    // attempt guard above makes this unreachable). Never keep
+                    // a connection the machine never accepted.
+                    if connection === conn { connection = nil }
+                    await conn.closeAll(
+                        reason: ConnectionTermination(code: CloseReason.explicitRedial.code))
+                    return
+                }
                 watch(conn)
             case .denied(let code):
                 if TransportDebugLog.enabled {
@@ -277,9 +323,9 @@ public actor ReconnectOwner {
                         """)
                 }
                 apply(machine.handle(.dialFailed(attempt, code: code.rawValue)))
-                // Terminal: park in closed(code). A later trigger (user tap,
-                // foreground after a grant renewal) may try again; the owner
-                // itself never schedules a retry against a denial.
+                // Terminal: park in closed(code). Retrying a denial takes a
+                // NEW owner (built once the grant situation changed); this
+                // one never dials again, on any trigger.
                 apply(
                     machine.handle(
                         .closeRequested(CloseReason(origin: .remote, code: code.rawValue))))
@@ -339,7 +385,9 @@ public actor ReconnectOwner {
     /// Frames are surfaced to `onControlFrame` on the way through, never
     /// silently dropped (8.1).
     private func watch(_ conn: any PeerConnection) {
-        Task {
+        let key = ObjectIdentifier(conn)
+        watchTasks[key]?.cancel()
+        watchTasks[key] = Task {
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.notice(
                     """
@@ -366,8 +414,15 @@ public actor ReconnectOwner {
                     conn=\(TransportDebugLog.id(conn), privacy: .public)
                     """)
             }
-            await self.connectionEnded(conn)
+            await self.watchEnded(conn)
         }
+    }
+
+    /// The watch loop's single exit: drop the stored task, then run the
+    /// connection-ended bookkeeping (which ignores stale connections itself).
+    private func watchEnded(_ conn: any PeerConnection) async {
+        watchTasks.removeValue(forKey: ObjectIdentifier(conn))
+        await connectionEnded(conn)
     }
 
     private func connectionEnded(_ conn: any PeerConnection) async {

@@ -93,12 +93,24 @@ public struct SessionTransition: Sendable, Equatable {
 /// (contract 4.2, 4.3, 4.5, 4.6 at the logic level). Tests drive the full
 /// (state x event) matrix.
 public struct SessionStateMachine: Sendable {
+    /// Bound on the retained transition history: the log exists for
+    /// attribution (4.4, 8.1), not archival. A long-lived owner riding weeks
+    /// of backoff churn would otherwise grow it without bound; the most
+    /// recent window is what every consumer (soak assertions, debug dumps)
+    /// actually reads.
+    public static let transitionLogLimit = 256
+
     public private(set) var state: SessionState = .idle
     public private(set) var endpointReady = false
     public private(set) var transitions: [SessionTransition] = []
     public private(set) var currentAttempt: AttemptID?
     /// A dial was requested before the endpoint was ready (2.4).
     public private(set) var dialDeferred = false
+    /// The close was locally REQUESTED (stop, mode switch, denial parking):
+    /// terminal. No later trigger may dial a requested-closed machine back
+    /// up; a stopped owner that redials is the shutdown-resurrection bug.
+    /// Remote closes stay redialable, which is what auto-recovery rides.
+    public private(set) var closedTerminally = false
 
     private var attemptCounter: UInt64 = 0
 
@@ -108,6 +120,9 @@ public struct SessionStateMachine: Sendable {
         let from = state
         let effects = apply(event)
         transitions.append(SessionTransition(from: from, event: event, to: state))
+        if transitions.count > Self.transitionLogLimit {
+            transitions.removeFirst(transitions.count - Self.transitionLogLimit)
+        }
         return effects
     }
 
@@ -179,6 +194,7 @@ public struct SessionStateMachine: Sendable {
             }
             dialDeferred = false
             state = .closed(reason)
+            closedTerminally = true
             effects.append(.closeConnection(reason))
             return effects
 
@@ -197,6 +213,13 @@ public struct SessionStateMachine: Sendable {
     }
 
     private mutating func handleDial(_ intent: DialIntent) -> [SessionEffect] {
+        // A requested close is terminal: the stopped owner must never dial
+        // again, no matter what trigger (backoff wake, foreground, user tap)
+        // arrives afterwards. Recovery from here means building a new owner.
+        guard !closedTerminally else {
+            return [.invalidEventRecorded("dialRequested after terminal close")]
+        }
+
         // No dial before the endpoint is ready (contract 2.4). This kills the
         // launch dial race: 286 field failures dialed a dead endpoint.
         guard endpointReady else {

@@ -170,3 +170,49 @@ struct SessionStateMachineTests {
         return machine
     }
 }
+
+extension SessionStateMachineTests {
+    @Test("A requested close is terminal: no trigger dials the machine back up")
+    func requestedCloseIsTerminal() {
+        var machine = readyMachine()
+        _ = machine.handle(.closeRequested(.userRequested))
+        #expect(machine.state == .closed(.userRequested))
+        #expect(machine.closedTerminally)
+
+        // The stopped-owner resurrection bug: a surviving backoff timer (an
+        // automatic trigger) or a user tap must both be refused.
+        let automatic = machine.handle(.dialRequested(.automatic(trigger: "backoff")))
+        #expect(automatic == [.invalidEventRecorded("dialRequested after terminal close")])
+        let explicit = machine.handle(.dialRequested(.explicit(trigger: "tap")))
+        #expect(explicit == [.invalidEventRecorded("dialRequested after terminal close")])
+        #expect(machine.state == .closed(.userRequested))
+        #expect(machine.currentAttempt == nil)
+    }
+
+    @Test("A remote close stays redialable: auto-recovery dials from closed")
+    func remoteCloseStaysRedialable() {
+        var machine = readyMachine()
+        _ = machine.handle(.remoteClosed(CloseReason(origin: .remote, code: "connection-lost")))
+        #expect(machine.closedTerminally == false)
+        let effects = machine.handle(.dialRequested(.automatic(trigger: "connection-ended")))
+        #expect(effects == [.startDial(AttemptID(raw: 2))])
+        #expect(machine.state == .connecting)
+    }
+
+    @Test("The transition log is bounded to the most recent window")
+    func transitionLogIsBounded() {
+        var machine = readyMachine()
+        for i in 0..<(SessionStateMachine.transitionLogLimit * 3) {
+            _ = machine.handle(.dialRequested(.automatic(trigger: "ambient-\(i)")))
+        }
+        #expect(machine.transitions.count == SessionStateMachine.transitionLogLimit)
+        // The retained window is the most RECENT one.
+        #expect(
+            machine.transitions.last
+                == SessionTransition(
+                    from: .ready,
+                    event: .dialRequested(
+                        .automatic(trigger: "ambient-\(SessionStateMachine.transitionLogLimit * 3 - 1)")),
+                    to: .ready))
+    }
+}

@@ -1,9 +1,14 @@
 import CmuxIrohTransport
 import Foundation
 
-/// Errors from parsing a raw-stream preamble into a legacy lane.
+/// Errors from encoding a legacy lane into a raw-stream preamble or parsing
+/// one back.
 public enum BridgeLaneDescriptorError: Error, Equatable, Sendable {
     case invalidDescriptor
+    /// The descriptor did not encode. Failing closed beats silently dialing
+    /// a control-lane preamble for a terminal/artifact stream: the acceptor
+    /// would route the bytes to the wrong service.
+    case unencodableDescriptor
 }
 
 /// The `raw.open` preamble carried by every bridged lane: a compact JSON
@@ -31,7 +36,7 @@ public enum BridgeLaneDescriptor {
     private static let artifact = "artifact"
     private static let simulatorStream = "simulator_stream"
 
-    public static func preamble(for lane: CmxIrohLane) -> String {
+    public static func preamble(for lane: CmxIrohLane) throws -> String {
         let descriptor: Descriptor
         switch lane {
         case .control:
@@ -48,8 +53,10 @@ public enum BridgeLaneDescriptor {
         guard let data = try? JSONEncoder().encode(descriptor),
             let text = String(data: data, encoding: .utf8)
         else {
-            // Descriptor is a flat value struct; encoding cannot fail.
-            return "{\"lane\":\"\(control)\"}"
+            // Descriptor is a flat value struct, so this should be
+            // unreachable — but a silent control-lane fallback would route
+            // the stream's bytes to the wrong service. Fail closed.
+            throw BridgeLaneDescriptorError.unencodableDescriptor
         }
         return text
     }

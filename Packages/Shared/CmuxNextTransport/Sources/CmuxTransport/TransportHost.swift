@@ -33,6 +33,14 @@ public actor TransportHost {
         public var deviceKey: Data
         public var grant: PairingGrant
         public var warnedExpiring = false
+        /// The per-session service loops (control, echo, chat). Stored so
+        /// every removal path can CANCEL them: on a half-open connection the
+        /// lanes never EOF, and unstored loops outlive the session forever.
+        var serviceTasks: [Task<Void, Never>] = []
+
+        func cancelServices() {
+            for task in serviceTasks { task.cancel() }
+        }
     }
 
     /// The lane the echo service listens on; P0's stand-in for a terminal lane.
@@ -90,6 +98,7 @@ public actor TransportHost {
     public func killSession(deviceID: String, appIdentity: String) async -> Bool {
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
         guard let session = sessions.removeValue(forKey: key) else { return false }
+        session.cancelServices()
         if TransportDebugLog.enabled {
             TransportDebugLog.host.notice(
                 """
@@ -123,6 +132,7 @@ public actor TransportHost {
             guard let current = self.sessions[key], current.connection === session.connection
             else { continue }
             self.sessions.removeValue(forKey: key)
+            current.cancelServices()
             counters.closesByCode["connection-lost", default: 0] += 1
             reaped += 1
             if TransportDebugLog.enabled {
@@ -271,6 +281,7 @@ public actor TransportHost {
             var supersededSessionID: String?
             if let old = sessions.removeValue(forKey: key) {
                 supersededSessionID = old.id
+                old.cancelServices()
                 await old.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.superseded.code))
                 counters.closesByCode[CloseReason.superseded.code, default: 0] += 1
@@ -305,6 +316,24 @@ public actor TransportHost {
                     """)
             }
             try? await control.send(Frame.admit(sessionID: session.id))
+            if let credential = pendingRelayCredentials[key],
+                Self.credentialExpired(token: credential.token, now: now)
+            {
+                // Provably stale: replaying it would hand the client a dead
+                // relay route. Drop it; the next rotation push refills.
+                pendingRelayCredentials.removeValue(forKey: key)
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.notice(
+                        """
+                        host dropped expired pending relay credential \
+                        session=\(session.id, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                        url=\(credential.url, privacy: .public) \
+                        tokenExp=\(IrohSubstrate.tokenExpiry(credential.token).map(String.init) ?? "unparsed", privacy: .public) \
+                        now=\(now, privacy: .public)
+                        """)
+                }
+            }
             if let credential = pendingRelayCredentials[key] {
                 if TransportDebugLog.enabled {
                     TransportDebugLog.host.notice(
@@ -318,9 +347,18 @@ public actor TransportHost {
                 try? await control.send(
                     Frame.relayCredential(url: credential.url, token: credential.token))
             }
-            Task { await self.runControlService(key: key, connection: connection) }
-            Task { await self.runEchoService(connection: connection) }
-            Task { await self.runChatService(key: key, connection: connection) }
+            let serviceTasks = [
+                Task { await self.runControlService(key: key, connection: connection) },
+                Task { await self.runEchoService(connection: connection) },
+                Task { await self.runChatService(key: key, connection: connection) },
+            ]
+            if let current = sessions[key], current.connection === connection {
+                sessions[key]?.serviceTasks = serviceTasks
+            } else {
+                // Superseded during the admit send: these loops belong to a
+                // session that is already gone. Kill them, never leak them.
+                for task in serviceTasks { task.cancel() }
+            }
         }
     }
 
@@ -349,6 +387,7 @@ public actor TransportHost {
                         """)
                 }
                 sessions.removeValue(forKey: key)
+                session.cancelServices()
                 await session.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.grantExpired.code))
                 counters.closesByCode[CloseReason.grantExpired.code, default: 0] += 1
@@ -377,13 +416,42 @@ public actor TransportHost {
     /// mid-session pushes race connection flaps and suspensions (field: no
     /// push ever landed), but admission is the one moment the ctl lane is
     /// provably alive, and reconnects happen constantly anyway.
+    /// Entries whose token expiry (JWT `exp`, 300s fleet lifetime) has passed
+    /// are dropped on insert and before replay: replaying a stale token makes
+    /// the relay route silently dead (the 08-21 field bite), which is worse
+    /// than replaying nothing. Unparseable tokens are kept (staleness cannot
+    /// be proven; harness tokens are opaque).
     private var pendingRelayCredentials: [SessionKey: (url: String, token: String)] = [:]
+
+    /// Whether a stored credential is provably stale at `now`.
+    private static func credentialExpired(token: String, now: Int64) -> Bool {
+        guard let expiry = IrohSubstrate.tokenExpiry(token) else { return false }
+        return expiry <= now
+    }
 
     public func pushRelayCredential(
         deviceID: String, appIdentity: String, url: String, token: String
     ) async -> Bool {
         _ = await reapClosedSessions()  // never claim delivery to a zombie
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
+        // Insert is also the prune point: without it, keys for devices that
+        // never reconnect accumulate expired tokens forever.
+        pendingRelayCredentials = pendingRelayCredentials.filter {
+            !Self.credentialExpired(token: $0.value.token, now: currentTime)
+        }
+        if Self.credentialExpired(token: token, now: currentTime) {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.host.error(
+                    """
+                    host relay credential REFUSED (already expired) \
+                    device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
+                    url=\(url, privacy: .public) \
+                    tokenExp=\(IrohSubstrate.tokenExpiry(token).map(String.init) ?? "unparsed", privacy: .public) \
+                    now=\(self.currentTime, privacy: .public)
+                    """)
+            }
+            return false
+        }
         pendingRelayCredentials[key] = (url: url, token: token)
         guard let session = sessions[key] else {
             if TransportDebugLog.enabled {
@@ -453,6 +521,11 @@ public actor TransportHost {
         defer {
             if let session = sessions[key], session.connection === connection {
                 sessions.removeValue(forKey: key)
+                // Take the echo/chat siblings down with the session; on a
+                // half-open connection their lanes never EOF on their own.
+                // (Cancelling this task itself is a harmless no-op: it is
+                // already returning.)
+                session.cancelServices()
                 counters.closesByCode["connection-lost", default: 0] += 1
                 if TransportDebugLog.enabled {
                     TransportDebugLog.host.notice(

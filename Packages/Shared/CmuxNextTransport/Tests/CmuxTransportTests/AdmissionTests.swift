@@ -90,3 +90,46 @@ struct AdmissionTests {
         #expect(decoded == grant)
     }
 }
+
+extension AdmissionTests {
+    @Test("The signing transcript is injective: shifted field boundaries change the bytes")
+    func transcriptDomainSeparation() {
+        func transcript(account: String, device: String) -> Data {
+            PairingGrant.transcript(
+                accountID: account, deviceID: device, devicePublicKey: Data([1, 2, 3]),
+                appIdentity: "dev.cmux.lite", grantID: "g-1", issuedAt: 1, expiresAt: nil)
+        }
+        // v1 newline-joined free-form fields, so a separator INSIDE a field
+        // moved the boundary: ("acct\nphone", "d") and ("acct", "phone\nd")
+        // signed identically, and one signed grant verified as the other.
+        #expect(
+            transcript(account: "acct\nphone", device: "d")
+                != transcript(account: "acct", device: "phone\nd"))
+        // Field order/length is bound, not just content concatenation.
+        #expect(
+            transcript(account: "ab", device: "c") != transcript(account: "a", device: "bc"))
+        // The domain prefix names the fixed encoding.
+        #expect(transcript(account: "a", device: "b").starts(with: Data("cmux/peer/grant/v2".utf8)))
+    }
+
+    @Test("A grant minted for one field tuple never verifies as a shifted tuple")
+    func shiftedTupleGrantDoesNotVerify() throws {
+        let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "d")
+        // Minted with a newline smuggled into the account field.
+        let smuggled = try signer.mint(
+            accountID: "acct-1\nphone-9", deviceID: identity.deviceID,
+            devicePublicKey: identity.publicKeyData, appIdentity: identity.appIdentity,
+            grantID: "g-s", issuedAt: now)
+        // Re-interpreted with the boundary shifted into the device ID: the
+        // signature must NOT carry over.
+        var shifted = smuggled
+        shifted.accountID = "acct-1"
+        shifted.deviceID = "phone-9\n" + identity.deviceID
+        let verifier = GrantVerifier(serverPublicKeyData: signer.publicKeyData)
+        let decision = verifier.decide(
+            grant: shifted, presentedByKey: identity.publicKeyData,
+            presentedByDeviceID: shifted.deviceID, presentedByApp: identity.appIdentity,
+            revokedGrantIDs: [], now: now)
+        #expect(decision == .deny(.invalidSignature))
+    }
+}

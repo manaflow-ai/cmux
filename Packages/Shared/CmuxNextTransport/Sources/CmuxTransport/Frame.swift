@@ -154,6 +154,25 @@ struct FrameEnvelope: Codable {
     var p: JSONValue?
 }
 
+/// Fast lowercase hex for the data-chunk digest, which runs per frame on BOTH
+/// hot paths (send-side mint in `Frame.dataChunk`, receive-side re-hash in
+/// `TrafficValidator.ingest`). A per-byte `String(format:)` trip through
+/// Foundation's formatter dominated those paths.
+enum HexEncoding {
+    private static let digits = Array("0123456789abcdef".utf8)
+
+    static func lowercase<Bytes: Sequence>(_ bytes: Bytes) -> String
+    where Bytes.Element == UInt8 {
+        var utf8 = [UInt8]()
+        utf8.reserveCapacity(bytes.underestimatedCount * 2)
+        for byte in bytes {
+            utf8.append(digits[Int(byte >> 4)])
+            utf8.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: utf8, as: UTF8.self)
+    }
+}
+
 extension Frame {
     public static func hello(identity: PeerIdentity, grant: PairingGrant) -> Frame {
         Frame(
@@ -209,7 +228,7 @@ extension Frame {
 
     /// Sequence-numbered, checksummed data chunk (harness spec 1.4).
     public static func dataChunk(seq: Int64, data: Data) -> Frame {
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let digest = HexEncoding.lowercase(SHA256.hash(data: data))
         return Frame(
             type: FrameTypes.dataChunk,
             payload: [

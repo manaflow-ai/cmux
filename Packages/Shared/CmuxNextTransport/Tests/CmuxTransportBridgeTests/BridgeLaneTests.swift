@@ -22,7 +22,7 @@ struct BridgeLaneDescriptorTests {
             .simulatorStream(resourceID: simID),
         ]
         for lane in lanes {
-            let preamble = BridgeLaneDescriptor.preamble(for: lane)
+            let preamble = try BridgeLaneDescriptor.preamble(for: lane)
             let decoded = try BridgeLaneDescriptor.lane(fromPreamble: preamble)
             #expect(decoded == lane)
         }

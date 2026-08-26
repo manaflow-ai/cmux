@@ -348,8 +348,15 @@ public actor IrohPeerConnection: PeerConnection {
             do {
                 let stream = try await connection.openBi()
                 // Re-check after the suspension: a concurrent caller may have
-                // opened the same lane while we awaited.
-                if let existing = lanes[name] { return existing }
+                // opened the same lane while we awaited. The loser must CLOSE
+                // the stream it already opened — dropping the handle leaks a
+                // live QUIC stream (and its flow-control credit) for the
+                // connection's whole lifetime.
+                if let existing = lanes[name] {
+                    try? await stream.send().finish()
+                    try? await stream.recv().stop(errorCode: 0)
+                    return existing
+                }
                 let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
                 try await channel.sendFrame(
                     Frame(type: Self.laneOpenType, payload: ["name": .string(name)]))

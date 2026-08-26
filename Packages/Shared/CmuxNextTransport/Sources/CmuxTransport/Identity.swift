@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import os
 
 /// A peer identity: one Ed25519 keypair scoped to (device, app identity), plus
 /// the durable device ID. cmux BETA, cmux INTERNAL, and cmux-lite on the same
@@ -32,9 +33,16 @@ public struct PeerIdentity: Sendable, Equatable {
             privateKeyData: Curve25519.Signing.PrivateKey().rawRepresentation)
     }
 
+    /// Fails CLOSED, like `sign`: an identity whose private key bytes do not
+    /// parse must never quietly present an empty key (an empty key in a hello
+    /// or grant is an admission-side landmine, not a local error). The key
+    /// bytes are locally owned state, so failing to parse them is a
+    /// programming or storage-corruption error, not an input error.
     public var publicKeyData: Data {
         guard let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData)
-        else { return Data() }
+        else {
+            preconditionFailure("PeerIdentity.privateKeyData is not a valid Curve25519 key")
+        }
         return key.publicKey.rawRepresentation
     }
 
@@ -52,10 +60,11 @@ public protocol IdentityStore: Sendable {
     func loadOrCreate(appIdentity: String) throws -> PeerIdentity
 }
 
-public final class InMemoryIdentityStore: IdentityStore, @unchecked Sendable {
-    private let lock = NSLock()
+public final class InMemoryIdentityStore: IdentityStore, Sendable {
     private let deviceID: String
-    private var identities: [String: PeerIdentity] = [:]
+    /// The lock OWNS the mutable state, so sendability is checked by the
+    /// compiler instead of promised by @unchecked.
+    private let identities = OSAllocatedUnfairLock<[String: PeerIdentity]>(initialState: [:])
 
     /// One store instance models one device: every app identity it vends
     /// shares the same device ID (contract 1.5).
@@ -64,7 +73,7 @@ public final class InMemoryIdentityStore: IdentityStore, @unchecked Sendable {
     }
 
     public func loadOrCreate(appIdentity: String) throws -> PeerIdentity {
-        lock.withLock {
+        identities.withLock { identities in
             if let existing = identities[appIdentity] { return existing }
             let identity = PeerIdentity.generate(appIdentity: appIdentity, deviceID: deviceID)
             identities[appIdentity] = identity

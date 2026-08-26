@@ -41,23 +41,32 @@ public struct PairingGrant: Sendable, Equatable {
         self.signature = signature
     }
 
-    /// Deterministic signing transcript. A fixed line format avoids every
-    /// canonical-JSON trap; same style as the shipped device-registration flow.
+    /// Deterministic signing transcript, domain-separated and length-prefixed
+    /// so it is INJECTIVE: no two distinct field tuples can produce the same
+    /// bytes. (v1 newline-joined free-form fields, so a "\n" inside one field
+    /// shifted the boundaries — ("a\nb", "c") signed identically to
+    /// ("a", "b\nc"). The prefix bump to v2 invalidates every v1 signature;
+    /// grants are dev-only so far, so nothing shipped is orphaned.)
     public static func transcript(
         accountID: String, deviceID: String, devicePublicKey: Data, appIdentity: String,
         grantID: String, issuedAt: Int64, expiresAt: Int64?
     ) -> Data {
-        let lines = [
-            "cmux/peer/grant/v1",
-            accountID,
-            deviceID,
-            devicePublicKey.base64EncodedString(),
-            appIdentity,
-            grantID,
-            String(issuedAt),
-            expiresAt.map(String.init) ?? "-",
+        let fields: [Data] = [
+            Data(accountID.utf8),
+            Data(deviceID.utf8),
+            devicePublicKey,
+            Data(appIdentity.utf8),
+            Data(grantID.utf8),
+            Data(String(issuedAt).utf8),
+            Data((expiresAt.map(String.init) ?? "-").utf8),
         ]
-        return Data(lines.joined(separator: "\n").utf8)
+        var transcript = Data("cmux/peer/grant/v2".utf8)
+        for field in fields {
+            let length = UInt32(field.count).bigEndian
+            withUnsafeBytes(of: length) { transcript.append(contentsOf: $0) }
+            transcript.append(field)
+        }
+        return transcript
     }
 
     public var transcriptData: Data {
@@ -111,9 +120,14 @@ public struct GrantSigner: Sendable {
         self.privateKeyData = privateKeyData
     }
 
+    /// Fails CLOSED, like `mint`: a signer whose key bytes do not parse must
+    /// never quietly hand out an empty pinned key (an empty verifier key
+    /// rejects every grant with invalid-signature and no clue why).
     public var publicKeyData: Data {
         guard let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData)
-        else { return Data() }
+        else {
+            preconditionFailure("GrantSigner.privateKeyData is not a valid Curve25519 key")
+        }
         return key.publicKey.rawRepresentation
     }
 

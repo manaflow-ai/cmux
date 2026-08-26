@@ -13,7 +13,7 @@ public enum BridgeLaneDialer {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        let preamble = BridgeLaneDescriptor.preamble(for: lane)
+        let preamble = try BridgeLaneDescriptor.preamble(for: lane)
         let openStart = ContinuousClock.now
         do {
             let raw = try await connection.openRawStream(preamble: preamble)
