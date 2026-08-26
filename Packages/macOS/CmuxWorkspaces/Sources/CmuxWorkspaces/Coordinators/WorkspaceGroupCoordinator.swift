@@ -139,6 +139,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
+        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+        let emptyHeaderId = group.isEmpty ? group.anchorWorkspaceId : nil
         let cwd = group.liveAnchorWorkspaceId
             .flatMap { anchorId in model.tabs.first(where: { $0.id == anchorId })?.currentDirectory }
         guard let newWorkspace = host.createWorkspaceForGroup(
@@ -153,13 +155,20 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         ) else { return nil }
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
+        var preferredTopLevelIds = originalTopLevelIds.filter { $0 != newWorkspace.id }
+        if let emptyHeaderId,
+           let slot = preferredTopLevelIds.firstIndex(of: emptyHeaderId) {
+            preferredTopLevelIds[slot] = newWorkspace.id
+        }
         placeWithinGroup(
             workspaceId: newWorkspace.id,
             groupId: groupId,
             placement: placement,
             referenceWorkspaceId: referenceWorkspaceId
         )
-        model.normalizeWorkspaceGroupContiguity()
+        model.normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: preferredTopLevelIds
+        )
         host.workspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
         return newWorkspace
     }
@@ -241,16 +250,22 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         referenceWorkspaceId: UUID? = nil
     ) {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }) else { return }
-        guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard let targetGroup = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
         let isAnchorOfOtherGroup = model.workspaceGroups.contains { group in
-            group.id != groupId && group.anchorWorkspaceId == workspaceId
+            group.id != groupId && group.liveAnchorWorkspaceId == workspaceId
         }
         if isAnchorOfOtherGroup { return }
-        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+        let emptyHeaderId = targetGroup.isEmpty ? targetGroup.anchorWorkspaceId : nil
         model.assignGroup(workspaceId: workspaceId, groupId: groupId)
+        var preferredTopLevelIds = originalTopLevelIds.filter { $0 != workspaceId }
+        if let emptyHeaderId,
+           let slot = preferredTopLevelIds.firstIndex(of: emptyHeaderId) {
+            preferredTopLevelIds[slot] = workspaceId
+        }
         model.normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
+            preservingTopLevelIds: preferredTopLevelIds
         )
         if let placement {
             placeWithinGroup(

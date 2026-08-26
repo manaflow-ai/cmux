@@ -728,6 +728,37 @@ extension MobileShellComposite {
         }) {
             return workspaceMutationTarget(for: owner.id)
         }
+        if let macDeviceID = group.macDeviceID,
+           !macDeviceID.isEmpty {
+            let ownerKey = MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: group.macInstanceTag
+            )
+            if let subscription = secondaryMacSubscriptions[ownerKey] {
+                return WorkspaceMutationTarget(
+                    client: subscription.client,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+            let isForegroundOwner = foregroundMacDeviceID.map {
+                MacPairingKey(
+                    macDeviceID: $0,
+                    instanceTag: activeMacInstanceTag
+                ) == ownerKey
+            } ?? false
+            if !isForegroundOwner {
+                // A known owner with no live route must fail closed; never
+                // send a group mutation to the foreground Mac by accident.
+                return WorkspaceMutationTarget(
+                    client: nil,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+        }
         return WorkspaceMutationTarget(
             client: remoteClient,
             isForeground: true,

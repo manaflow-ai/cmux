@@ -71,6 +71,80 @@ extension WorkspacesModel {
         return ids
     }
 
+    /// The sidebar's top-level row ids including durable header-only groups.
+    /// Empty-group identities are inserted in their stored position within the
+    /// matching pin tier, so callers that plan against visible header rows can
+    /// translate back to the live-tab row space without losing group slots.
+    func sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+        promotingWorkspaceId promotedWorkspaceId: UUID? = nil
+    ) -> [UUID] {
+        let baseIds = sidebarTopLevelWorkspaceIds(promotingWorkspaceId: promotedWorkspaceId)
+        let emptyGroups = workspaceGroups.filter(\.isEmpty)
+        guard !emptyGroups.isEmpty else { return baseIds }
+
+        let baseIdSet = Set(baseIds)
+        var nextPinnedGroup: WorkspaceGroup?
+        var nextUnpinnedGroup: WorkspaceGroup?
+        var nextLiveSameTierByIndex: [WorkspaceGroup?] = Array(
+            repeating: nil,
+            count: workspaceGroups.count
+        )
+        for index in workspaceGroups.indices.reversed() {
+            let group = workspaceGroups[index]
+            nextLiveSameTierByIndex[index] = group.isPinned
+                ? nextPinnedGroup
+                : nextUnpinnedGroup
+            guard !group.isEmpty else { continue }
+            if group.isPinned {
+                nextPinnedGroup = group
+            } else {
+                nextUnpinnedGroup = group
+            }
+        }
+
+        var emptyBeforeAnchor: [UUID: [UUID]] = [:]
+        var trailingPinned: [UUID] = []
+        var trailingUnpinned: [UUID] = []
+        for (index, group) in workspaceGroups.enumerated() where group.isEmpty {
+            if let nextGroup = nextLiveSameTierByIndex[index],
+               baseIdSet.contains(nextGroup.anchorWorkspaceId) {
+                emptyBeforeAnchor[nextGroup.anchorWorkspaceId, default: []]
+                    .append(group.anchorWorkspaceId)
+            } else if group.isPinned {
+                trailingPinned.append(group.anchorWorkspaceId)
+            } else {
+                trailingUnpinned.append(group.anchorWorkspaceId)
+            }
+        }
+
+        let groupsByAnchorId = Dictionary(
+            uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) }
+        )
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        func isPinnedRow(_ id: UUID) -> Bool {
+            groupsByAnchorId[id]?.isPinned ?? tabsById[id]?.isPinned ?? false
+        }
+
+        var ids: [UUID] = []
+        ids.reserveCapacity(baseIds.count + emptyGroups.count)
+        var emittedIds = Set<UUID>()
+        for id in baseIds {
+            for emptyId in emptyBeforeAnchor[id] ?? [] where emittedIds.insert(emptyId).inserted {
+                ids.append(emptyId)
+            }
+            if emittedIds.insert(id).inserted {
+                ids.append(id)
+            }
+        }
+        if !trailingPinned.isEmpty {
+            let firstUnpinnedIndex = ids.firstIndex { !isPinnedRow($0) } ?? ids.count
+            let inserted = trailingPinned.filter { emittedIds.insert($0).inserted }
+            ids.insert(contentsOf: inserted, at: firstUnpinnedIndex)
+        }
+        ids.append(contentsOf: trailingUnpinned.filter { emittedIds.insert($0).inserted })
+        return ids
+    }
+
     /// Projects a desired full workspace-id order down to top-level row ids,
     /// appending any unmentioned workspaces in `tabs[]` order.
     func topLevelWorkspaceIdsPreservingOrder(_ desiredIds: [UUID]) -> [UUID] {

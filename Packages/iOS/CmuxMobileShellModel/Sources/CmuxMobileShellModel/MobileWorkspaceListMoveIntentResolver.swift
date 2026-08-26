@@ -74,12 +74,17 @@ struct MobileWorkspaceListMoveIntentResolver {
 
         let movesGroup = isGroupHeader(items[sourceIndex])
         let proposed = movesGroup
-            ? rootLevelIntent(nextItem: nextItem, workspaces: orderedWithoutMoved)
+            ? rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: orderedWithoutMoved,
+                remainingItems: remainingItems
+            )
             : proposedIntent(
                 movedWorkspace: movedWorkspace,
                 previousItem: previousItem,
                 nextItem: nextItem,
-                workspaces: orderedWithoutMoved
+                workspaces: orderedWithoutMoved,
+                remainingItems: remainingItems
             )
 
         guard var proposed else { return nil }
@@ -111,13 +116,18 @@ struct MobileWorkspaceListMoveIntentResolver {
         movedWorkspace: MobileWorkspacePreview,
         previousItem: MobileWorkspaceListItem?,
         nextItem: MobileWorkspaceListItem?,
-        workspaces: [MobileWorkspacePreview]
+        workspaces: [MobileWorkspacePreview],
+        remainingItems: [MobileWorkspaceListItem]
     ) -> MobileWorkspaceMoveIntent? {
         switch previousItem {
         case .groupHeader(let group, _):
             guard knownGroupIDs.contains(group.id) else { return nil }
             if group.isCollapsed {
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    remainingItems: remainingItems
+                )
             }
             return MobileWorkspaceMoveIntent(
                 groupID: group.id,
@@ -126,12 +136,20 @@ struct MobileWorkspaceListMoveIntentResolver {
             )
 
         case .groupFooter:
-            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+            return rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                remainingItems: remainingItems
+            )
 
         case .workspace(let previousWorkspace, _):
             let previousGroupID = validGroupID(previousWorkspace.groupID)
             guard let previousGroupID else {
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    remainingItems: remainingItems
+                )
             }
 
             switch nextItem {
@@ -146,12 +164,17 @@ struct MobileWorkspaceListMoveIntentResolver {
                     movedWorkspace: movedWorkspace,
                     groupID: previousGroupID,
                     nextItem: nextItem,
-                    workspaces: workspaces
+                    workspaces: workspaces,
+                    remainingItems: remainingItems
                 )
 
             case .groupFooter(let footerGroupID):
                 guard footerGroupID == previousGroupID else {
-                    return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                    return rootLevelIntent(
+                        nextItem: nextItem,
+                        workspaces: workspaces,
+                        remainingItems: remainingItems
+                    )
                 }
                 return MobileWorkspaceMoveIntent(
                     groupID: previousGroupID,
@@ -163,12 +186,17 @@ struct MobileWorkspaceListMoveIntentResolver {
                     movedWorkspace: movedWorkspace,
                     groupID: previousGroupID,
                     nextItem: nextItem,
-                    workspaces: workspaces
+                    workspaces: workspaces,
+                    remainingItems: remainingItems
                 )
             }
 
         case nil:
-            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+            return rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                remainingItems: remainingItems
+            )
         }
     }
 
@@ -176,10 +204,15 @@ struct MobileWorkspaceListMoveIntentResolver {
         movedWorkspace: MobileWorkspacePreview,
         groupID: MobileWorkspaceGroupPreview.ID,
         nextItem: MobileWorkspaceListItem?,
-        workspaces: [MobileWorkspacePreview]
+        workspaces: [MobileWorkspacePreview],
+        remainingItems: [MobileWorkspaceListItem]
     ) -> MobileWorkspaceMoveIntent {
         guard validGroupID(movedWorkspace.groupID) == groupID else {
-            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+            return rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                remainingItems: remainingItems
+            )
         }
         return MobileWorkspaceMoveIntent(
             groupID: groupID,
@@ -189,23 +222,56 @@ struct MobileWorkspaceListMoveIntentResolver {
 
     private func rootLevelIntent(
         nextItem: MobileWorkspaceListItem?,
-        workspaces: [MobileWorkspacePreview]
+        workspaces: [MobileWorkspacePreview],
+        remainingItems: [MobileWorkspaceListItem]? = nil
     ) -> MobileWorkspaceMoveIntent {
         MobileWorkspaceMoveIntent(
             groupID: nil,
-            beforeWorkspaceID: rootLevelBeforeWorkspaceID(nextItem: nextItem, workspaces: workspaces)
+            beforeWorkspaceID: rootLevelBeforeWorkspaceID(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                remainingItems: remainingItems
+            )
         )
     }
 
     private func rootLevelBeforeWorkspaceID(
         nextItem: MobileWorkspaceListItem?,
-        workspaces: [MobileWorkspacePreview]
+        workspaces: [MobileWorkspacePreview],
+        remainingItems: [MobileWorkspaceListItem]? = nil
     ) -> MobileWorkspacePreview.ID? {
         switch nextItem {
         case .workspace(let nextWorkspace, _):
             return nextWorkspace.id
         case .groupHeader(let nextGroup, _):
-            return firstWorkspace(in: nextGroup.id, workspaces: workspaces)
+            if let first = firstWorkspace(in: nextGroup.id, workspaces: workspaces) {
+                return first
+            }
+            // Header-only groups have no workspace id to send in a move
+            // intent. Walk the rendered items to the next live row so the
+            // visible slot is preserved without inventing a wire target.
+            guard let remainingItems,
+                  let headerIndex = remainingItems.firstIndex(where: { item in
+                      if case .groupHeader(let group, _) = item {
+                          return group.id == nextGroup.id
+                      }
+                      return false
+                  }) else {
+                return nil
+            }
+            for item in remainingItems.dropFirst(headerIndex + 1) {
+                switch item {
+                case .workspace(let workspace, _):
+                    return workspace.id
+                case .groupHeader(let group, _):
+                    if let first = firstWorkspace(in: group.id, workspaces: workspaces) {
+                        return first
+                    }
+                case .groupFooter:
+                    continue
+                }
+            }
+            return nil
         case .groupFooter(let groupID):
             return workspaceAfterGroup(groupID, workspaces: workspaces)
                 ?? firstWorkspace(in: groupID, workspaces: workspaces)

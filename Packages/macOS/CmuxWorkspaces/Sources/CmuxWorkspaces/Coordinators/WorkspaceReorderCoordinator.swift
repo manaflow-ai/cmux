@@ -684,8 +684,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         if let explicitGroupId {
             guard model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) else { return }
-            model.assignGroup(workspaceId: workspaceId, groupId: explicitGroupId)
-            model.normalizeWorkspaceGroupContiguity()
+            assignDraggedWorkspace(workspaceId, toGroup: explicitGroupId)
             return
         }
         let before: Tab? = index > 0 ? model.tabs[index - 1] : nil
@@ -715,9 +714,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             inferred = currentGroup
         }
         if tab.groupId != inferred {
-            model.assignGroup(workspaceId: workspaceId, groupId: inferred)
-            // Renormalize after group change to keep tiers contiguous.
-            model.normalizeWorkspaceGroupContiguity()
+            assignDraggedWorkspace(workspaceId, toGroup: inferred)
         } else if inferred != nil {
             // Same-group drag: membership unchanged, but the drop may have
             // placed a non-anchor before the anchor in tabs[]. Renormalize
@@ -725,6 +722,28 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             // the visible header position).
             model.normalizeWorkspaceGroupContiguity()
         }
+    }
+
+    /// Assigns a dragged workspace while preserving a header-only group's
+    /// stored top-level slot as it becomes live. The pre-assignment snapshot
+    /// is the only place where the empty header identity is present.
+    private func assignDraggedWorkspace(_ workspaceId: UUID, toGroup groupId: UUID?) {
+        let preferredBeforeAssignment = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+        let emptyHeaderId = groupId.flatMap { candidate in
+            model.workspaceGroups.first { $0.id == candidate && $0.isEmpty }?.anchorWorkspaceId
+        }
+        model.assignGroup(workspaceId: workspaceId, groupId: groupId)
+        guard let emptyHeaderId else {
+            model.normalizeWorkspaceGroupContiguity()
+            return
+        }
+        var preferredAfterAssignment = preferredBeforeAssignment.filter { $0 != workspaceId }
+        if let slot = preferredAfterAssignment.firstIndex(of: emptyHeaderId) {
+            preferredAfterAssignment[slot] = workspaceId
+        }
+        model.normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: preferredAfterAssignment
+        )
     }
 
     // MARK: - Batch reorder
