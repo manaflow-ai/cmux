@@ -118,13 +118,28 @@ final class TerminalPanel: Panel, ObservableObject {
             return .unavailable
         }
 
+        return await Self.readSelection(from: liveSurface)
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated static func readSelection(
+        from liveSurface: ghostty_surface_t
+    ) async -> SurfaceSelectionReadResult {
+        guard ghostty_surface_has_selection(liveSurface) else {
+            return .snapshot(.none(kind: .terminal))
+        }
+
         var selection = ghostty_text_s()
         guard ghostty_surface_read_selection_clipboard_text(
             liveSurface,
             UInt(SurfaceSelectionSnapshot.maximumTextBytes),
             &selection
         ) else {
-            return .snapshot(.none(kind: .terminal))
+            return .unavailable
         }
         defer { ghostty_surface_free_text(liveSurface, &selection) }
 

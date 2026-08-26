@@ -15,7 +15,10 @@ nonisolated struct WebSurfaceSelectionReader {
 
     private static let trackingBootstrapScript = """
     (() => {
-      if (globalThis.__cmuxSurfaceSelectionRuntime) return true;
+      const runtimeKey = '__cmuxSurfaceSelectionRuntime';
+      // A pre-existing page-owned value is never trusted. The first
+      // at-document-start install wins; subsequent installs fail closed.
+      if (Object.prototype.hasOwnProperty.call(globalThis, runtimeKey)) return false;
 
       const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
       const boundedText = (text) => {
@@ -23,14 +26,19 @@ nonisolated struct WebSurfaceSelectionReader {
         if (value.length <= maxTextCharacters) return value;
         return value.slice(0, maxTextCharacters - 1) + '…';
       };
-      const empty = () => ({ has_selection: false, text: '' });
-      const unreadable = () => ({ has_selection: false, text: '', blocks_fallback: true });
-      const selected = (text, sourceDocument = null, metadata = {}) => ({
+      const empty = () => Object.freeze({ has_selection: false, text: '' });
+      const unreadable = () => Object.freeze({
+        has_selection: false,
+        text: '',
+        blocks_fallback: true
+      });
+      const selected = (text, sourceDocument = null, metadata = {}) => Object.freeze({
         has_selection: true,
         text: boundedText(text),
         source_document: sourceDocument,
         ...metadata
       });
+      let installDocument;
       const deepestActiveElement = (targetDocument) => {
         let active = targetDocument.activeElement;
         while (active?.shadowRoot?.activeElement) {
@@ -51,7 +59,11 @@ nonisolated struct WebSurfaceSelectionReader {
         if (activeTag === 'iframe' || activeTag === 'frame') {
           try {
             const childWindow = active.contentWindow;
-            return childWindow ? readLiveSelection(childWindow) : unreadable();
+            if (!childWindow) return unreadable();
+            try {
+              installDocument?.(childWindow.document);
+            } catch (_) {}
+            return readLiveSelection(childWindow);
           } catch (_) {
             return unreadable();
           }
@@ -197,7 +209,6 @@ nonisolated struct WebSurfaceSelectionReader {
         if (selectionChangingKeys.has(key)) return true;
         return key.length === 1 && !event?.metaKey && !event?.ctrlKey;
       };
-      let installDocument;
       const installFrame = (frame) => {
         try {
           if (frame?.contentDocument) installDocument(frame.contentDocument);
@@ -271,7 +282,7 @@ nonisolated struct WebSurfaceSelectionReader {
       // world, so a writable global would let a page replace `read` and
       // bypass the password-control guard before the app evaluates it.
       const runtime = Object.freeze({ read });
-      Object.defineProperty(globalThis, '__cmuxSurfaceSelectionRuntime', {
+      Object.defineProperty(globalThis, runtimeKey, {
         configurable: false,
         enumerable: false,
         value: runtime,
