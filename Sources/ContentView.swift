@@ -1224,9 +1224,18 @@ struct ContentView: View {
                   createIfNeeded: true
               ) else { return }
         controller.scheduleGeometryRefresh { [weak window] in
-            guard let window else { return nil }
+            guard let window,
+                  observedWindow === window else { return nil }
             return tmuxWorkspacePaneWindowOverlayState(for: window)
         }
+    }
+
+    private func cancelTmuxWorkspacePaneWindowOverlayGeometryRefresh() {
+        guard let window = observedWindow else { return }
+        WindowTmuxWorkspacePaneOverlayController.controller(
+            for: window,
+            createIfNeeded: false
+        )?.cancelPendingGeometryRefresh()
     }
 
     private struct CommandPaletteSwitcherWindowContext {
@@ -3247,6 +3256,7 @@ struct ContentView: View {
             )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
+            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
@@ -3260,6 +3270,7 @@ struct ContentView: View {
             )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()
+            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
@@ -3269,6 +3280,13 @@ struct ContentView: View {
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
+            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window)
         })
 
         view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
@@ -3384,6 +3402,7 @@ struct ContentView: View {
 
         view = AnyView(view.onDisappear {
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
+            cancelTmuxWorkspacePaneWindowOverlayGeometryRefresh()
             if isResizerDragging {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
@@ -3434,6 +3453,7 @@ struct ContentView: View {
 
         // Track this window for fullscreen notifications
         if observedWindow !== window {
+            cancelTmuxWorkspacePaneWindowOverlayGeometryRefresh()
             DispatchQueue.main.async {
                 observedWindowReference = WeakWindowReference(window)
                 isFullScreen = window.styleMask.contains(.fullScreen)

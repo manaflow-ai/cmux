@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import ObjectiveC
 import SwiftUI
 
@@ -15,7 +16,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
-    private var pendingGeometryRefresh = false
+    private let geometryRefreshScheduler = MainActorDeferredActionScheduler()
+    private var pendingGeometryStateProvider: (@MainActor () -> TmuxWorkspacePaneOverlayRenderState?)?
 
     var hasRenderedState: Bool {
         lastRenderState != nil || !containerView.isHidden
@@ -136,14 +138,30 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     }
 
     func scheduleGeometryRefresh(stateProvider: @MainActor @escaping () -> TmuxWorkspacePaneOverlayRenderState?) {
-        guard !pendingGeometryRefresh else { return }
-        pendingGeometryRefresh = true
-        // Divider drags can emit many geometry snapshots; one overlay update per
-        // main-actor turn is enough to keep the active border aligned.
-        Task { @MainActor [weak self] in
+        // Keep the newest provider while a pass is queued. During a full-screen
+        // transition, bonsplit can publish an intermediate frame immediately
+        // before AppKit sends didEnter/didExit; retaining the first provider
+        // would make that stale frame win the coalesced pass.
+        pendingGeometryStateProvider = stateProvider
+        guard !geometryRefreshScheduler.isScheduled else { return }
+
+        // Yield once so the provider observes the layout committed by the
+        // notification that requested the refresh. The scheduler is owned by
+        // this window controller, and cancellation below prevents a detached
+        // ContentView's provider from running after its lifecycle ends.
+        geometryRefreshScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
             guard let self else { return }
-            pendingGeometryRefresh = false
-            update(state: stateProvider())
+            let provider = self.pendingGeometryStateProvider
+            self.pendingGeometryStateProvider = nil
+            guard let provider, self.window != nil else { return }
+            self.update(state: provider())
         }
+    }
+
+    /// Cancels a queued geometry refresh when the owning window content leaves
+    /// the hierarchy, releasing its state provider before the next actor turn.
+    func cancelPendingGeometryRefresh() {
+        pendingGeometryStateProvider = nil
+        geometryRefreshScheduler.cancel()
     }
 }
