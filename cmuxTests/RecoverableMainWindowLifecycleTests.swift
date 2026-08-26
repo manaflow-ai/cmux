@@ -300,6 +300,8 @@ struct RecoverableMainWindowLifecycleTests {
 
         #expect(!window.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.scriptableMainWindow(windowId: windowId)?.tabManager === manager)
+        #expect(app.scriptableMainWindows().contains { $0.windowId == windowId })
         let snapshot = try #require(app.sessionSnapshotForTesting())
         #expect(snapshot.windows.contains { $0.windowId == windowId })
         #expect(app.focusMainWindow(windowId: windowId))
