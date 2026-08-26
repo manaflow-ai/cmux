@@ -311,9 +311,17 @@ extension AppDelegate {
                for: responder,
                in: shortcutWindow
            ) {
-            if case .search(let panelId) = focusOwner,
-               let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
-                return panel
+            switch focusOwner {
+            case .search(let panelId):
+                if let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
+                    return panel
+                }
+            case .page(let webView):
+                if let panel = shortcutBrowserPanel(webView: webView) {
+                    return panel
+                }
+            case .designComposer, .omnibarSuggestions, .inspector, .otherChrome:
+                break
             }
         }
 
@@ -360,9 +368,17 @@ extension AppDelegate {
                for: responder,
                in: window
            ) {
-            if case .search(let panelId) = focusOwner,
-               let panel = shortcutBrowserPanel(panelId: panelId, in: window) {
-                return panel
+            switch focusOwner {
+            case .search(let panelId):
+                if let panel = shortcutBrowserPanel(panelId: panelId, in: window) {
+                    return panel
+                }
+            case .page(let webView):
+                if let panel = shortcutBrowserPanel(webView: webView) {
+                    return panel
+                }
+            case .designComposer, .omnibarSuggestions, .inspector, .otherChrome:
+                break
             }
         }
         if let webView = shortcutOwningWebView(for: responder),
