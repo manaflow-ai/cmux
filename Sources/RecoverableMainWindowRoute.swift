@@ -68,6 +68,18 @@ final class RecoverableMainWindowRoute {
         return snapshot
     }
 
+    private func sidebarSelectionsMatch(
+        _ lhs: SidebarSelection,
+        _ rhs: SidebarSelection
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (.tabs, .tabs), (.notifications, .notifications):
+            return true
+        default:
+            return false
+        }
+    }
+
     init(
         windowId: UUID,
         tabManager: TabManager,
@@ -150,7 +162,10 @@ final class RecoverableMainWindowRoute {
               proposedContext.tabManager === routeManager,
               proposedContext.sidebarState.isVisible == routeSidebar.isVisible,
               proposedContext.sidebarState.persistedWidth == routeSidebar.persistedWidth,
-              proposedContext.sidebarSelectionState.selection == routeSelection.selection else {
+              sidebarSelectionsMatch(
+                  proposedContext.sidebarSelectionState.selection,
+                  routeSelection.selection
+              ) else {
             return nil
         }
         if let routeWindow = window,
