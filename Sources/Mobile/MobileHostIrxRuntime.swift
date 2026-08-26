@@ -44,7 +44,7 @@ final class MobileHostIrxRuntime {
     /// One journal for every irx component on the Mac. The soak analyzer
     /// tails the JSONL file; `log show` sees the mirrored notice lines.
     nonisolated static let journal: IrxJournal = {
-        let tag = MobileHostIrohRuntime.currentTag()
+        let tag = MobileHostIdentity.instanceTag()
         return IrxJournal(
             subsystem: "dev.cmux",
             category: "irx-host",
@@ -114,11 +114,25 @@ final class MobileHostIrxRuntime {
             for: .applicationSupportDirectory, in: .userDomainMask
         )[0].appendingPathComponent("cmux-irx", isDirectory: true)
         do {
-            let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
+            // irx mints its own durable device UUID so its broker binding
+            // occupies its own slot: it can never reincarnate the legacy
+            // runtime's binding out from under another build of this Mac.
+            let deviceIDURL = stateDir.appendingPathComponent("device-id")
+            let deviceID: String
+            if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8),
+                !existing.isEmpty
+            {
+                deviceID = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                deviceID = UUID().uuidString.lowercased()
+                try? FileManager.default.createDirectory(
+                    at: stateDir, withIntermediateDirectories: true)
+                try? deviceID.write(to: deviceIDURL, atomically: true, encoding: .utf8)
+            }
             let identity = try IrxIdentityProvisioner.loadOrCreate(
                 store: IrxFileIdentityStore(
                     fileURL: stateDir.appendingPathComponent("identity.json")),
-                deviceID: deviceID
+                deviceID: cmxCanonicalDeviceID(deviceID)
             )
             let broker = try IrxBrokerService(
                 configuration: .init(
@@ -346,7 +360,7 @@ final class MobileHostIrxRuntime {
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             isCurrent: { [weak self] in
-                await MainActor.run { [weak self] in self?.generationToken == token }
+                await MainActor.run { self?.generationToken == token }
             }
         )
         journal.record(

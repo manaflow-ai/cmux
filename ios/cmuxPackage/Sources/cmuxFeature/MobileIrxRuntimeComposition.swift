@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
 import CmuxMobileRPC
@@ -60,7 +61,6 @@ public actor MobileIrxRuntimeComposition {
     private let clientNamespace: String
     private let tag: String
     private let stateDirectory: URL
-    private let durableDeviceID: @Sendable () async -> String?
 
     private weak var auth: AuthCoordinator?
     private var broker: IrxBrokerService?
@@ -77,6 +77,7 @@ public actor MobileIrxRuntimeComposition {
     /// The events uni-lane accept is single-consumer per session too.
     private var claimedEventSessions: Set<String> = []
 
+    @MainActor
     public init(
         apiBaseURL: String,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
@@ -85,6 +86,8 @@ public actor MobileIrxRuntimeComposition {
         keychainAccessGroup: String? = nil,
         defaults: UserDefaults = .standard
     ) {
+        _ = keychainAccessGroup
+        _ = defaults
         let appNamespace = injectedAppNamespace
             ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
         clientNamespace = appNamespace?.bundleIdentifier ?? "legacy"
@@ -105,16 +108,23 @@ public actor MobileIrxRuntimeComposition {
         stateDirectory = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         )[0].appendingPathComponent("cmux-irx", isDirectory: true)
-        if let appNamespace {
-            let resolver = MobileIrohDurableDeviceIDResolver(
-                defaults: MobileIrohSendableDefaults(defaults),
-                appNamespace: appNamespace,
-                keychainAccessGroup: keychainAccessGroup
-            )
-            durableDeviceID = { await resolver.resolve() }
-        } else {
-            durableDeviceID = { nil }
+    }
+
+    /// irx mints its own durable device UUID (persisted beside the identity),
+    /// giving the irx binding its own broker slot: it can never reincarnate
+    /// the legacy runtime's binding out from under another build.
+    private func irxDeviceID() -> String {
+        let url = stateDirectory.appendingPathComponent("device-id")
+        if let existing = try? String(contentsOf: url, encoding: .utf8),
+            !existing.isEmpty
+        {
+            return existing.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        let minted = UUID().uuidString.lowercased()
+        try? FileManager.default.createDirectory(
+            at: stateDirectory, withIntermediateDirectories: true)
+        try? minted.write(to: url, atomically: true, encoding: .utf8)
+        return minted
     }
 
     // MARK: - Lifecycle
@@ -177,13 +187,10 @@ public actor MobileIrxRuntimeComposition {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
-        guard let deviceID = await durableDeviceID() else {
-            throw CompositionError.notSignedIn
-        }
         let identity = try IrxIdentityProvisioner.loadOrCreate(
             store: IrxFileIdentityStore(
                 fileURL: stateDirectory.appendingPathComponent("identity.json")),
-            deviceID: cmxCanonicalDeviceID(deviceID)
+            deviceID: cmxCanonicalDeviceID(irxDeviceID())
         )
         self.identity = identity
         let broker = try IrxBrokerService(
