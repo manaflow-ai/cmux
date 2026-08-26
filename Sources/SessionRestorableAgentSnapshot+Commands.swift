@@ -261,9 +261,7 @@ extension SurfaceResumeBindingSnapshot {
               ),
               let sessionId = checkpointId,
               let launchCommand,
-              registration != nil || RestorableAgentKind.allCases.contains(where: {
-                  $0.rawValue == agentKind.rawValue
-              }) else {
+              registration != nil || agentKind.customAgentID == nil else {
             return nil
         }
         var structuredLaunchCommand = launchCommand
