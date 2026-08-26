@@ -56,14 +56,6 @@ extension CMUXCLI {
             .path
     }
 
-    enum CodexRestoreValidationResult {
-        case allowed(CodexSessionResumeEvidence)
-        case missing
-        case unavailable
-        case rejectedChild(CodexSessionResumeEvidence)
-        case bindingChanged
-    }
-
     /// Revalidates a structured Codex resume record at the last safe boundary
     /// before execve. Publication verification protects new hook events, but
     /// snapshots written by older builds can outlive that gate. A binding

@@ -1,6 +1,6 @@
 import Foundation
 import SQLite3
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,7 +8,8 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
+@Suite
+struct RestorableAgentSessionIndexCodexWeakRecordTests {
     func testCodexWeakEnvironmentOnlyRecordDoesNotOverrideTranscriptBackedSession() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -93,12 +94,12 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
-        XCTAssertEqual(snapshot.sessionId, goodId)
-        XCTAssertEqual(snapshot.workingDirectory, repo.path)
+        #expect(snapshot.sessionId == goodId)
+        #expect(snapshot.workingDirectory == repo.path)
     }
 
     func testCodexLegacyArgvRecordWithoutSourceIsRestorable() throws {
@@ -129,12 +130,12 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
-        XCTAssertEqual(snapshot.sessionId, sessionId)
-        XCTAssertEqual(snapshot.workingDirectory, repo.path)
+        #expect(snapshot.sessionId == sessionId)
+        #expect(snapshot.workingDirectory == repo.path)
     }
 
     func testCodexDefaultLaunchRecordIsRestorable() throws {
@@ -165,12 +166,12 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
-        XCTAssertEqual(snapshot.sessionId, sessionId)
-        XCTAssertEqual(snapshot.workingDirectory, repo.path)
+        #expect(snapshot.sessionId == sessionId)
+        #expect(snapshot.workingDirectory == repo.path)
     }
 
     func testCodexRestorableChildWithoutDurableCheckpointDoesNotReplaceParent() throws {
@@ -261,13 +262,12 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
-        XCTAssertEqual(
-            snapshot.sessionId,
-            parentID,
+        #expect(
+            snapshot.sessionId == parentID,
             "a missing rollout from a review child must not replace the durable parent"
         )
     }

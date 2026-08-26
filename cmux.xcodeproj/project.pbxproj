@@ -922,6 +922,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000040 /* CodexHookFailureSummary.swift */; };
 		918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000060 /* CodexHookUserInputCandidate.swift */; };
 		918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000090 /* CodexMonitorOwnerState.swift */; };
+		C6209A010000000000000001 /* CodexRestoreValidationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6209A020000000000000001 /* CodexRestoreValidationResult.swift */; };
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
@@ -3763,6 +3764,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		918100000000000000000040 /* CodexHookFailureSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureSummary.swift; sourceTree = "<group>"; };
 		918100000000000000000060 /* CodexHookUserInputCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookUserInputCandidate.swift; sourceTree = "<group>"; };
 		918100000000000000000090 /* CodexMonitorOwnerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMonitorOwnerState.swift; sourceTree = "<group>"; };
+		C6209A020000000000000001 /* CodexRestoreValidationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRestoreValidationResult.swift; sourceTree = "<group>"; };
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
@@ -7855,6 +7857,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
 				D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */,
+				C6209A020000000000000001 /* CodexRestoreValidationResult.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
@@ -11080,6 +11083,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
 				918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */,
+				C6209A010000000000000001 /* CodexRestoreValidationResult.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					A10240010000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
 					A10240060000000000000001 /* CodexTeamsAppServerSupervisor.swift in Sources */,
