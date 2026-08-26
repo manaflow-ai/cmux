@@ -4039,7 +4039,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
-    private var windowOcclusionObserver: NSObjectProtocol?
+    private var windowOcclusionObservers: [NSObjectProtocol] = []
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -4659,10 +4659,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
-        if let windowOcclusionObserver {
-            NotificationCenter.default.removeObserver(windowOcclusionObserver)
-            self.windowOcclusionObserver = nil
+        for observer in windowOcclusionObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
+        windowOcclusionObservers.removeAll(keepingCapacity: true)
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -4676,6 +4676,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
         guard let window else { return }
+
+        // AppKit can report a newly ordered (especially transparent or
+        // headless) window as not-visible until the next compositor turn. Seed
+        // the renderer state before attaching/creating the native surface, and
+        // preserve the current state when occlusion is still unknown. A
+        // concrete `.occluded`, ordered-out, or miniaturized state remains
+        // authoritative and is handled by the observers below.
+        syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
 
         // Reconcile the already-started runtime with the real window backing context.
         terminalSurface?.attachToView(self)
@@ -4695,15 +4703,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: window,
             queue: .main
         ) { [weak self] notification in
-            self?.windowDidChangeScreen(notification)
+            MainActor.assumeIsolated {
+                self?.windowDidChangeScreen(notification)
+                if let changedWindow = notification.object as? NSWindow {
+                    self?.syncRendererWindowVisibility(
+                        for: changedWindow,
+                        assumeVisibleWhenUnknown: true
+                    )
+                }
+            }
         }
 
         // Window-level occlusion (miniaturized, fully covered, inactive Space)
         // pauses the core renderer and lets the reclamation controller release
         // this surface's GPU swap chain. View-level occlusion stays untouched:
         // a nil-window reparenting transition keeps the last window state, so
-        // portal moves cannot flap occlusion mid-drag.
-        windowOcclusionObserver = NotificationCenter.default.addObserver(
+        // portal moves cannot flap occlusion mid-drag. AppKit's key/visibility
+        // notifications are included because an initial occlusion callback can
+        // arrive before a transparent window becomes key on headless runners.
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification,
             object: window,
             queue: .main
@@ -4712,14 +4730,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // `queue: .main` guarantees the AppKit callback runs on the main
             // executor, but Foundation's closure type is not actor-annotated.
             MainActor.assumeIsolated {
-                self?.terminalSurface?.setRendererWindowVisible(
-                    occludedWindow.occlusionState.contains(.visible)
+                self?.syncRendererWindowVisibility(
+                    for: occludedWindow,
+                    assumeVisibleWhenUnknown: true
                 )
             }
+        })
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            MainActor.assumeIsolated {
+                self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
+            }
+        })
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            MainActor.assumeIsolated {
+                self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: false)
+            }
+        })
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeMainNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            MainActor.assumeIsolated {
+                self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
+            }
+        })
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didMiniaturizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            MainActor.assumeIsolated {
+                self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: false)
+            }
+        })
+        windowOcclusionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didDeminiaturizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            MainActor.assumeIsolated {
+                self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
+            }
+        })
+        // Re-read after the observers are installed: the window may have been
+        // ordered/keyed while the terminal view was attaching.
+        syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
+        // Window ordering and compositor occlusion settle after the hierarchy
+        // mutation on some headless/AppKit paths. Reconcile once on the next
+        // main-queue turn so a surface attached while the window was still
+        // hidden is replayed as soon as the real window is ordered.
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
+            self.syncRendererWindowVisibility(for: window, assumeVisibleWhenUnknown: true)
         }
-        terminalSurface?.setRendererWindowVisible(
-            window.occlusionState.contains(.visible)
-        )
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -4742,6 +4819,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         applyWindowBackgroundIfActive()
         invalidateTextInputCoordinates()
+    }
+
+    /// Resolve the hosting window's renderer visibility without treating an
+    /// early/unknown AppKit occlusion report as a hidden window. Transparent
+    /// windows and headless test sessions can be ordered and drawable while
+    /// `occlusionState` temporarily has neither `.visible` nor `.occluded`;
+    /// retain the prior visible state for that transient. Explicitly ordered
+    /// out or miniaturized windows remain hidden, and a concrete `.occluded`
+    /// state is honored unless the window is key (AppKit's transparent-window
+    /// workaround).
+    @MainActor
+    private func syncRendererWindowVisibility(
+        for window: NSWindow,
+        assumeVisibleWhenUnknown: Bool
+    ) {
+        guard let terminalSurface else { return }
+        let visible: Bool
+        if !window.isVisible || window.isMiniaturized {
+            visible = false
+        } else if window.isKeyWindow || window.occlusionState.contains(.visible) {
+            visible = true
+        } else if window.occlusionState.contains(.occluded) {
+            visible = false
+        } else {
+            visible = assumeVisibleWhenUnknown
+        }
+        let wasVisible = terminalSurface.rendererWindowVisible
+        terminalSurface.setRendererWindowVisible(visible)
+        guard wasVisible != visible else { return }
+        // Window-only transitions must enter the same coalesced evaluation path
+        // as portal transitions so hidden renderers receive an exact reclaim
+        // deadline (rather than waiting for the safety timer).
+        NotificationCenter.default.post(
+            name: .terminalPortalVisibilityDidChange,
+            object: self,
+            userInfo: [
+                GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                GhosttyNotificationKey.tabId: terminalSurface.tabId
+            ]
+        )
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -8384,9 +8501,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
-        if let windowOcclusionObserver {
-            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+        for observer in windowOcclusionObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
+        windowOcclusionObservers.removeAll(keepingCapacity: false)
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
