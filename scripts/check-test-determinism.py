@@ -4382,6 +4382,19 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/xhr_open_new_receiver.ts",
+            'new XMLHttpRequest().open("GET", "https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/xhr_open_grouped_handle.ts",
+            (
+                "const xhr = new XMLHttpRequest();\n"
+                '(xhr).open("GET", "https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/python_exec_network_source.py",
             'exec("requests.get(\'https://api.openai.com/v1/items\')")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -5253,6 +5266,10 @@ def _self_test() -> int:
             'env -S "echo curl https://api.openai.com/v1/items"\n',
         ),
         (
+            "tests/n18v_shell_interpreter_echo.sh",
+            "bash -c 'echo curl https://api.openai.com/v1/items'\n",
+        ),
+        (
             "web/tests/n18w_node_script_argument.ts",
             (
                 'spawn("node", [\n'
@@ -5306,6 +5323,13 @@ def _self_test() -> int:
                 "function helper(client) {\n"
                 '  client.get("/local");\n'
                 "}\n"
+            ),
+        ),
+        (
+            "web/tests/n18y_axios_arrow_parameter_shadow.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'const helper = (client) => client.get("/local");\n'
             ),
         ),
         # An explicit absolute request target overrides a stored base URL.
