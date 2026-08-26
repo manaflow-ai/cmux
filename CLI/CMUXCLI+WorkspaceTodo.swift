@@ -334,6 +334,10 @@ extension CMUXCLI {
     `set auto` clears the pin immediately. `cycle` advances the manual override
     one lane forward (todo → working → needs-attention → review → done → todo).
 
+    Note for coding agents: manual status pins belong to the user; the lane
+    already tracks your activity automatically. Do not `set` or `cycle` the
+    status unless the user explicitly asks you to.
+
     Lanes: todo, working, needs-attention, review, done
 
     Examples:
@@ -346,8 +350,13 @@ extension CMUXCLI {
     static let todoUsage = String(localized: "cli.todo.usage", defaultValue: """
     Usage: cmux todo <subcommand> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 
-    Per-workspace checklist, writable by you and by agents. Targets the
+    Per-workspace checklist shown in the sidebar and todo pane. Targets the
     caller's workspace by default. Items are capped at 50 per workspace.
+
+    Note for coding agents: this checklist belongs to the user. Do not add,
+    edit, complete, remove, or replace items on your own initiative — only
+    manage it when the user explicitly asks you to. Use your own internal
+    task tracking for your plans.
 
     Subcommands:
       add "text" [--state <pending|in-progress|completed>] [--origin <user|agent>]

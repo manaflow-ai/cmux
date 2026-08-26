@@ -9,19 +9,28 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         self.environment = environment
     }
 
-    /// Whether the standalone agent-chat preview is enabled.
-    public var agentChatPreviewEnabled: Bool {
+    /// Whether the deterministic onboarding preview is enabled.
+    public var onboardingPreviewEnabled: Bool {
         #if DEBUG
-        return environment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] == "1"
+        return environment["CMUX_UITEST_ONBOARDING_PREVIEW"] == "1"
         #else
         return false
         #endif
     }
 
-    /// Whether the inline workspace-shaped agent-chat preview is enabled.
-    public var agentChatInlinePreviewEnabled: Bool {
+    /// Whether the onboarding preview should show connection fallback.
+    public var onboardingConnectionFallbackEnabled: Bool {
         #if DEBUG
-        return environment["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW"] == "1"
+        return environment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the deterministic pairing-scanner preview is enabled.
+    public var pairingScannerPreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_SCANNER_PREVIEW"] == "1"
         #else
         return false
         #endif

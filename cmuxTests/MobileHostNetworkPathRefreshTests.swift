@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 import Testing
 
@@ -182,5 +184,215 @@ import Testing
         _ = await staleResolution
         let afterStaleStore = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
         #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct MobileHostIrohStartupRetryTests {
+    @Test
+    func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let revision: UInt64 = 4_200
+        let binding = try CmxIrohBrokerBindingMetadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174010",
+            deviceID: "123e4567-e89b-42d3-a456-426614174011",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174012",
+            tag: "route-ready",
+            platform: .mac,
+            endpointID: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            identityGeneration: 1
+        )
+        defer {
+            runtime.lifecycleRevision = originalRevision
+            runtime.clearIrohRoutePublication()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        MobileHostPublicStatusCache.removeAll()
+        runtime.lifecycleRevision = revision
+
+        runtime.beginIrohRouteActivation(revision: revision)
+        runtime.stageIrohRoute(binding, pathHints: [], revision: revision)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision))
+        #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.publishIrohRouteIfActive(revision: revision))
+        #expect(MobileHostPublicStatusCache.hasIrohRoute())
+
+        runtime.lifecycleRevision = revision + 1
+        runtime.beginIrohRouteActivation(revision: revision + 1)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
+    }
+
+    @Test
+    func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationDoesNotRestartActiveRuntime() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: "same-account",
+            hasRuntime: true,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationRetriesAfterFailedActivation() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func accountChangeStillSupersedesActivationInFlight() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "next-account",
+            previousAccountID: "previous-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func networkPathRetryDoesNotSupersedeActivationInFlight() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalObservedAccountID = runtime.observedAccountID
+        let originalPreparedSignOut = runtime.preparedSignOut
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRuntime = runtime.runtime
+        let originalTransitionTask = runtime.transitionTask
+        let originalRevision = runtime.lifecycleRevision
+        let gate = MobileHostIrohStartupRetryGate()
+        let activation = Task { await gate.suspend() }
+        runtime.desiredActive = true
+        runtime.observedAccountID = "network-path-race-account"
+        runtime.preparedSignOut = nil
+        runtime.signOutIntentActive = false
+        runtime.runtime = nil
+        runtime.transitionTask = activation
+
+        runtime.retryIfNeeded()
+
+        #expect(runtime.lifecycleRevision == originalRevision)
+
+        let scheduled = runtime.transitionTask
+        scheduled?.cancel()
+        await gate.resume()
+        await scheduled?.value
+        runtime.transitionTask = originalTransitionTask
+        runtime.runtime = originalRuntime
+        runtime.desiredActive = originalDesiredActive
+        runtime.observedAccountID = originalObservedAccountID
+        runtime.preparedSignOut = originalPreparedSignOut
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+
+    @Test
+    func staleDeactivationCannotClearReplacementRuntimeState() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 1_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 999,
+            stopLANPublication: {
+                probe.didStopLAN = true
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(!probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+
+    @Test
+    func deactivationRechecksOwnershipAfterSuspendingCleanup() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 2_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 2_000,
+            stopLANPublication: {
+                probe.didStopLAN = true
+                // A replacement activation took ownership while the old
+                // callback was suspended in LAN cleanup.
+                runtime.lifecycleRevision = 2_001
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+}
+
+@MainActor
+private final class MobileHostIrohDeactivationProbe {
+    var didStopLAN = false
+    var didClearHost = false
+}
+
+private actor MobileHostIrohStartupRetryGate {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func resume() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
     }
 }

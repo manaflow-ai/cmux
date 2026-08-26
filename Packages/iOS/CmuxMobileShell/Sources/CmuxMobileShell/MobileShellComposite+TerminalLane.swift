@@ -13,10 +13,19 @@ extension MobileShellComposite {
               let activeTicket else {
             return
         }
+        // A lane request can redial the peer session, so it must carry the
+        // same method-pinned allowlist as the control dial or a Direct or
+        // Tailscale Only Computer's lane reconnect could ride relay or
+        // discovered paths the method forbids.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
-            authorizationMode: .transportAdmission
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID
@@ -43,6 +52,9 @@ extension MobileShellComposite {
                       self.terminalLaneLifecycleID == lifecycleID else { return }
                 if ready {
                     self.terminalLaneOutputReadySurfaceIDs.insert(surfaceID)
+                    await terminalLaneCoordinator.retireUnfocusedLanes(
+                        surfaceID: surfaceID
+                    )
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
@@ -63,12 +75,19 @@ extension MobileShellComposite {
         terminalLaneLifecycleID = UUID()
         let lifecycleID = terminalLaneLifecycleID
         terminalLaneOutputReadySurfaceIDs.removeAll()
+        let mountedSurfaceIDs = Array(
+            terminalByteContinuationsBySurfaceID.keys
+        )
+        guard !mountedSurfaceIDs.isEmpty else {
+            Task { await terminalLaneCoordinator.deactivateAll() }
+            return
+        }
         Task { @MainActor [weak self] in
-            await terminalLaneCoordinator.deactivateAll()
             guard let self,
                   self.terminalLaneLifecycleID == lifecycleID,
                   self.connectionState == .connected else { return }
-            for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+            for surfaceID in mountedSurfaceIDs
+            where self.terminalByteContinuationsBySurfaceID[surfaceID] != nil {
                 self.ensureTerminalLane(surfaceID: surfaceID)
             }
         }
@@ -115,7 +134,11 @@ extension MobileShellComposite {
             let overlap = deliveredSequence - frame.sequence
             let bytes = Data(frame.bytes.dropFirst(Int(overlap)))
             if !bytes.isEmpty {
-                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else {
+                guard deliverTerminalBytes(
+                    bytes,
+                    surfaceID: surfaceID,
+                    endSequence: frame.currentSequence
+                ) else {
                     return .accepted(outputReady: false)
                 }
             }
@@ -143,7 +166,11 @@ extension MobileShellComposite {
             )
             return .accepted(outputReady: true)
         }
-        guard deliverTerminalBytes(frame.bytes, surfaceID: surfaceID) else {
+        guard deliverTerminalBytes(
+            frame.bytes,
+            surfaceID: surfaceID,
+            endSequence: frame.currentSequence
+        ) else {
             return .accepted(outputReady: false)
         }
         markTerminalBytesDelivered(

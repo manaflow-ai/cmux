@@ -17,27 +17,69 @@ import Foundation
 /// request — and unknown / future event names default to non-actionable
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
+/// Resolved user-attention outcome for one raw agent hook event on the
+/// Feed bridge path.
+struct FeedEventClassification: Equatable {
+    /// The wire `hook_event_name` forwarded to the app via `feed.push`.
+    let hookEventName: String
+    /// Whether the Feed bridge blocks waiting for a user decision (and the
+    /// app may post an actionable approval card + banner).
+    let isActionable: Bool
+    /// The agent is blocked waiting for the user in its OWN approval UI
+    /// (e.g. Codex's approval reviewer). The feed event stays non-actionable
+    /// telemetry — cmux must not double-prompt — but the hook bridge must
+    /// raise the "Agent Needs Permission"-gated notification, or the blocked
+    /// agent is silent indefinitely.
+    /// https://github.com/manaflow-ai/cmux/issues/9592
+    let notifiesNativeApprovalPrompt: Bool
+    /// A tool COMPLETED for an agent whose approval prompts notify via
+    /// ``notifiesNativeApprovalPrompt`` — execution strictly follows any
+    /// approval, so the prompt resolved (approved by the user or by the
+    /// agent's own auto-reviewer) and the bridge clears the pane's stale
+    /// notifications. Only tool COMPLETION qualifies: pre-tool events fire
+    /// when the agent intends to run a tool, with no ordering guarantee
+    /// against the approval-prompt hook, so clearing there could erase a
+    /// just-raised prompt while the agent is still blocked.
+    ///
+    /// The clear is deliberately pane-wide and uncorrelated with any single
+    /// request: notifications carry no request identity anywhere in cmux,
+    /// and every agent integration clears the same way on progress signals —
+    /// Claude's `session-start`/`prompt-submit`/`pre-tool-use` hooks, the
+    /// generic `.approvalResponse` action (Hermes' resolved native
+    /// approvals), and codex's own `prompt-submit` hook (which also clears
+    /// deny-without-further-tools residue at the next turn). Pane
+    /// notifications are attention signals; agent progress in the pane makes
+    /// them stale as a set.
+    let clearsNativeApprovalPrompt: Bool
+}
+
 struct FeedEventClassifier {
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision (and whether `FeedCoordinator`
-    /// posts a "needs approval" notification).
+    /// posts a "needs approval" notification), plus whether the bridge
+    /// itself must raise the permission-prompt notification for an agent
+    /// that blocks in its own native approval UI.
     ///
     /// - Parameters:
     ///   - source: The agent id that emitted the event (`claude`, `codex`,
-    ///     `hermes-agent`, …). Unregistered sources use the generic table.
+    ///     `hermes-agent`, …). Unregistered sources are telemetry-only.
     ///   - event: The agent's raw hook event name.
     ///   - toolName: The tool the event refers to, used only for the two
     ///     tool-dependent semantics.
-    /// - Returns: The wire `hook_event_name` and whether the event is
-    ///   Feed-actionable (blocks + may notify).
     static func classify(
         source: String,
         event: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> FeedEventClassification {
         let semantic = feedEventSemantic(source: source, event: event)
         return wireMapping(for: semantic, source: source, toolName: toolName)
+    }
+
+    /// Whether any of `source`'s registered events carry the
+    /// ``FeedEventSemantic/nativeApprovalPrompt`` semantic.
+    private static func sourceRaisesNativeApprovalPrompts(_ source: String) -> Bool {
+        feedEventSemanticRegistry[source]?.values.contains(.nativeApprovalPrompt) == true
     }
 
     /// User-attention semantic of a hook/feed event, independent of the
@@ -54,6 +96,14 @@ struct FeedEventClassifier {
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
         case toolStart
+        /// The agent is blocked waiting for the user in its OWN approval
+        /// UI (e.g. Codex's approval reviewer). The feed event stays
+        /// non-actionable telemetry — an actionable cmux Feed card would
+        /// compete with the agent's native prompt and bypass features like
+        /// Codex's "Approve for me" — but the bridge raises the
+        /// "Agent Needs Permission"-gated notification so the blocked
+        /// agent is not silent (#9592).
+        case nativeApprovalPrompt
         /// A tool is about to run and the agent has *no* dedicated approval
         /// event, so a side-effecting tool is escalated to an approval and
         /// read-only tools stay telemetry. Resolved against the tool name.
@@ -83,24 +133,24 @@ struct FeedEventClassifier {
         case unknown
     }
 
-    /// Resolves the semantic for a `(source, event)` pair. A registered
-    /// source uses its own table (unmatched events fall to ``FeedEventSemantic/unknown``);
-    /// unregistered sources use the generic table.
+    /// Resolves the semantic for a `(source, event)` pair. Only registered
+    /// sources can opt in to blocking decisions. Unregistered sources retain
+    /// useful lifecycle names but always use telemetry-only semantics.
     private static func feedEventSemantic(
         source: String,
         event: String
     ) -> FeedEventSemantic {
-        let table = feedEventSemanticRegistry[source] ?? genericFeedEventSemantics
+        let table = feedEventSemanticRegistry[source] ?? telemetryOnlyFeedEventSemantics
         return table[event] ?? .unknown
     }
 
     /// Tool names that carry their own dedicated approval wire event rather
     /// than the generic `PermissionRequest`. Returns the actionable wire
-    /// mapping for such a tool, or `nil` for ordinary tools.
-    private static func dedicatedApprovalEvent(for toolName: String) -> (String, Bool)? {
+    /// event name for such a tool, or `nil` for ordinary tools.
+    private static func dedicatedApprovalEvent(for toolName: String) -> String? {
         switch toolName {
-        case "ExitPlanMode": return ("ExitPlanMode", true)
-        case "AskUserQuestion": return ("AskUserQuestion", true)
+        case "ExitPlanMode": return "ExitPlanMode"
+        case "AskUserQuestion": return "AskUserQuestion"
         default: return nil
         }
     }
@@ -112,62 +162,101 @@ struct FeedEventClassifier {
         for semantic: FeedEventSemantic,
         source: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> FeedEventClassification {
         switch semantic {
         case .approvalRequest:
-            return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
+            return actionable(dedicatedApprovalEvent(for: toolName) ?? "PermissionRequest")
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
-                return dedicated
+                return actionable(dedicated)
             }
             // Any tool that can mutate the environment surfaces as a
             // permission request so the user can approve/deny from the
             // Feed sidebar. Read-only tools stay non-actionable
             // telemetry so we don't flood the Actionable view.
             if Self.isSideEffectingTool(toolName, source: source) {
-                return ("PermissionRequest", true)
+                return actionable("PermissionRequest")
             }
-            return ("PreToolUse", false)
+            return telemetry("PreToolUse")
         case .toolStart:
-            return ("PreToolUse", false)
+            // Never clears the native approval prompt: agents fire their
+            // pre-tool hooks when they INTEND to run a tool, with no ordering
+            // guarantee against the approval-prompt hook, so a start-time
+            // clear could erase a just-raised prompt while the agent is still
+            // blocked — reintroducing the silence behind #9592.
+            return telemetry("PreToolUse")
+        case .nativeApprovalPrompt:
+            // Same telemetry wire mapping as .toolStart (no blocking, no
+            // actionable card), plus the permission-prompt notification.
+            return FeedEventClassification(
+                hookEventName: "PreToolUse",
+                isActionable: false,
+                notifiesNativeApprovalPrompt: true,
+                clearsNativeApprovalPrompt: false
+            )
         case .toolEnd:
-            return ("PostToolUse", false)
+            // A completed tool ran, and execution strictly follows any
+            // approval — so this is the earliest progress signal that can
+            // safely clear a resolved native approval prompt (approved by
+            // the user or by the agent's own auto-reviewer). Scoped to
+            // sources that raise those prompts so other agents' tool
+            // telemetry never touches the notification queue.
+            return FeedEventClassification(
+                hookEventName: "PostToolUse",
+                isActionable: false,
+                notifiesNativeApprovalPrompt: false,
+                clearsNativeApprovalPrompt: sourceRaisesNativeApprovalPrompts(source)
+            )
         case .preCompact:
-            return ("PreCompact", false)
+            return telemetry("PreCompact")
         case .postCompact:
-            return ("PostCompact", false)
+            return telemetry("PostCompact")
         case .promptSubmit:
-            return ("UserPromptSubmit", false)
+            return telemetry("UserPromptSubmit")
         case .subagentStart:
-            return ("SubagentStart", false)
+            return telemetry("SubagentStart")
         case .response:
-            return ("Stop", false)
+            return telemetry("Stop")
         case .subagentResponse:
-            return ("SubagentStop", false)
+            return telemetry("SubagentStop")
         case .sessionStart:
-            return ("SessionStart", false)
+            return telemetry("SessionStart")
         case .sessionEnd:
-            return ("SessionEnd", false)
+            return telemetry("SessionEnd")
         case .statusNotification:
-            return ("Notification", false)
+            return telemetry("Notification")
         case .unknown:
             // Safe default: telemetry, no approval, no notification.
-            return ("PreToolUse", false)
+            return telemetry("PreToolUse")
         }
+    }
+
+    private static func actionable(_ hookEventName: String) -> FeedEventClassification {
+        FeedEventClassification(
+            hookEventName: hookEventName,
+            isActionable: true,
+            notifiesNativeApprovalPrompt: false,
+            clearsNativeApprovalPrompt: false
+        )
+    }
+
+    private static func telemetry(_ hookEventName: String) -> FeedEventClassification {
+        FeedEventClassification(
+            hookEventName: hookEventName,
+            isActionable: false,
+            notifiesNativeApprovalPrompt: false,
+            clearsNativeApprovalPrompt: false
+        )
     }
 
     /// Per-agent event-semantic tables. Each entry is the source of truth
     /// for that agent's `(event) -> semantic` mapping; events absent here
     /// resolve to ``FeedEventSemantic/unknown``.
     ///
-    /// The key distinction the registry encodes: agents with a *dedicated*
-    /// approval event (Claude `PermissionRequest`, Codex `PermissionRequest`,
-    /// Hermes `pre_approval_request`) classify their pre-tool event as
-    /// ``FeedEventSemantic/toolStart`` (always telemetry). Agents whose only
-    /// signal is the pre-tool event (gemini, copilot, …, handled by
-    /// ``genericFeedEventSemantics``) use
-    /// ``FeedEventSemantic/toolStartMaybeApproval`` so side-effecting tools
-    /// still escalate. Conflating the two is the bug behind #4985.
+    /// Blocking is an explicit capability: a source must be registered with
+    /// ``FeedEventSemantic/toolStartMaybeApproval`` or
+    /// ``FeedEventSemantic/approvalRequest``. New and incompatible sources
+    /// fail neutral instead of inheriting a synchronous approval wait.
     private static let feedEventSemanticRegistry: [String: [String: FeedEventSemantic]] = [
         "claude": [
             "PermissionRequest": .approvalRequest,
@@ -185,10 +274,12 @@ struct FeedEventClassifier {
         ],
         "codex": [
             // Codex runs PermissionRequest hooks before its own approval
-            // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
+            // reviewer. Keep the feed side telemetry so "Approve for me" can
+            // still use Codex's auto-review path instead of blocking on cmux
+            // Feed, but raise the permission-prompt notification: this is the
+            // only hook Codex fires while blocked on the user (#9592).
+            "PermissionRequest": .nativeApprovalPrompt,
+            "permission_request": .nativeApprovalPrompt,
             "PreToolUse": .toolStart,
             "pre_tool_use": .toolStart,
             "beforeShellExecution": .toolStart,
@@ -231,14 +322,14 @@ struct FeedEventClassifier {
             "on_session_end": .sessionEnd,
             "on_session_finalize": .sessionEnd,
         ],
+        // Gemini CLI consumes the generic PreToolUse decision schema and has
+        // no separate approval event, so it deliberately opts in to blocking.
+        "gemini": approvalCapableFeedEventSemantics,
         // Kiro emits camelCase hook events and has no dedicated approval
         // event, so its pre-tool event escalates side-effecting tools to an
         // approval (resolved against the kiro tool aliases in
         // ``isSideEffectingTool``). Registering kiro explicitly is required:
-        // its lowercase event names are absent from
-        // ``genericFeedEventSemantics`` and would otherwise resolve to
-        // ``FeedEventSemantic/unknown`` (non-actionable), silently dropping
-        // every kiro approval.
+        // its lowercase event names are absent from the shared tables.
         "kiro": [
             "preToolUse": .toolStartMaybeApproval,
             "postToolUse": .toolEnd,
@@ -248,13 +339,31 @@ struct FeedEventClassifier {
         ],
     ]
 
-    /// Fallback table for agents without a dedicated entry in
-    /// ``feedEventSemanticRegistry``. These agents expose only a pre-tool
-    /// event, so it carries ``FeedEventSemantic/toolStartMaybeApproval``.
-    private static let genericFeedEventSemantics: [String: FeedEventSemantic] = [
+    /// Shared event spellings for sources that have a verified blocking
+    /// decision contract. Registration is required; this table is never the
+    /// fallback for an unknown source.
+    private static let approvalCapableFeedEventSemantics: [String: FeedEventSemantic] = [
         "PreToolUse": .toolStartMaybeApproval,
         "beforeShellExecution": .toolStartMaybeApproval,
         "PermissionRequest": .approvalRequest,
+        "PostToolUse": .toolEnd,
+        "PreCompact": .preCompact,
+        "PostCompact": .postCompact,
+        "UserPromptSubmit": .promptSubmit,
+        "SessionStart": .sessionStart,
+        "SessionEnd": .sessionEnd,
+        "Stop": .response,
+        "SubagentStart": .subagentStart,
+        "SubagentStop": .subagentResponse,
+        "Notification": .statusNotification,
+    ]
+
+    /// Safe fallback for unregistered sources. Familiar event names preserve
+    /// Feed telemetry classification, but none can create a blocking request.
+    private static let telemetryOnlyFeedEventSemantics: [String: FeedEventSemantic] = [
+        "PreToolUse": .toolStart,
+        "beforeShellExecution": .toolStart,
+        "PermissionRequest": .toolStart,
         "PostToolUse": .toolEnd,
         "PreCompact": .preCompact,
         "PostCompact": .postCompact,
@@ -323,6 +432,75 @@ struct FeedEventClassifier {
         "manage_subagents",
         "generate_image",
     ]
+
+    /// Builds the pane-attention V1 socket command a classified feed event
+    /// carries — the `needs-permission`-gated `notify_target_async` for a
+    /// native approval prompt, or the pane-scoped `clear_notifications` for
+    /// a resolved one. Pure so the exact wire command (UUID gating, payload
+    /// shape, gate meta) is unit-testable; the CLI feed hook sends the
+    /// returned line request/response and awaits the app's acknowledgement.
+    ///
+    /// Returns `nil` when the classification carries no attention side
+    /// effect or when either identity is missing/not a UUID: the command is
+    /// advisory and must never fail the hook.
+    ///
+    /// The notification body deliberately names only the TOOL — mirroring
+    /// the in-app Feed approval banner (`feed.notification.permission.body`)
+    /// — and never the tool input: commands can embed credentials, and
+    /// notification banners reach lock screens, paired phones, and the
+    /// recorded notification history.
+    static func nativeApprovalPromptAttentionCommand(
+        classification: FeedEventClassification,
+        displayName: String,
+        toolName: String,
+        workspaceId: String?,
+        surfaceId: String?
+    ) -> String? {
+        guard classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt else { return nil }
+        guard let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceUUID = UUID(uuidString: workspaceRaw),
+              let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceUUID = UUID(uuidString: surfaceRaw)
+        else { return nil }
+        if classification.clearsNativeApprovalPrompt {
+            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString)"
+        }
+        let subtitle = String(
+            localized: "agent.generic.notification.subtitle.permission",
+            defaultValue: "Permission"
+        )
+        let sanitizedToolName = attentionNotificationField(toolName)
+        let body: String
+        if sanitizedToolName.isEmpty {
+            body = String(
+                localized: "agent.generic.notification.body.approvalNeeded",
+                defaultValue: "Approval needed"
+            )
+        } else {
+            body = String(
+                localized: "feed.notification.permission.body",
+                defaultValue: "\(sanitizedToolName) needs approval"
+            )
+        }
+        guard let meta = AgentHookNotifyCategory.needsPermission.metaSegment(pending: false) else {
+            return nil
+        }
+        let payload = [attentionNotificationField(displayName), attentionNotificationField(subtitle), attentionNotificationField(body)]
+            .joined(separator: "|") + "|" + meta
+        return "notify_target_async \(workspaceUUID.uuidString) \(surfaceUUID.uuidString) \(payload)"
+    }
+
+    /// Notification payload fields are pipe-delimited single lines; agent
+    /// tool names are payload-controlled input, so normalize them the same
+    /// way `notificationPayload` sanitizes its fields.
+    private static func attentionNotificationField(_ value: String) -> String {
+        value
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "|", with: "¦")
+    }
 
     /// Whether a tool mutates state and deserves an approval prompt. Exact
     /// match against ``sideEffectingTools`` for every source; the `kiro`

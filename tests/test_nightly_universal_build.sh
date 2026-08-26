@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
-  /^      - name: Build universal nightly app and Ghostty CLI helper \(Release\)/ { in_universal=1; next }
+  /^      - name: Build universal nightly app \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
   in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
@@ -25,7 +25,7 @@ fi
 
 if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
-  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job && /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
@@ -36,10 +36,10 @@ if ! awk '
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
-           saw_path["publish"] && saw_key["publish"] && saw_toolchain["publish"] && saw_head_sha["publish"] && saw_restore["publish"])
+           saw_path["build"] && saw_key["build"] && saw_toolchain["build"] && saw_head_sha["build"] && saw_restore["build"])
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: cache warming and publishing must both roll the shared Release compilation cache forward by source revision"
+  echo "FAIL: cache warming and nightly app builds must both roll the shared Release compilation cache forward by source revision"
   exit 1
 fi
 
@@ -50,6 +50,27 @@ fi
 
 if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
+  exit 1
+fi
+
+if ! awk '
+  /^  push:/ { in_push=1; next }
+  in_push && /^  [a-zA-Z0-9_-]+:/ { in_push=0 }
+  in_push && /^    branches:/ { saw_branches=1 }
+  in_push && /^      - main$/ { saw_main=1 }
+  END { exit !(saw_branches && saw_main) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: every push to main must trigger a Nightly publication attempt"
+  exit 1
+fi
+
+if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
+  echo "FAIL: each Nightly run must build the exact revision that triggered it"
+  exit 1
+fi
+
+if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
+  echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
   exit 1
 fi
 
@@ -104,15 +125,15 @@ fi
 
 if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
-  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job && /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
   in_bound && /^      - name:/ { in_bound=0 }
-  in_bound && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_limit[job]=1 }
+  in_bound && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_limit[job]=1 }
   in_bound && /rm -rf "\$cache_path"/ { saw_skip_save[job]=1 }
-  END { exit !(saw_limit["refresh"] && saw_skip_save["refresh"] && saw_limit["publish"] && saw_skip_save["publish"]) }
+  END { exit !(saw_limit["refresh"] && saw_skip_save["refresh"] && saw_limit["build"] && saw_skip_save["build"]) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: cache warming and publishing must each skip saving Xcode compilation caches larger than 3 GiB"
+  echo "FAIL: cache warming and nightly app builds must retain caches through 5 GiB and skip larger saves"
   exit 1
 fi
 
@@ -126,7 +147,7 @@ if ! awk '
   in_release && /restore-keys:/ { saw_restore=1 }
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
   in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
-  in_release && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
+  in_release && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
   in_release && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
   END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_skip_save) }
 ' "$CI_WORKFLOW_FILE"; then
@@ -135,26 +156,54 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Build universal nightly app and Ghostty CLI helper \(Release\)/ { in_helper=1; next }
-  in_helper && /^      - name:/ { in_helper=0 }
-  in_helper && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
-  in_helper && /helper missing arm64 slice/ { saw_arm64_assert=1 }
-  in_helper && /helper missing x86_64 slice/ { saw_x86_assert=1 }
-  in_helper && /wait "\$HELPER_PID"/ { saw_wait=1 }
-  in_helper && /cat "\$HELPER_LOG"/ { saw_log=1 }
-  END { exit !(saw_build && saw_arm64_assert && saw_x86_assert && saw_wait && saw_log) }
+  /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "helper" && /runs-on: \$\{\{ vars\.MACOS_RUNNER_15/ { saw_helper_runner=1 }
+  job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
+  job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
+  job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
+  job == "app" && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_NIGHTLY_BUILD \|\| '\''blacksmith-12vcpu-macos-26'\'' \}\}/ { saw_app_runner=1 }
+  job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
+  job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
+  job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
+  job == "app" && /tar -C "\$products" -czf "\$RUNNER_TEMP\/cmux-nightly-unsigned\.tar\.gz" cmux\.app/ { saw_app_only_archive=1 }
+  job == "app" && /^      - name: Upload dSYMs to Sentry/ { saw_app_dsym_upload=1 }
+  job == "publish" && /build-nightly-ghostty-cli-helper/ { saw_publish_needs_helper=1 }
+  job == "publish" && /build-nightly-app/ { saw_publish_needs_app=1 }
+  job == "publish" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_publish_xcode=1 }
+  job == "publish" && /select-ci-xcode\.sh/ { saw_publish_selection=1 }
+  job == "publish" && /name: cmux-nightly-unsigned-app/ { saw_app_download=1 }
+  job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
+  job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
+  job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
+  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build and verify the real universal Ghostty helper alongside the app build"
+  echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
   exit 1
 fi
 
 if ! awk '
   /^      - name: Inject universal Ghostty CLI helper/ { in_inject=1; next }
   in_inject && /^      - name:/ { in_inject=0 }
-  in_inject && /install -m 755 \/tmp\/cmux-ghostty-helper-universal "\$DEST"/ { saw_install=1 }
+  in_inject && /install -m 755 nightly-inputs\/ghostty\/ghostty "\$DEST"/ { saw_install=1 }
   END { exit !saw_install }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must inject the verified universal Ghostty helper into the app"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="build"; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "build" && /^      - name: Derive Sparkle public key from private key/ { derived_in_build=1 }
+  job == "publish" && /^      - name: Derive Sparkle public key from private key/ { derived_in_publish=1 }
+  job == "publish" && /echo "SPARKLE_PUBLIC_KEY=\$DERIVED_PUBLIC_KEY" >> "\$GITHUB_ENV"/ { exported_in_publish=1 }
+  END { exit !(!derived_in_build && derived_in_publish && exported_in_publish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the publishing job must derive and export the Sparkle public key it consumes"
   exit 1
 fi
 

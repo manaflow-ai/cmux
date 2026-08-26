@@ -217,6 +217,8 @@ extension Workspace {
             return "right_sidebar_tool"
         case .customSidebar:
             return "custom_sidebar"
+        case .simulator:
+            return "simulator"
         case .agentSession:
             return "agent_session"
         case .project:
@@ -225,8 +227,14 @@ extension Workspace {
             return "extension_browser"
         case .workspaceTodo:
             return "workspace_todo"
+        case .notifications:
+            return "notifications"
         case .cloudVMLoading:
             return "cloud_vm_loading"
+        case .mobilePairing:
+            return "mobile_pairing"
+        case .accountSignIn:
+            return "account_sign_in"
         }
     }
 }
@@ -260,7 +268,7 @@ extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
-            let context = contextForMainTerminalWindow(window)
+            let context = senderRelativeMainWindowContext(for: window)
             setActiveMainWindow(window)
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")

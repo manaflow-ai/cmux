@@ -228,6 +228,57 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func coalesceLatestDrainsReentrantValueBeforeCompletionWithUnlimitedDemand() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subscriber.onValue = { value in
+            if value == 1 {
+                subject.send(2)
+                subject.send(completion: .finished)
+            }
+        }
+        subscriber.request(.unlimited)
+        subject.send(1)
+
+        #expect(
+            subscriber.received == [1, 2],
+            "A reentrant value that arrived before completion must drain while unlimited demand remains."
+        )
+        #expect(subscriber.completionCount == 1)
+        #expect(subscriber.receivedValuesAtCompletion == [[1, 2]])
+    }
+
+    @Test func coalesceLatestDeliversBufferedValueBeforeCompletionWhenDemandResumes() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subject.send(1)
+        subject.send(completion: .finished)
+
+        #expect(subscriber.received.isEmpty)
+        #expect(
+            subscriber.completionCount == 0,
+            "Completion must wait while the final value is buffered without demand."
+        )
+
+        subscriber.request(.max(1))
+
+        #expect(subscriber.received == [1])
+        #expect(subscriber.completionCount == 1)
+        #expect(subscriber.receivedValuesAtCompletion == [[1]])
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
@@ -378,6 +429,39 @@ private final class ObservationChangeFlag: @unchecked Sendable {
     }
 }
 
+private final class DemandControlledSubscriber<Input>: Subscriber {
+    typealias Failure = Never
+
+    private var subscription: Subscription?
+    private(set) var received: [Input] = []
+    private(set) var completionCount = 0
+    private(set) var receivedValuesAtCompletion: [[Input]] = []
+    var onValue: ((Input) -> Void)?
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Input) -> Subscribers.Demand {
+        received.append(input)
+        onValue?(input)
+        return .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {
+        completionCount += 1
+        receivedValuesAtCompletion.append(received)
+    }
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    func cancel() {
+        subscription?.cancel()
+        subscription = nil
+    }
+}
 // Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
 // via advance(by:), and scheduled actions run only when runScheduledActions()
 // is called, so overdue-timer interleavings are exact instead of wall-clock.

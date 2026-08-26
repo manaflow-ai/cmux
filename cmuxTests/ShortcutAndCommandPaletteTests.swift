@@ -1,6 +1,7 @@
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFoundation
+import CmuxTerminal
 import XCTest
 import AppKit
 import SwiftUI
@@ -84,7 +85,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
@@ -94,17 +96,19 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
 
-    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
-        XCTAssertFalse(
+    func testRepairsCommandEquivalentWhenLiveTerminalResponderDiffersFromSelectedPane() {
+        XCTAssertTrue(
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
@@ -114,7 +118,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: true
             )
         )
     }
@@ -124,7 +129,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
@@ -1237,6 +1243,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+        XCTAssertEqual(RightSidebarMode.machines.shortcutAction, .switchRightSidebarToMachines)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
@@ -1378,6 +1385,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 
 final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    private final class TestHostedTerminalDescendantResponder: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
 
@@ -1533,6 +1544,36 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testHostedTerminalDescendantClearsRightSidebarIntentOnFocusSync() {
+        let workspaceId = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        let descendant = TestHostedTerminalDescendantResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        hostedView.addSubview(descendant)
+
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let panelId = surface.id
+
+        controller.noteRightSidebarInteraction(mode: .sessions)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        controller.debugSyncAfterResponderChange(responder: descendant)
+
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(controller.focusToggleDestination(currentResponder: descendant), .rightSidebar)
     }
 }
 

@@ -19,7 +19,7 @@ struct TerminalPanelView: View {
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
     private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
-    @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+    @State private var terminalFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -35,10 +35,33 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        if let hibernationState = panel.agentHibernationState {
-            hibernationBody(hibernationState)
-        } else {
+        switch panel.agentHibernationPhase {
+        case .live:
             terminalBody
+        case .terminating:
+            Color(nsColor: appearance.contentBackgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id("hibernation-terminating-\(panel.id.uuidString)")
+        case .recovering(let hibernationState):
+            AgentHibernationPlaceholderView(
+                state: hibernationState,
+                appearance: appearance,
+                mode: AgentHibernationPlaceholderMode.recovering,
+                onAction: nil
+            )
+            .id("hibernation-termination-recovery-\(panel.id.uuidString)")
+        case .terminationFailed(let hibernationState):
+            AgentHibernationPlaceholderView(
+                state: hibernationState,
+                appearance: appearance,
+                mode: AgentHibernationPlaceholderMode.failed,
+                onAction: {
+                    panel.retryAgentHibernationTermination()
+                }
+            )
+            .id("hibernation-termination-failed-\(panel.id.uuidString)")
+        case .hibernated(let hibernationState):
+            hibernationBody(hibernationState)
         }
     }
 
@@ -55,7 +78,8 @@ struct TerminalPanelView: View {
             AgentHibernationPlaceholderView(
                 state: hibernationState,
                 appearance: appearance,
-                onResume: onResumeAgentHibernation
+                mode: AgentHibernationPlaceholderMode.hibernated,
+                onAction: onResumeAgentHibernation
             )
             .id("hibernated-\(panel.id.uuidString)")
             .onChange(of: isVisibleInUI) { _, visible in
@@ -157,7 +181,7 @@ struct TerminalPanelView: View {
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+            terminalFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
     }
 
@@ -229,7 +253,42 @@ struct TerminalPanelView: View {
 private struct AgentHibernationPlaceholderView: View {
     let state: AgentHibernationPanelState
     let appearance: PanelAppearance
-    let onResume: () -> Void
+    let mode: AgentHibernationPlaceholderMode
+    let onAction: (() -> Void)?
+
+    private var title: String {
+        switch mode {
+        case .hibernated:
+            String(
+                localized: "terminal.agentHibernation.title",
+                defaultValue: "Agent hibernated"
+            )
+        case .recovering:
+            String(
+                localized: "terminal.agentHibernation.finishing",
+                defaultValue: "Finishing agent shutdown"
+            )
+        case .failed:
+            String(
+                localized: "terminal.agentHibernation.failed",
+                defaultValue: "Agent shutdown needs attention"
+            )
+        }
+    }
+
+    private var actionTitle: String? {
+        switch mode {
+        case .hibernated:
+            String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")
+        case .recovering:
+            nil
+        case .failed:
+            String(
+                localized: "terminal.agentHibernation.retry",
+                defaultValue: "Retry shutdown"
+            )
+        }
+    }
 
     private var lastActivityText: String {
         let formatter = RelativeDateTimeFormatter()
@@ -239,10 +298,24 @@ private struct AgentHibernationPlaceholderView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
+            switch mode {
+            case .recovering:
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("AgentHibernationTerminationRecoveryProgress")
+            case .hibernated:
+                CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
+                    .foregroundStyle(.secondary)
+            case .failed:
+                CmuxSystemSymbolImage(
+                    magnified: "exclamationmark.triangle",
+                    pointSize: 34,
+                    weight: .regular
+                )
                 .foregroundStyle(.secondary)
+            }
             VStack(spacing: 4) {
-                Text(String(localized: "terminal.agentHibernation.title", defaultValue: "Agent hibernated"))
+                Text(title)
                     .cmuxFont(.headline)
                 Text(state.agentDisplayName)
                     .cmuxFont(.subheadline)
@@ -256,12 +329,18 @@ private struct AgentHibernationPlaceholderView: View {
                 .cmuxFont(.caption)
                 .foregroundStyle(.tertiary)
             }
-            Button(String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")) {
-                onResume()
+            if let actionTitle, let onAction {
+                Button(actionTitle) {
+                    onAction()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    mode == .failed
+                        ? "AgentHibernationTerminationRetryButton"
+                        : "AgentHibernationResumeButton"
+                )
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .accessibilityIdentifier("AgentHibernationResumeButton")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.contentBackgroundColor))
@@ -348,6 +427,21 @@ struct PanelAppearance {
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
+    init(
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        dividerColor: Color,
+        unfocusedOverlayNSColor: NSColor,
+        unfocusedOverlayOpacity: Double,
+        usesClearContentBackground: Bool
+    ) {
+        self.backgroundColor = backgroundColor
+        self.foregroundColor = foregroundColor
+        self.dividerColor = dividerColor
+        self.unfocusedOverlayNSColor = unfocusedOverlayNSColor
+        self.unfocusedOverlayOpacity = unfocusedOverlayOpacity
+        self.usesClearContentBackground = usesClearContentBackground
+    }
 
     var contentBackgroundColor: NSColor {
         usesClearContentBackground ? .clear : backgroundColor

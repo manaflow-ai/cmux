@@ -44,7 +44,7 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            auth.browserSignIn.beginSignIn()
+            auth.accountFlow.startSignIn()
         }
         registry.register(commandId: Self.commandPaletteAuthSignOutCommandId) {
 #if DEBUG
@@ -55,7 +55,7 @@ extension ContentView {
                 return
             }
             Task { @MainActor in
-                await auth.browserSignIn.signOut()
+                await auth.accountFlow.signOut()
             }
         }
     }
@@ -75,7 +75,7 @@ extension ContentView {
     static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return [] }
+        guard CloudMachinesFeature.isEnabled else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }

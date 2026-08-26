@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import type { Team } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
@@ -24,6 +26,9 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
+  resolveSubrouterPermissions: (
+    teamId: string,
+  ) => Promise<SubrouterPermissions>;
 };
 
 export type AuthedTeam = {
@@ -31,6 +36,405 @@ export type AuthedTeam = {
   displayName: string | null;
   billingPlanId: string | null;
 };
+
+export type SubrouterPermissions = {
+  readonly use: boolean;
+  readonly manageAccounts: boolean;
+};
+
+export class SubrouterAuthorizationConfigurationError extends Error {
+  override readonly name = "SubrouterAuthorizationConfigurationError";
+}
+
+export class SubrouterAuthorizationTimeoutError extends Error {
+  override readonly name = "SubrouterAuthorizationTimeoutError";
+}
+
+export class SubrouterAuthorizationUnavailableError extends Error {
+  override readonly name = "SubrouterAuthorizationUnavailableError";
+}
+
+export type NativeStackTokens = {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+};
+
+export function parseNativeStackTokens(
+  request: Request,
+): NativeStackTokens | null {
+  const authorization = request.headers.get("authorization");
+  const refreshToken = request.headers.get("x-stack-refresh-token")?.trim();
+  if (
+    !authorization?.toLowerCase().startsWith("bearer ") ||
+    !refreshToken
+  ) {
+    return null;
+  }
+  const accessToken = authorization.slice("bearer ".length).trim();
+  return accessToken ? { accessToken, refreshToken } : null;
+}
+
+type VerifyRequestOptions = {
+  readonly requestedTeamId?: string | null;
+  readonly allowCookie?: boolean;
+  readonly allowDeletingAccount?: boolean;
+  readonly listAllTeams?: boolean;
+  readonly subrouterAuthorizationSignal?: AbortSignal;
+};
+
+const DEFAULT_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 10_000;
+const MAX_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 30_000;
+const MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS = 8;
+const MAX_QUEUED_STACK_AUTHORIZATION_CALLS = 32;
+
+// Native-bearer verification cache. Stack Auth rate-limits server-side token verification,
+// and the Mac client bursts several /api/vm calls per user action (create → attach → status),
+// which surfaced as HTTP 429 rate_limited to end users. Successful verifications are cached
+// for a short TTL keyed by a hash of the exact tokens plus the result-affecting options, so a
+// burst costs one Stack call. Failures and throttles are never cached, and the cookie and
+// subrouter paths are never cached (cookies vary per request; subrouter enforces permissions).
+const DEFAULT_AUTH_CACHE_TTL_MS = 30_000;
+const MAX_AUTH_CACHE_ENTRIES = 256;
+
+type AuthCacheEntry = {
+  readonly user: AuthedUser;
+  /** Hash of the exact native access/refresh pair, used for sign-out invalidation. */
+  readonly tokenFingerprint: string;
+  readonly expiresAt: number;
+};
+
+const nativeAuthCache = new Map<string, AuthCacheEntry>();
+
+function authCacheTtlMs(raw = process.env.CMUX_VM_AUTH_CACHE_TTL_MS): number {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === "") return DEFAULT_AUTH_CACHE_TTL_MS;
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return DEFAULT_AUTH_CACHE_TTL_MS;
+  return parsed;
+}
+
+function nativeAuthCacheKey(
+  tokens: NativeStackTokens,
+  options: VerifyRequestOptions,
+): string {
+  const material = [
+    tokens.accessToken,
+    tokens.refreshToken,
+    normalizedOptionalString(options.requestedTeamId) ?? "",
+    options.allowDeletingAccount === true ? "1" : "0",
+    options.listAllTeams === true ? "1" : "0",
+  ].join("\n");
+  return createHash("sha256").update(material).digest("hex");
+}
+
+function nativeAuthTokenFingerprint(tokens: NativeStackTokens): string {
+  return createHash("sha256")
+    .update(`${tokens.accessToken}\n${tokens.refreshToken}`)
+    .digest("hex");
+}
+
+function readNativeAuthCache(key: string): AuthedUser | null {
+  const entry = nativeAuthCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    nativeAuthCache.delete(key);
+    return null;
+  }
+  return entry.user;
+}
+
+function writeNativeAuthCache(
+  key: string,
+  user: AuthedUser,
+  tokens: NativeStackTokens,
+  ttlMs: number,
+): void {
+  if (ttlMs <= 0) return;
+  if (nativeAuthCache.size >= MAX_AUTH_CACHE_ENTRIES) {
+    const oldest = nativeAuthCache.keys().next().value;
+    if (oldest !== undefined) nativeAuthCache.delete(oldest);
+  }
+  nativeAuthCache.delete(key);
+  nativeAuthCache.set(key, {
+    user,
+    tokenFingerprint: nativeAuthTokenFingerprint(tokens),
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+/** Test hook: clear the native verification cache between cases. */
+export function clearNativeAuthCacheForTests(): void {
+  nativeAuthCache.clear();
+}
+
+/**
+ * Drop every cached verification for an exact native Stack token pair.
+ *
+ * Sign-out revokes the Stack session asynchronously, while this process may
+ * otherwise continue serving a short-lived positive cache entry. The VM
+ * sign-out route calls this immediately after authenticating the request so a
+ * second request cannot reuse that entry during the revocation tail.
+ */
+export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): void {
+  const fingerprint = nativeAuthTokenFingerprint(tokens);
+  for (const [key, entry] of nativeAuthCache) {
+    if (entry.tokenFingerprint === fingerprint) nativeAuthCache.delete(key);
+  }
+}
+
+let activeStackAuthorizationCalls = 0;
+let timedOutStackAuthorizationCalls = 0;
+const stackAuthorizationWaiters: Array<{
+  readonly signal: AbortSignal;
+  readonly resolve: (release: () => void) => void;
+  readonly reject: (error: Error) => void;
+  readonly abort: () => void;
+}> = [];
+
+export async function withSubrouterAuthorizationDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  assertSubrouterAuthorizationConfiguration();
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new SubrouterAuthorizationTimeoutError(
+        "Stack authorization deadline exceeded",
+      ));
+    }, subrouterStackAuthorizationTimeoutMs());
+  });
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      deadline,
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+export async function verifySubrouterRequest(
+  request: Request,
+  signal: AbortSignal,
+  options: Omit<VerifyRequestOptions, "subrouterAuthorizationSignal"> = {},
+): Promise<AuthedUser | null> {
+  return verifyRequest(request, {
+    ...options,
+    subrouterAuthorizationSignal: signal,
+  });
+}
+
+export function isSubrouterAuthorizationError(
+  error: unknown,
+): error is
+  | SubrouterAuthorizationConfigurationError
+  | SubrouterAuthorizationTimeoutError
+  | SubrouterAuthorizationUnavailableError {
+  return error instanceof SubrouterAuthorizationConfigurationError ||
+    error instanceof SubrouterAuthorizationTimeoutError ||
+    error instanceof SubrouterAuthorizationUnavailableError;
+}
+
+export function subrouterAllowedTeamIds(
+  raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
+): ReadonlySet<string> | "*" {
+  const values = raw
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!values?.length) {
+    throw new SubrouterAuthorizationConfigurationError(
+      "SUBROUTER_ALLOWED_TEAM_IDS must be an explicit team list or *",
+    );
+  }
+  if (values.includes("*")) {
+    if (values.length !== 1) {
+      throw new SubrouterAuthorizationConfigurationError(
+        "SUBROUTER_ALLOWED_TEAM_IDS cannot combine * with team IDs",
+      );
+    }
+    return "*";
+  }
+  return new Set(values);
+}
+
+function assertSubrouterAuthorizationConfiguration(): void {
+  subrouterPermissionEnforcementEnabled();
+  subrouterAllowedTeamIds();
+  subrouterStackAuthorizationTimeoutMs();
+}
+
+function subrouterPermissionEnforcementEnabled(
+  raw = process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
+): boolean {
+  const normalized = raw?.trim();
+  if (normalized === "1") return true;
+  if (normalized === "0") return false;
+  throw new SubrouterAuthorizationConfigurationError(
+    "SUBROUTER_ENFORCE_STACK_PERMISSIONS must be explicitly set to 0 or 1",
+  );
+}
+
+function subrouterStackAuthorizationTimeoutMs(
+  raw = process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw.trim() === "") {
+    return DEFAULT_SUBROUTER_STACK_AUTH_TIMEOUT_MS;
+  }
+  if (!/^[1-9][0-9]*$/.test(raw.trim())) {
+    throw new SubrouterAuthorizationConfigurationError(
+      "SUBROUTER_STACK_AUTH_TIMEOUT_MS must be a positive integer",
+    );
+  }
+  const timeout = Number(raw);
+  if (!Number.isSafeInteger(timeout) || timeout > MAX_SUBROUTER_STACK_AUTH_TIMEOUT_MS) {
+    throw new SubrouterAuthorizationConfigurationError(
+      `SUBROUTER_STACK_AUTH_TIMEOUT_MS must not exceed ${MAX_SUBROUTER_STACK_AUTH_TIMEOUT_MS}`,
+    );
+  }
+  return timeout;
+}
+
+async function stackAuthorizationCall<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return operation();
+  const release = await acquireStackAuthorizationSlot(signal);
+  let pending: Promise<T>;
+  try {
+    pending = Promise.resolve().then(operation);
+  } catch (error) {
+    release();
+    throw new SubrouterAuthorizationUnavailableError(
+      error instanceof Error ? error.message : "Stack authorization failed",
+    );
+  }
+  void pending.then(release, release);
+  try {
+    return await waitForStackAuthorization(pending, signal);
+  } catch (error) {
+    if (error instanceof SubrouterAuthorizationTimeoutError) {
+      markTimedOutStackAuthorizationCall(pending);
+      throw error;
+    }
+    throw new SubrouterAuthorizationUnavailableError(
+      error instanceof Error ? error.message : "Stack authorization failed",
+    );
+  }
+}
+
+function acquireStackAuthorizationSlot(
+  signal: AbortSignal,
+): Promise<() => void> {
+  if (signal.aborted) {
+    return Promise.reject(new SubrouterAuthorizationTimeoutError(
+      "Stack authorization deadline exceeded",
+    ));
+  }
+  // Stack's SDK does not expose a transport AbortSignal. If every underlying
+  // call has outlived its caller deadline, fail new work immediately until one
+  // settles instead of growing a queue behind an unrecoverable transport.
+  if (
+    timedOutStackAuthorizationCalls >=
+      MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
+  ) {
+    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+      "Stack authorization circuit is open",
+    ));
+  }
+  if (
+    activeStackAuthorizationCalls <
+      MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
+  ) {
+    activeStackAuthorizationCalls += 1;
+    return Promise.resolve(releaseStackAuthorizationSlot);
+  }
+  if (
+    stackAuthorizationWaiters.length >=
+      MAX_QUEUED_STACK_AUTHORIZATION_CALLS
+  ) {
+    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+      "Stack authorization queue is full",
+    ));
+  }
+  return new Promise((resolve, reject) => {
+    const waiter = {
+      signal,
+      resolve,
+      reject,
+      abort: () => {
+        const index = stackAuthorizationWaiters.indexOf(waiter);
+        if (index >= 0) stackAuthorizationWaiters.splice(index, 1);
+        reject(new SubrouterAuthorizationTimeoutError(
+          "Stack authorization deadline exceeded",
+        ));
+      },
+    };
+    stackAuthorizationWaiters.push(waiter);
+    signal.addEventListener("abort", waiter.abort, { once: true });
+  });
+}
+
+function markTimedOutStackAuthorizationCall(pending: Promise<unknown>): void {
+  timedOutStackAuthorizationCalls += 1;
+  void pending.then(
+    retireTimedOutStackAuthorizationCall,
+    retireTimedOutStackAuthorizationCall,
+  );
+}
+
+function retireTimedOutStackAuthorizationCall(): void {
+  timedOutStackAuthorizationCalls = Math.max(
+    0,
+    timedOutStackAuthorizationCalls - 1,
+  );
+}
+
+function releaseStackAuthorizationSlot(): void {
+  while (stackAuthorizationWaiters.length > 0) {
+    const waiter = stackAuthorizationWaiters.shift()!;
+    waiter.signal.removeEventListener("abort", waiter.abort);
+    if (waiter.signal.aborted) continue;
+    waiter.resolve(releaseStackAuthorizationSlot);
+    return;
+  }
+  activeStackAuthorizationCalls = Math.max(
+    0,
+    activeStackAuthorizationCalls - 1,
+  );
+}
+
+function waitForStackAuthorization<T>(
+  pending: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new SubrouterAuthorizationTimeoutError(
+      "Stack authorization deadline exceeded",
+    ));
+  }
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      reject(new SubrouterAuthorizationTimeoutError(
+        "Stack authorization deadline exceeded",
+      ));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    void pending.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 
 /**
  * Verify the caller's Stack Auth session. Accepts either a cookie (browser path) or a
@@ -41,11 +445,7 @@ export type AuthedTeam = {
  */
 export async function verifyRequest(
   request: Request,
-  options: {
-    readonly requestedTeamId?: string | null;
-    readonly allowCookie?: boolean;
-    readonly allowDeletingAccount?: boolean;
-  } = {},
+  options: VerifyRequestOptions = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
@@ -55,17 +455,30 @@ export async function verifyRequest(
   const authHeader = request.headers.get("authorization");
   const refreshHeader = request.headers.get("x-stack-refresh-token");
 
-  if (authHeader?.toLowerCase().startsWith("bearer ") && refreshHeader) {
-    const accessToken = authHeader.slice("bearer ".length).trim();
-    const refreshToken = refreshHeader.trim();
-    if (accessToken && refreshToken) {
-      const user = await stackServerApp.getUser({
-        tokenStore: { accessToken, refreshToken },
-      });
-      if (user) {
-        return await authedUserFromStackUser(user, options);
-      }
+  if (authHeader !== null || refreshHeader !== null) {
+    const tokens = parseNativeStackTokens(request);
+    if (!tokens) return null;
+    const cacheable = options.subrouterAuthorizationSignal === undefined;
+    const cacheKey = cacheable ? nativeAuthCacheKey(tokens, options) : null;
+    if (cacheKey) {
+      const cached = readNativeAuthCache(cacheKey);
+      if (cached) return cached;
     }
+    const user = await stackAuthorizationCall(
+      () => stackServerApp.getUser({ tokenStore: tokens }),
+      options.subrouterAuthorizationSignal,
+    );
+    if (user) {
+      const authed = await authedUserFromStackUser(user, options);
+      if (authed && cacheKey) {
+        writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
+      }
+      return authed;
+    }
+    // A caller that presents native credentials must succeed or fail as that
+    // native session. Falling back to an ambient browser cookie would let an
+    // invalid bearer bypass mutation-origin checks.
+    return null;
   }
 
   if (options.allowCookie === false) {
@@ -73,7 +486,14 @@ export async function verifyRequest(
   }
 
   // Fall back to the Next.js cookie flow (when browser hits the route).
-  const user = await stackServerApp.getUser({ tokenStore: request as unknown as { headers: { get(name: string): string | null } } });
+  const user = await stackAuthorizationCall(
+    () => stackServerApp.getUser({
+      tokenStore: request as unknown as {
+        headers: { get(name: string): string | null };
+      },
+    }),
+    options.subrouterAuthorizationSignal,
+  );
   if (user) {
     return await authedUserFromStackUser(user, options);
   }
@@ -82,20 +502,36 @@ export async function verifyRequest(
 
 async function authedUserFromStackUser(
   user: StackUserLike,
-  options: { readonly requestedTeamId?: string | null; readonly allowDeletingAccount?: boolean },
+  options: VerifyRequestOptions,
 ): Promise<AuthedUser | null> {
   if (!options.allowDeletingAccount && await isAccountDeletionAuthBlocked(user)) {
     return null;
   }
 
-  const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
+  const selectedTeamRaw = user.selectedTeam;
+  const selectedTeam = billingTeamFromUnknown(selectedTeamRaw);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
-  // When the selected team is enough, entitlements resolve from it before any
-  // multi-team guard needs a full team list.
-  const needsListedTeams = !selectedTeam || (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
-  const listedTeams = needsListedTeams && typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(billingTeamFromUnknown).filter((team): team is BillingTeamLike => !!team)
+  // Full pagination is reserved for the explicit team-picker route. Other
+  // callers resolve one requested team with Stack's exact-ID search so shared
+  // VM authentication never inherits an unbounded multi-page dependency.
+  const needsListedTeams = !selectedTeam ||
+    (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
+  const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
+    ? needsListedTeams && typeof user.listTeams === "function"
+      ? await user.listTeams()
+      : []
+    : options.listAllTeams === true
+    ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
+    : requestedTeamId && requestedTeamId !== selectedTeam?.id
+    ? await findStackTeam(
+      user,
+      requestedTeamId,
+      options.subrouterAuthorizationSignal,
+    )
     : [];
+  const listedTeams = listedTeamRaw
+    .map(billingTeamFromUnknown)
+    .filter((team): team is BillingTeamLike => !!team);
   const teamIds = uniqueStrings([
     selectedTeam?.id,
     ...listedTeams.map((team) => team.id),
@@ -107,6 +543,25 @@ async function authedUserFromStackUser(
   });
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const rawTeams = new Map<string, unknown>();
+  if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
+  for (const raw of listedTeamRaw) {
+    const team = billingTeamFromUnknown(raw);
+    if (team) rawTeams.set(team.id, raw);
+  }
+  const enforceSubrouterPermissions =
+    options.subrouterAuthorizationSignal
+      ? subrouterPermissionEnforcementEnabled()
+      : false;
+  const authedTeams = teams.map((team) => ({
+    id: team.id,
+    displayName: team.displayName,
+    billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+  }));
+  const subrouterPermissionCache = new Map<
+    string,
+    Promise<SubrouterPermissions>
+  >();
 
   return {
     id: user.id,
@@ -115,15 +570,109 @@ async function authedUserFromStackUser(
     billingCustomerType: billingTeam ? "team" : "user",
     billingTeamId: billingTeam?.id ?? user.id,
     selectedTeamId: selectedTeam?.id ?? null,
-    teams: teams.map((team) => ({
-      id: team.id,
-      displayName: team.displayName,
-      billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
-    })),
+    teams: authedTeams,
     teamIds,
     userBillingPlanId,
     billingPlanId,
+    resolveSubrouterPermissions: async (teamId) => {
+      const cached = subrouterPermissionCache.get(teamId);
+      if (cached) return cached;
+      const pending = teamId === user.id
+        ? subrouterPermissions(
+          user,
+          undefined,
+          enforceSubrouterPermissions,
+          options.subrouterAuthorizationSignal,
+        )
+        : (() => {
+          const rawTeam = rawTeams.get(teamId);
+          return rawTeam
+            ? subrouterPermissions(
+              user,
+              rawTeam,
+              enforceSubrouterPermissions,
+              options.subrouterAuthorizationSignal,
+            )
+            : Promise.resolve({ use: false, manageAccounts: false });
+        })();
+      subrouterPermissionCache.set(teamId, pending);
+      return pending;
+    },
   };
+}
+
+async function subrouterPermissions(
+  user: StackUserLike,
+  team: unknown,
+  enforce: boolean,
+  signal: AbortSignal | undefined,
+): Promise<SubrouterPermissions> {
+  if (!enforce) return { use: true, manageAccounts: true };
+  if (typeof user.listPermissions !== "function") {
+    return { use: false, manageAccounts: false };
+  }
+  const permissions = await stackAuthorizationCall(
+    () => team
+      ? user.listPermissions!(team as Team)
+      : user.listPermissions!(),
+    signal,
+  );
+  const permissionIds = new Set(permissions.map((permission) => permission.id));
+  return {
+    use: permissionIds.has("subrouter:use"),
+    manageAccounts: permissionIds.has("subrouter:manage_accounts"),
+  };
+}
+
+const MAX_STACK_TEAM_PAGES = 100;
+const STACK_TEAM_PAGE_SIZE = 100;
+
+async function listAllStackTeams(
+  user: StackUserLike,
+  signal: AbortSignal | undefined,
+): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") return [];
+
+  const teams: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let pageIndex = 0; pageIndex < MAX_STACK_TEAM_PAGES; pageIndex++) {
+    const page = await stackAuthorizationCall(
+      () => user.listTeams!({
+        cursor,
+        limit: STACK_TEAM_PAGE_SIZE,
+      }),
+      signal,
+    );
+    teams.push(...page);
+    const nextCursor = normalizedOptionalString(page.nextCursor);
+    if (!nextCursor) return teams;
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Stack team pagination repeated a cursor");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error("Stack team pagination exceeded its page limit");
+}
+
+async function findStackTeam(
+  user: StackUserLike,
+  teamId: string,
+  signal: AbortSignal | undefined,
+): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") return [];
+  const page = await stackAuthorizationCall(
+    () => user.listTeams!({
+      query: teamId,
+      limit: STACK_TEAM_PAGE_SIZE,
+    }),
+    signal,
+  );
+  const match = page.find(
+    (candidate) => billingTeamFromUnknown(candidate)?.id === teamId,
+  );
+  return match ? [match] : [];
 }
 
 async function isAccountDeletionAuthBlocked(user: StackUserLike): Promise<boolean> {
@@ -155,7 +704,22 @@ type StackUserLike = {
   readonly primaryEmail: string | null;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
+  readonly listTeams?: (
+    options?: {
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly query?: string;
+    },
+  ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
+  readonly listPermissions?: {
+    (
+      scope: Team,
+      options?: { readonly recursive?: boolean },
+    ): Promise<readonly { readonly id: string }[]>;
+    (
+      options?: { readonly recursive?: boolean },
+    ): Promise<readonly { readonly id: string }[]>;
+  };
 };
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {

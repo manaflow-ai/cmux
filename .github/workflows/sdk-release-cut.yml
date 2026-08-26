@@ -1,0 +1,1594 @@
+name: sdk release cut
+
+on:
+  repository_dispatch:
+    types: [sdk-release-cut]
+
+permissions: {}
+
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
+concurrency:
+  group: sdk-release-cut
+  cancel-in-progress: false
+
+jobs:
+  validate-release:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sdk_tag: ${{ steps.release.outputs.sdk_tag }}
+      go_tag: ${{ steps.release.outputs.go_tag }}
+    steps:
+      - name: Require explicit publish confirmation
+        if: github.event.client_payload.confirm_publish != true
+        run: |
+          echo "Refusing to publish SDKs without confirm_publish=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Validate protected main and release metadata
+        id: release
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-release-cut.yml from main, found $GITHUB_REF." >&2
+            exit 1
+          }
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "version must match X.Y.Z" >&2
+            exit 1
+          }
+
+          git fetch --force origin main --tags
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+          sdk_tag="cmux-sdk-v$VERSION"
+          go_tag="cmux-tui/bindings/go/v$VERSION"
+          sdk_ref="$(git rev-parse -q --verify "refs/tags/$sdk_tag" || true)"
+          go_ref="$(git rev-parse -q --verify "refs/tags/$go_tag" || true)"
+          sdk_existing_sha="$(
+            git rev-parse -q --verify "refs/tags/$sdk_tag^{commit}" || true
+          )"
+          go_existing_sha="$(
+            git rev-parse -q --verify "refs/tags/$go_tag^{commit}" || true
+          )"
+          if [[ -n "$sdk_ref" || -n "$go_ref" ]]; then
+            [[ "$sdk_existing_sha" == "$GITHUB_SHA" && \
+              "$go_existing_sha" == "$GITHUB_SHA" ]] || {
+              echo "existing coordinated SDK tags must both name $GITHUB_SHA" >&2
+              exit 1
+            }
+          fi
+
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$VERSION"
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path.cwd() / "cmux-tui" / "bindings"
+          npm_name = json.loads(
+              (root / "typescript" / "package.json").read_text()
+          )["name"]
+          pypi_name = tomllib.loads(
+              (root / "python" / "pyproject.toml").read_text()
+          )["project"]["name"]
+          if npm_name != "cmux-sdk" or pypi_name != "cmux-sdk":
+              raise SystemExit(
+                  f"SDK registry names must both be cmux-sdk, got {npm_name!r} and {pypi_name!r}"
+              )
+          PY
+
+          {
+            echo "version=$VERSION"
+            echo "sdk_tag=$sdk_tag"
+            echo "go_tag=$go_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Gate published SDK protocol surfaces
+        run: |
+          python3 cmux-tui/scripts/check-spec-inventory.py
+          python3 cmux-tui/bindings/codegen/generate.py --check \
+            --language rust \
+            --language go \
+            --language typescript \
+            --language python
+
+  rust-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-crates.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  go-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-go.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  typescript-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-npm.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  python-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-python.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  registry-preflight:
+    needs:
+      - validate-release
+      - rust-preflight
+      - typescript-preflight
+      - python-preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download the validated cmux-sdk crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
+
+      - name: Download the validated cmux-sidebar crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
+          path: validated-npm
+
+      - name: Download the validated Python distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
+          path: validated-python
+
+      - name: Reject conflicting or unusable registry state
+        id: registry_state
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          npm_packages=(validated-npm/*.tgz)
+          python_wheels=(validated-python/*.whl)
+          python_sdists=(validated-python/*.tar.gz)
+          [[ "${#npm_packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#npm_packages[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_wheels[@]}" == 1 ]] || {
+            echo "expected one validated Python wheel, found ${#python_wheels[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_sdists[@]}" == 1 ]] || {
+            echo "expected one validated Python source distribution, found ${#python_sdists[@]}" >&2
+            exit 1
+          }
+
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate"
+          sleep 1
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-sidebar \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry npm \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${npm_packages[0]}" \
+            --write-github-output \
+            --github-output-name npm
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_sdists[0]}" \
+            --write-github-output \
+            --github-output-name python_wheel
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${python_sdists[0]}" \
+            --allowed-artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_sdists[0]}" \
+            --write-github-output \
+            --github-output-name python_sdist
+
+      - name: Verify crates.io ownership
+        run: |
+          sleep 1
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package cmux-sdk \
+            --package cmux-sidebar \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm for provenance verification
+        run: npm install --global npm@11.5.1
+
+      - name: Verify the npm ownership bootstrap
+        run: |
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version 0.0.0-bootstrap.0 \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --publisher owner
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Verify the PyPI ownership bootstrap with pypi-attestations verify pypi
+        run: |
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version 0.0.0a0 \
+            --filename cmux_sdk-0.0.0a0-py3-none-any.whl \
+            --filename cmux_sdk-0.0.0a0.tar.gz \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap
+
+      - name: Verify any existing stable provenance before creating tags
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          NPM_STATUS: ${{ steps.registry_state.outputs.npm }}
+          PYTHON_WHEEL_STATUS: ${{ steps.registry_state.outputs.python_wheel }}
+          PYTHON_SDIST_STATUS: ${{ steps.registry_state.outputs.python_sdist }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [[ "$NPM_STATUS" == "match" ]]; then
+            npm_packages=(validated-npm/*.tgz)
+            python3 cmux-tui/bindings/verify_npm_provenance.py \
+              --package cmux-sdk \
+              --version "$CMUX_SDK_VERSION" \
+              --repository-url git+https://github.com/manaflow-ai/cmux.git \
+              --repository-directory cmux-tui/bindings/typescript \
+              --artifact "${npm_packages[0]}" \
+              --owner lawrencechen \
+              --workflow .github/workflows/sdk-release-cut.yml \
+              --workflow-ref refs/heads/main \
+              --expected-commit "$GITHUB_SHA" \
+              --dist-tag latest \
+              --publisher github-actions
+          fi
+
+          filenames=()
+          if [[ "$PYTHON_WHEEL_STATUS" == "match" ]]; then
+            python_wheels=(validated-python/*.whl)
+            filenames+=(--filename "$(basename "${python_wheels[0]}")")
+          fi
+          if [[ "$PYTHON_SDIST_STATUS" == "match" ]]; then
+            python_sdists=(validated-python/*.tar.gz)
+            filenames+=(--filename "$(basename "${python_sdists[0]}")")
+          fi
+          if (( ${#filenames[@]} > 0 )); then
+            python3 cmux-tui/bindings/verify_pypi_provenance.py \
+              --package cmux-sdk \
+              --version "$CMUX_SDK_VERSION" \
+              --repository https://github.com/manaflow-ai/cmux \
+              --owner lawrencecchen \
+              --workflow sdk-release-cut.yml \
+              --environment pypi \
+              --expected-commit "$GITHUB_SHA" \
+              --expected-ref refs/heads/main \
+              "${filenames[@]}"
+          fi
+
+  revalidate-tags:
+    needs:
+      - validate-release
+      - rust-preflight
+      - go-preflight
+      - typescript-preflight
+      - python-preflight
+      - registry-preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    environment:
+      name: sdk-release
+    outputs:
+      authorization_run_attempt: ${{ steps.revalidate.outputs.authorization_run_attempt }}
+      authorization_run_id: ${{ steps.revalidate.outputs.authorization_run_id }}
+      authorized_at: ${{ steps.revalidate.outputs.authorized_at }}
+      remote_state_sha256: ${{ steps.revalidate.outputs.remote_state_sha256 }}
+      remote_tag_state_sha256: ${{ steps.revalidate.outputs.remote_tag_state_sha256 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download the validated cmux-sdk crate for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
+
+      - name: Download the validated cmux-sidebar crate for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated npm artifact for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
+          path: validated-npm
+
+      - name: Download the validated Python distributions for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
+          path: validated-python
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm for final provenance revalidation
+        run: npm install --global npm@11.5.1
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned final PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Revalidate registry and remote release authority
+        id: revalidate
+        env:
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cmux-tui/bindings/verify_release_registry_state.sh \
+            "$VERSION" \
+            "$GITHUB_SHA"
+
+          remote_state() {
+            {
+              git ls-remote --heads origin refs/heads/main
+              git ls-remote --tags origin \
+                'refs/tags/cmux-sdk-v*' \
+                'refs/tags/cmux-tui/bindings/go/v*'
+            } | LC_ALL=C sort
+          }
+          remote_state_before="$(remote_state)"
+          main_ref_count="$(
+            printf '%s\n' "$remote_state_before" | \
+              grep -c $'\trefs/heads/main$' || true
+          )"
+          [[ "$main_ref_count" == 1 ]] || {
+            echo "remote release state does not contain exactly one main ref" >&2
+            exit 1
+          }
+
+          git fetch --force origin main --tags
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+
+          remote_state_after="$(remote_state)"
+          [[ "$remote_state_after" == "$remote_state_before" ]] || {
+            echo "remote release refs changed during final revalidation" >&2
+            exit 1
+          }
+          remote_state_sha256="$(
+            printf '%s\n' "$remote_state_after" | sha256sum | cut -d ' ' -f 1
+          )"
+          sdk_ref="refs/tags/$SDK_TAG"
+          sdk_peeled_ref="$sdk_ref^{}"
+          go_ref="refs/tags/$GO_TAG"
+          go_peeled_ref="$go_ref^{}"
+          remote_tag_state="$(
+            printf '%s\n' "$remote_state_after" | \
+              awk \
+                -v main="refs/heads/main" \
+                -v sdk_ref="$sdk_ref" \
+                -v sdk_peeled_ref="$sdk_peeled_ref" \
+                -v go_ref="$go_ref" \
+                -v go_peeled_ref="$go_peeled_ref" \
+                '$2 != main && $2 != sdk_ref && $2 != sdk_peeled_ref && \
+                  $2 != go_ref && $2 != go_peeled_ref'
+          )"
+          remote_tag_state_sha256="$(
+            printf '%s\n' "$remote_tag_state" | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$remote_state_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "remote release state digest is malformed" >&2
+            exit 1
+          }
+          [[ "$remote_tag_state_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "remote release tag state digest is malformed" >&2
+            exit 1
+          }
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+            echo "workflow run id is malformed" >&2
+            exit 1
+          }
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
+            echo "workflow run attempt is malformed" >&2
+            exit 1
+          }
+          authorized_at="$(date +%s)"
+          [[ "$authorized_at" =~ ^[1-9][0-9]*$ ]] || {
+            echo "release authorization timestamp is malformed" >&2
+            exit 1
+          }
+          {
+            echo "authorization_run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "authorization_run_id=$GITHUB_RUN_ID"
+            echo "authorized_at=$authorized_at"
+            echo "remote_state_sha256=$remote_state_sha256"
+            echo "remote_tag_state_sha256=$remote_tag_state_sha256"
+          } >> "$GITHUB_OUTPUT"
+
+  cut-tags:
+    needs:
+      - validate-release
+      - revalidate-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions: {}
+    environment:
+      name: sdk-release-credentials
+    steps:
+      - name: Verify fresh release authority and prepare tags
+        id: prepare
+        env:
+          AUTHORIZATION_RUN_ATTEMPT: ${{ needs.revalidate-tags.outputs.authorization_run_attempt }}
+          AUTHORIZATION_RUN_ID: ${{ needs.revalidate-tags.outputs.authorization_run_id }}
+          AUTHORIZED_AT: ${{ needs.revalidate-tags.outputs.authorized_at }}
+          CONFIRM_PUBLISH: ${{ github.event.client_payload.confirm_publish }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          REMOTE_STATE_SHA256: ${{ needs.revalidate-tags.outputs.remote_state_sha256 }}
+          REMOTE_TAG_STATE_SHA256: ${{ needs.revalidate-tags.outputs.remote_tag_state_sha256 }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "release repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "release credential job must run from main" >&2
+            exit 1
+          }
+          [[ "$CONFIRM_PUBLISH" == "true" ]] || {
+            echo "release credential job requires explicit publish confirmation" >&2
+            exit 1
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release commit is malformed" >&2
+            exit 1
+          }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "release version must match X.Y.Z" >&2
+            exit 1
+          }
+          [[ "$VERSION" == "$DISPATCH_VERSION" ]] || {
+            echo "validated version does not match the dispatch request" >&2
+            exit 1
+          }
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "SDK tag does not match the validated version" >&2
+            exit 1
+          }
+          [[ "$GO_TAG" == "cmux-tui/bindings/go/v$VERSION" ]] || {
+            echo "Go tag does not match the validated version" >&2
+            exit 1
+          }
+          [[ "$REMOTE_STATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated remote release state digest is malformed" >&2
+            exit 1
+          }
+          [[ "$REMOTE_TAG_STATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated remote release tag state digest is malformed" >&2
+            exit 1
+          }
+
+          release_repository="https://github.com/manaflow-ai/cmux.git"
+          remote_state() {
+            {
+              git ls-remote --heads "$release_repository" refs/heads/main
+              git ls-remote --tags "$release_repository" \
+                'refs/tags/cmux-sdk-v*' \
+                'refs/tags/cmux-tui/bindings/go/v*'
+            } | LC_ALL=C sort
+          }
+          state_sha256() {
+            printf '%s\n' "$1" | sha256sum | cut -d ' ' -f 1
+          }
+          ref_count() {
+            printf '%s\n' "$1" | \
+              awk -v ref="$2" '$2 == ref { count += 1 } END { print count + 0 }'
+          }
+          ref_sha() {
+            printf '%s\n' "$1" | awk -v ref="$2" '$2 == ref { print $1 }'
+          }
+          verify_release_commit_on_main() {
+            local current_main_sha="$1"
+            local recovery_dir
+            local fetched_main_sha
+            if [[ "$current_main_sha" == "$GITHUB_SHA" ]]; then
+              return
+            fi
+            recovery_dir="$RUNNER_TEMP/cmux-sdk-recovery-main"
+            mkdir -m 700 "$recovery_dir"
+            git -C "$recovery_dir" init --quiet
+            git -C "$recovery_dir" remote add origin "$release_repository"
+            git -C "$recovery_dir" fetch \
+              --filter=blob:none \
+              --force \
+              --no-recurse-submodules \
+              --no-tags \
+              origin \
+              refs/heads/main:refs/remotes/origin/main
+            fetched_main_sha="$(
+              git -C "$recovery_dir" rev-parse refs/remotes/origin/main
+            )"
+            [[ "$fetched_main_sha" == "$current_main_sha" ]] || {
+              echo "protected main changed during coordinated tag recovery" >&2
+              exit 1
+            }
+            git -C "$recovery_dir" merge-base \
+              --is-ancestor "$GITHUB_SHA" "$fetched_main_sha" || {
+              echo "release commit $GITHUB_SHA is no longer on protected main" >&2
+              exit 1
+            }
+          }
+          verify_remote_state() {
+            local state
+            local remote_state_sha256
+            local main_ref_count
+            local main_ref_sha
+            local sdk_ref
+            local sdk_peeled_ref
+            local go_ref
+            local go_peeled_ref
+            local sdk_ref_count
+            local sdk_peeled_count
+            local go_ref_count
+            local go_peeled_count
+            local expected_ref_count
+            local sdk_ref_sha
+            local sdk_peeled_sha
+            local go_ref_sha
+            local go_peeled_sha
+            local normalized_tag_state
+            local normalized_tag_state_sha256
+            state="$(remote_state)"
+            main_ref_count="$(
+              printf '%s\n' "$state" | grep -c $'\trefs/heads/main$' || true
+            )"
+            [[ "$main_ref_count" == 1 ]] || {
+              echo "remote release state does not contain exactly one main ref" >&2
+              exit 1
+            }
+            main_ref_sha="$(ref_sha "$state" "refs/heads/main")"
+            [[ "$main_ref_sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "protected main ref is malformed" >&2
+              exit 1
+            }
+            remote_state_sha256="$(state_sha256 "$state")"
+
+            sdk_ref="refs/tags/$SDK_TAG"
+            sdk_peeled_ref="$sdk_ref^{}"
+            go_ref="refs/tags/$GO_TAG"
+            go_peeled_ref="$go_ref^{}"
+            sdk_ref_count="$(ref_count "$state" "$sdk_ref")"
+            sdk_peeled_count="$(ref_count "$state" "$sdk_peeled_ref")"
+            go_ref_count="$(ref_count "$state" "$go_ref")"
+            go_peeled_count="$(ref_count "$state" "$go_peeled_ref")"
+            expected_ref_count=$((
+              sdk_ref_count + sdk_peeled_count + go_ref_count + go_peeled_count
+            ))
+            if (( expected_ref_count > 0 )); then
+              [[ "$sdk_ref_count" == 1 && "$sdk_peeled_count" == 1 && \
+                "$go_ref_count" == 1 && "$go_peeled_count" == 1 ]] || {
+                echo "coordinated release tags are only partially present" >&2
+                exit 1
+              }
+              sdk_ref_sha="$(ref_sha "$state" "$sdk_ref")"
+              sdk_peeled_sha="$(ref_sha "$state" "$sdk_peeled_ref")"
+              go_ref_sha="$(ref_sha "$state" "$go_ref")"
+              go_peeled_sha="$(ref_sha "$state" "$go_peeled_ref")"
+              [[ "$sdk_ref_sha" =~ ^[0-9a-f]{40}$ && \
+                "$go_ref_sha" =~ ^[0-9a-f]{40}$ && \
+                "$sdk_peeled_sha" == "$GITHUB_SHA" && \
+                "$go_peeled_sha" == "$GITHUB_SHA" ]] || {
+                echo "coordinated release tags do not both name $GITHUB_SHA" >&2
+                exit 1
+              }
+              normalized_tag_state="$(
+                printf '%s\n' "$state" | awk \
+                  -v main="refs/heads/main" \
+                  -v sdk="$sdk_ref" \
+                  -v sdk_peeled="$sdk_peeled_ref" \
+                  -v go="$go_ref" \
+                  -v go_peeled="$go_peeled_ref" \
+                  '$2 != main && $2 != sdk && $2 != sdk_peeled && \
+                    $2 != go && $2 != go_peeled'
+              )"
+              normalized_tag_state_sha256="$(
+                state_sha256 "$normalized_tag_state"
+              )"
+              [[ "$normalized_tag_state_sha256" == \
+                "$REMOTE_TAG_STATE_SHA256" ]] || {
+                echo "remote release tags changed during coordinated tag recovery" >&2
+                exit 1
+              }
+              verify_release_commit_on_main "$main_ref_sha"
+              remote_release_state=published
+              return
+            fi
+
+            [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]] || {
+              echo "remote release refs changed after final revalidation" >&2
+              exit 1
+            }
+            remote_release_state=unpublished
+          }
+          require_fresh_authorization() {
+            local now
+            local authorization_age
+            [[ "$AUTHORIZATION_RUN_ID" =~ ^[1-9][0-9]*$ && \
+              "$AUTHORIZATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ && \
+              "$AUTHORIZED_AT" =~ ^[1-9][0-9]*$ ]] || {
+                echo "release authorization identity is malformed" >&2
+                exit 1
+              }
+            [[ "$AUTHORIZATION_RUN_ID" == "$GITHUB_RUN_ID" ]] || {
+              echo "release authorization came from another workflow run" >&2
+              exit 1
+            }
+            [[ "$AUTHORIZATION_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]] || {
+              echo "release authorization is stale; re-run all jobs" >&2
+              exit 1
+            }
+            now="$(date +%s)"
+            authorization_age=$((now - AUTHORIZED_AT))
+            (( authorization_age >= 0 && authorization_age <= 900 )) || {
+              echo "release authorization is older than 15 minutes; re-run all jobs" >&2
+              exit 1
+            }
+          }
+          verify_remote_state
+          if [[ "$remote_release_state" == published ]]; then
+            echo "both coordinated tags already name the release commit"
+            echo "tags_exist=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          require_fresh_authorization
+
+          release_dir="$RUNNER_TEMP/cmux-sdk-release"
+          mkdir -m 700 "$release_dir"
+          cd "$release_dir"
+          git init
+          git remote add origin "$release_repository"
+          git fetch \
+            --filter=blob:none \
+            --force \
+            --no-recurse-submodules \
+            --no-tags \
+            origin \
+            refs/heads/main:refs/remotes/origin/main \
+            '+refs/tags/cmux-sdk-v*:refs/tags/cmux-sdk-v*' \
+            '+refs/tags/cmux-tui/bindings/go/v*:refs/tags/cmux-tui/bindings/go/v*'
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
+            exit 1
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ensure_tag() {
+            local tag="$1"
+            local message="$2"
+            local existing_sha
+            existing_sha="$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)"
+            if [[ -n "$existing_sha" ]]; then
+              if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+                echo "release tag $tag points to $existing_sha, expected $GITHUB_SHA" >&2
+                exit 1
+              fi
+              echo "release tag already points to this commit: $tag"
+              return
+            fi
+            git tag -a "$tag" "$GITHUB_SHA" -m "$message"
+          }
+          ensure_tag "$SDK_TAG" "cmux SDK $VERSION"
+          ensure_tag "$GO_TAG" "cmux Go SDK $VERSION"
+          for tag in "$SDK_TAG" "$GO_TAG"; do
+            tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            [[ "$tag_sha" == "$GITHUB_SHA" ]] || {
+              echo "prepared release tag $tag does not name $GITHUB_SHA" >&2
+              exit 1
+            }
+          done
+          verify_remote_state
+          if [[ "$remote_release_state" == published ]]; then
+            echo "both coordinated tags appeared during preparation"
+            echo "tags_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint the SDK release GitHub App token
+        id: release_app_token
+        if: steps.prepare.outputs.tags_exist != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Push protected release tags
+        if: steps.prepare.outputs.tags_exist != 'true'
+        env:
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/cmux-sdk-release"
+          release_repository="https://github.com/manaflow-ai/cmux.git"
+          authorization="$(
+            printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n'
+          )"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+            GIT_TERMINAL_PROMPT=0 \
+            git push --atomic "$release_repository" \
+              "refs/tags/$SDK_TAG" \
+              "refs/tags/$GO_TAG"
+
+  verify-go-tag:
+    needs:
+      - validate-release
+      - cut-tags
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-go.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+      verify_tag: true
+      release_ref: refs/tags/${{ needs.validate-release.outputs.go_tag }}
+
+  publish-crate-sdk:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/cmux-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download the validated cmux-sdk crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Reproduce the validated cmux-sdk crate without executing it
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo package -p cmux-sdk --locked --no-verify
+          validated="$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate"
+          reproduced="target/package/cmux-sdk-$CMUX_SDK_VERSION.crate"
+          expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
+          actual_digest="$(sha256sum "$reproduced" | awk '{print $1}')"
+          [[ "$actual_digest" == "$expected_digest" ]] || {
+            echo "validated crate digest mismatch for cmux-sdk@$CMUX_SDK_VERSION" >&2
+            exit 1
+          }
+
+      - name: Revalidate crates.io ownership immediately before authentication
+        run: bash cmux-tui/bindings/verify_release_registry_authority.sh crates
+
+      - name: Authenticate cmux-sdk with crates.io trusted publishing
+        id: auth_sdk
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish cmux-sdk
+        working-directory: cmux-tui
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth_sdk.outputs.token }}
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python3 bindings/reconcile_registry_artifact.py publish \
+            --registry crates \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate" \
+            --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
+            -- cargo publish -p cmux-sdk --locked --no-verify
+
+  publish-crate-sidebar:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+      - publish-crate-sdk
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/cmux-sidebar
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download the validated cmux-sidebar crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated cmux-sdk crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Confirm the validated cmux-sdk crate reached crates.io
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate" \
+            --wait-seconds 300 \
+            --require-match
+
+      - name: Reproduce the validated cmux-sidebar crate without executing it
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo package \
+            -p cmux-sidebar \
+            --locked \
+            --no-verify \
+            --config \
+              "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+          validated="$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          reproduced="target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
+          actual_digest="$(sha256sum "$reproduced" | awk '{print $1}')"
+          [[ "$actual_digest" == "$expected_digest" ]] || {
+            echo "validated crate digest mismatch for cmux-sidebar@$CMUX_SDK_VERSION" >&2
+            exit 1
+          }
+
+      - name: Revalidate crates.io ownership immediately before authentication
+        run: bash cmux-tui/bindings/verify_release_registry_authority.sh crates
+
+      - name: Authenticate cmux-sidebar with crates.io trusted publishing
+        id: auth_sidebar
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish cmux-sidebar
+        working-directory: cmux-tui
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth_sidebar.outputs.token }}
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python3 bindings/reconcile_registry_artifact.py publish \
+            --registry crates \
+            --package cmux-sidebar \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
+            --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
+            -- cargo publish \
+              -p cmux-sidebar \
+              --locked \
+              --no-verify \
+              --config \
+                "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+
+  publish-npm:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+      - typescript-preflight
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    # npm provenance and trusted publishing require a GitHub-hosted runner.
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    timeout-minutes: 30
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/cmux-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
+          path: dist
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC trusted publishing support
+        run: npm install -g npm@11.5.1
+
+      - name: Revalidate npm ownership immediately before publishing
+        run: bash cmux-tui/bindings/verify_release_registry_authority.sh npm
+
+      - name: Publish package to npm
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.typescript-preflight.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded npm artifact digest mismatch" >&2
+            exit 1
+          }
+          python3 - "${packages[0]}" <<'PY'
+          import json
+          import os
+          import sys
+          import tarfile
+
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              package = json.load(archive.extractfile("package/package.json"))
+          if not (
+              package["name"] == "cmux-sdk"
+              and package["version"] == os.environ["CMUX_SDK_VERSION"]
+          ):
+              raise SystemExit("npm artifact identity does not match the release")
+          PY
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+            --registry npm \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${packages[0]}" \
+            --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
+            -- npm publish --provenance --tag latest "${packages[0]}"
+
+  publish-python-wheel:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+      - python-preflight
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    # PyPI trusted publishers cannot authenticate a reusable workflow, so the
+    # OIDC publish job stays directly in this top-level release workflow.
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cmux-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Download distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
+          path: dist
+
+      - name: Select the validated wheel
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.python-preflight.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ "${#wheels[@]}" == 1 && "${#sdists[@]}" == 1 ]] || {
+            echo "expected one validated wheel and source distribution" >&2
+            exit 1
+          }
+          [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
+          [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python artifact digest mismatch" >&2
+            exit 1
+          }
+          mkdir upload
+          cp "${wheels[0]}" upload/
+
+      - name: Check the PyPI wheel state
+        id: wheel_state
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact upload/*.whl \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
+            --write-github-output
+
+      - name: Revalidate PyPI ownership immediately before wheel upload
+        if: steps.wheel_state.outputs.status == 'missing'
+        run: bash cmux-tui/bindings/verify_release_registry_authority.sh pypi
+
+      - name: Publish wheel to PyPI
+        id: publish_wheel
+        if: steps.wheel_state.outputs.status == 'missing'
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: upload
+          attestations: true
+
+      - name: Reconcile the PyPI wheel
+        if: always() && steps.wheel_state.outputs.status == 'missing'
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish_wheel.outcome }}
+        run: |
+          echo "PyPI wheel publish outcome: $PUBLISH_OUTCOME"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact upload/*.whl \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
+            --wait-seconds 120 \
+            --require-match
+
+  publish-python-sdist:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+      - python-preflight
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    # PyPI trusted publishers cannot authenticate a reusable workflow, so the
+    # OIDC publish job stays directly in this top-level release workflow.
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cmux-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Download distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
+          path: dist
+
+      - name: Select the validated source distribution
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.python-preflight.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ "${#wheels[@]}" == 1 && "${#sdists[@]}" == 1 ]] || {
+            echo "expected one validated wheel and source distribution" >&2
+            exit 1
+          }
+          [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
+          [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python artifact digest mismatch" >&2
+            exit 1
+          }
+          mkdir upload
+          cp "${sdists[0]}" upload/
+
+      - name: Check the PyPI source distribution state
+        id: sdist_state
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact upload/*.tar.gz \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
+            --write-github-output
+
+      - name: Revalidate PyPI ownership immediately before source distribution upload
+        if: steps.sdist_state.outputs.status == 'missing'
+        run: bash cmux-tui/bindings/verify_release_registry_authority.sh pypi
+
+      - name: Publish source distribution to PyPI
+        id: publish_sdist
+        if: steps.sdist_state.outputs.status == 'missing'
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: upload
+          attestations: true
+
+      - name: Reconcile the PyPI source distribution
+        if: always() && steps.sdist_state.outputs.status == 'missing'
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish_sdist.outcome }}
+        run: |
+          echo "PyPI source publish outcome: $PUBLISH_OUTCOME"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact upload/*.tar.gz \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
+            --wait-seconds 120 \
+            --require-match
+
+  verify-stable-provenance:
+    needs:
+      - validate-release
+      - typescript-preflight
+      - python-preflight
+      - publish-crate-sdk
+      - publish-crate-sidebar
+      - publish-npm
+      - publish-python-wheel
+      - publish-python-sdist
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Revalidate crates.io ownership and publishing policy
+        run: |
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package cmux-sdk \
+            --package cmux-sidebar \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen
+
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
+          path: validated-npm
+
+      - name: Download the validated Python distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
+          path: validated-python
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm for provenance verification
+        run: npm install --global npm@11.5.1
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Verify published stable provenance
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          npm_packages=(validated-npm/*.tgz)
+          python_wheels=(validated-python/*.whl)
+          python_sdists=(validated-python/*.tar.gz)
+          [[ "${#npm_packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#npm_packages[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_wheels[@]}" == 1 ]] || {
+            echo "expected one validated Python wheel, found ${#python_wheels[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_sdists[@]}" == 1 ]] || {
+            echo "expected one validated Python source distribution, found ${#python_sdists[@]}" >&2
+            exit 1
+          }
+
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript \
+            --artifact "${npm_packages[0]}" \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-release-cut.yml \
+            --workflow-ref refs/heads/main \
+            --expected-commit "$GITHUB_SHA" \
+            --dist-tag latest \
+            --publisher github-actions
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --filename "$(basename "${python_wheels[0]}")" \
+            --filename "$(basename "${python_sdists[0]}")" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
+            --workflow sdk-release-cut.yml \
+            --environment pypi \
+            --expected-commit "$GITHUB_SHA" \
+            --expected-ref refs/heads/main
+
+  summarize:
+    if: always()
+    needs:
+      - validate-release
+      - rust-preflight
+      - go-preflight
+      - typescript-preflight
+      - python-preflight
+      - registry-preflight
+      - revalidate-tags
+      - cut-tags
+      - verify-go-tag
+      - publish-crate-sdk
+      - publish-crate-sidebar
+      - publish-npm
+      - publish-python-wheel
+      - publish-python-sdist
+      - verify-stable-provenance
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions: {}
+    steps:
+      - name: Summarize release
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          VALIDATE_RESULT: ${{ needs.validate-release.result }}
+          RUST_PREFLIGHT_RESULT: ${{ needs.rust-preflight.result }}
+          GO_PREFLIGHT_RESULT: ${{ needs.go-preflight.result }}
+          TYPESCRIPT_PREFLIGHT_RESULT: ${{ needs.typescript-preflight.result }}
+          PYTHON_PREFLIGHT_RESULT: ${{ needs.python-preflight.result }}
+          REGISTRY_PREFLIGHT_RESULT: ${{ needs.registry-preflight.result }}
+          REVALIDATE_TAGS_RESULT: ${{ needs.revalidate-tags.result }}
+          CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
+          GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
+          CRATE_SDK_RESULT: ${{ needs.publish-crate-sdk.result }}
+          CRATE_SIDEBAR_RESULT: ${{ needs.publish-crate-sidebar.result }}
+          NPM_RESULT: ${{ needs.publish-npm.result }}
+          PYTHON_WHEEL_RESULT: ${{ needs.publish-python-wheel.result }}
+          PYTHON_SDIST_RESULT: ${{ needs.publish-python-sdist.result }}
+          STABLE_PROVENANCE_RESULT: ${{ needs.verify-stable-provenance.result }}
+        run: |
+          {
+            echo "### cmux SDK $VERSION"
+            echo
+            echo "- Rust, TypeScript, and Python ref: \`$SDK_TAG\`"
+            echo "- Go module ref: \`$GO_TAG\`"
+            echo "- Validation: \`$VALIDATE_RESULT\`"
+            echo "- Rust preflight: \`$RUST_PREFLIGHT_RESULT\`"
+            echo "- Go preflight: \`$GO_PREFLIGHT_RESULT\`"
+            echo "- TypeScript preflight: \`$TYPESCRIPT_PREFLIGHT_RESULT\`"
+            echo "- Python preflight: \`$PYTHON_PREFLIGHT_RESULT\`"
+            echo "- Registry preflight: \`$REGISTRY_PREFLIGHT_RESULT\`"
+            echo "- Approval-fresh revalidation: \`$REVALIDATE_TAGS_RESULT\`"
+            echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
+            echo "- Public Go tag: \`$GO_TAG_RESULT\`"
+            echo "- cmux-sdk publish: \`$CRATE_SDK_RESULT\`"
+            echo "- cmux-sidebar publish: \`$CRATE_SIDEBAR_RESULT\`"
+            echo "- npm publish: \`$NPM_RESULT\`"
+            echo "- PyPI wheel publish: \`$PYTHON_WHEEL_RESULT\`"
+            echo "- PyPI source publish: \`$PYTHON_SDIST_RESULT\`"
+            echo "- Stable provenance verification: \`$STABLE_PROVENANCE_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"

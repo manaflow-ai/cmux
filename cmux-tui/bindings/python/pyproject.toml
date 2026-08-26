@@ -1,12 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cmux"
-version = "0.1.2"
+name = "cmux-sdk"
+version = "1.0.0"
+description = "Typed Python resource client for cmux"
+readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
+license = "MIT"
+
+[project.urls]
+Homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/python"
+Repository = "https://github.com/manaflow-ai/cmux"
 
 [tool.setuptools]
-packages = ["cmux"]
+packages = ["cmux", "cmux.raw", "cmux.raw._generated"]
+
+[tool.setuptools.package-data]
+cmux = ["py.typed"]

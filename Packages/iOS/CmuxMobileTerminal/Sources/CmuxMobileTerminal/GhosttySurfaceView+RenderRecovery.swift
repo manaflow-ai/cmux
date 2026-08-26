@@ -38,10 +38,64 @@ extension GhosttySurfaceView {
             return recovered
         }
 
+        if let startedAt = localScrollApplyStartedAt,
+           now - startedAt >= effectiveOutputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            // Replay reveal waits on this operation's interaction generation.
+            // Complete those waiters before replacing the queue; the old queue
+            // may still be blocked inside libghostty and must never be allowed
+            // to resolve a waiter belonging to the replacement generation.
+            localScrollApplyStartedAt = nil
+            localScrollApplyToken = nil
+            localScrollApplyInFlight = false
+            completePendingLocalScrollDrains(returning: false)
+            MobileDebugLog.anchormux(
+                "local_scroll.apply.TIMEOUT elapsedMs=\(elapsedMs)"
+            )
+            return recoverRenderPipeline(
+                reason: "local_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+        }
+
+        if let startedAt = localPixelScrollApplyStartedAt,
+           now - startedAt >= effectiveOutputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            // Same waiter contract as the line pump above.
+            localPixelScrollApplyStartedAt = nil
+            localPixelScrollApplyToken = nil
+            localPixelScrollApplyInFlight = false
+            completePendingLocalScrollDrains(returning: false)
+            MobileDebugLog.anchormux(
+                "local_pixel_scroll.apply.TIMEOUT elapsedMs=\(elapsedMs)"
+            )
+            return recoverRenderPipeline(
+                reason: "local_pixel_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+        }
+
         if let pending = pendingVisibleSnapshot,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVisibleSnapshot = nil
             pending.continuation.resume(returning: nil)
+        }
+
+        // Viewport anchoring is best-effort; a timeout must not replace an
+        // otherwise healthy surface or turn replay into another recovery loop.
+        if let pending = pendingVerifiedReplayViewportAnchorCapture,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+        }
+
+        if let pending = pendingVerifiedReplayViewportAnchorRestore,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            pending.continuation.resume(returning: false)
         }
 
         if let pending = pendingCopyableTextRead,
@@ -49,6 +103,24 @@ extension GhosttySurfaceView {
             pendingCopyableTextRead = nil
             pending.cancel()
             pending.continuation.resume(returning: nil)
+        }
+
+        if let pending = pendingVerifiedReplayPresentation,
+           now - pending.startedAt >= effectiveOutputApplyTimeout {
+            let failureReason = verifiedReplayPendingFenceFailureReason() ?? "pending_missing"
+            pendingVerifiedReplayPresentation = nil
+            clearVerifiedReplayPresentation()
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux(
+                "verified_replay.TIMEOUT elapsedMs=\(elapsedMs) reason=\(failureReason)"
+            )
+            let recovered = recoverRenderPipeline(
+                reason: "verified_replay_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: nil)
+            return recovered
         }
         return false
     }
@@ -87,7 +159,12 @@ extension GhosttySurfaceView {
         _ = completePendingSurfaceOperations(returning: false)
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        resetRenderAdmissionStatePreservingSuppression()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         needsDraw = false
         return true
     }
@@ -159,6 +236,7 @@ extension GhosttySurfaceView {
               surface != nil else {
             return false
         }
+        clearVerifiedReplayPresentation()
         guard !renderPipelineRecoveryPaused else {
             return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
@@ -188,7 +266,6 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
-                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
@@ -207,17 +284,25 @@ extension GhosttySurfaceView {
         surface = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        resetRenderAdmissionStatePreservingSuppression()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         needsDraw = true
+        hasAppliedOutput = false
+        surfaceHasReceivedOutput = false
         cellPixelSize = .zero
         lastRenderRect = .zero
-        lastRenderLayoutViewportHeight = nil
-        lastRenderHasSourceLayoutViewport = false
+        hostedContentBottomRowCount = nil
+        lastLayoutGeometrySyncSize = .zero
         lastAppliedContentScale = 0
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
+        resetScrollStateForSurfaceReplacement()
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
         bridge.attach(to: self)

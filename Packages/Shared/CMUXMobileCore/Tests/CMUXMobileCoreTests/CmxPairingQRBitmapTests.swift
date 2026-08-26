@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import CMUXMobileCore
@@ -7,6 +8,8 @@ import Testing
     private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
     private let twoRoutePayload =
         "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
+    private let irohPayload =
+        "cmux-ios-dev://attach?v=3&i=\(String(repeating: "c", count: 64))"
 
     /// The full 4-module quiet zone is part of the bitmap itself, so it
     /// scales with the code and cannot be cropped away by view layout. Also
@@ -54,13 +57,65 @@ import Testing
     /// breaks that arithmetic means the margin assumption in the renderer is
     /// wrong.
     @Test func moduleCountMatchesAVersionAtOrBelowSix() throws {
-        for payload in [oneRoutePayload, twoRoutePayload] {
+        for payload in [oneRoutePayload, twoRoutePayload, irohPayload] {
             let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
             let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
             #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")
             #expect(modules >= 21)
             #expect(modules <= 41, "payload should stay at version <= 6, got \(modules) modules")
         }
+    }
+
+    /// The pairing window's real Tailscale compatibility payload also carries
+    /// the `ub` account binding (an opaque user id, in practice a UUID) and
+    /// the `pc` compatibility level. Built through the real encoder with the
+    /// longest realistic inputs (tagged dev scheme, IPv4 + IPv6 routes) so
+    /// this tracks whatever the encoder actually emits: it may exceed
+    /// version 6, but stays at or below version 8 (49 modules), where
+    /// modules still render large on screen. The full-key JSON payload this
+    /// replaced rendered version 23 (109 modules).
+    @Test func realCompatibilityPayloadStaysAtOrBelowVersionEight() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-device-uuid",
+            macDisplayName: "Lawrence's Mac",
+            macUserEmail: nil,
+            macUserID: "8b7e6a2f-1234-4c5d-9e8f-0a1b2c3d4e5f",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: "0.65.0",
+            macAppBuild: "42",
+            routes: [
+                try CmxAttachRoute(
+                    id: "tailscale",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "100.101.102.103", port: 52341),
+                    priority: 10
+                ),
+                try CmxAttachRoute(
+                    id: "tailscale_2",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "fd7a:115c:a1e0::1234:5678", port: 52341),
+                    priority: 20
+                ),
+            ],
+            expiresAt: Date().addingTimeInterval(600),
+            authToken: "minted-but-never-in-the-qr"
+        )
+        let payload = try #require(CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+            pairingURLScheme: try #require(
+                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+            )
+        ))
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+        let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+        #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")
+        #expect(
+            modules <= 49,
+            "account-bound compat payload should stay at version <= 8, got \(modules) modules"
+        )
     }
 
     /// Renders `image` into an sRGB bitmap and reduces each pixel to its red

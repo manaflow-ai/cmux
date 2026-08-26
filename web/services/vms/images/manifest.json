@@ -147,6 +147,18 @@
       },
       "validationStatus": "passed",
       "notes": "Validated Daytona preview gate (healthz 401 without x-daytona-preview-token), WS PTY lease auth + single-use replay rejection, shell round trip, RPC hello + reusable lease, and RPC HTTP proxy to healthz. Region: shared us (runner in Corona, CA). binarySha256=d7d2a6b1ef9080ae0deadca3ced6fefbb4aeb88292d136b31bd0ea0784c01461 nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
+    },
+    {
+      "provider": "blaxel",
+      "version": "blaxel-bootstrap-20260820a",
+      "imageId": "blaxel/xfce-vnc:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "builtAt": "2026-08-20T04:30:00.000Z",
+      "builderScriptVersion": "bootstrap-on-create",
+      "validationStatus": "passed",
+      "notes": "Stock Blaxel xfce + noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly); the driver injects cmuxd-remote at create time via the sandbox filesystem API (gzip+base64) and starts serve --ws as a keepAlive process, so no baked template is required. Validated WS PTY lease auth, shell round trip, healthz through a private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
     }
   ]
 }

@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -14,6 +15,9 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -55,7 +59,10 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            replyShape: replyShape,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: correlationKey,
+            agent: agent
         )
     }
 }
@@ -72,6 +79,9 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -96,8 +106,11 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
-            notificationGeneration: notificationGeneration
+            correlationKey: correlationKey,
+            notificationGeneration: notificationGeneration,
+            agent: agent
         )
     }
 
@@ -116,12 +129,15 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
-            isFocusedPanel: request.isFocusedPanel
+            isFocusedPanel: request.isFocusedPanel,
+            agent: request.agent
         )
     }
 }

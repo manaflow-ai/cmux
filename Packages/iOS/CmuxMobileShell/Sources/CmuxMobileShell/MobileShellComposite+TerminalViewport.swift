@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
@@ -9,7 +10,29 @@ nonisolated private let terminalViewportLog = Logger(
     category: "mobile-shell"
 )
 
+/// A locally committed viewport generation that can be attached to the first
+/// replay request before the asynchronous viewport RPC starts.
+public struct MobileTerminalViewportPreparation: Sendable {
+    fileprivate let workspaceID: MobileWorkspacePreview.ID
+    fileprivate let ownerKey: MacPairingKey
+    fileprivate let surfaceID: String
+    fileprivate let viewportSize: MobileTerminalViewportSize
+    fileprivate let generation: UInt64
+}
+
 extension MobileShellComposite {
+    func terminalViewportGeneration(
+        for surfaceID: String,
+        ownerKey: MacPairingKey? = nil
+    ) -> UInt64? {
+        viewportReportGenerationsBySequenceKey[
+            MobileTerminalViewportSequenceKey(
+                ownerKey: ownerKey ?? foregroundMacKey,
+                surfaceID: surfaceID
+            )
+        ]
+    }
+
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
     /// devices, capped to the Mac pane). The caller pins its libghostty surface
@@ -19,7 +42,32 @@ extension MobileShellComposite {
         surfaceID: String,
         columns: Int,
         rows: Int
-    ) async -> (columns: Int, rows: Int)? {
+    ) async -> (
+        columns: Int,
+        rows: Int,
+        renderEpoch: String?,
+        renderRevisionFloor: UInt64?
+    )? {
+        guard let preparation = prepareTerminalViewport(
+            surfaceID: surfaceID,
+            columns: columns,
+            rows: rows
+        ) else {
+            return nil
+        }
+        return await updatePreparedTerminalViewport(preparation)
+    }
+
+    /// Commit the viewport locally before output registration starts.
+    ///
+    /// Registering an output sink immediately requests a cold replay. Its
+    /// request snapshots this cache and generation synchronously, so the Mac
+    /// can apply the current phone grid before capturing replay rows.
+    public func prepareTerminalViewport(
+        surfaceID: String,
+        columns: Int,
+        rows: Int
+    ) -> MobileTerminalViewportPreparation? {
         guard columns > 0, rows > 0,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
@@ -39,9 +87,66 @@ extension MobileShellComposite {
         // dimensions above must never ride a piggyback without a generation,
         // or a reordered stale piggyback could overwrite a newer dedicated
         // report after reconnect.
-        let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
-        viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
-        guard let client = remoteClient else { return nil }
+        let ownerKey = foregroundMacKey
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: ownerKey,
+            surfaceID: surfaceID
+        )
+        let requestGeneration =
+            (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
+        viewportReportGenerationsBySequenceKey[sequenceKey] = requestGeneration
+        return MobileTerminalViewportPreparation(
+            workspaceID: workspaceID,
+            ownerKey: ownerKey,
+            surfaceID: surfaceID,
+            viewportSize: reportedGrid,
+            generation: requestGeneration
+        )
+    }
+
+    /// Send a viewport generation that was committed before output replay was
+    /// registered. A newer report or detach invalidates the preparation.
+    public func updatePreparedTerminalViewport(
+        _ preparation: MobileTerminalViewportPreparation
+    ) async -> (
+        columns: Int,
+        rows: Int,
+        renderEpoch: String?,
+        renderRevisionFloor: UInt64?
+    )? {
+        let preparedWorkspaceID = preparation.workspaceID
+        let surfaceID = preparation.surfaceID
+        let reportedGrid = preparation.viewportSize
+        let columns = reportedGrid.columns
+        let rows = reportedGrid.rows
+        let requestGeneration = preparation.generation
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: preparation.ownerKey,
+            surfaceID: surfaceID
+        )
+        let key = MobileTerminalViewportKey(
+            workspaceID: preparedWorkspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+        guard foregroundMacKey == preparation.ownerKey,
+              workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
+              reportedViewportSizesByTerminalKey[key] == reportedGrid,
+              viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .superseded
+            )
+            return nil
+        }
+        guard let client = remoteClient else {
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .offline
+            )
+            return nil
+        }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,
@@ -49,7 +154,7 @@ extension MobileShellComposite {
             reportedGrid: reportedGrid
         )
         do {
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            let remoteWorkspaceID = remoteWorkspaceID(for: preparedWorkspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: [
@@ -68,10 +173,20 @@ extension MobileShellComposite {
                     token: prearmedReplayBarrierToken,
                     reason: "viewport_stale_client"
                 )
+                self.recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .superseded
+                )
                 return nil
             }
-            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+            guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
+                self.recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .superseded
+                )
                 return nil
             }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
@@ -80,6 +195,11 @@ extension MobileShellComposite {
                     surfaceID: surfaceID,
                     token: prearmedReplayBarrierToken,
                     reason: "viewport_missing_grid"
+                )
+                recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .protocolViolation
                 )
                 return nil
             }
@@ -132,9 +252,19 @@ extension MobileShellComposite {
                     reason: "viewport_unchanged"
                 )
             }
-            return (grid.columns, grid.rows)
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: grid.columns * grid.rows
+            )
+            return (
+                columns: grid.columns,
+                rows: grid.rows,
+                renderEpoch: payload.renderEpoch,
+                renderRevisionFloor: payload.renderRevisionFloor
+            )
         } catch {
-            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+            guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
@@ -145,6 +275,11 @@ extension MobileShellComposite {
                 // for the superseding report to carry; finishing here would
                 // clear it (or replay early) before the newest report owns
                 // recovery.
+                recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .cancelled
+                )
                 return nil
             }
             finishPrearmedTerminalViewportBarrierWithoutResize(
@@ -153,6 +288,11 @@ extension MobileShellComposite {
                 reason: "viewport_failed"
             )
             terminalViewportLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             return nil
         }
     }
@@ -160,32 +300,75 @@ extension MobileShellComposite {
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
+        recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
+        let workspaceID = workspaceID(forTerminalID: surfaceID)
+        // A clear releases the presentation's full local viewport lease. Any
+        // replay, input, or paste that races after this point must not carry
+        // the released dimensions with the newer clear generation and re-pin
+        // the Mac surface.
+        if let workspaceID {
+            reportedViewportSizesByTerminalKey.removeValue(forKey: MobileTerminalViewportKey(
+                workspaceID: workspaceID,
+                terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            ))
+        } else {
+            // A surface can disappear from the workspace snapshot before its
+            // teardown callback runs. There is no route for the clear RPC in
+            // that case, so discard any colliding local entries as a last
+            // line of defence against a later replay piggyback.
+            reportedViewportSizesByTerminalKey = reportedViewportSizesByTerminalKey.filter {
+                $0.key.terminalID.rawValue != surfaceID
+            }
+        }
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
         // applying after detach and blocks generation reuse across re-attach.
-        // Entries are per-connection; resetTerminalOutputTracking() wipes them.
-        let clearGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
-        viewportReportGenerationsBySurfaceID[surfaceID] = clearGeneration
+        // Warm focus swaps keep the peer connection alive, so its fence must
+        // outlive the focused role. The account boundary clears all sequences.
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: foregroundMacKey,
+            surfaceID: surfaceID
+        )
+        let clearGeneration =
+            (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
+        viewportReportGenerationsBySequenceKey[sequenceKey] = clearGeneration
+        effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+              let workspaceID else {
+            recordAppEvent(
+                .terminalViewportClearFailed,
+                correlationID: surfaceID,
+                failure: .noRoute
+            )
             return
         }
         let id = clientID
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         Task { @MainActor in
-            let request = try? MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": id,
-                    "clear": true,
-                    "viewport_generation": Int(clamping: clearGeneration),
-                ]
-            )
-            guard let request else { return }
-            _ = try? await client.sendRequest(request)
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.viewport",
+                    params: [
+                        "workspace_id": remoteWorkspaceID.rawValue,
+                        "surface_id": surfaceID,
+                        "client_id": id,
+                        "clear": true,
+                        "viewport_generation": Int(clamping: clearGeneration),
+                    ]
+                )
+                _ = try await client.sendRequest(request)
+                self.recordAppEvent(
+                    .terminalViewportClearSucceeded,
+                    correlationID: surfaceID
+                )
+            } catch {
+                self.recordAppEvent(
+                    .terminalViewportClearFailed,
+                    correlationID: surfaceID,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            }
         }
     }
 

@@ -42,18 +42,76 @@ struct TerminalPickerMenu: View, Equatable {
     @ViewBuilder
     private var menuContent: some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(value.rows) { terminal in
-                Button {
-                    actions.selectTerminal(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == value.selectedID && !value.hasActiveBrowser
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
+            ForEach(value.terminalRows) { terminal in
+                // Toggle rows get the native leading checkmark while the kind
+                // glyph stays on the trailing edge, matching system pickers.
+                Toggle(isOn: Binding(
+                    get: { terminal.id == value.checkedRowID },
+                    set: { _ in
+                        if let id = terminal.terminalID { actions.selectTerminal(id) }
+                    }
+                )) {
+                    Label(terminal.name, systemImage: "terminal")
                 }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.terminalID?.rawValue ?? "")")
+            }
+        }
+
+        if !value.macSurfaceRows.isEmpty {
+            Section(L10n.string("mobile.surface.section", defaultValue: "Mac Surfaces")) {
+                ForEach(value.macSurfaceRows) { surface in
+                    Toggle(isOn: Binding(
+                        get: { surface.id == value.checkedRowID },
+                        set: { _ in
+                            if let id = surface.macSurfaceID { actions.selectMacSurface(id) }
+                        }
+                    )) {
+                        Label(surface.name, systemImage: surface.surfaceKind.systemImage)
+                    }
+                    .accessibilityIdentifier("MobileMacSurfaceMenuItem-\(surface.macSurfaceID?.rawValue ?? "")")
+                }
+            }
+        }
+
+        if value.supportsSimulatorStream, !value.simulatorStreamRows.isEmpty {
+            Section(L10n.string("mobile.simulatorStream.menuTitle", defaultValue: "Mac Simulators")) {
+                ForEach(value.simulatorStreamRows) { panel in
+                    Button { actions.selectSimulatorStream(panel.id) } label: {
+                        Label(
+                            panel.label,
+                            systemImage: panel.id == value.activeSimulatorStreamPanelID
+                                ? "checkmark.circle.fill"
+                                : "iphone"
+                        )
+                    }
+                    .accessibilityIdentifier("SimulatorStreamMenuItem-\(panel.id)")
+                }
+            }
+        }
+
+        if value.supportsBrowserStream {
+            if !value.browserStreamRows.isEmpty {
+                Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                    ForEach(value.browserStreamRows) { panel in
+                        Button { actions.selectBrowserStream(panel.id) } label: {
+                            Label(
+                                panel.label,
+                                systemImage: panel.id == value.activeBrowserStreamPanelID
+                                    ? "checkmark.circle.fill"
+                                    : "globe"
+                            )
+                        }
+                        .accessibilityIdentifier("BrowserStreamMenuItem-\(panel.id)")
+                    }
+                }
+            }
+        } else {
+            Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                Label(
+                    L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),
+                    systemImage: "arrow.down.circle"
+                )
+                .accessibilityIdentifier("BrowserStreamMacUpdateHint")
             }
         }
 
@@ -83,7 +141,7 @@ struct TerminalPickerMenu: View, Equatable {
 
         #if canImport(UIKit)
         Section {
-            if !value.hasActiveBrowser && !value.isChatMode {
+            if !value.hasActiveBrowser {
                 Button(action: actions.openTextSheet) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),

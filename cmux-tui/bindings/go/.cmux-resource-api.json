@@ -1,0 +1,381 @@
+{
+  "catalog_sha256": "2479d038387ac83af736875b3314a4b33d867243191a50bab477d0a723bc7ab0",
+  "operations": {
+    "agent.list": {
+      "class": "read"
+    },
+    "agent.report": {
+      "class": "mutation"
+    },
+    "browser.activate": {
+      "class": "mutation"
+    },
+    "browser.attach": {
+      "class": "stream_open"
+    },
+    "browser.back": {
+      "class": "mutation"
+    },
+    "browser.close": {
+      "class": "mutation"
+    },
+    "browser.forward": {
+      "class": "mutation"
+    },
+    "browser.get": {
+      "class": "read"
+    },
+    "browser.input.key": {
+      "class": "mutation"
+    },
+    "browser.input.mouse": {
+      "class": "mutation"
+    },
+    "browser.input.text": {
+      "class": "mutation"
+    },
+    "browser.input.wheel": {
+      "class": "mutation"
+    },
+    "browser.list": {
+      "class": "read"
+    },
+    "browser.navigate": {
+      "class": "mutation"
+    },
+    "browser.reload": {
+      "class": "mutation"
+    },
+    "browser.viewer.release": {
+      "class": "connection_control"
+    },
+    "browser.viewer.resize": {
+      "class": "connection_control"
+    },
+    "client.cell_pixels.set": {
+      "class": "connection_control"
+    },
+    "client.detach": {
+      "class": "connection_control"
+    },
+    "client.get": {
+      "class": "read"
+    },
+    "client.list": {
+      "class": "read"
+    },
+    "client.metadata.update": {
+      "class": "connection_control"
+    },
+    "client.sizing.release": {
+      "class": "connection_control"
+    },
+    "client.sizing.set": {
+      "class": "connection_control"
+    },
+    "frontend_projection.get": {
+      "class": "read"
+    },
+    "frontend_projection.put": {
+      "class": "mutation"
+    },
+    "machine.get": {
+      "class": "read"
+    },
+    "machine.list": {
+      "class": "read"
+    },
+    "notification.create": {
+      "class": "mutation"
+    },
+    "notification.list": {
+      "class": "read"
+    },
+    "pairing_request.list": {
+      "class": "read"
+    },
+    "pairing_request.resolve": {
+      "class": "mutation"
+    },
+    "pane.close": {
+      "class": "mutation"
+    },
+    "pane.create": {
+      "class": "mutation"
+    },
+    "pane.focus": {
+      "class": "mutation"
+    },
+    "pane.focus_direction": {
+      "class": "mutation"
+    },
+    "pane.get": {
+      "class": "read"
+    },
+    "pane.list": {
+      "class": "read"
+    },
+    "pane.neighbor.get": {
+      "class": "read"
+    },
+    "pane.rename": {
+      "class": "mutation"
+    },
+    "pane.run": {
+      "class": "mutation"
+    },
+    "pane.split": {
+      "class": "mutation"
+    },
+    "pane.split_ratio.set": {
+      "class": "mutation"
+    },
+    "pane.swap": {
+      "class": "mutation"
+    },
+    "pane.viewport_width.set": {
+      "class": "mutation"
+    },
+    "pane.zoom": {
+      "class": "mutation"
+    },
+    "request.cancel": {
+      "class": "connection_control"
+    },
+    "screen.close": {
+      "class": "mutation"
+    },
+    "screen.create": {
+      "class": "mutation"
+    },
+    "screen.focus": {
+      "class": "mutation"
+    },
+    "screen.get": {
+      "class": "read"
+    },
+    "screen.layout.export": {
+      "class": "read"
+    },
+    "screen.layout.undo": {
+      "class": "mutation"
+    },
+    "screen.list": {
+      "class": "read"
+    },
+    "screen.rename": {
+      "class": "mutation"
+    },
+    "session.creation.resolve": {
+      "class": "read"
+    },
+    "session.events": {
+      "class": "stream_open"
+    },
+    "session.get": {
+      "class": "read"
+    },
+    "session.journal.append": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.create": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.list": {
+      "class": "read"
+    },
+    "session.journal.hook.list": {
+      "class": "read"
+    },
+    "session.journal.hook.put": {
+      "class": "mutation"
+    },
+    "session.journal.producer.list": {
+      "class": "read"
+    },
+    "session.journal.producer.put": {
+      "class": "mutation"
+    },
+    "session.journal.restore.preview": {
+      "class": "read"
+    },
+    "session.journal.segment.list": {
+      "class": "read"
+    },
+    "session.journal.segment.seal": {
+      "class": "mutation"
+    },
+    "session.journal.subscribe": {
+      "class": "stream_open"
+    },
+    "session.list": {
+      "class": "read"
+    },
+    "session.open": {
+      "class": "mutation"
+    },
+    "session.ping": {
+      "class": "read"
+    },
+    "session.reload_config": {
+      "class": "mutation"
+    },
+    "session.shutdown": {
+      "class": "mutation"
+    },
+    "session.snapshot": {
+      "class": "read"
+    },
+    "session.terminal_defaults.update": {
+      "class": "mutation"
+    },
+    "session.window.title.clear": {
+      "class": "mutation"
+    },
+    "session.window.title.set": {
+      "class": "mutation"
+    },
+    "sidebar_view.attach": {
+      "class": "stream_open"
+    },
+    "sidebar_view.ensure": {
+      "class": "mutation"
+    },
+    "sidebar_view.get": {
+      "class": "read"
+    },
+    "sidebar_view.input": {
+      "class": "mutation"
+    },
+    "sidebar_view.reload": {
+      "class": "mutation"
+    },
+    "sidebar_view.resize": {
+      "class": "mutation"
+    },
+    "stream.cancel": {
+      "class": "connection_control"
+    },
+    "tab.close": {
+      "class": "mutation"
+    },
+    "tab.create_browser": {
+      "class": "mutation"
+    },
+    "tab.create_terminal": {
+      "class": "mutation"
+    },
+    "tab.focus": {
+      "class": "mutation"
+    },
+    "tab.get": {
+      "class": "read"
+    },
+    "tab.list": {
+      "class": "read"
+    },
+    "tab.move": {
+      "class": "mutation"
+    },
+    "tab.rename": {
+      "class": "mutation"
+    },
+    "terminal.attach": {
+      "class": "stream_open"
+    },
+    "terminal.close": {
+      "class": "mutation"
+    },
+    "terminal.copy": {
+      "class": "read"
+    },
+    "terminal.get": {
+      "class": "read"
+    },
+    "terminal.history.clear": {
+      "class": "mutation"
+    },
+    "terminal.history.read": {
+      "class": "read"
+    },
+    "terminal.input.focus": {
+      "class": "mutation"
+    },
+    "terminal.input.keys": {
+      "class": "mutation"
+    },
+    "terminal.input.mouse": {
+      "class": "mutation"
+    },
+    "terminal.input.write": {
+      "class": "mutation"
+    },
+    "terminal.list": {
+      "class": "read"
+    },
+    "terminal.move": {
+      "class": "mutation"
+    },
+    "terminal.output_read": {
+      "class": "read"
+    },
+    "terminal.process.get": {
+      "class": "read"
+    },
+    "terminal.project": {
+      "class": "mutation"
+    },
+    "terminal.renderer_grant.create": {
+      "class": "connection_control"
+    },
+    "terminal.screen.read": {
+      "class": "read"
+    },
+    "terminal.state.read": {
+      "class": "read"
+    },
+    "terminal.viewer.release": {
+      "class": "connection_control"
+    },
+    "terminal.viewer.resize": {
+      "class": "connection_control"
+    },
+    "terminal.viewport.scroll": {
+      "class": "mutation"
+    },
+    "terminal.wait": {
+      "class": "read"
+    },
+    "terminal.wait_exit": {
+      "class": "read"
+    },
+    "workspace.close": {
+      "class": "mutation"
+    },
+    "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.focus": {
+      "class": "mutation"
+    },
+    "workspace.get": {
+      "class": "read"
+    },
+    "workspace.layout.apply": {
+      "class": "mutation"
+    },
+    "workspace.list": {
+      "class": "read"
+    },
+    "workspace.move": {
+      "class": "mutation"
+    },
+    "workspace.rename": {
+      "class": "mutation"
+    },
+    "workspace.run": {
+      "class": "mutation"
+    }
+  },
+  "protocol": "cmux.protocol/2"
+}

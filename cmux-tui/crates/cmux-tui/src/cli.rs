@@ -1,1448 +1,772 @@
-use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Read, Write};
+//! Hand-designed noun-first command line for `cmux.protocol/2`.
+//!
+//! The public grammar lives here and in `cli/command.rs`. The wire transport
+//! is deliberately isolated in `cli/wire.rs`, so public commands cannot
+//! accidentally fall back to the private command protocol.
+
+mod command;
+mod lifecycle;
+mod raw;
+mod wire;
+
+use std::borrow::Cow;
+use std::io::{self, Write};
 use std::path::PathBuf;
-use std::time::Duration;
 
-use cmux_tui_core::platform::transport;
-use serde_json::{Value, json};
+use command::{CommandPlan, ParsedCommand};
 
-const REQUEST_ID: u64 = 1;
-
-type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
-type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
-type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
-
-pub struct UsageError(String);
-
-struct CliArgs {
-    global: GlobalArgs,
-    verb: &'static VerbSpec,
-    flags: FlagMap,
-}
-
-#[derive(Default)]
-struct GlobalArgs {
-    session: Option<String>,
-    socket: Option<PathBuf>,
-    json: bool,
-}
-
-#[derive(Default)]
-struct FlagMap {
-    values: BTreeMap<String, String>,
-    positionals: Vec<String>,
-}
-
-struct VerbSpec {
-    name: &'static str,
-    help: &'static str,
-    allowed: &'static [&'static str],
-    kind: VerbKind,
-}
-
-#[derive(Clone, Copy)]
-enum VerbKind {
-    Socket { build: BuildFn, print: PrintFn, stream: bool },
-    Local(LocalFn),
-}
-
-const VERBS: &[VerbSpec] = &[
-    VerbSpec {
-        name: "identify",
-        help: "Print session metadata.",
-        allowed: &[],
-        kind: socket(build_no_args, print_identify, false),
-    },
-    VerbSpec {
-        name: "ping",
-        help: "Check session liveness.",
-        allowed: &[],
-        kind: socket(build_no_args, print_ping, false),
-    },
-    VerbSpec {
-        name: "set-client-info",
-        help: "Label this control connection.",
-        allowed: &["name", "kind"],
-        kind: socket(build_set_client_info, print_empty, false),
-    },
-    VerbSpec {
-        name: "list-clients",
-        help: "List connected control clients.",
-        allowed: &[],
-        kind: socket(build_no_args, print_clients, false),
-    },
-    VerbSpec {
-        name: "detach-client",
-        help: "Detach a connected control client.",
-        allowed: &["client"],
-        kind: socket(build_detach_client, print_empty, false),
-    },
-    VerbSpec {
-        name: "reload-config",
-        help: "Ask a running TUI to reload its config file.",
-        allowed: &[],
-        kind: socket(build_no_args, print_empty, false),
-    },
-    VerbSpec {
-        name: "set-window-title",
-        help: "Set the host terminal window title.",
-        allowed: &["title"],
-        kind: socket(build_set_window_title, print_empty, false),
-    },
-    VerbSpec {
-        name: "clear-window-title",
-        help: "Clear the host terminal window title.",
-        allowed: &[],
-        kind: socket(build_no_args, print_empty, false),
-    },
-    VerbSpec {
-        name: "list-workspaces",
-        help: "List workspaces, screens, panes, and surfaces.",
-        allowed: &[],
-        kind: socket(build_no_args, print_tree, false),
-    },
-    VerbSpec {
-        name: "export-layout",
-        help: "Export a screen layout.",
-        allowed: &["screen"],
-        kind: socket(build_export_layout, print_json_data, false),
-    },
-    VerbSpec {
-        name: "apply-layout",
-        help: "Apply a screen layout.",
-        allowed: &["workspace", "name", "layout", "cols", "rows"],
-        kind: socket(build_apply_layout, print_applied_layout, false),
-    },
-    VerbSpec {
-        name: "send",
-        help: "Send text or bytes to a surface.",
-        allowed: &["surface", "text", "bytes"],
-        kind: socket(build_send, print_empty, false),
-    },
-    VerbSpec {
-        name: "read-screen",
-        help: "Print visible screen text for a surface.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_read_screen, false),
-    },
-    VerbSpec {
-        name: "wait-for",
-        help: "Wait for a regex in visible screen text.",
-        allowed: &["surface", "pattern", "timeout-ms"],
-        kind: socket(build_wait_for, print_empty, false),
-    },
-    VerbSpec {
-        name: "run",
-        help: "Run a command in a new or existing pane.",
-        allowed: &["pane", "new-workspace", "cwd", "name", "command"],
-        kind: socket(build_run, print_surface, false),
-    },
-    VerbSpec {
-        name: "send-key",
-        help: "Send encoded key names to a surface.",
-        allowed: &["surface"],
-        kind: socket(build_send_key, print_empty, false),
-    },
-    VerbSpec {
-        name: "copy",
-        help: "Copy text from a surface.",
-        allowed: &["surface", "mode"],
-        kind: socket(build_copy, print_read_screen, false),
-    },
-    VerbSpec {
-        name: "ids",
-        help: "List ids and short ids.",
-        allowed: &["kind"],
-        kind: socket(build_ids, print_ids, false),
-    },
-    VerbSpec {
-        name: "notify",
-        help: "Show a cmux notification.",
-        allowed: &["title", "body", "level", "surface"],
-        kind: socket(build_notify, print_notification, false),
-    },
-    VerbSpec {
-        name: "list-agents",
-        help: "List reported agent states.",
-        allowed: &["surface", "state"],
-        kind: socket(build_list_agents, print_agents, false),
-    },
-    VerbSpec {
-        name: "report-agent",
-        help: "Report an agent state.",
-        allowed: &["surface", "state", "source", "session"],
-        kind: socket(build_report_agent, print_empty, false),
-    },
-    VerbSpec {
-        name: "vt-state",
-        help: "Print base64 terminal state for a surface.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_vt_state, false),
-    },
-    VerbSpec {
-        name: "new-tab",
-        help: "Create a new tab.",
-        allowed: &["pane", "cwd", "cols", "rows"],
-        kind: socket(build_new_tab, print_surface, false),
-    },
-    VerbSpec {
-        name: "new-browser-tab",
-        help: "Create a browser tab.",
-        allowed: &["url", "pane", "cols", "rows"],
-        kind: socket(build_new_browser_tab, print_surface, false),
-    },
-    VerbSpec {
-        name: "new-workspace",
-        help: "Create a workspace.",
-        allowed: &["name", "cols", "rows"],
-        kind: socket(build_new_workspace, print_surface, false),
-    },
-    VerbSpec {
-        name: "new-screen",
-        help: "Create a screen.",
-        allowed: &["workspace", "cols", "rows"],
-        kind: socket(build_new_screen, print_surface, false),
-    },
-    VerbSpec {
-        name: "split",
-        help: "Split a pane.",
-        allowed: &["pane", "dir", "cols", "rows"],
-        kind: socket(build_split, print_surface, false),
-    },
-    VerbSpec {
-        name: "set-ratio",
-        help: "Set a split ratio.",
-        allowed: &["pane", "dir", "ratio"],
-        kind: socket(build_set_ratio, print_empty, false),
-    },
-    VerbSpec {
-        name: "pane-neighbor",
-        help: "Find a pane neighbor.",
-        allowed: &["pane", "dir"],
-        kind: socket(build_pane_direction, print_optional_pane, false),
-    },
-    VerbSpec {
-        name: "focus-direction",
-        help: "Focus a pane by direction.",
-        allowed: &["pane", "dir"],
-        kind: socket(build_optional_pane_direction, print_pane, false),
-    },
-    VerbSpec {
-        name: "swap-pane",
-        help: "Swap panes.",
-        allowed: &["pane", "dir", "target"],
-        kind: socket(build_swap_pane, print_empty, false),
-    },
-    VerbSpec {
-        name: "zoom-pane",
-        help: "Toggle or set pane zoom.",
-        allowed: &["pane", "mode"],
-        kind: socket(build_zoom_pane, print_zoom_state, false),
-    },
-    VerbSpec {
-        name: "process-info",
-        help: "Print process metadata for a surface.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_process_info, false),
-    },
-    VerbSpec {
-        name: "set-default-colors",
-        help: "Set default terminal colors.",
-        allowed: &["fg", "bg"],
-        kind: socket(build_set_default_colors, print_empty, false),
-    },
-    VerbSpec {
-        name: "close-surface",
-        help: "Close a surface.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_empty, false),
-    },
-    VerbSpec {
-        name: "close-pane",
-        help: "Close a pane.",
-        allowed: &["pane"],
-        kind: socket(build_pane, print_empty, false),
-    },
-    VerbSpec {
-        name: "close-screen",
-        help: "Close a screen.",
-        allowed: &["screen"],
-        kind: socket(build_screen, print_empty, false),
-    },
-    VerbSpec {
-        name: "close-workspace",
-        help: "Close a workspace.",
-        allowed: &["workspace"],
-        kind: socket(build_workspace, print_empty, false),
-    },
-    VerbSpec {
-        name: "rename-pane",
-        help: "Rename a pane.",
-        allowed: &["pane", "name"],
-        kind: socket(build_rename_pane, print_empty, false),
-    },
-    VerbSpec {
-        name: "rename-surface",
-        help: "Rename a surface.",
-        allowed: &["surface", "name"],
-        kind: socket(build_rename_surface, print_empty, false),
-    },
-    VerbSpec {
-        name: "rename-screen",
-        help: "Rename a screen.",
-        allowed: &["screen", "name"],
-        kind: socket(build_rename_screen, print_empty, false),
-    },
-    VerbSpec {
-        name: "rename-workspace",
-        help: "Rename a workspace.",
-        allowed: &["workspace", "name"],
-        kind: socket(build_rename_workspace, print_empty, false),
-    },
-    VerbSpec {
-        name: "resize-surface",
-        help: "Resize a surface PTY.",
-        allowed: &["surface", "cols", "rows"],
-        kind: socket(build_resize_surface, print_empty, false),
-    },
-    VerbSpec {
-        name: "focus-pane",
-        help: "Focus a pane.",
-        allowed: &["pane"],
-        kind: socket(build_pane, print_empty, false),
-    },
-    VerbSpec {
-        name: "select-tab",
-        help: "Select a tab by index or delta.",
-        allowed: &["pane", "index", "delta"],
-        kind: socket(build_select_tab, print_empty, false),
-    },
-    VerbSpec {
-        name: "select-screen",
-        help: "Select a screen by index or delta.",
-        allowed: &["index", "delta"],
-        kind: socket(build_select_screen, print_empty, false),
-    },
-    VerbSpec {
-        name: "select-workspace",
-        help: "Select a workspace by index or delta.",
-        allowed: &["index", "delta"],
-        kind: socket(build_select_workspace, print_empty, false),
-    },
-    VerbSpec {
-        name: "move-tab",
-        help: "Move a tab to a pane and index.",
-        allowed: &["surface", "pane", "index"],
-        kind: socket(build_move_tab, print_empty, false),
-    },
-    VerbSpec {
-        name: "move-workspace",
-        help: "Move a workspace to an index.",
-        allowed: &["workspace", "index"],
-        kind: socket(build_move_workspace, print_empty, false),
-    },
-    VerbSpec {
-        name: "scroll-surface",
-        help: "Scroll a surface.",
-        allowed: &["surface", "delta"],
-        kind: socket(build_scroll_surface, print_empty, false),
-    },
-    VerbSpec {
-        name: "subscribe",
-        help: "Subscribe to session events.",
-        allowed: &[],
-        kind: socket(build_no_args, print_empty, true),
-    },
-    VerbSpec {
-        name: "attach-surface",
-        help: "Attach to a surface stream.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_empty, true),
-    },
-    VerbSpec {
-        name: "plugin",
-        help: "Manage installed sidebar plugins locally.",
-        allowed: &["name", "force", "builtin"],
-        kind: VerbKind::Local(run_plugin),
-    },
+const PUBLIC_SCOPES: &[&str] = &[
+    "machine",
+    "server",
+    "session",
+    "client",
+    "workspace",
+    "screen",
+    "pane",
+    "tab",
+    "terminal",
+    "browser",
+    "notification",
+    "agent",
+    "sidebar",
+    "pairing",
+    "projection",
+    "provider",
+    "raw",
 ];
 
-const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
-    VerbKind::Socket { build, print, stream }
+const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
+    "connect",
+    "ssh",
+    "forward",
+    "rpc",
+    "enroll",
+    "known-daemons",
+    "remote-probe",
+    "remote-link",
+    "remote-sidecar",
+    "remote-stop",
+    "install-self",
+];
+
+/// Returns whether argv selects the remote command family.
+///
+/// Keeping this classifier next to the public CLI grammar prevents startup
+/// routing and the Unix remote implementation from maintaining separate lists.
+pub(super) fn is_remote_invocation(args: &[String]) -> bool {
+    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
 }
 
-pub fn is_cli_invocation(args: &[String]) -> bool {
-    matches!(first_command_arg(args), FirstCommand::Help | FirstCommand::Verb)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OutputMode {
+    #[default]
+    Human,
+    Json,
+    JsonLines,
+    Quiet,
 }
 
-pub fn run(args: &[String], usage: &str) -> i32 {
+#[derive(Clone, Debug, Default)]
+pub(super) struct GlobalArgs {
+    pub socket: Option<PathBuf>,
+    pub session: Option<String>,
+    pub machine: Option<String>,
+    pub output: OutputMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct UsageError(pub String);
+
+#[derive(Debug)]
+struct ParseFailure {
+    error: UsageError,
+    output: OutputMode,
+}
+
+impl UsageError {
+    pub(super) fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UsageError {}
+
+pub fn is_public_scope(value: &str) -> bool {
+    PUBLIC_SCOPES.contains(&value)
+}
+
+pub fn run(args: &[String], startup_usage: &str) -> i32 {
     match parse(args) {
-        Ok(Parsed::Help) => {
-            print_help(usage);
+        Ok(ParsedCommand::Help(scope)) => {
+            if scope.as_deref() == Some("start") {
+                let mut stdout = io::stdout().lock();
+                let _ = stdout.write_all(startup_usage.as_bytes());
+                let _ = stdout.flush();
+            } else {
+                print_scope_help(scope.as_deref());
+            }
             0
         }
-        Ok(Parsed::Command(args)) => run_command(args),
-        Err(err) => {
-            eprintln!("cmux-tui: {}", err.0);
-            2
-        }
-    }
-}
-
-pub fn print_help(usage: &str) {
-    print!("{usage}");
-    println!();
-    println!("VERB HELP");
-    for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help);
-    }
-}
-
-enum FirstCommand {
-    None,
-    Help,
-    Verb,
-}
-
-enum Parsed {
-    Help,
-    Command(CliArgs),
-}
-
-fn first_command_arg(args: &[String]) -> FirstCommand {
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--socket" | "--session" => i += 2,
-            "--json" => i += 1,
-            "-h" | "--help" => return FirstCommand::Help,
-            arg if arg.starts_with("--") => return FirstCommand::None,
-            "help" => return FirstCommand::Help,
-            arg if verb_by_name(arg).is_some() => return FirstCommand::Verb,
-            _ => return FirstCommand::None,
-        }
-    }
-    FirstCommand::None
-}
-
-fn parse(args: &[String]) -> Result<Parsed, UsageError> {
-    if matches!(first_command_arg(args), FirstCommand::Help) {
-        return Ok(Parsed::Help);
-    }
-
-    let mut global = GlobalArgs::default();
-    let mut flags = FlagMap::default();
-    let mut verb: Option<&'static VerbSpec> = None;
-    let mut i = 0;
-    while i < args.len() {
-        let arg = args[i].as_str();
-        match arg {
-            "-h" | "--help" | "help" => return Ok(Parsed::Help),
-            "--json" => {
-                global.json = true;
-                i += 1;
+        Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::Server(server) => lifecycle::run(global, server),
+            CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
+            CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
+            CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
+            CommandPlan::ProviderAuthority(authority) => {
+                command::run_provider_authority(global, authority)
             }
-            "--socket" => {
-                global.socket = Some(PathBuf::from(value_after(args, i, "--socket")?));
-                i += 2;
-            }
-            "--session" => {
-                if verb.is_some_and(|spec| spec.allowed.contains(&"session")) {
-                    let value = value_after(args, i, "--session")?;
-                    if flags.values.insert("session".to_string(), value).is_some() {
-                        return Err(UsageError(format!("duplicate flag {arg:?}")));
-                    }
-                    i += 2;
-                } else {
-                    global.session = Some(value_after(args, i, "--session")?);
-                    i += 2;
-                }
-            }
-            _ if verb.is_none() && verb_by_name(arg).is_some() => {
-                verb = verb_by_name(arg);
-                i += 1;
-            }
-            "--" => {
-                let Some(spec) = verb else {
-                    return Err(UsageError("missing verb before --".to_string()));
-                };
-                if spec.name != "run" {
-                    return Err(UsageError(format!("unexpected argument {arg:?}")));
-                }
-                flags.positionals.extend(args[i + 1..].iter().cloned());
-                break;
-            }
-            _ if arg.starts_with("--") => {
-                let Some(spec) = verb else {
-                    return Err(UsageError(format!("unknown global flag {arg:?}")));
-                };
-                let name = arg.trim_start_matches("--");
-                if !spec.allowed.contains(&name) {
-                    return Err(UsageError(format!("unknown flag {arg:?} for {}", spec.name)));
-                }
-                if is_boolean_flag(spec, name) {
-                    if flags.values.insert(name.to_string(), "true".to_string()).is_some() {
-                        return Err(UsageError(format!("duplicate flag {arg:?}")));
-                    }
-                    i += 1;
-                    continue;
-                }
-                let value = value_after(args, i, arg)?;
-                if flags.values.insert(name.to_string(), value).is_some() {
-                    return Err(UsageError(format!("duplicate flag {arg:?}")));
-                }
-                i += 2;
-            }
-            _ if verb.is_some() => {
-                let spec = verb.unwrap();
-                if spec.name == "send-key" || matches!(spec.kind, VerbKind::Local(_)) {
-                    flags.positionals.push(arg.to_string());
-                    i += 1;
-                } else {
-                    return Err(UsageError(format!("unexpected argument {arg:?}")));
-                }
-            }
-            _ => return Err(UsageError(format!("unknown argument {arg:?}"))),
-        }
-    }
-
-    let Some(verb) = verb else { return Err(UsageError("missing verb".to_string())) };
-    Ok(Parsed::Command(CliArgs { global, verb, flags }))
-}
-
-fn value_after(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
-    args.get(index + 1).cloned().ok_or_else(|| UsageError(format!("{flag} needs a value")))
-}
-
-fn verb_by_name(name: &str) -> Option<&'static VerbSpec> {
-    VERBS.iter().find(|verb| verb.name == name)
-}
-
-fn run_command(args: CliArgs) -> i32 {
-    let (build, print, stream_mode) = match args.verb.kind {
-        VerbKind::Socket { build, print, stream } => (build, print, stream),
-        VerbKind::Local(run) => return run(&args.global, &args.flags),
-    };
-    let request = match build(&args.flags) {
-        Ok(mut value) => {
-            value["cmd"] = json!(args.verb.name);
-            value["id"] = json!(REQUEST_ID);
-            value
-        }
-        Err(err) => {
-            eprintln!("cmux-tui: {}", err.0);
-            return 2;
-        }
-    };
-    let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
-        Ok(stream) => stream,
-        Err(err) => {
-            eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
-            return 3;
-        }
-    };
-    if stream_mode {
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
-    } else {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    }
-    let mut line = match serde_json::to_vec(&request) {
-        Ok(line) => line,
-        Err(err) => {
-            eprintln!("failed to encode request: {err}");
-            return 2;
-        }
-    };
-    line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
-        eprintln!("transport error: {err}");
-        return 3;
-    }
-
-    let mut reader = BufReader::new(stream);
-    if stream_mode {
-        run_stream(reader)
-    } else {
-        run_one_response(&mut reader, args.global.json, print)
-    }
-}
-
-fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
-    (spec.name == "run" && name == "new-workspace")
-        || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
-}
-
-fn run_plugin(global: &GlobalArgs, flags: &FlagMap) -> i32 {
-    crate::plugin_manager::run(
-        &flags.positionals,
-        crate::plugin_manager::CliOptions {
-            json: global.json,
-            socket: global.socket.clone(),
-            session: global.session.clone(),
-            name: flags.optional("name"),
-            force: flags.optional("force").is_some(),
-            builtin: flags.optional("builtin").is_some(),
+            CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-    )
-}
-
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
-    if let Some(path) = &global.socket {
-        return path.clone();
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    let session = global.session.as_deref().unwrap_or("main");
-    cmux_tui_core::server::default_socket_path(session)
-}
-
-fn run_one_response(
-    reader: &mut BufReader<Box<dyn transport::Stream>>,
-    json_output: bool,
-    print_human: PrintFn,
-) -> i32 {
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                eprintln!("transport closed before response");
-                return 3;
-            }
-            Ok(_) => {}
-            Err(err) => {
-                eprintln!("transport error: {err}");
-                return 3;
-            }
-        }
-        let value = match serde_json::from_str::<Value>(&line) {
-            Ok(value) => value,
-            Err(err) => {
-                eprintln!("bad response: {err}");
-                return 3;
-            }
-        };
-        if value.get("event").is_some() {
-            continue;
-        }
-        return print_response(&value, json_output, print_human);
-    }
-}
-
-fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
-    let mut line = String::new();
-    loop {
-        if crate::shutdown_requested() {
-            return 0;
-        }
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                if line.is_empty() {
-                    return 0;
-                }
-                eprintln!("transport closed with partial stream line");
-                return 3;
-            }
-            Ok(_) if !line.ends_with('\n') => {
-                eprintln!("transport closed with partial stream line");
-                return 3;
-            }
-            Ok(_) => {}
-            Err(err)
-                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
-            {
-                continue;
-            }
-            Err(err) => {
-                eprintln!("transport error: {err}");
-                return 3;
-            }
-        }
-        let value = match serde_json::from_str::<Value>(&line) {
-            Ok(value) => value,
-            Err(err) => {
-                eprintln!("bad stream line: {err}");
-                return 3;
-            }
-        };
-        if value.get("event").is_some() {
-            print!("{}", line.trim_end_matches(['\r', '\n']));
-            println!();
-            line.clear();
-            if io::stdout().flush().is_err() {
-                return 3;
-            }
-            continue;
-        }
-        if value.get("id").and_then(Value::as_u64) != Some(REQUEST_ID) {
-            line.clear();
-            continue;
-        }
-        if value.get("ok").and_then(Value::as_bool) == Some(true) {
-            line.clear();
-            continue;
-        }
-        let error = value.get("error").and_then(Value::as_str).unwrap_or("unknown error");
-        eprintln!("{error}");
-        return 1;
-    }
-}
-
-fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32 {
-    if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        let error = value.get("error").and_then(Value::as_str).unwrap_or("unknown error");
-        eprintln!("{error}");
-        return 1;
-    }
-    let data = value.get("data").unwrap_or(&Value::Null);
-    let mut stdout = io::stdout();
-    let result = if json_output {
-        serde_json::to_writer(&mut stdout, data)
-            .and_then(|_| stdout.write_all(b"\n").map_err(serde_json::Error::io))
-            .map_err(io::Error::other)
-    } else {
-        print_human(data, &mut stdout)
-    };
-    match result.and_then(|_| stdout.flush()) {
-        Ok(()) => 0,
-        Err(err) => {
-            eprintln!("stdout error: {err}");
-            3
+        Err(failure) => {
+            let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
+                format!("cmux: {}", failure.error)
+            } else {
+                failure.error.to_string()
+            };
+            wire::print_local_error(
+                &serde_json::json!({
+                    "code":"usage.invalid",
+                    "message":message,
+                    "details":{},
+                    "retryable":false,
+                }),
+                failure.output,
+                2,
+            )
         }
     }
 }
 
-fn build_no_args(flags: &FlagMap) -> Result<Value, UsageError> {
-    flags.reject_remaining()?;
-    Ok(json!({}))
+fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
+    let (global, command_args) =
+        parse_globals(args).map_err(|(error, output)| ParseFailure { error, output })?;
+    let output = global.output;
+    parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
 }
 
-fn build_set_client_info(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_string(&mut value, "name");
-    flags.insert_optional_string(&mut value, "kind");
-    Ok(value)
-}
-
-fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "client": flags.required_u64("client")? }))
-}
-
-fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "surface": flags.required_u64("surface")? }))
-}
-
-fn build_pane(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "pane": flags.required_u64("pane")? }))
-}
-
-fn build_screen(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "screen": flags.required_u64("screen")? }))
-}
-
-fn build_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "workspace": flags.required_u64("workspace")? }))
-}
-
-fn build_send(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({ "surface": flags.required_u64("surface")? });
-    if let Some(text) = flags.optional("text") {
-        value["text"] = json!(text);
+fn parse_command(
+    global: GlobalArgs,
+    command_args: Vec<String>,
+) -> Result<ParsedCommand, UsageError> {
+    if command_args.is_empty() {
+        return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
-    if let Some(bytes) = flags.optional("bytes") {
-        value["bytes"] = json!(bytes);
-    }
-    if value.get("text").is_none() && value.get("bytes").is_none() {
-        let mut text = String::new();
-        io::stdin()
-            .read_to_string(&mut text)
-            .map_err(|err| UsageError(format!("failed to read stdin: {err}")))?;
-        value["text"] = json!(text);
-    }
-    Ok(value)
-}
-
-fn build_wait_for(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "surface": flags.required_u64("surface")?,
-        "pattern": flags.required("pattern")?,
-        "timeout_ms": flags.required_u64("timeout-ms")?,
-    }))
-}
-
-fn build_run(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "pane")?;
-    flags.insert_optional_string(&mut value, "cwd");
-    flags.insert_optional_string(&mut value, "name");
-    if flags.optional("new-workspace").is_some() {
-        value["new_workspace"] = json!(true);
-    }
-    match (flags.optional("command"), flags.positionals.is_empty()) {
-        (Some(command), true) => value["command"] = json!(command),
-        (Some(_), false) => {
-            return Err(UsageError("--command and argv are mutually exclusive".to_string()));
-        }
-        (None, false) => value["argv"] = json!(flags.positionals),
-        (None, true) => return Err(UsageError("argv or --command is required".to_string())),
-    }
-    Ok(value)
-}
-
-fn build_send_key(flags: &FlagMap) -> Result<Value, UsageError> {
-    if flags.positionals.is_empty() {
-        return Err(UsageError("at least one key is required".to_string()));
-    }
-    Ok(json!({
-        "surface": flags.required_u64("surface")?,
-        "keys": flags.positionals,
-    }))
-}
-
-fn build_copy(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mode = flags.required("mode")?;
-    if !matches!(mode.as_str(), "screen" | "selection" | "scrollback") {
-        return Err(UsageError("--mode must be screen, selection, or scrollback".to_string()));
-    }
-    Ok(json!({ "surface": flags.required_u64("surface")?, "mode": mode }))
-}
-
-fn build_ids(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    if let Some(kind) = flags.optional("kind") {
-        if !matches!(kind.as_str(), "workspace" | "screen" | "pane" | "surface") {
-            return Err(UsageError(
-                "--kind must be workspace, screen, pane, or surface".to_string(),
-            ));
-        }
-        value["kind"] = json!(kind);
-    }
-    Ok(value)
-}
-
-fn build_notify(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({
-        "title": flags.required("title")?,
-        "body": flags.required("body")?,
-    });
-    if let Some(level) = flags.optional("level") {
-        if !matches!(level.as_str(), "info" | "warning" | "error") {
-            return Err(UsageError("--level must be info, warning, or error".to_string()));
-        }
-        value["level"] = json!(level);
-    }
-    flags.insert_optional_u64(&mut value, "surface")?;
-    Ok(value)
-}
-
-fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "surface")?;
-    if let Some(state) = flags.optional("state") {
-        if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
-            return Err(UsageError(
-                "--state must be working, blocked, idle, done, or unknown".to_string(),
-            ));
-        }
-        value["state"] = json!(state);
-    }
-    Ok(value)
-}
-
-fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
-    let state = flags.required("state")?;
-    if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
-        return Err(UsageError(
-            "--state must be working, blocked, idle, done, or unknown".to_string(),
+    // Public resource parsing owns option values and forwarded payloads. The
+    // pre-scan is only for startup grammar that reached this parser through a
+    // help or routing flag, including the rewritten `server start` path.
+    if !is_public_scope(&command_args[0])
+        && command_args[0] != "help"
+        && super::has_inline_relay_ticket_argument(&command_args)
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
     }
-    let source = flags.required("source")?;
-    if !matches!(source.as_str(), "socket" | "hook") {
-        return Err(UsageError("--source must be socket or hook".to_string()));
+    if command_args[0] == "daemon" {
+        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
-    let mut value = json!({
-        "surface": flags.required_u64("surface")?,
-        "state": state,
-        "source": source,
-    });
-    flags.insert_optional_string(&mut value, "session");
-    Ok(value)
-}
-
-fn build_new_tab(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "pane")?;
-    flags.insert_optional_string(&mut value, "cwd");
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_new_browser_tab(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({ "url": flags.required("url")? });
-    flags.insert_optional_u64(&mut value, "pane")?;
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_new_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_string(&mut value, "name");
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "workspace")?;
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "screen")?;
-    Ok(value)
-}
-
-fn build_apply_layout(flags: &FlagMap) -> Result<Value, UsageError> {
-    let layout = flags.required_json("layout")?;
-    let mut value = json!({ "layout": layout });
-    flags.insert_optional_u64(&mut value, "workspace")?;
-    flags.insert_optional_string(&mut value, "name");
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_split(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({ "pane": flags.required_u64("pane")?, "dir": flags.required_dir()? });
-    flags.insert_optional_size(&mut value)?;
-    Ok(value)
-}
-
-fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "pane": flags.required_u64("pane")?,
-        "dir": flags.required_dir()?,
-        "ratio": flags.required_f32("ratio")?,
-    }))
-}
-
-fn build_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "pane": flags.required_u64("pane")?, "dir": flags.required_direction()? }))
-}
-
-fn build_optional_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({ "dir": flags.required_direction()? });
-    flags.insert_optional_u64(&mut value, "pane")?;
-    Ok(value)
-}
-
-fn build_swap_pane(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({ "pane": flags.required_u64("pane")? });
-    match (flags.optional("dir"), flags.optional("target")) {
-        (Some(dir), None) => value["dir"] = json!(parse_direction("dir", &dir)?),
-        (None, Some(target)) => value["target"] = json!(parse_u64("target", &target)?),
-        (Some(_), Some(_)) => {
-            return Err(UsageError("use only one of --dir or --target".to_string()));
-        }
-        (None, None) => {
-            return Err(UsageError("one of --dir or --target is required".to_string()));
-        }
-    }
-    Ok(value)
-}
-
-fn build_zoom_pane(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_u64(&mut value, "pane")?;
-    if let Some(mode) = flags.optional("mode") {
-        value["mode"] = json!(parse_zoom_mode(&mode)?);
-    }
-    Ok(value)
-}
-
-fn build_set_default_colors(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_string(&mut value, "fg");
-    flags.insert_optional_string(&mut value, "bg");
-    Ok(value)
-}
-
-fn build_set_window_title(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "title": flags.required("title")? }))
-}
-
-fn build_rename_pane(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "pane": flags.required_u64("pane")?, "name": flags.required("name")? }))
-}
-
-fn build_rename_surface(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "surface": flags.required_u64("surface")?, "name": flags.required("name")? }))
-}
-
-fn build_rename_screen(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "screen": flags.required_u64("screen")?, "name": flags.required("name")? }))
-}
-
-fn build_rename_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({ "workspace": flags.required_u64("workspace")?, "name": flags.required("name")? }))
-}
-
-fn build_resize_surface(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "surface": flags.required_u64("surface")?,
-        "cols": flags.required_u16("cols")?,
-        "rows": flags.required_u16("rows")?,
-    }))
-}
-
-fn build_select_tab(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = selector_request(flags)?;
-    flags.insert_optional_u64(&mut value, "pane")?;
-    Ok(value)
-}
-
-fn build_select_screen(flags: &FlagMap) -> Result<Value, UsageError> {
-    selector_request(flags)
-}
-
-fn build_select_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
-    selector_request(flags)
-}
-
-fn build_move_tab(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "surface": flags.required_u64("surface")?,
-        "pane": flags.required_u64("pane")?,
-        "index": flags.required_usize("index")?,
-    }))
-}
-
-fn build_move_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "workspace": flags.required_u64("workspace")?,
-        "index": flags.required_usize("index")?,
-    }))
-}
-
-fn build_scroll_surface(flags: &FlagMap) -> Result<Value, UsageError> {
-    Ok(json!({
-        "surface": flags.required_u64("surface")?,
-        "delta": flags.required_isize("delta")?,
-    }))
-}
-
-fn selector_request(flags: &FlagMap) -> Result<Value, UsageError> {
-    match (flags.optional("index"), flags.optional("delta")) {
-        (Some(_), Some(_)) => Err(UsageError("use only one of --index or --delta".to_string())),
-        (Some(index), None) => Ok(json!({ "index": parse_usize("index", &index)? })),
-        (None, Some(delta)) => Ok(json!({ "delta": parse_isize("delta", &delta)? })),
-        (None, None) => Err(UsageError("one of --index or --delta is required".to_string())),
-    }
-}
-
-impl FlagMap {
-    fn reject_remaining(&self) -> Result<(), UsageError> {
-        if let Some(name) = self.values.keys().next() {
-            return Err(UsageError(format!("unexpected --{name}")));
-        }
-        Ok(())
-    }
-
-    fn optional(&self, name: &str) -> Option<String> {
-        self.values.get(name).cloned()
-    }
-
-    fn required(&self, name: &str) -> Result<String, UsageError> {
-        self.optional(name).ok_or_else(|| UsageError(format!("--{name} is required")))
-    }
-
-    fn required_u64(&self, name: &str) -> Result<u64, UsageError> {
-        parse_u64(name, &self.required(name)?)
-    }
-
-    fn required_u16(&self, name: &str) -> Result<u16, UsageError> {
-        parse_u16(name, &self.required(name)?)
-    }
-
-    fn required_usize(&self, name: &str) -> Result<usize, UsageError> {
-        parse_usize(name, &self.required(name)?)
-    }
-
-    fn required_isize(&self, name: &str) -> Result<isize, UsageError> {
-        parse_isize(name, &self.required(name)?)
-    }
-
-    fn required_f32(&self, name: &str) -> Result<f32, UsageError> {
-        self.required(name)?
-            .parse::<f32>()
-            .map_err(|_| UsageError(format!("--{name} must be a number")))
-    }
-
-    fn required_dir(&self) -> Result<String, UsageError> {
-        let dir = self.required("dir")?;
-        if dir == "right" || dir == "down" {
-            Ok(dir)
-        } else {
-            Err(UsageError("--dir must be right or down".to_string()))
-        }
-    }
-
-    fn required_direction(&self) -> Result<String, UsageError> {
-        parse_direction("dir", &self.required("dir")?)
-    }
-
-    fn required_json(&self, name: &str) -> Result<Value, UsageError> {
-        serde_json::from_str(&self.required(name)?)
-            .map_err(|err| UsageError(format!("--{name} must be JSON: {err}")))
-    }
-
-    fn insert_optional_string(&self, value: &mut Value, name: &str) {
-        if let Some(text) = self.optional(name) {
-            value[name] = json!(text);
-        }
-    }
-
-    fn insert_optional_u64(&self, value: &mut Value, name: &str) -> Result<(), UsageError> {
-        if let Some(raw) = self.optional(name) {
-            value[name] = json!(parse_u64(name, &raw)?);
-        }
-        Ok(())
-    }
-
-    fn insert_optional_size(&self, value: &mut Value) -> Result<(), UsageError> {
-        match (self.optional("cols"), self.optional("rows")) {
-            (Some(cols), Some(rows)) => {
-                value["cols"] = json!(parse_u16("cols", &cols)?);
-                value["rows"] = json!(parse_u16("rows", &rows)?);
-                Ok(())
+    if command_args[0] == "help" {
+        return match command_args.get(1) {
+            None => Ok(ParsedCommand::Help(None)),
+            Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
+            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
+                Ok(ParsedCommand::Help(Some(scope.clone())))
             }
-            (None, None) => Ok(()),
-            _ => Err(UsageError("--cols and --rows must be supplied together".to_string())),
-        }
-    }
-}
-
-fn parse_u64(name: &str, value: &str) -> Result<u64, UsageError> {
-    value.parse::<u64>().map_err(|_| UsageError(format!("--{name} must be a uint64")))
-}
-
-fn parse_u16(name: &str, value: &str) -> Result<u16, UsageError> {
-    value.parse::<u16>().map_err(|_| UsageError(format!("--{name} must be a uint16")))
-}
-
-fn parse_usize(name: &str, value: &str) -> Result<usize, UsageError> {
-    value.parse::<usize>().map_err(|_| UsageError(format!("--{name} must be a usize")))
-}
-
-fn parse_isize(name: &str, value: &str) -> Result<isize, UsageError> {
-    value.parse::<isize>().map_err(|_| UsageError(format!("--{name} must be an isize")))
-}
-
-fn parse_direction(name: &str, value: &str) -> Result<String, UsageError> {
-    match value {
-        "left" | "right" | "up" | "down" => Ok(value.to_string()),
-        _ => Err(UsageError(format!("--{name} must be left, right, up, or down"))),
-    }
-}
-
-fn parse_zoom_mode(value: &str) -> Result<String, UsageError> {
-    match value {
-        "toggle" | "on" | "off" => Ok(value.to_string()),
-        _ => Err(UsageError("--mode must be toggle, on, or off".to_string())),
-    }
-}
-
-fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
-    Ok(())
-}
-
-fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cmux-tui session={} protocol={} pid={}",
-        data.get("session").and_then(Value::as_str).unwrap_or(""),
-        data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
-        data.get("pid").and_then(Value::as_u64).unwrap_or(0)
-    )
-}
-
-fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cmux-tui version={} protocol={}",
-        data.get("version").and_then(Value::as_str).unwrap_or(""),
-        data.get("protocol").and_then(Value::as_u64).unwrap_or(0)
-    )
-}
-
-fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(clients) = data.as_array() else { return Ok(()) };
-    for client in clients {
-        let attached = client
-            .get("attached")
-            .and_then(Value::as_array)
-            .map(|surfaces| {
-                surfaces
-                    .iter()
-                    .filter_map(Value::as_u64)
-                    .map(|surface| surface.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "-".to_string());
-        let sizes = client
-            .get("sizes")
-            .and_then(Value::as_array)
-            .map(|sizes| {
-                sizes
-                    .iter()
-                    .map(|size| {
-                        let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
-                        match (
-                            size.get("cols").and_then(Value::as_u64),
-                            size.get("rows").and_then(Value::as_u64),
-                        ) {
-                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
-                            _ => format!("{surface}:null"),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "-".to_string());
-        writeln!(
-            out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={}",
-            client.get("client").and_then(Value::as_u64).unwrap_or(0),
-            client.get("transport").and_then(Value::as_str).unwrap_or(""),
-            client.get("name").and_then(Value::as_str).unwrap_or("-"),
-            client.get("kind").and_then(Value::as_str).unwrap_or("-"),
-            client.get("connected_seconds").and_then(Value::as_u64).unwrap_or(0),
-            attached,
-            sizes,
-            client.get("self").and_then(Value::as_bool).unwrap_or(false),
-        )?;
-    }
-    Ok(())
-}
-
-fn print_read_screen(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    write!(out, "{}", data.get("text").and_then(Value::as_str).unwrap_or(""))
-}
-
-fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cols={} rows={} data={}",
-        data.get("cols").and_then(Value::as_u64).unwrap_or(0),
-        data.get("rows").and_then(Value::as_u64).unwrap_or(0),
-        data.get("data").and_then(Value::as_str).unwrap_or("")
-    )
-}
-
-fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("notification").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_ids(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(ids) = data.get("ids").and_then(Value::as_array) else { return Ok(()) };
-    for item in ids {
-        writeln!(
-            out,
-            "{} {} {}",
-            item.get("kind").and_then(Value::as_str).unwrap_or(""),
-            item.get("id").and_then(Value::as_u64).unwrap_or(0),
-            item.get("short_id").and_then(Value::as_str).unwrap_or("")
-        )?;
-    }
-    Ok(())
-}
-
-fn print_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("pane").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_optional_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    match data.get("pane").and_then(Value::as_u64) {
-        Some(pane) => writeln!(out, "{pane}"),
-        None => writeln!(out, "null"),
-    }
-}
-
-fn print_json_data(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    serde_json::to_writer(&mut *out, data).map_err(io::Error::other)?;
-    writeln!(out)
-}
-
-fn print_applied_layout(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "screen={}", data.get("screen").and_then(Value::as_u64).unwrap_or(0))?;
-    if let Some(panes) = data.get("panes").and_then(Value::as_array) {
-        for pane in panes {
-            writeln!(
-                out,
-                "pane={} surface={}",
-                pane.get("pane").and_then(Value::as_u64).unwrap_or(0),
-                pane.get("surface").and_then(Value::as_u64).unwrap_or(0)
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn print_agents(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(agents) = data.get("agents").and_then(Value::as_array) else { return Ok(()) };
-    for agent in agents {
-        writeln!(
-            out,
-            "{} {} {} {}",
-            agent.get("surface").and_then(Value::as_u64).unwrap_or(0),
-            agent.get("state").and_then(Value::as_str).unwrap_or(""),
-            agent.get("source").and_then(Value::as_str).unwrap_or(""),
-            agent.get("session").and_then(Value::as_str).unwrap_or("-")
-        )?;
-    }
-    Ok(())
-}
-
-fn print_zoom_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "pane={} zoomed={} zoomed_pane={}",
-        data.get("pane").and_then(Value::as_u64).unwrap_or(0),
-        data.get("zoomed").and_then(Value::as_bool).unwrap_or(false),
-        atom(data.get("zoomed_pane"))
-    )
-}
-
-fn print_process_info(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "pid={} command={} cwd={}",
-        atom(data.get("pid")),
-        atom(data.get("command")),
-        atom(data.get("cwd"))
-    )
-}
-
-fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(workspaces) = data.get("workspaces").and_then(Value::as_array) else {
-        return Ok(());
-    };
-    for workspace in workspaces {
-        let workspace_id = id_field(workspace, "id");
-        writeln!(
-            out,
-            "workspace id={} name={} active={}",
-            workspace_id,
-            atom(workspace.get("name")),
-            bool_field(workspace, "active")
-        )?;
-        let Some(screens) = workspace.get("screens").and_then(Value::as_array) else {
-            continue;
+            Some(scope) => Err(unknown_scope(scope)),
         };
-        for screen in screens {
-            let screen_id = id_field(screen, "id");
-            writeln!(
-                out,
-                "screen id={} workspace={} name={} active={} active_pane={}",
-                screen_id,
-                workspace_id,
-                atom(screen.get("name")),
-                bool_field(screen, "active"),
-                id_field(screen, "active_pane")
-            )?;
-            let Some(panes) = screen.get("panes").and_then(Value::as_array) else {
-                continue;
-            };
-            for pane in panes {
-                let pane_id = id_field(pane, "id");
-                if bool_field(pane, "dead") {
-                    writeln!(out, "pane id={pane_id} screen={screen_id} dead=true")?;
-                    continue;
-                }
-                writeln!(
-                    out,
-                    "pane id={} screen={} name={} active_tab={}",
-                    pane_id,
-                    screen_id,
-                    atom(pane.get("name")),
-                    id_field(pane, "active_tab")
-                )?;
-                let Some(tabs) = pane.get("tabs").and_then(Value::as_array) else {
-                    continue;
+    }
+    if command_args
+        .iter()
+        .take_while(|value| value.as_str() != "--")
+        .any(|value| matches!(value.as_str(), "-h" | "--help"))
+    {
+        let words = command_args
+            .iter()
+            .take_while(|value| value.as_str() != "--")
+            .filter(|value| !value.starts_with('-'))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let topic = match words.as_slice() {
+            ["server", action, ..]
+                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
+            {
+                Some(format!("server {action}"))
+            }
+            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
+            _ => None,
+        };
+        return Ok(ParsedCommand::Help(topic));
+    }
+    if command_args.first().map(String::as_str) == Some("server")
+        && command_args.get(1).map(String::as_str) == Some("start")
+        && global.output != OutputMode::Human
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.start_rejects_output_mode,
+        ));
+    }
+    let plan = command::parse(&command_args)?;
+    Ok(ParsedCommand::Command { global, plan })
+}
+
+fn unknown_scope(scope: &str) -> UsageError {
+    UsageError::new(
+        crate::localization::catalog()
+            .local_server
+            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
+    )
+}
+
+pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a str> {
+    candidates
+        .iter()
+        .copied()
+        .map(|candidate| (edit_distance(value, candidate), candidate))
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, candidate)| {
+            *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
+        })
+        .map(|(_, candidate)| candidate)
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left) in left.chars().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right) in right.iter().enumerate() {
+            current.push(
+                (current[column] + 1)
+                    .min(previous[column + 1] + 1)
+                    .min(previous[column] + usize::from(left != *right)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
+fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+    let mut global = GlobalArgs::default();
+    let mut command = Vec::new();
+    let mut index = 0;
+    let mut after_separator = false;
+    while index < args.len() {
+        let value = &args[index];
+        if after_separator {
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        if value == "--" {
+            after_separator = true;
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        // Match clap's standard long-option form, where an option value can
+        // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
+        // This keeps one-token invocations convenient without changing the
+        // existing separated-value grammar.
+        if let Some((flag, inline_value)) = value.split_once('=')
+            && matches!(flag, "--socket" | "--session" | "--machine")
+        {
+            if inline_value.is_empty() {
+                return Err((UsageError::new(format!("{flag} needs a value")), global.output));
+            }
+            match flag {
+                "--socket" => global.socket = Some(PathBuf::from(inline_value)),
+                "--session" => global.session = Some(inline_value.to_owned()),
+                "--machine" => global.machine = Some(inline_value.to_owned()),
+                _ => unreachable!(),
+            }
+            index += 1;
+            continue;
+        }
+        match value.as_str() {
+            "--socket" => {
+                global.socket = Some(PathBuf::from(
+                    global_value(args, index, value).map_err(|error| (error, global.output))?,
+                ));
+                index += 2;
+            }
+            "--session" => {
+                global.session =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
+                index += 2;
+            }
+            "--machine" => {
+                global.machine =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
+                index += 2;
+            }
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    "--quiet" => OutputMode::Quiet,
+                    _ => unreachable!(),
                 };
-                for tab in tabs {
-                    let size = tab.get("size");
-                    let (cols, rows) = match size {
-                        Some(size) if size.is_object() => {
-                            (id_field(size, "cols"), id_field(size, "rows"))
-                        }
-                        _ => (0, 0),
-                    };
-                    writeln!(
-                        out,
-                        "tab surface={} pane={} kind={} browser_source={} name={} title={} dead={} cols={} rows={}",
-                        id_field(tab, "surface"),
-                        pane_id,
-                        tab.get("kind").and_then(Value::as_str).unwrap_or(""),
-                        atom(tab.get("browser_source")),
-                        atom(tab.get("name")),
-                        atom(tab.get("title")),
-                        bool_field(tab, "dead"),
-                        cols,
-                        rows
-                    )?;
-                }
+                set_output_mode(&mut global, output, value)
+                    .map_err(|error| (error, global.output))?;
+                index += 1;
+            }
+            _ => {
+                command.push(value.clone());
+                index += 1;
             }
         }
     }
+    Ok((global, command))
+}
+
+fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
+    args.get(index + 1).cloned().ok_or_else(|| UsageError::new(format!("{flag} needs a value")))
+}
+
+fn set_output_mode(
+    global: &mut GlobalArgs,
+    output: OutputMode,
+    flag: &str,
+) -> Result<(), UsageError> {
+    if global.output != OutputMode::Human {
+        return Err(UsageError::new(format!("{flag} cannot be combined with another output mode")));
+    }
+    global.output = output;
     Ok(())
 }
 
-fn id_field(value: &Value, key: &str) -> u64 {
-    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+fn print_scope_help(scope: Option<&str>) {
+    let text = scope
+        .map(scope_help)
+        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
+    let mut stdout = io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
 }
 
-fn bool_field(value: &Value, key: &str) -> bool {
-    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+fn scope_help(scope: &str) -> Cow<'static, str> {
+    scope_help_for(scope, crate::localization::catalog())
 }
 
-fn atom(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(text)) => serde_json::to_string(text).unwrap_or_default(),
-        Some(Value::Null) | None => "null".to_string(),
-        Some(value) => value.to_string(),
+fn scope_help_for(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+) -> Cow<'static, str> {
+    match scope {
+        "server" => Cow::Borrowed(catalog.local_server.help),
+        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
+        "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
+        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
+        "client" => Cow::Borrowed(CLIENT_HELP),
+        "workspace" => Cow::Borrowed(WORKSPACE_HELP),
+        "screen" => Cow::Borrowed(SCREEN_HELP),
+        "pane" => Cow::Borrowed(PANE_HELP),
+        "tab" => Cow::Borrowed(TAB_HELP),
+        "terminal" => Cow::Borrowed(TERMINAL_HELP),
+        "browser" => Cow::Borrowed(BROWSER_HELP),
+        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "agent" => Cow::Borrowed(AGENT_HELP),
+        "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
+        "pairing" => Cow::Borrowed(PAIRING_HELP),
+        "projection" => Cow::Borrowed(PROJECTION_HELP),
+        "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "raw" => Cow::Borrowed(RAW_HELP),
+        _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
+
+const ROOT_HELP_PROCESS_PREFIX: &str = "\
+cmux - terminal multiplexer and resource client
+
+USAGE
+  cmux [START OPTIONS]
+  cmux attach [START OPTIONS]
+  cmux relay [ROUTING OPTIONS]
+";
+
+const ROOT_HELP_PROCESS_SUFFIX: &str = "\
+  cmux machine-agent [OPTIONS]
+";
+
+const ROOT_HELP_GLOBALS: &str = "\
+  cmux [GLOBAL OPTIONS] <scope> <action>
+
+GLOBAL OPTIONS
+  --socket <path>    Connect to an exact local session socket
+  --session <name>   Route through a named local session
+  --machine <value>  Constrain machine-scoped requests
+  --json             Print one JSON result
+  --jsonl            Print one JSON value per result or event
+  --quiet            Suppress successful output
+  -h, --help         Show command help
+
+PROCESS HELP
+  cmux help start
+  cmux attach --help
+  cmux relay --help
+  cmux machine-agent --help
+
+RESOURCE SCOPES
+";
+
+const ROOT_HELP_SCOPES_SUFFIX: &str = "\
+  machine       Inspect the local machine and session route
+  session       Inspect and control a session
+  client        Inspect connected clients
+  workspace     Create and organize workspaces
+  screen        Create and organize screens
+  pane          Split, focus, and organize panes
+  tab           Create and organize terminal or browser tabs
+  terminal      Read, write, and attach to terminals
+  browser       Navigate and attach to browsers
+  notification  List and create notifications
+  agent         List and report agent state
+  sidebar       Manage sidebar views and local plugins
+  pairing       Resolve pairing requests
+  projection    Read and update frontend projections
+  provider      Install private provider authority
+  raw           Send an explicit low-level operation
+
+Run `cmux <scope> --help` for scope-specific paths.
+";
+
+fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+    format!(
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+    )
+}
+
+const MACHINE_HELP: &str = "\
+USAGE
+  cmux machine list
+  cmux machine <selector> show
+  cmux machine <selector> session list
+  cmux machine <selector> session <selector> open
+";
+
+const SESSION_HELP_PREFIX: &str = "\
+USAGE
+  cmux session list
+  cmux session <selector> open|show|snapshot|ping|shutdown
+";
+
+const SESSION_HELP_SUFFIX: &str = "\
+  cmux session <selector> creation <correlation-key> resolve
+  cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
+    [--cursor-session <session-id> --sequence <decimal>]
+    [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
+    [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
+    [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+  cmux session <selector> journal read [--from beginning] [FILTERS]
+  cmux session <selector> journal producer list
+  cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal append --event-json <json> --idempotency-key <key>
+  cmux session <selector> journal hook list
+  cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal checkpoint create --idempotency-key <key>
+  cmux session <selector> journal checkpoint list
+  cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal segment list
+  cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>
+  cmux session <selector> config reload
+  cmux session <selector> window title set --title <value>
+  cmux session <selector> window title clear
+  cmux session <selector> terminal defaults set [OPTIONS]
+";
+
+fn session_help(
+    messages: &crate::localization::SessionResetMessages,
+    local_server: &crate::localization::LocalServerMessages,
+) -> String {
+    format!(
+        "{SESSION_HELP_PREFIX}{}\n{}\n{SESSION_HELP_SUFFIX}",
+        local_server.session_stop_help, messages.help,
+    )
+}
+
+const CLIENT_HELP: &str = "\
+USAGE
+  cmux client list
+  cmux client <selector> show|detach
+  cmux client <selector> label set [--name <value>] [--kind <value>]
+  cmux client <selector> sizing set --terminal <selector> --enabled <bool>
+  cmux client <selector> sizing release --terminal <selector>
+  cmux client <selector> cell pixels set --width-px <n> --height-px <n>
+";
+
+const WORKSPACE_HELP: &str = "\
+USAGE
+  cmux workspace list
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
+  cmux workspace <selector> show|rename|move|focus|close
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
+  cmux workspace <selector> layout apply [OPTIONS]
+  cmux workspace <selector> screen ...
+  Nested panes support split --right or --down.
+";
+
+const SCREEN_HELP: &str = "\
+USAGE
+  cmux screen list
+  cmux screen create [--correlation-key <value>]
+  cmux screen <selector> show|rename|focus|close
+  cmux screen <selector> layout export
+  cmux screen <selector> layout undo [--confirm-close]
+    [--confirmation-token <value>]
+  cmux screen <selector> pane ...
+";
+
+const PANE_HELP: &str = "\
+USAGE
+  cmux pane list
+  cmux pane create [--correlation-key <value>]
+  cmux pane <selector> show|rename|focus|close
+  cmux pane <selector> split [--right|--down] [--ratio <value>]
+    [--viewport-width <fraction>] [--correlation-key <value>]
+  cmux pane <selector> focus direction <left|right|up|down>
+  cmux pane <selector> neighbor <left|right|up|down>
+  cmux pane <selector> swap --other-workspace <selector>
+    --other-screen <selector> --other-pane <selector>
+  cmux pane <selector> zoom [--enabled <bool>]
+  cmux pane <selector> split ratio set --split <id> --ratio <value>
+  cmux pane <selector> viewport width set --columns <value>
+  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> tab ...
+";
+
+const TAB_HELP: &str = "\
+USAGE
+  cmux tab list
+  cmux tab <selector> show|rename|move|focus|close
+  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
+  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab <selector> terminal|browser ...
+";
+
+const TERMINAL_HELP: &str = "\
+USAGE
+  cmux terminal list
+  cmux terminal <selector> show
+  cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
+  cmux terminal <selector> keys <key...>
+  cmux terminal <selector> mouse <kind> [OPTIONS]
+  cmux terminal <selector> focus <in|out>
+  cmux terminal <selector> screen read
+  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
+  cmux terminal <selector> state read
+  cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
+  cmux terminal <selector> copy|process show [OPTIONS]
+  cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> viewport scroll --delta-rows <n>
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
+";
+
+const BROWSER_HELP: &str = "\
+USAGE
+  cmux browser list
+  cmux browser <selector> show|navigate|back|forward|reload|activate
+  cmux browser <selector> key|text [OPTIONS]
+  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
+  cmux browser <selector> attach|close [OPTIONS]
+";
+
+const NOTIFICATION_HELP: &str = "\
+USAGE
+  cmux notification list
+  cmux notification create --title <value> --body <value> [OPTIONS]
+";
+
+const AGENT_HELP: &str = "\
+USAGE
+  cmux agent list [OPTIONS]
+  cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook install|uninstall|status [provider...]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+";
+
+const SIDEBAR_HELP: &str = "\
+USAGE
+  cmux sidebar view show|attach|input|reload [OPTIONS]
+  cmux sidebar view ensure|resize --cols <n> --rows <n> [OPTIONS]
+  cmux sidebar plugin list
+  cmux sidebar plugin install <git-url> [--name <value>] [--force]
+  cmux sidebar plugin use <name-or-id>
+  cmux sidebar plugin use --builtin
+  cmux sidebar plugin update|remove <name-or-id>
+";
+
+const PAIRING_HELP: &str = "\
+USAGE
+  cmux pairing request list
+  cmux pairing request <selector> respond <accept|reject>
+";
+
+const PROJECTION_HELP: &str = "\
+USAGE
+  cmux projection show [--projection-id <selector>]
+  cmux projection put --projection <json> [--projection-id <selector>]
+";
+
+const PROVIDER_HELP: &str = "\
+USAGE
+  cmux --socket <path> provider authority install
+    --generation <decimal> --authority-file <root-private-path>
+";
+
+const RAW_HELP: &str = "\
+USAGE
+  cmux raw operation <dotted.name> [--params-json <object>]
+    [--mutation --idempotency-key <value>] [--stream]
+  cmux raw command --request-json <full-object>
+
+`raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
+escape for the legacy control protocol and provides no compatibility promise.
+";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn plugin_verb_is_registered_as_local_with_help() {
-        let plugin = verb_by_name("plugin").expect("plugin verb registered");
-        assert!(matches!(plugin.kind, VerbKind::Local(_)));
-        assert!(plugin.allowed.contains(&"name"));
-        assert!(plugin.allowed.contains(&"force"));
-        assert!(plugin.allowed.contains(&"builtin"));
-        assert!(plugin.help.contains("sidebar plugins"));
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
     }
 
     #[test]
-    fn registered_verbs_have_help_text() {
-        assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    fn global_modes_are_mutually_exclusive() {
+        let error =
+            parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("another output mode"));
+        assert_eq!(error.1, OutputMode::Json);
+    }
+
+    #[test]
+    fn separator_stops_global_flag_extraction() {
+        let (global, command) = parse_globals(&strings(&[
+            "--json",
+            "workspace",
+            "current",
+            "run",
+            "--",
+            "tool",
+            "--session",
+            "literal",
+        ]))
+        .unwrap();
+        assert_eq!(global.output, OutputMode::Json);
+        assert_eq!(
+            command,
+            strings(&["workspace", "current", "run", "--", "tool", "--session", "literal",])
+        );
+    }
+
+    #[test]
+    fn global_value_options_accept_inline_equals_values() {
+        let (global, command) = parse_globals(&strings(&[
+            "--socket=/tmp/review.sock",
+            "--session=review-session",
+            "--machine=builder",
+            "workspace",
+            "list",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.machine.as_deref(), Some("builder"));
+        assert_eq!(command, strings(&["workspace", "list"]));
+    }
+
+    #[test]
+    fn global_value_options_reject_empty_inline_values() {
+        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--socket needs a value"));
+    }
+
+    #[test]
+    fn server_lifecycle_routing_flags_follow_action() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server status must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(global.socket.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Status));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]))
+                .unwrap()
+        else {
+            panic!("server stop must produce a server plan");
+        };
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(global.session.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&[
+                "server",
+                "reload-config",
+                "--session",
+                "review-session",
+                "--socket",
+                "/tmp/review.sock",
+            ]))
+            .unwrap()
+        else {
+            panic!("server reload-config must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(matches!(plan.action, lifecycle::ServerAction::ReloadConfig));
+    }
+
+    #[test]
+    fn every_scope_has_dedicated_help() {
+        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+        for scope in PUBLIC_SCOPES {
+            let help = scope_help_for(scope, english_catalog);
+            assert!(help.contains("USAGE"));
+            assert!(help.contains(scope));
+        }
+        let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
+        let japanese =
+            session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
+        assert!(english.contains("creation <correlation-key> resolve"));
+        assert!(english.contains("session <name> reset-state"));
+        assert!(japanese.contains("session <name> reset-state"));
+        assert!(japanese.contains("保存状態のリセット"));
+        assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
+        assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
+    }
+
+    #[test]
+    fn startup_help_is_explicitly_discoverable() {
+        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        assert!(help.contains("cmux help start"));
+        assert!(help.starts_with("cmux - "));
+        assert!(!help.contains("cmux-tui"));
+        assert!(matches!(
+            parse(&strings(&["help", "start"])).unwrap(),
+            ParsedCommand::Help(Some(scope)) if scope == "start"
+        ));
     }
 }

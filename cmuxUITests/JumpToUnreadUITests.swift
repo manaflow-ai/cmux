@@ -12,7 +12,7 @@ final class JumpToUnreadUITests: XCTestCase {
     }
 
     func testJumpToUnreadFocusesPanelAcrossTabs() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_JUMP_UNREAD_PATH"] = dataPath
         app.launch()

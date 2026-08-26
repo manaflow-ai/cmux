@@ -1,17 +1,58 @@
+[package]
+name = "cmux-tui-source-watch"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build-support/source-watch-build.rs"
+
+[lib]
+path = "build-support/source-watch.rs"
+
+[lints]
+workspace = true
+
 [workspace]
 resolver = "2"
 members = [
     "bindings/rust",
+    "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-tui-core",
+    "crates/cmux-pty",
+    "crates/cmux-remote-protocol",
+    "crates/cmux-remote",
+    "crates/cmux-terminal-client",
+    "crates/cmux-relay",
+    "crates/chatmux-relay",
+    "crates/cmux-tui-machine-agent-protocol",
+    "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
 ]
+default-members = [
+    "bindings/rust",
+    "bindings/rust-sidebar",
+    "crates/ghostty-vt-sys",
+    "crates/ghostty-vt",
+    "crates/cmux-tui-cdp",
+    "crates/cmux-tui-core",
+    "crates/cmux-pty",
+    "crates/cmux-remote-protocol",
+    "crates/cmux-remote",
+    "crates/cmux-relay",
+    "crates/chatmux-relay",
+    "crates/cmux-tui-machine-agent-protocol",
+    "crates/cmux-tui-machine-protocol",
+    "crates/cmux-tui",
+]
+exclude = ["vendor/crossterm"]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.91"
 license = "MIT"
 publish = false
 
@@ -30,7 +71,14 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
+cmux-pty = { path = "crates/cmux-pty" }
+cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-remote = { path = "crates/cmux-remote" }
+cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
+cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
@@ -38,13 +86,72 @@ portable-pty = "0.9"
 crossterm = "0.29"
 ratatui = "0.30"
 unicode-width = "0.2"
+unicode-segmentation = "1"
 base64 = "0.22"
+png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
+# reqwest and time are already in the dependency graph via iroh; declaring
+# them here adds no new transitive code. chatmux-relay uses reqwest for the
+# single pairing bootstrap POST and time for enrollment expiry parsing.
+# rustls-no-provider: ride the ring provider the tree already enables via
+# tungstenite instead of pulling in aws-lc-rs (cmake/nasm native builds).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
+jsonschema = { version = "0.30", default-features = false }
+flate2 = "1"
 bindgen = "0.72"
 smallvec = "1"
+getrandom = "0.3"
+glob = "0.3"
+bytes = "1"
+diffy = "0.4"
+fs4 = "1.1.0"
+terminput = "=0.5.11"
+terminput-crossterm = { version = "=0.4.7", default-features = false, features = ["crossterm_0_29"] }
+futures-util = "0.3"
+hmac = "0.12"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["service", "tokio"] }
+# chatmux-relay workspace verbs: `ignore` is ripgrep's own gitignore walker
+# (fs_tree/fs_search stay correct without shelling out to rg), `notify` is
+# the cross-platform fs-event backend for the fs_watch stream family.
+ignore = "0.4"
+notify = "8"
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+subtle = "2.6.1"
+parking_lot = "0.12"
+wait-timeout = "0.2"
+# rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
+# declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
+sha2 = "0.10"
+socket2 = { version = "0.5", features = ["all"] }
+snow = "0.10"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["timeout"] }
+url = "2"
+uuid = { version = "1", features = ["serde", "v4"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = { version = "1", features = ["derive"] }
+
+[patch.crates-io]
+# Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated
+# text while parsing CSI-u input. cmux needs those fields to preserve keyboard
+# layouts across its shortcut layer and nested terminals.
+crossterm = { path = "vendor/crossterm" }
+# The cmux Crossterm patch adds `Event::EnhancedKey`. Keep the adapter's
+# exhaustive event mapping in the same source-controlled compatibility layer.
+terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
 [profile.release]
 lto = "thin"

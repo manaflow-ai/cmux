@@ -15,11 +15,12 @@ struct WorkspaceDetailContainer: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    let signOut: (() -> Void)?
+    let signOut: (@MainActor @Sendable () -> Void)?
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -39,7 +40,6 @@ struct WorkspaceDetailContainer: View {
         Group {
             if let workspace {
                 WorkspaceDetailView(
-                    host: store.connectedHostName,
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     workspace: workspace,
                     store: store,
@@ -47,6 +47,9 @@ struct WorkspaceDetailContainer: View {
                     canCreateWorkspace: canCreateWorkspace,
                     createTerminal: { store.createTerminal(in: workspace.id) },
                     renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+                    customizeWorkspace: workspace.actionCapabilities.supportsWorkspaceActions
+                        && workspace.actionCapabilities.supportsWorkspaceMetadata
+                        ? customizeWorkspace : nil,
                     setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
                     closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
                     reportTerminalViewport: store.reportTerminalViewport,

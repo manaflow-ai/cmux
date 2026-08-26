@@ -33,21 +33,47 @@ struct WorkspaceTodoSnapshotTests {
         snapshot.taskStatusOverride = "review"
         snapshot.taskStatusInferredAtOverride = "working"
         let itemID = UUID()
+        let attachment = WorkspaceChecklistAttachment(
+            displayName: "screenshot.png",
+            filePath: "/tmp/screenshot.png",
+            byteCount: 512,
+            contentTypeIdentifier: "public.png",
+            pixelWidth: 320,
+            pixelHeight: 200
+        )
         snapshot.checklist = [
-            SessionChecklistItemSnapshot(id: itemID, text: "ship it", state: "in-progress", origin: "agent"),
+            SessionChecklistItemSnapshot(
+                id: itemID,
+                text: "ship it",
+                state: "in-progress",
+                origin: "agent",
+                attachments: [attachment]
+            ),
         ]
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         #expect(decoded.taskStatusOverride == "review")
         #expect(decoded.taskStatusInferredAtOverride == "working")
         #expect(decoded.checklist == [
-            SessionChecklistItemSnapshot(id: itemID, text: "ship it", state: "in-progress", origin: "agent"),
+            SessionChecklistItemSnapshot(
+                id: itemID,
+                text: "ship it",
+                state: "in-progress",
+                origin: "agent",
+                attachments: [attachment]
+            ),
         ])
         #expect(decoded.restoredTaskStatusOverride == WorkspaceTaskStatusOverride(
             status: .review, inferredAtOverride: .working
         ))
         #expect(decoded.restoredChecklist == [
-            WorkspaceChecklistItem(id: itemID, text: "ship it", state: .inProgress, origin: .agent),
+            WorkspaceChecklistItem(
+                id: itemID,
+                text: "ship it",
+                state: .inProgress,
+                origin: .agent,
+                attachments: [attachment]
+            ),
         ])
     }
 
@@ -107,13 +133,88 @@ struct WorkspaceTodoSnapshotTests {
     func checklistRestoreDegradesUnknownRawValuesAndDropsEmptyText() {
         var snapshot = makeSnapshot()
         let keptID = UUID()
+        let attachment = WorkspaceChecklistAttachment(displayName: "image.png", filePath: "/tmp/image.png")
         snapshot.checklist = [
-            SessionChecklistItemSnapshot(id: keptID, text: "  keep me  ", state: "someday", origin: "robot"),
+            SessionChecklistItemSnapshot(
+                id: keptID,
+                text: "  keep me  ",
+                state: "someday",
+                origin: "robot",
+                attachments: [attachment]
+            ),
             SessionChecklistItemSnapshot(id: UUID(), text: "   ", state: "pending", origin: "user"),
         ]
         let restored = snapshot.restoredChecklist
         #expect(restored == [
-            WorkspaceChecklistItem(id: keptID, text: "keep me", state: .pending, origin: .user),
+            WorkspaceChecklistItem(
+                id: keptID,
+                text: "keep me",
+                state: .pending,
+                origin: .user,
+                attachments: [attachment]
+            ),
         ])
+    }
+
+    @Test
+    func checklistRestoreIgnoresOrDegradesMalformedAttachments() throws {
+        let itemID = UUID()
+        let validAttachmentID = UUID()
+        let snapshotData = try JSONEncoder().encode(makeSnapshot())
+        let raw = try JSONSerialization.jsonObject(with: snapshotData)
+        var object = try #require(raw as? [String: Any])
+        object["checklist"] = [
+            [
+                "id": itemID.uuidString,
+                "text": "inspect image",
+                "state": "pending",
+                "origin": "user",
+                "attachments": [
+                    [
+                        "id": validAttachmentID.uuidString,
+                        "displayName": " image.png ",
+                        "filePath": "/tmp/image.png",
+                        "byteCount": 256,
+                        "contentTypeIdentifier": " public.png ",
+                        "pixelWidth": 100,
+                        "pixelHeight": 80,
+                    ],
+                    [
+                        "displayName": "",
+                        "filePath": "/tmp/fallback.jpg",
+                        "byteCount": -10,
+                        "contentTypeIdentifier": " ",
+                        "pixelWidth": 0,
+                        "pixelHeight": -1,
+                    ],
+                    [
+                        "displayName": "missing-path.png",
+                    ],
+                    99,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        let restored = decoded.restoredChecklist
+        let item = try #require(restored.first)
+        #expect(restored.count == 1)
+        #expect(item.id == itemID)
+        #expect(item.attachments.count == 2)
+        #expect(item.attachments[0] == WorkspaceChecklistAttachment(
+            id: validAttachmentID,
+            displayName: "image.png",
+            filePath: "/tmp/image.png",
+            byteCount: 256,
+            contentTypeIdentifier: "public.png",
+            pixelWidth: 100,
+            pixelHeight: 80
+        ))
+        #expect(item.attachments[1].displayName == "fallback.jpg")
+        #expect(item.attachments[1].filePath == "/tmp/fallback.jpg")
+        #expect(item.attachments[1].byteCount == nil)
+        #expect(item.attachments[1].contentTypeIdentifier == nil)
+        #expect(item.attachments[1].pixelWidth == nil)
+        #expect(item.attachments[1].pixelHeight == nil)
     }
 }

@@ -17,6 +17,7 @@ actor FlowFakeAuthClient: AuthClient {
     private var currentUserError: (any Error)?
     private var userGateClosed = false
     private var userGateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pendingUserRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private var storedAccessGateArmed = false
     private var storedAccessParked: [CheckedContinuation<Void, Never>] = []
     private var storedAccessParkWaiters: [CheckedContinuation<Void, Never>] = []
@@ -36,6 +37,12 @@ actor FlowFakeAuthClient: AuthClient {
         let waiters = userGateWaiters
         userGateWaiters = []
         for waiter in waiters { waiter.resume() }
+    }
+
+    /// Suspends until a `currentUser` read is parked on the closed user gate.
+    func pendingUserRequestDidPark() async {
+        if pendingUserRequests > 0 { return }
+        await withCheckedContinuation { pendingUserRequestWaiters.append($0) }
     }
 
     func armStoredAccessTokenGate() { storedAccessGateArmed = true }
@@ -59,7 +66,12 @@ actor FlowFakeAuthClient: AuthClient {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if userGateClosed {
             pendingUserRequests += 1
-            await withCheckedContinuation { userGateWaiters.append($0) }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                userGateWaiters.append(continuation)
+                let waiters = pendingUserRequestWaiters
+                pendingUserRequestWaiters = []
+                for waiter in waiters { waiter.resume() }
+            }
             pendingUserRequests -= 1
         }
         if let currentUserError {
@@ -140,6 +152,14 @@ actor FlowInMemoryTokenStore: StackAuthTokenStoreProtocol {
 final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
     private(set) var sessions: [FakeBrowserAuthSession] = []
     var nextStartResult = true
+    private var sessionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    /// Suspends until the attempt has created at least `count` sessions, so a
+    /// test acts on a session that exists rather than polling for one.
+    func sessionsDidReach(_ count: Int) async {
+        if sessions.count >= count { return }
+        await withCheckedContinuation { sessionWaiters.append((count, $0)) }
+    }
 
     func makeSession(
         signInURL: URL,
@@ -153,7 +173,18 @@ final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
         )
         sessions.append(session)
         nextStartResult = true
+        for waiter in takeSatisfiedSessionWaiters() { waiter.resume() }
         return session
+    }
+
+    private func takeSatisfiedSessionWaiters() -> [CheckedContinuation<Void, Never>] {
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        sessionWaiters.removeAll { waiter in
+            guard sessions.count >= waiter.count else { return false }
+            satisfied.append(waiter.continuation)
+            return true
+        }
+        return satisfied
     }
 }
 

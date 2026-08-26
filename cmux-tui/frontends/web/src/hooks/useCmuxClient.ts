@@ -2,23 +2,26 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import {
   CmuxClient,
   CmuxTimeoutError,
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
   WebSocketTransport,
   type ClientDetachedEvent,
   type ClientInfo,
   type Id,
   type IdentifyResult,
   type NotificationEvent,
+  type PairingChallenge,
   type TitleChangedEvent,
   type Tree,
-} from "cmux/browser";
+} from "cmux/raw";
 import { browserClientName } from "../lib/clientName";
+import { createCoalescedRefresh } from "../lib/coalescedRefresh";
 import {
   initialLocalSelectionState,
   localSelectionReducer,
   selectionSnapshot,
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { supportsProtocol } from "../lib/protocol";
+import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
@@ -29,7 +32,7 @@ export interface ConnectionConfig {
 
 export interface Toast extends NotificationEvent {}
 
-type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+type ConnectionStatus = "idle" | "connecting" | "pairing" | "connected" | "reconnecting" | "error";
 
 interface ConnectionState {
   status: ConnectionStatus;
@@ -39,6 +42,7 @@ interface ConnectionState {
   clients: ClientInfo[];
   error: string | null;
   reconnect: ReconnectState | null;
+  pairing: PairingChallenge | null;
 }
 
 const initialState: ConnectionState = {
@@ -49,6 +53,7 @@ const initialState: ConnectionState = {
   clients: [],
   error: null,
   reconnect: null,
+  pairing: null,
 };
 
 export function useCmuxClient() {
@@ -58,7 +63,9 @@ export function useCmuxClient() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
   const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
-  const localToastId = useRef(-1);
+  const clientsRefreshRef = useRef<(() => void) | null>(null);
+  const localToastId = useRef(-1n);
+  const pairingCredential = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!config) return;
@@ -68,6 +75,7 @@ export function useCmuxClient() {
     let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const pendingSurfaceTitles = new Map<Id, string>();
     let titleReconciler = new SurfaceTitleReconciler();
+    let clientPresenceGeneration = 0;
 
     const discardPendingSurfaceTitles = () => {
       if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
@@ -100,11 +108,15 @@ export function useCmuxClient() {
       }
       return committed.tree;
     };
-    const refreshClients = async () => {
+    const queueClientsRefresh = createCoalescedRefresh(async () => {
       if (!activeClient) return;
+      const generation = clientPresenceGeneration;
       const clients = await activeClient.listClients();
-      if (!cancelled) setState((current) => ({ ...current, clients }));
-    };
+      if (!cancelled && generation === clientPresenceGeneration) {
+        setState((current) => ({ ...current, clients }));
+      }
+    });
+    clientsRefreshRef.current = queueClientsRefresh;
     refreshRef.current = refresh;
 
     const start = async (reconnecting: boolean, previousAttempt = 0): Promise<void> => {
@@ -115,7 +127,21 @@ export function useCmuxClient() {
       titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
-      const transport = new WebSocketTransport(config.url, { authToken: config.token });
+      const transport = new WebSocketTransport(config.url, {
+        authToken: config.token ?? pairingCredential.current,
+        maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
+        onPairingChallenge: (pairing) => {
+          if (!cancelled) {
+            setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
+          }
+        },
+        onPairingCredential: (credential) => {
+          pairingCredential.current = credential;
+        },
+        onAuthenticationRejected: () => {
+          if (!config.token) pairingCredential.current = undefined;
+        },
+      });
       const client = new CmuxClient({ transport });
       activeClient = client;
 
@@ -129,6 +155,7 @@ export function useCmuxClient() {
           client: null,
           error: null,
           reconnect: step,
+          pairing: null,
         }));
         retryTimer = setTimeout(() => void start(true, step.attempt), step.delayMs);
       };
@@ -139,7 +166,12 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (!supportsProtocol(info.protocol)) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (!supportsProtocol(info.protocol)) {
+          throw new Error(t("wrongProtocol", {
+            required: SUPPORTED_PROTOCOL,
+            protocol: info.protocol,
+          }));
+        }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
@@ -154,7 +186,16 @@ export function useCmuxClient() {
         // A successful (re)connect resets the retry baseline so the next drop
         // starts from the first backoff step, not the cap.
         previousAttempt = 0;
-        setState({ status: "connected", client, info, tree, clients, error: null, reconnect: null });
+        setState({
+          status: "connected",
+          client,
+          info,
+          tree,
+          clients,
+          error: null,
+          reconnect: null,
+          pairing: null,
+        });
         dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
 
         void (async () => {
@@ -192,8 +233,8 @@ export function useCmuxClient() {
             // browser tabs render the unsupported placeholder and never call
             // resizeSurface. A surface-resize-failed broadcast therefore
             // belongs to another client and must not be echoed into a
-            // multi-client retry loop. Browser rendering must add explicit
-            // per-client geometry ownership before handling that event.
+            // multi-client retry loop. Browser rendering must track which
+            // local size report produced the asynchronous failure first.
             if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
               discardPendingSurfaceTitles();
               await refresh();
@@ -201,18 +242,20 @@ export function useCmuxClient() {
             if (
               event.event === "client-attached"
               || event.event === "client-changed"
-              // Presence sizes feed the foreign-size hint; refresh them when
-              // a surface is resized so the owning client is named correctly.
+              // Keep the client viewport list current after a shared resize.
               || event.event === "surface-resized"
             ) {
-              await refreshClients();
+              if (event.event !== "surface-resized") clientPresenceGeneration += 1;
+              queueClientsRefresh();
             }
             if (event.event === "client-detached") {
               const detached = event as ClientDetachedEvent;
+              clientPresenceGeneration += 1;
               setState((current) => ({
                 ...current,
                 clients: current.clients.filter((item) => item.client !== detached.client),
               }));
+              queueClientsRefresh();
             }
           }
         })();
@@ -230,24 +273,33 @@ export function useCmuxClient() {
             clients: [],
             error: error instanceof Error ? error.message : String(error),
             reconnect: null,
+            pairing: null,
           });
         }
       }
     };
 
-    setState((current) => ({ ...current, status: "connecting", error: null, reconnect: null }));
+    setState((current) => ({
+      ...current,
+      status: "connecting",
+      error: null,
+      reconnect: null,
+      pairing: null,
+    }));
     void start(false);
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       discardPendingSurfaceTitles();
       refreshRef.current = null;
+      clientsRefreshRef.current = null;
       void activeClient?.close();
     };
   }, [config]);
 
   const connect = useCallback((next: ConnectionConfig) => {
     dispatchSelection({ type: "reset" });
+    pairingCredential.current = undefined;
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
@@ -285,7 +337,7 @@ export function useCmuxClient() {
 
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
     await runMutation(async (client) => {
-      await client.selectTab({ pane, index });
+      await client.selectTab({ pane, index: BigInt(index) });
       setUnread((current) => {
         const next = new Set(current);
         next.delete(surface);
@@ -328,8 +380,17 @@ export function useCmuxClient() {
     zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
     swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
       runMutation((client) => client.swapPane({ pane, dir })),
-    setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
-      runMutation((client) => client.setRatio(pane, dir, ratio)),
+    setSplitRatio: (split: Id, ratio: number) =>
+      runMutation((client) => client.setSplitRatio(split, ratio)),
+    setClientSizing: (surface: Id, clientId: Id, enabled: boolean) => runMutation(async (client) => {
+      await client.setClientSizing(surface, clientId, enabled);
+    }),
+    useOnlyClientSizing: (surface: Id, clientId: Id) => runMutation(async (client) => {
+      await client.useOnlyClientSizing(surface, clientId);
+    }),
+    useAllClientSizing: (surface: Id) => runMutation(async (client) => {
+      await client.useAllClientSizing(surface);
+    }),
     detachClient: (clientId: Id) => runMutation(async (client) => {
       await client.detachClient(clientId);
       setState((current) => ({
@@ -339,10 +400,9 @@ export function useCmuxClient() {
     }),
   }), [createAndFollow, runMutation]);
 
-  const refreshClients = useCallback(() => runMutation(async (client) => {
-    const clients = await client.listClients();
-    setState((current) => ({ ...current, clients }));
-  }), [runMutation]);
+  const refreshClients = useCallback(() => {
+    clientsRefreshRef.current?.();
+  }, []);
 
   const dismissToast = useCallback((notification: Id) => {
     setToasts((current) => current.filter((toast) => toast.notification !== notification));

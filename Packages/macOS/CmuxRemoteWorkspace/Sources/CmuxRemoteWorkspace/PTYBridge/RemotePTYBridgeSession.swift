@@ -229,6 +229,7 @@ extension RemotePTYBridgeServer {
                 sendBridgeStatus([
                     "type": "ready",
                     "attachment_token": remoteAttachment.token,
+                    "replay_bytes": remoteAttachment.replayByteCount,
                 ])
                 isAttached = true
                 let pendingPTYEvents = pendingPTYEventsBeforeReady

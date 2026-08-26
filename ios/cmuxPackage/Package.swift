@@ -19,15 +19,21 @@ let package = Package(
             name: "cmuxFeature",
             targets: ["cmuxFeature"]
         ),
+        .library(
+            name: "CmuxIrohReleaseGateSupport",
+            targets: ["CmuxIrohReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CmuxIrohTransport"),
+        .package(path: "../../Packages/Shared/CmuxIrxTransport"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
+        .package(path: "../../Packages/iOS/CmuxMobileBrowserStream"),
         .package(path: "../../Packages/iOS/CmuxMobileCamera"),
         .package(path: "../../Packages/iOS/CmuxMobileCrashReporting"),
         .package(path: "../../Packages/iOS/CmuxMobileDiagnostics"),
@@ -38,6 +44,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileShellUI"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileTerminal"),
+        .package(path: "../../Packages/iOS/CmuxMobileToast"),
         .package(path: "../../Packages/iOS/CmuxMobileTerminalKit"),
         .package(path: "../../Packages/iOS/CmuxMobileTransport"),
         .package(path: "../../Packages/iOS/CmuxMobileWorkspace"),
@@ -51,9 +58,11 @@ let package = Package(
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
+                "CmuxMobileBrowserStream",
                 "CmuxMobileCamera",
                 "CmuxMobileCrashReporting",
                 "CmuxMobileDiagnostics",
@@ -65,6 +74,7 @@ let package = Package(
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
                 "CmuxMobileTerminalKit",
+                "CmuxMobileToast",
                 "CmuxMobileTransport",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
@@ -74,10 +84,29 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .target(
+            name: "CmuxIrohReleaseGateSupport",
+            dependencies: [
+                "cmuxFeature",
+                "CMUXMobileCore",
+                "CmuxIrohTransport",
+                "CmuxMobileShell",
+                .product(
+                    name: "CmuxMobileShellReleaseGateSupport",
+                    package: "CmuxMobileShell"
+                ),
+                "CmuxMobileShellModel",
+                "CmuxMobileShellUI",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
         .testTarget(
             name: "cmuxFeatureTests",
             dependencies: [
                 "cmuxFeature",
+                "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
@@ -85,6 +114,7 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
+                "CmuxMobileBrowserStream",
                 "CmuxMobileCamera",
                 "CmuxMobileCrashReporting",
                 "CmuxMobileDiagnostics",
@@ -96,6 +126,7 @@ let package = Package(
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
                 "CmuxMobileTerminalKit",
+                "CmuxMobileToast",
                 "CmuxMobileTransport",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),

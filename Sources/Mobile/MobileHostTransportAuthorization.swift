@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileTransport
@@ -14,6 +15,37 @@ import os
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
+}
+
+extension MobileHostConnectionAuthorizationContext {
+    /// One policy authority for transports accepted by the legacy
+    /// private-network listener. Keeping this separate from Iroh admission
+    /// makes version-skew coverage exercise the same authorization choice as
+    /// the production listener.
+    static let legacyPrivateNetworkListener: Self = .stackBearer
+}
+
+/// Immutable trust context carried from transport admission into RPC dispatch.
+struct MobileHostRPCExecutionContext: Sendable {
+    /// The per-connection identity, used to key long-lived subscriptions
+    /// (e.g. browser stream sessions) and route pushed events back to the
+    /// originating phone connection.
+    let connectionID: UUID
+    let authorization: MobileHostConnectionAuthorizationContext
+    let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+
+    func issueArtifactTransfer(
+        canonicalPath: String
+    ) async throws -> ChatArtifactLaneDescriptor {
+        guard case let .irohAdmission(peer) = authorization,
+              let artifactTransfers else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.unavailable
+        }
+        return try await artifactTransfers.issue(
+            canonicalPath: canonicalPath,
+            peer: peer
+        )
+    }
 }
 
 
@@ -39,6 +71,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     private struct Entry {
         let connection: MobileHostConnection
         let authorization: MobileHostConnectionAuthorizationContext
+        let insertionSequence: UInt64
     }
 
     static let shared = MobileHostConnectionRegistry()
@@ -46,6 +79,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private let irohBindingConnectionQuota = CmxIrohActiveBindingConnectionQuota()
     private var connections: [UUID: Entry] = [:]
+    private var nextInsertionSequence: UInt64 = 0
 
     var count: Int {
         lock.lock()
@@ -79,7 +113,12 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
                 return false
             }
         }
-        connections[id] = Entry(connection: connection, authorization: authorization)
+        nextInsertionSequence &+= 1
+        connections[id] = Entry(
+            connection: connection,
+            authorization: authorization,
+            insertionSequence: nextInsertionSequence
+        )
         lock.unlock()
         // Notify after the authoritative count actually changes (this registry
         // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
@@ -132,6 +171,41 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         }
     }
 
+    /// Retires reconnect overlap only after the replacement has processed an
+    /// authorized request. An older connection can never evict a newer one,
+    /// even if its delayed request finishes after the replacement arrived.
+    func removeOlderIrohConnectionsIfNewest(id: UUID) -> [MobileHostConnection] {
+        lock.lock()
+        guard let current = connections[id],
+              case let .irohAdmission(currentPeer) = current.authorization else {
+            lock.unlock()
+            return []
+        }
+        let sameBinding = connections.filter { _, entry in
+            guard case let .irohAdmission(peer) = entry.authorization else {
+                return false
+            }
+            return peer.bindingID == currentPeer.bindingID
+        }
+        guard sameBinding.values.allSatisfy({
+            $0.insertionSequence <= current.insertionSequence
+        }) else {
+            lock.unlock()
+            return []
+        }
+        let older = sameBinding.filter { candidateID, entry in
+            candidateID != id && entry.insertionSequence < current.insertionSequence
+        }
+        for olderID in older.keys {
+            connections[olderID] = nil
+        }
+        lock.unlock()
+        if !older.isEmpty {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+        return older.values.map(\.connection)
+    }
+
     private func removeConnections(
         where shouldRemove: (MobileHostConnectionAuthorizationContext) -> Bool
     ) -> [MobileHostConnection] {
@@ -153,6 +227,13 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.values.map(\.connection)
     }
 
+    /// Returns one connection for connection-scoped event delivery.
+    func connection(id: UUID) -> MobileHostConnection? {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id]?.connection
+    }
+
     func snapshot(irohBindingID: String) -> [MobileHostConnection] {
         lock.lock()
         defer { lock.unlock() }
@@ -164,6 +245,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
             return entry.connection
         }
     }
+
 }
 
 enum MobileHostPublicStatusCache {
@@ -178,21 +260,39 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(irohBinding binding: CmxIrohBrokerBinding?) {
+    static func update(
+        irohIdentity identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
         lock.lock()
-        if let binding {
+        if let identity {
             irohRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.iroh.rawValue,
                 kind: .iroh,
                 endpoint: .peer(
-                    identity: binding.endpointID,
-                    pathHints: binding.pathHints
+                    identity: identity,
+                    pathHints: pathHints
                 ),
                 priority: 0
             )
         } else {
             irohRoute = nil
         }
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+        lock.lock()
+        irohRoute = try? CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(
+                identity: binding.endpointID,
+                pathHints: binding.pathHints
+            ),
+            priority: 0
+        )
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -217,13 +317,25 @@ enum MobileHostPublicStatusCache {
         return irohRoute != nil
     }
 
-    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
+    static func result(
+        includeIdentity: Bool = false,
+        additionalCapabilities: Set<String> = [],
+        phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown
+    ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
         lock.unlock()
         return .ok(
             includeIdentity
-                ? MobileHostService.identityStatusPayload(routes: cachedRoutes)
+                ? MobileHostService.identityStatusPayload(
+                    routes: cachedRoutes,
+                    additionalCapabilities: additionalCapabilities,
+                    phonePushAdmission: phonePushAdmission,
+                    phonePushQueuePersistenceStatus:
+                        phonePushQueuePersistenceStatus
+                )
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )
     }

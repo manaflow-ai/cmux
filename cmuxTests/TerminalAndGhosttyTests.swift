@@ -1041,6 +1041,22 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
     }
 
+    /// Bounded poll on the main run loop. The first runtime-surface creation for a surface
+    /// waits on the Claude command shim install, which hops through a detached Task and a
+    /// main-actor continuation, so the attempt lands a turn or more after init returns. The
+    /// invariant these tests guard is that the attempt needs no window attach, not that it
+    /// happens synchronously inside init.
+    private func waitUntil(timeout: TimeInterval = 5.0, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1051,9 +1067,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1068,9 +1084,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
@@ -1396,6 +1412,36 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["host_service"])
         XCTAssertNil(payload["workspace_count"])
     }
+
+#if DEBUG
+    func testMobileRPCMethodInventoryReturnsUniqueSortedCatalog() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "rpc-methods",
+                method: "mobile.rpc.methods",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let methods = payload["methods"] as? [String] else {
+            XCTFail("Expected the debug Iroh RPC inventory")
+            return
+        }
+        XCTAssertEqual(payload["schema_version"] as? Int, 1)
+        XCTAssertEqual(methods, methods.sorted())
+        XCTAssertEqual(Set(methods).count, methods.count)
+        XCTAssertTrue(methods.contains("mobile.host.status"))
+        XCTAssertTrue(methods.contains("mobile.rpc.methods"))
+        XCTAssertTrue(methods.contains("workspace.list"))
+        XCTAssertTrue(methods.contains("terminal.input"))
+        XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+    }
+#endif
 
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -1738,6 +1784,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(
             manager.scheduledMetadataRefreshes.isEmpty,
             "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+
+    func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Browser Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "browser-create",
+                method: "mobile.browser.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let panelID = payload["panel_id"] as? String,
+              let panelUUID = UUID(uuidString: panelID) else {
+            XCTFail("Expected mobile browser.create to return the created panel descriptor")
+            return
+        }
+
+        XCTAssertEqual(payload["workspace_id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertNotNil(mobileWorkspace.browserPanel(for: panelUUID))
+        XCTAssertEqual(
+            manager.selectedWorkspace?.id,
+            selectedWorkspace.id,
+            "Mobile background browser creation should not steal the Mac's workspace selection."
         )
     }
 #endif
@@ -2432,54 +2520,6 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
         XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 
-    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 20,
-                rectMaxX: 30,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 50,
-                rectMaxX: 50.4,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
-        XCTAssertNil(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 0,
-                rectMaxX: 10,
-                boundsWidth: 1
-            )
-        )
-    }
 }
 
 
@@ -2560,70 +2600,166 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
     }
 }
 
+@Suite("Terminal keyboard copy mode cursor appearance")
+@MainActor
+struct TerminalKeyboardCopyModeCursorAppearanceTests {
+    @Test func cursorUsesAnUnfilledCellOutline() throws {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
+        let backgroundAlpha = layer.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
 
-final class GhosttyBackgroundThemeTests: XCTestCase {
-    func testColorClampsOpacity() {
-        let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
-
-        let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
-
-        let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        #expect(backgroundAlpha == 0)
+        #expect(layer.borderWidth == 1)
     }
 
-    func testColorFromNotificationUsesBackgroundAndOpacity() {
-        let fallbackColor = NSColor.black
-        let fallbackOpacity = 1.0
+    @Test func cursorUsesGhosttyRuntimeSnapshotColor() {
+        let color = GhosttyNSView.keyboardCopyModeCursorColor(
+            red: 0x33,
+            green: 0x66,
+            blue: 0x99
+        )
+        #expect(color.hexString() == "#336699")
+    }
+
+    @Test func wideCursorOutlineSpansBothAlignedGridCells() {
+        let metrics = KeyboardCopyModeGridMetrics(
+            cellWidth: 9.5,
+            cellHeight: 18,
+            xInset: 4,
+            yInset: 6,
+            viewHeight: 200
+        )
+        let cell = KeyboardCopyModeResolvedCell(
+            cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
+            widthCells: 2,
+            color: .clear
+        )
+
+        #expect(
+            metrics.topOriginRect(for: cell)
+                == CGRect(x: 32.5, y: 42, width: 19, height: 18)
+        )
+        #expect(
+            metrics.appKitRect(for: cell)
+                == CGRect(x: 32.5, y: 140, width: 19, height: 18)
+        )
+    }
+}
+
+/// Blends `foreground` over `base` the way src-over compositing does.
+///
+/// cmux composites terminal background colors over the window background, so a
+/// configured opacity ends up in the RGB blend and the resulting color is
+/// opaque. The arithmetic is written out here on purpose: calling the app's own
+/// resolver to build the expectation would make these assertions agree with the
+/// product by construction and they could never catch a compositing regression.
+private func expectedCompositeOverWindowBackground(
+    foreground: NSColor,
+    opacity: CGFloat,
+    base: NSColor = .windowBackgroundColor
+) throws -> (red: CGFloat, green: CGFloat, blue: CGFloat) {
+    let foregroundSRGB = try XCTUnwrap(foreground.usingColorSpace(.sRGB))
+    let baseSRGB = try XCTUnwrap(base.usingColorSpace(.sRGB))
+    let alpha = max(0.0, min(opacity, 1.0))
+    return (
+        red: foregroundSRGB.redComponent * alpha + baseSRGB.redComponent * (1 - alpha),
+        green: foregroundSRGB.greenComponent * alpha + baseSRGB.greenComponent * (1 - alpha),
+        blue: foregroundSRGB.blueComponent * alpha + baseSRGB.blueComponent * (1 - alpha)
+    )
+}
+
+private func assertOpaqueColor(
+    _ actual: NSColor,
+    equals expected: (red: CGFloat, green: CGFloat, blue: CGFloat),
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws {
+    let srgb = try XCTUnwrap(
+        actual.usingColorSpace(.sRGB),
+        "Expected sRGB-convertible color",
+        file: file,
+        line: line
+    )
+    XCTAssertEqual(srgb.redComponent, expected.red, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.greenComponent, expected.green, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.blueComponent, expected.blue, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.alphaComponent, 1.0, accuracy: 0.005, file: file, line: line)
+}
+
+final class GhosttyBackgroundThemeTests: XCTestCase {
+    func testColorClampsOpacity() throws {
+        let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
+
+        // An opacity below zero clamps to 0, so none of `base` survives the
+        // blend and the result is the window background it composites onto.
+        // Without the clamp the negative weight would push the channels out of
+        // range instead.
+        let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
+        try assertOpaqueColor(
+            lowerClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 0.0)
+        )
+
+        // An opacity above one clamps to 1, so `base` covers the window
+        // background completely.
+        let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
+        try assertOpaqueColor(
+            upperClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 1.0)
+        )
+    }
+
+    func testColorFromNotificationUsesBackgroundAndOpacity() throws {
+        let notificationColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let notification = Notification(
             name: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             userInfo: [
-                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+                GhosttyNotificationKey.backgroundColor: notificationColor,
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
 
+        // The fallbacks differ from the payload, so a color built from them
+        // instead would fail these assertions.
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
-            fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackColor: .black,
+            fallbackOpacity: 1.0
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: notificationColor,
+                opacity: 0.57
+            )
+        )
     }
 
-    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+    func testColorFromNotificationFallsBackWhenPayloadMissing() throws {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
-        let fallbackOpacity = 0.42
         let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
 
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
             fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackOpacity: 0.42
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: fallbackColor,
+                opacity: 0.42
+            )
+        )
     }
 }
 
 final class PanelAppearanceBackgroundTests: XCTestCase {
-    func testTransparentGhosttyOpacityUsesClearContentBackground() {
+    func testTransparentGhosttyOpacityUsesClearContentBackground() throws {
         var config = GhosttyConfig()
         config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
         config.backgroundOpacity = 0.42
@@ -2633,7 +2769,17 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        // The panel fill is the configured color composited over the window
+        // background, so the 0.42 opacity shows up in the blend and the fill
+        // itself is opaque. The transparency the test is named for comes from
+        // the clear content background below.
+        try assertOpaqueColor(
+            appearance.backgroundColor,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: config.backgroundColor,
+                opacity: 0.42
+            )
+        )
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -2725,23 +2871,61 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         ghosttyView.addSubview(descendant)
 
-        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+        XCTAssertTrue(descendant.cmuxStrictOwningGhosttyView() === ghosttyView)
     }
 
     func testResolvesGhosttyViewFromGhosttyResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+        XCTAssertTrue(ghosttyView.cmuxStrictOwningGhosttyView() === ghosttyView)
+    }
+
+    func testDoesNotResolveGhosttyViewFromHostedSurfaceContainerResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+
+        XCTAssertNil(hostedView.cmuxStrictOwningGhosttyView())
+    }
+
+    func testDoesNotResolveGhosttyViewFromHostedSurfaceDescendantResponderByDefault() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertNil(descendant.cmuxStrictOwningGhosttyView())
+    }
+
+    func testResolvesTerminalKeyEquivalentGhosttyViewFromHostedSurfaceDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertTrue(
+            descendant.cmuxTerminalKeyEquivalentOwningGhosttyView() === ghosttyView
+        )
+    }
+
+    func testResolvesTerminalFocusGhosttyViewFromHostedSurfaceDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertTrue(
+            descendant.cmuxTerminalFocusOwningGhosttyView() === ghosttyView
+        )
     }
 
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        XCTAssertNil(cmuxOwningGhosttyView(for: view))
+        XCTAssertNil(view.cmuxStrictOwningGhosttyView())
     }
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
 
-        XCTAssertNil(cmuxOwningGhosttyView(for: textView))
+        XCTAssertNil(textView.cmuxStrictOwningGhosttyView())
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
@@ -3580,6 +3764,31 @@ final class WindowTerminalHostViewTests: XCTestCase {
         return hostedView
     }
 
+    func testTerminalPaneDropTargetLookupRequiresActiveDropContext() {
+        let frame = NSRect(x: 0, y: 0, width: 240, height: 160)
+        let hostedView = makeHostedTerminalView(frame: frame)
+        hostedView.layoutSubtreeIfNeeded()
+        hostedView.layout()
+        let dropPoint = NSPoint(x: frame.midX, y: frame.midY)
+
+        hostedView.setPaneDropContext(TerminalPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+        XCTAssertNotNil(
+            hostedView.paneDropTargetForDrop(at: dropPoint),
+            "Active terminal pane drop targets should remain discoverable for pane drop routing"
+        )
+
+        hostedView.setPaneDropContext(nil)
+
+        XCTAssertNil(
+            hostedView.paneDropTargetForDrop(at: dropPoint),
+            "Inactive terminal pane drop targets must not shadow terminal file-path drop insertion"
+        )
+    }
+
     private func assertHitFallsInsideHostedTerminal(
         _ hitView: NSView?,
         hostedView: GhosttySurfaceScrollView,
@@ -3911,6 +4120,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class AuthoritativeScrollbarSurfaceView: GhosttyNSView {
+        var authoritativeScrollbar: GhosttyScrollbar?
+        var interveningScrollbar: GhosttyScrollbar?
+
+        override func readAuthoritativeScrollbar(
+            _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+        ) -> Bool {
+            guard let authoritativeScrollbar else { return false }
+            if let interveningScrollbar {
+                self.interveningScrollbar = nil
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateScrollbar,
+                    object: self,
+                    userInfo: [GhosttyNotificationKey.scrollbar: interveningScrollbar]
+                )
+            }
+            result.pointee = ghostty_surface_scrollbar_s(
+                total: authoritativeScrollbar.total,
+                offset: authoritativeScrollbar.offset,
+                len: authoritativeScrollbar.len,
+                row_space_revision: 1
+            )
+            return true
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -3945,6 +4180,156 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         surfacesToRelease.append(surface)
         return surface
+    }
+
+    func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
+            throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
+        }
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        var didTeardown = false
+        defer {
+            for surface in surfaces {
+                surface.hostedView.removeFromSuperview()
+                if !didTeardown {
+                    surface.teardownSurface()
+                }
+            }
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected a content view for the renderer memory workload")
+            return
+        }
+        for surface in surfaces {
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+            hostedView.setVisibleInUI(true)
+        }
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitUntil(timeout: 8, description: "five real Ghostty renderers to become presented") {
+                surfaces.allSatisfy { $0.surface != nil && $0.isRendererPresented }
+            }
+        )
+
+        let sampler = TaskVMInfoMemoryPressureFootprintSampler()
+        let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
+
+        func settledFootprint(_ description: String) throws -> UInt64 {
+            let deadline = ProcessInfo.processInfo.systemUptime + 4
+            var recent: [UInt64] = []
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                autoreleasepool {
+                    window.displayIfNeeded()
+                    contentView.layoutSubtreeIfNeeded()
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                guard let footprint = sampler.physicalFootprintBytes() else {
+                    continue
+                }
+                recent.append(footprint)
+                if recent.count > 7 {
+                    recent.removeFirst()
+                }
+                if recent.count == 7,
+                   let minimum = recent.min(),
+                   let maximum = recent.max(),
+                   maximum - minimum <= sampleNoiseAllowance {
+                    return recent.sorted()[recent.count / 2]
+                }
+            }
+            guard !recent.isEmpty else {
+                throw XCTSkip("task_vm_info did not provide a physical footprint for \(description)")
+            }
+            let minimum = recent.min() ?? 0
+            let maximum = recent.max() ?? 0
+            XCTAssertLessThanOrEqual(
+                maximum - minimum,
+                sampleNoiseAllowance,
+                "Physical footprint did not settle for \(description)"
+            )
+            return recent.sorted()[recent.count / 2]
+        }
+
+        let hiddenSurfaces = Array(surfaces.dropFirst())
+        for surface in hiddenSurfaces {
+            surface.hostedView.setVisibleInUI(false)
+            XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
+        }
+        XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
+        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+
+        for cycle in 1...3 {
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(true)
+            }
+            XCTAssertTrue(
+                waitUntil(timeout: 8, description: "cycle \(cycle) renderer restoration") {
+                    hiddenSurfaces.allSatisfy(\.isRendererPresented)
+                }
+            )
+            let fiveRendererPeak = try settledFootprint("cycle \(cycle) five-renderer peak")
+            guard fiveRendererPeak > oneRendererBaseline + sampleNoiseAllowance else {
+                XCTFail("The workload must distinguish five realized renderers from the one-renderer target")
+                return
+            }
+
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(false)
+                XCTAssertTrue(surface.releaseRenderer(), "Cycle \(cycle) must evict every hidden renderer")
+            }
+            XCTAssertTrue(
+                hiddenSurfaces.allSatisfy { !$0.isRendererRealized },
+                "Cycle \(cycle) must leave only the visible tab's renderer realized"
+            )
+
+            let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
+            let realizedDelta = fiveRendererPeak - oneRendererBaseline
+            let retainedDelta = targetFootprint > oneRendererBaseline
+                ? targetFootprint - oneRendererBaseline
+                : 0
+            let normalizedRetainedDelta = retainedDelta > sampleNoiseAllowance
+                ? retainedDelta - sampleNoiseAllowance
+                : 0
+            let normalizedRetainedRatio = Double(normalizedRetainedDelta) / Double(realizedDelta)
+            print(
+                "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
+                "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "retained_ratio=\(normalizedRetainedRatio)"
+            )
+            XCTAssertLessThanOrEqual(
+                normalizedRetainedRatio,
+                0.45,
+                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+            )
+            oneRendererBaseline = targetFootprint
+        }
+
+        for surface in surfaces {
+            surface.hostedView.removeFromSuperview()
+            surface.teardownSurface()
+        }
+        didTeardown = true
+        XCTAssertTrue(surfaces.allSatisfy { $0.surface == nil && !$0.isRendererRealized })
+#else
+        throw XCTSkip("Debug-only real-renderer memory regression")
+#endif
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -4127,6 +4512,330 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testWheelResponseIsNotConsumedByQueuedPreexistingScrollbarPacket() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        surfaceView.authoritativeScrollbar = bottomPacket
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        // This packet represents a layout/output update that was queued before
+        // the wheel event. Its main-queue flush must not consume the wheel's
+        // explicit synchronization window.
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        surfaceView.authoritativeScrollbar = bottomPacket
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A queued pre-wheel packet must not consume explicit sync and suppress the wheel response"
+        )
+    }
+
+    func testAuthoritativeWheelResponseIgnoresInterveningScrollbarPacket() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        surfaceView.authoritativeScrollbar = bottomPacket
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+        var interveningOriginY: CGFloat?
+        var interveningIntent: TerminalScrollbackViewportIntent?
+        surfaceView.interveningScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        let passiveHandled = expectation(description: "passive scrollbar packet handled")
+        let authoritativeHandled = expectation(description: "authoritative scrollbar packet handled")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            queue: .main
+        ) { notification in
+            let isAuthoritative = notification.userInfo?[GhosttyNotificationKey.isAuthoritativeWheelResponse]
+                as? Bool == true
+            if isAuthoritative {
+                authoritativeHandled.fulfill()
+            } else if (notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar)?.offset == 40 {
+                interveningOriginY = scrollView.contentView.bounds.origin.y
+                interveningIntent = hostedView.scrollbackViewportIntent
+                passiveHandled.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        scrollView.scrollWheel(with: scrollEvent)
+        wait(for: [passiveHandled, authoritativeHandled], timeout: 1)
+
+        XCTAssertEqual(
+            interveningIntent,
+            .awaitingExplicitScrollbarSync(
+                previousWasReviewing: false,
+                requiresAuthoritativeResponse: true
+            )
+        )
+        XCTAssertEqual(
+            interveningOriginY ?? .nan,
+            0,
+            accuracy: 0.01,
+            "An intervening passive packet must not move the viewport while wheel sync is awaiting its authoritative response"
+        )
+
+        XCTAssertEqual(hostedView.scrollbackViewportIntent, .followingOutput)
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+    }
+
+    func testCoalescedScrollbarCallbackUsesCurrentRuntimeSnapshot() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        surfaceView.authoritativeScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+        let updatePublished = expectation(
+            forNotification: .ghosttyDidUpdateScrollbar,
+            object: surfaceView
+        )
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        wait(for: [updatePublished], timeout: 1)
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A delayed callback must publish current runtime geometry instead of its stale payload"
+        )
+        XCTAssertEqual(surfaceView.scrollbar?.offset, 90)
+    }
+
+    func testQueuedScrollbarWithoutRuntimeCancelsAuthoritativeWheelIntent() {
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let cancelled = expectation(
+            forNotification: .ghosttyDidReceiveWheelScroll,
+            object: surfaceView,
+            handler: { notification in
+                notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
+                    as? Bool == true
+            }
+        )
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+        surfaceView.scrollWheel(with: scrollEvent)
+        wait(for: [cancelled], timeout: 1)
+
+        XCTAssertEqual(hostedView.scrollbackViewportIntent, .followingOutput)
+    }
+
+    func testScrollbackReviewSurvivesPaneResize() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = ScrollbarPostingSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        // AppKit's document view is non-flipped, so a large origin is a position
+        // in scrollback rather than the live bottom. This mirrors dragging a pane
+        // divider after the user has moved well away from live output.
+        let reviewedScrollbackOrigin = CGPoint(x: 0, y: 900)
+        scrollView.contentView.scroll(to: reviewedScrollbackOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertGreaterThan(scrollView.contentView.bounds.origin.y, 100)
+
+        // A pane resize changes the hosted viewport geometry before Ghostty's
+        // authoritative reflow scrollbar packet arrives.
+        hostedView.frame.size.height = 200
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertGreaterThan(
+            scrollView.contentView.bounds.origin.y,
+            100,
+            "Resizing a pane while reviewing scrollback must not let a passive bottom packet yank the viewport to live output"
+        )
+    }
+
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
@@ -4142,7 +4851,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
+    func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
@@ -4172,11 +4881,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected hosted terminal scroll view")
             return
         }
-        guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
-            XCTFail("Expected an initial terminal surface size")
-            return
-        }
-
         func assertPendingSurfaceWidth(
             _ expectedWidth: CGFloat,
             _ message: String,
@@ -4198,6 +4902,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
         }
 
+        // Start from the overlay style so the test is independent of the
+        // machine running it. The legacy transition below models the system
+        // preference changing to "Always".
+        XCTAssertEqual(
+            scrollView.scrollerStyle,
+            NSScroller.preferredScrollerStyle,
+            "The terminal scroll view should start with AppKit's preferred system style"
+        )
+        scrollView.scrollerStyle = .overlay
+        scrollView.layoutSubtreeIfNeeded()
+        hostedView.reconcileGeometryNow()
+        guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
+            XCTFail("Expected an initial terminal surface size")
+            return
+        }
         let initialContentWidth = scrollView.contentSize.width
         XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
 
@@ -4211,24 +4930,62 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            waitUntil(description: "legacy terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .legacy &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - legacyContentWidth) <= 0.5
+                    } == true
+            }
+        )
 
-        let restoredContentWidth = scrollView.contentSize.width
-        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        let preservedLegacyContentWidth = scrollView.contentSize.width
+        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         XCTAssertGreaterThanOrEqual(
-            restoredContentWidth,
-            legacyContentWidth,
-            "Preferred scroller style changes should not shrink terminal content when overlay scrollbars return"
+            initialContentWidth,
+            preservedLegacyContentWidth,
+            "A legacy scrollbar should reserve width in the scroll view content area"
         )
         XCTAssertEqual(
-            restoredContentWidth,
-            initialContentWidth,
+            preservedLegacyContentWidth,
+            legacyContentWidth,
             accuracy: 0.5,
-            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+            "Preferred scroller style changes should preserve the system's legacy scrollbar choice"
         )
         assertPendingSurfaceWidth(
-            restoredContentWidth,
-            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
+            preservedLegacyContentWidth,
+            "Preferred scroller style changes should resize the terminal grid for a legacy scrollbar"
+        )
+
+        scrollView.scrollerStyle = .overlay
+        scrollView.layoutSubtreeIfNeeded()
+        let overlayContentWidth = scrollView.contentSize.width
+        XCTAssertGreaterThanOrEqual(
+            overlayContentWidth,
+            preservedLegacyContentWidth,
+            "Overlay scrollbars should restore the full terminal content width"
+        )
+        XCTAssertEqual(
+            overlayContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Overlay scrollbars should restore the full terminal content width"
+        )
+
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        XCTAssertTrue(
+            waitUntil(description: "overlay terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .overlay &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - overlayContentWidth) <= 0.5
+                    } == true
+            }
+        )
+
+        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        assertPendingSurfaceWidth(
+            overlayContentWidth,
+            "Preferred scroller style changes should preserve the system's overlay scrollbar choice"
         )
     }
 
@@ -4347,6 +5104,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             appDelegate.tabManager = originalTabManager
             AppDelegate.shared = previousAppDelegate
             window.orderOut(nil)
@@ -5448,9 +6206,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
         defer {
-            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+            TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         }
 
         do {
@@ -5519,9 +6277,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let originalHostedFrame = hosted.frame
 
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
         defer {
-            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+            TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         }
 
         shiftedContainer.frame.origin.x += 72
@@ -5558,6 +6316,215 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             firstPassHostedFrame.width,
             accuracy: 0.5,
             "Interactive sidebar resizes should not land a second delayed terminal resize on the next queue turn"
+        )
+    }
+
+    func testInteractiveGeometryResizeEndFlushesFinalTerminalSize() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        let surface = makeTrackedTerminalSurface()
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(container)
+        let anchor = NSView(frame: container.bounds)
+        container.addSubview(anchor)
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        let initialPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(initialPixelSize.width, 0)
+
+        // With frame notifications disabled, only the interaction zero
+        // crossing can discover and apply this final geometry.
+        anchor.postsFrameChangedNotifications = false
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var interactionIsActive = true
+        defer {
+            if interactionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        anchor.frame.size.width -= 120
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, initialPixelSize.width)
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        interactionIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThan(
+            surface.debugCurrentPixelSize().width,
+            initialPixelSize.width,
+            "Ending the resize interaction should flush the final exact terminal width"
+        )
+    }
+
+    func testInteractiveGeometryResizeIsScopedToOwningWindow() {
+        let firstWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
+            firstWindow.orderOut(nil)
+        }
+        let secondWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstSurface = makeTrackedTerminalSurface()
+        let secondSurface = makeTrackedTerminalSurface()
+        guard let firstContentView = firstWindow.contentView,
+              let secondContentView = secondWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let firstAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        firstContentView.addSubview(firstAnchor)
+        let secondAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        secondContentView.addSubview(secondAnchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: firstSurface.hostedView,
+            to: firstAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: firstSurface.id,
+            expectedGeneration: firstSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: secondSurface.hostedView,
+            to: secondAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: secondSurface.id,
+            expectedGeneration: secondSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(firstAnchor)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
+        realizeWindowLayout(firstWindow)
+        realizeWindowLayout(secondWindow)
+        for _ in 0..<4 { drainMainQueue() }
+
+        let initialFirstWidth = firstSurface.debugCurrentPixelSize().width
+        let initialSecondWidth = secondSurface.debugCurrentPixelSize().width
+        XCTAssertGreaterThan(initialFirstWidth, 0)
+        XCTAssertGreaterThan(initialSecondWidth, 0)
+
+        firstAnchor.postsFrameChangedNotifications = false
+        secondAnchor.postsFrameChangedNotifications = false
+        let outerInteractionOwner = NSObject()
+        let nestedInteractionOwner = NSObject()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: outerInteractionOwner,
+            in: firstWindow
+        )
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: nestedInteractionOwner,
+            in: firstWindow
+        )
+        var outerInteractionIsActive = true
+        var nestedInteractionIsActive = true
+        defer {
+            if outerInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+            }
+            if nestedInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+            }
+        }
+
+        XCTAssertTrue(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow))
+        XCTAssertFalse(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: secondWindow))
+        firstAnchor.frame.size.width -= 120
+        secondAnchor.frame.size.width -= 120
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+        outerInteractionIsActive = false
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow),
+            "Nested resize ownership should keep the window coalescing until every owner ends"
+        )
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+        nestedInteractionIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThan(
+            firstSurface.debugCurrentPixelSize().width,
+            initialFirstWidth,
+            "Drag end should flush the owning window's final terminal width"
+        )
+        XCTAssertEqual(
+            secondSurface.debugCurrentPixelSize().width,
+            initialSecondWidth,
+            "One window's drag end must not flush unrelated terminal portals"
+        )
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+            for: secondWindow,
+            forceImmediate: false
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertLessThan(
+            secondSurface.debugCurrentPixelSize().width,
+            initialSecondWidth,
+            "The unrelated window should still adopt its geometry when explicitly synchronized"
+        )
+    }
+
+    func testDockDividerLifecycleScopesTerminalResizeToHostingWindow() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+        defer { store.closeAllPanels() }
+        let anchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(anchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+
+        store.bonsplitController.noteDividerDragSession(true)
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            "Dock split drags should enter the same window-scoped terminal resize transaction"
+        )
+        store.bonsplitController.noteDividerDragSession(false)
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            "Dock drag end should balance the terminal resize transaction"
         )
     }
 
@@ -5830,9 +6797,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
 
     @MainActor
-    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testStartReclaimsRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
@@ -5848,23 +6815,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
+        // The lock is unheld even though its marker was never written. The
+        // refused probe plus exclusive flock is enough to reclaim the orphan.
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
-        TerminalController.shared.start(
-            tabManager: TabManager(),
-            socketPath: path,
-            accessMode: .allowAll
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
         let listenerFD = try bindUnixSocket(at: path)
@@ -5885,9 +6846,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
-    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testCleanStopRemovesReusableLockBeforeAnotherSocketClaimsPath() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         TerminalController.shared.start(
@@ -5897,14 +6858,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(transport.pathAcceptsConnections(path))
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer {
             unlink(path)
             unlink(path + ".lock")
         }
-        XCTAssertTrue(transport.pathCanBeReclaimedForStartup(path))
+        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -5912,13 +6874,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(transport.pathAcceptsConnections(path))
+        XCTAssertFalse(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let lockPath = path + ".lock"
@@ -5946,8 +6908,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
         defer {
@@ -5973,8 +6935,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let fallbackPath = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6004,8 +6966,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let activePath = makeTempSocketPath()
         let reservedPath = makeTempSocketPath()

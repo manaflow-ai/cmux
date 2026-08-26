@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Failure reasons surfaced back to the mobile workspace-list UI for Mac-backed
@@ -13,6 +14,33 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case busy(hostDisplayName: String?)
     /// The target Mac rejected the requested mutation.
     case rejected(hostDisplayName: String?)
+    /// The requested task directory does not exist as a directory on the target Mac.
+    case invalidWorkingDirectory(hostDisplayName: String?)
+    /// The target Mac could not durably reserve an idempotent task request.
+    case persistenceUnavailable(hostDisplayName: String?)
+    /// The Mac accepted the task but no recoverable workspace is available.
+    case alreadyCompleted(hostDisplayName: String?)
     /// The current host does not support the requested mutation.
     case unsupported(hostDisplayName: String?)
+}
+
+extension MobileWorkspaceMutationFailure: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .notConnected:
+            .connectionClosed
+        case .requestTimedOut:
+            .timedOut
+        case .authorizationFailed:
+            .authorizationFailed
+        case .busy:
+            .routeGated
+        case .rejected, .invalidWorkingDirectory, .alreadyCompleted:
+            .protocolViolation
+        case .persistenceUnavailable:
+            .endpointUnavailable
+        case .unsupported:
+            .policyUnavailable
+        }
+    }
 }

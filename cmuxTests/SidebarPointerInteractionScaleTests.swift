@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSidebar
+import CmuxNotifications
 import CoreGraphics
 import OSLog
 import Testing

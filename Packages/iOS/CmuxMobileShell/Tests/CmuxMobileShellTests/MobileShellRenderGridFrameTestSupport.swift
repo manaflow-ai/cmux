@@ -9,14 +9,19 @@ func renderGridFrame(
     surfaceID: String,
     seq: UInt64,
     text: String,
+    columns: Int = 80,
+    rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true
+    full: Bool = true,
+    anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
+    historyRows: UInt64? = nil,
+    deltaBaseHistoryRows: UInt64? = nil
 ) throws -> MobileTerminalRenderGridFrame {
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 80,
-        rows: 4,
+        columns: columns,
+        rows: rows,
         full: full,
         rowSpans: [
             MobileTerminalRenderGridFrame.RowSpan(
@@ -26,6 +31,9 @@ func renderGridFrame(
                 text: text
             ),
         ],
-        activeScreen: activeScreen
+        activeScreen: activeScreen,
+        anchor: anchor,
+        historyRows: historyRows,
+        deltaBaseHistoryRows: deltaBaseHistoryRows
     )
 }

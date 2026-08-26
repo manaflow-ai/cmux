@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Kontynuuj w terminalu",
+    "returnBody": "Aby kontynuować, wróć do terminala, w którym uruchomiono ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Płatność zakończona",
+        "body": "Twoja subskrypcja została potwierdzona. Nowe limity mogą pojawić się po chwili."
+      },
+      "checkoutCanceled": {
+        "title": "Płatność anulowana",
+        "body": "Płatność została zamknięta bez zmiany planu."
+      },
+      "portalReturn": {
+        "title": "Powrót z portalu rozliczeniowego",
+        "body": "Zmiany wprowadzone w portalu rozliczeniowym mogą pojawić się po chwili."
+      },
+      "default": {
+        "title": "Rozliczenie zakończone",
+        "body": "Proces rozliczeniowy został zakończony."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminal stworzony do wielozadaniowości",
     "description": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, dzielone panele i socket API.",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "Jaki jest związek cmux z Ghostty?",
     "faqGhosttyA": "cmux nie jest forkiem Ghostty. Używa <link>libghostty</link> jako biblioteki do renderowania terminala, tak samo jak aplikacje używają WebKit do widoków webowych. Ghostty to samodzielny terminal; cmux to inna aplikacja zbudowana na jego silniku renderowania.",
     "faqPlatformQ": "Jakie platformy są obsługiwane?",
-    "faqPlatformA": "Tylko macOS, na razie. cmux to natywna aplikacja Swift + AppKit.",
+    "faqPlatformA": "Sprawdź dostępne wersje cmux w menu pobierania. <waitlist>Dołącz do listy oczekujących</waitlist> dla platformy, która nie została jeszcze wydana.",
     "faqAgentsQ": "Z jakimi agentami kodowania działa cmux?",
     "faqAgentsA": "Ze wszystkimi. cmux to terminal, więc każdy agent działający w terminalu działa od razu: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i wszystko inne co możesz uruchomić z linii poleceń.",
     "faqNotificationsQ": "Jak działają powiadomienia?",
@@ -112,6 +135,35 @@
     "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "przegląd",
+      "team": "zespół"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "coderouterLink": "otwórz coderouter",
+      "iosAppName": "aplikacja iOS",
+      "iosAppDescription": "Zainstaluj aplikację cmux na iOS przez TestFlight (dostęp beta).",
+      "iosLink": "Otwórz aplikację iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
+      "title": "coderouter",
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+    },
+    "accountMenu": {
+      "label": "Menu konta",
+      "settings": "Ustawienia",
+      "billing": "Rozliczenia",
+      "signOut": "Wyloguj się",
+      "signingOut": "Wylogowywanie…",
+      "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",
+      "organizationSwitchError": "Nie udało się zmienić organizacji. Spróbuj ponownie.",
+      "signIn": "Zaloguj się"
+    },
     "aiAccounts": {
       "metaTitle": "Konta AI — cmux",
       "metaDescription": "Zarządzaj kontami dostawców AI zespołu w cmux.",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,25 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "Tworzy shim tmux w tymczasowym katalogu shimów bieżącej powierzchni. Ścieżka zawiera UUID powierzchni i zmienia się dla każdego panelu oraz przy każdym uruchomieniu systemu, dlatego nie można podać stałej ścieżki",
+      "shimStep2": "Ustawia TMUX i TMUX_PANE, aby symulować tmux w sesji uruchamiającej Claude Teams",
+      "shimDiagnostic": "Shim kieruje do cmux tylko wtedy, gdy ustawiono <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; w przeciwnym razie przezroczyście przechodzi do następnego prawdziwego pliku wykonywalnego tmux. Dlatego <which>which tmux</which> nie informuje, czy przechwytywanie Claude Teams jest aktywne.",
+      "envTmux": "Syntetyczna ścieżka gniazda tmux dla sesji, która uruchomiła cmux claude-teams",
+      "envTmuxPane": "Syntetyczny identyfikator panelu tmux dla sesji, która uruchomiła cmux claude-teams; pusty w utworzonych panelach agentów",
+      "envSurface": "UUID bieżącej powierzchni; użyj go jako identyfikatora powierzchni w utworzonym panelu agenta",
+      "envScope": "Syntetyczne wartości <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> i powiązane wartości zgodności z tmux opisują sesję, w której uruchomiono <command>cmux claude-teams</command>, a nie utworzone panele. W panelu agenta użyj <surface>CMUX_SURFACE_ID</surface> i uruchom <tree>cmux tree --json</tree>; obiekt <caller>caller</caller> w wynikach identyfikuje panel wywołujący.",
+      "dirShimPath": "Katalog dla każdej powierzchni w systemowym katalogu tymczasowym (brak stałej ścieżki)",
+      "dirShim": "Zawiera aktywny shim tmux i jest dodawany na początku PATH dla tej powierzchni",
+      "dirStore": "Trwałe miejsce przechowywania buforów i hooków tmux-compat oraz stanu rozmieszczenia/układu podziałów",
+      "storeDetails": "Klucze routingu podziałów to:",
+      "storeLastSplitSurface": "Mapuje UUID każdego obszaru roboczego na UUID powierzchni utworzonej przez ostatni podział. Inicjalizuje kotwicę kolumny agentów, która określa miejsce kolejnego podziału main-vertical.",
+      "storeMainVerticalLayouts": "Mapuje UUID każdego obszaru roboczego na <mainSurfaceId>mainSurfaceId</mainSurfaceId> (główną lub wiodącą powierzchnię) oraz <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (najniższą powierzchnię w kolumnie agentów). Kolejne podziały członków zespołu są kierowane do tej kolumny i układane w dół.",
+      "storeTroubleshooting": "Sprawdź te klucze routingu, gdy panel członka zespołu pojawia się jako karta za istniejącą powierzchnią zamiast jako podział obok niej."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Szybki start",
@@ -842,8 +919,8 @@
       "concepts": "Koncepty",
       "anchorTitle": "Kotwicowy workspace",
       "anchorDesc": "Każda grupa należy do dokładnie jednego workspace'a zwanego kotwicą. Nagłówek grupy w pasku bocznym jest reprezentacją kotwicy — nie ma dla niej osobnego wiersza. Kliknięcie obszaru nazwy w nagłówku ustawia fokus na panelach kotwicy; kliknięcie strzałki przełącza zwinięcie.",
-      "anchorNew": "Kotwice są zawsze całkowicie nowe w momencie utworzenia grupy. Nigdy nie są awansowane z istniejącego workspace'a. Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a przy grupowaniu zaznaczenia lub z aktywnego workspace'a przy tworzeniu za pomocą CLI bez --cwd.",
-      "anchorClose": "Zamknięcie kotwicowego workspace'a rozwiązuje grupę: każdy pozostały członek staje się niezgrupowanym workspace'em i pozostaje na liście kart. Nic poza samą kotwicą nie jest zamykane. Przed tym aplikacja wyświetla okno potwierdzenia z przełącznikiem „Nie pytaj ponownie”.",
+      "anchorNew": "Kotwicą grupy jest w chwili jej tworzenia zawsze zupełnie nowy workspace; ani grupowanie zaznaczenia, ani tworzenie grupy nigdy nie powodują awansu żadnego z istniejących workspace'ów do roli kotwicy. (Późniejsze zamknięcie kotwicy awansuje jednak pierwszego pozostałego członka grupy; zobacz poniżej). Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a podczas grupowania zaznaczenia lub z aktywnego workspace'a podczas tworzenia przez CLI bez --cwd.",
+      "anchorClose": "Zamknięcie kotwicowego workspace'a zamyka tylko ten workspace i awansuje pierwszego pozostałego członka grupy (pierwszego, który nadal znajduje się w kolejności grupy) do roli nowej kotwicy. Dzięki temu grupa i jej pozostali członkowie pozostają nienaruszeni (awansowany członek wyświetla następnie nazwę grupy jako nagłówek). Gdy kotwica jest jedynym workspace'em w grupie, grupa zostaje usunięta. Aby przekształcić grupę w niezgrupowane workspace'y, użyj „Rozgrupuj przestrzenie”; aby zamknąć wszystkie workspace'y w grupie, użyj „Usuń grupę”.",
       "identityTitle": "Tożsamość grupy",
       "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
       "pinningTitle": "Przypinanie",
@@ -945,7 +1022,8 @@
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",
@@ -970,7 +1048,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
@@ -1383,7 +1461,16 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "versionTitle": "cmux {version} · Historia zmian",
+      "releaseNavLabel": "Wydania w pobliżu cmux {version}",
+      "sections": {
+        "added": "Dodano",
+        "changed": "Zmieniono",
+        "fixed": "Naprawiono",
+        "removed": "Usunięto",
+        "contributors": "Współtwórcy"
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",
@@ -1411,7 +1498,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Dodaj własne kontrolki TUI do prawego paska bocznego cmux za pomocą Dock JSON.",
       "title": "Dock",
-      "intro": "Dock pozwala dodawać kontrolki TUI do prawego paska bocznego. Każda kontrolka jest poleceniem z JSON i renderuje się we własnej sekcji terminala opartej na Ghostty. Użyj tego dla feedów, logów, kolejek, statusu git, serwerów deweloperskich lub dowolnego TUI, które zespół chce mieć przy każdym workspace.",
+      "intro": "Dock pozwala dodawać kontrolki terminala i przeglądarki do prawego paska bocznego. Kontrolki terminala uruchamiają polecenia w sekcjach opartych na Ghostty, a kontrolki przeglądarki osadzają strony internetowe. Użyj go do feedów, logów, kolejek, statusu git, serwerów deweloperskich, pulpitów lub stron referencyjnych, które zespół chce mieć przy każdym workspace.",
       "configTitle": "Konfiguracja",
       "configIntro": "cmux szuka konfiguracji Dock w tej kolejności:",
       "projectConfig": "dla bieżącego repozytorium, najbliższego projektu nadrzędnego oraz zagnieżdżonych katalogów projektów.",
@@ -1425,9 +1512,12 @@
       "descriptionHeader": "Opis",
       "fieldId": "Stabilny, unikalny identyfikator kontrolki. Niech będzie krótki i nie używaj go ponownie dla innego polecenia.",
       "fieldTitle": "Etykieta widoczna w nagłówku Dock.",
-      "fieldCommand": "Polecenie uruchamiane w terminalu Dock. Startuje w login shell.",
+      "fieldCommand": "Polecenie uruchamiane w terminalu Dock. Wymagane dla kontrolek terminala i uruchamiane w powłoce logowania.",
+      "fieldType": "Opcjonalny typ kontrolki: terminal (domyślny) lub browser.",
+      "fieldUrl": "Strona do otwarcia. Wymagana dla kontrolek przeglądarki.",
+      "fieldChrome": "Opcjonalna widoczność interfejsu przeglądarki. Domyślnie true; false ukrywa pasek adresu i pasek narzędzi, sprawia, że „Ustaw fokus na pasku adresu” nie działa w tym panelu, a cmux browser goto/reload pozostają dostępne.",
       "fieldCwd": "Opcjonalny katalog roboczy. Ścieżki względne są rozwiązywane od katalogu głównego projektu dla konfiguracji projektowych albo od katalogu domowego dla konfiguracji globalnych.",
-      "fieldHeight": "Opcjonalna żądana wysokość terminala w punktach. Kontrolki bez height dzielą pozostałe miejsce.",
+      "fieldHeight": "Opcjonalna wysokość kontrolki. Kontrolki bez height współdzielą pozostałe miejsce.",
       "fieldEnv": "Opcjonalne zmienne środowiskowe przekazywane tylko do tej kontrolki.",
       "sharingTitle": "Udostępnianie zespołowi",
       "sharingIntro": "Dock jest zaprojektowany do udostępniania przez source control, gdy polecenia należą do repozytorium.",
@@ -1437,7 +1527,7 @@
       "agentPromptTitle": "Poproś agenta o konfigurację",
       "agentPromptIntro": "Użyj tego promptu, gdy chcesz, aby agent kodujący utworzył kontrolki Dock. Poleca agentowi uruchomić `cmux docs dock`, sprawdzić projekt i zapytać przed zgadywaniem.",
       "agentPromptCodeTitle": "Prompt dla agenta",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Przywracanie sesji",
@@ -1495,10 +1585,16 @@
       "flagName": "Flaga",
       "flagDesc": "Opis",
       "flagNameVal": "Ustaw tytuł obszaru roboczego",
+      "flagCommand": "Uruchom tekst polecenia jeden raz w początkowym zdalnym terminalu po starcie powłoki",
       "flagPort": "Port SSH (domyślnie 22)",
       "flagIdentity": "Ścieżka do pliku tożsamości",
       "flagSshOption": "Przekaż dowolne opcje SSH (np. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transport terminala interaktywnego: ssh (domyślnie) lub mosh",
       "flagNoFocus": "Utwórz obszar roboczy bez przełączania się na niego",
+      "moshTitle": "Transport terminala Mosh",
+      "moshDesc": "Użyj cmux ssh user@remote --transport mosh, gdy terminal interaktywny ma przetrwać zmiany Wi-Fi, VPN lub hotspotu oraz uśpienie i wybudzenie. Mosh przenosi tylko PTY terminala; SSH nadal obsługuje zdalne metadane, konfigurację i sterowanie usługą cmux, proxy przeglądarki, przesyłanie plików i ponowne łączenie.",
+      "moshFallback": "cmux wymaga lokalnie Mosh 1.4 lub nowszego i przed uruchomieniem sprawdza zdalny mosh-server. Jeśli klient jest niedostępny lub niezgodny, brakuje serwera albo zdalne sprawdzenie się nie powiedzie, cmux wyjaśnia przyczynę i kontynuuje przez SSH.",
+      "moshTmux": "Utwórz workspace Mosh, który tworzy lub dołącza do nazwanej sesji tmux (domyślnie: main). Profil tmux jest zachowywany po ponownym połączeniu i odtworzeniu sesji aplikacji. To terminal tmux z roamingiem, a nie natywne lustro z cmux ssh-tmux. --session <name> wybiera sesję; pozostałe flagi są takie jak w cmux mosh. Bez Mosh ten sam profil działa przez SSH.",
       "deepLinksTitle": "Głębokie linki SSH",
       "deepLinksDesc": "Użyj głębokich linków cmux SSH, gdy witryna lub narzędzie chce zaoferować przycisk Otwórz w cmux. Link otwiera cmux, wyświetla monit o potwierdzenie, a następnie uruchamia równoważne polecenie cmux ssh po potwierdzeniu przez użytkownika.",
       "deepLinksWebFallbackDesc": "Użyj zastępczego adresu URL cmux.com dla przycisków witryny. Otwiera natywny link i pokazuje pobieranie, jeśli cmux nie jest zainstalowany.",
@@ -3494,7 +3590,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
+    "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
+    "signedOutSignIn": "Zaloguj się"
   },
   "platforms": {
     "macos": "macOS",
@@ -3507,8 +3605,8 @@
     "title": "Dołącz do listy oczekujących na {platform}",
     "titleAny": "Dołącz do listy oczekujących",
     "description": "Obsługa {platform} jest w drodze. Zostaw swój e-mail, a damy znać, gdy będzie gotowe.",
-    "descriptionAny": "Na razie cmux działa przede wszystkim na macOS. Zostaw e-mail, a powiadomimy Cię, gdy będzie gotowa wersja na Linux, Windows lub Android.",
-    "calloutText": "Wkrótce na Linux, Windows i Android.",
+    "descriptionAny": "Wybierz platformę, która nie została jeszcze wydana, i zostaw e-mail. Powiadomimy Cię, gdy ta wersja będzie gotowa.",
+    "calloutText": "Nadchodzą kolejne wersje cmux.",
     "platformsLabel": "Które platformy?",
     "selectPlatform": "Wybierz co najmniej jedną platformę.",
     "emailLabel": "E-mail",
@@ -3522,5 +3620,87 @@
     "successBody": "Wyślemy Ci e-mail, gdy wersja na {platform} będzie gotowa.",
     "successBodyAny": "Wyślemy Ci e-mail, gdy cmux będzie gotowy na Twoją platformę.",
     "done": "Gotowe"
+  },
+  "browserDownloads": {
+    "eyebrow": "Przeglądarka cmux",
+    "title": "cmux dla {platform}",
+    "tagline": "Przeglądarka Chromium i przestrzeń robocza dla agentów, stworzone jako jedna całość.",
+    "logoAlt": "Ikona aplikacji cmux",
+    "featuresTitle": "Stworzone do pracy z agentami",
+    "features": {
+      "chromium": {
+        "title": "Prawdziwy Chromium",
+        "description": ": karty, renderowanie, rozszerzenia i działanie omniboksa na poziomie Chrome"
+      },
+      "workspaces": {
+        "title": "Przestrzenie robocze według zadań",
+        "description": ": organizuj karty internetowe i narzędzia wokół zadania zamiast na jednej niekończącej się liście kart"
+      },
+      "terminals": {
+        "title": "Powierzchnie terminala",
+        "description": ": korzystaj z powłok i kart przeglądarki w tym samym oknie i kompozytorze"
+      },
+      "openSource": {
+        "title": "Bezpłatne i open source",
+        "description": ": przeglądaj kod, zgłaszaj problemy i buduj ze źródeł na GitHubie"
+      }
+    },
+    "installTitle": "Instalacja",
+    "releaseTitle": "Wydania i aktualizacje",
+    "releaseBody": "Te linki zawsze prowadzą do najnowszego wydania nightly w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
+    "sourceLink": "Zobacz kod źródłowy na GitHubie",
+    "otherPlatform": "cmux dla {platform}",
+    "macLink": "Terminal cmux dla Maca",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Pobierz cmux dla Windows",
+      "metaDescription": "Pobierz cmux dla Windows x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
+      "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i znanymi skrótami klawiaturowymi Windows.",
+      "primaryCta": "Pobierz instalator (.exe)",
+      "secondaryCta": "Przenośny ZIP",
+      "requirements": "Windows 10 lub nowszy · x64",
+      "installBody": "Uruchom instalator i postępuj zgodnie z komunikatami Windows. Wybierz przenośny ZIP, jeśli wolisz przechowywać cmux w folderze bez instalacji w całym systemie."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Pobierz cmux dla Linux",
+      "metaDescription": "Pobierz cmux dla Linux x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
+      "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i zintegrowanymi powierzchniami terminala.",
+      "primaryCta": "Pobierz instalator z automatycznymi aktualizacjami (.run)",
+      "secondaryCta": "Pakiet Debiana (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Witamy w cmux Pro 🎉",
+      "fallbackName": "przyjacielu",
+      "greeting": "Cześć {name},",
+      "thanks": "Dziękujemy za dołączenie do cmux Pro! Nadal dopracowujemy pełne doświadczenie Pro, a dostęp do chmury pojawi się już wkrótce.",
+      "cloudStatus": "Gdy uruchomimy dostęp do chmury, dodamy do Twojego konta kredyty na wykorzystanie odpowiadające liczbie miesięcy subskrypcji.",
+      "currentBenefit": "W międzyczasie korzyścią Pro jest wcześniejszy dostęp do cmux na iOS. Zarejestruj się przez poniższy link, a po rejestracji Apple wyśle Ci zaproszenie do TestFlight.",
+      "testflightLink": "Zarejestruj się w TestFlight: {url}",
+      "testflightLinkLabel": "Zarejestruj się w TestFlight",
+      "signoff": "Cieszymy się, że jesteś z nami!\nZespół cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro jest aktywny",
+    "title": "Witamy w cmux Pro",
+    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "done": "Przejdź do panelu",
+    "steps": {
+      "iosApp": {
+        "title": "Aplikacja cmux na iOS",
+        "body": "Korzystaj z cmux na telefonie.",
+        "action": "Dołącz do bety iOS"
+      },
+      "billing": {
+        "title": "Zarządzaj planem",
+        "body": "Sprawdź plan, faktury i opcje anulowania.",
+        "action": "Zarządzaj planem"
+      }
+    }
   }
 }

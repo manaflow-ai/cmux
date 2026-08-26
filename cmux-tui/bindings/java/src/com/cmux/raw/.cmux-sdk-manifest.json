@@ -1,0 +1,1479 @@
+{
+  "files": [
+    {
+      "path": "AgentChangedEvent.java",
+      "sha256": "541d7a39ee461d670c8827a7dc33d61a67f35fc3c4a62194cd5f44db5b2ff837",
+      "size": 5113
+    },
+    {
+      "path": "AgentRecord.java",
+      "sha256": "eef00432f4ddccf77ea227a7a744562bb05d4d529c03e789caaf21bb4a8969be",
+      "size": 4707
+    },
+    {
+      "path": "AgentReportSource.java",
+      "sha256": "ee0be2214a26bd90a0c8abe02a3fd8095757435430340eccaabe76c2f9c40c49",
+      "size": 905
+    },
+    {
+      "path": "AgentSource.java",
+      "sha256": "12a0632899112247c99f6ed82d4441fa215437f458a6d4550b95131a779a2494",
+      "size": 901
+    },
+    {
+      "path": "AgentState.java",
+      "sha256": "8383831bbfbe634fc714b7ab582789b4ead7711a4947f1efb67af66c3c30342a",
+      "size": 938
+    },
+    {
+      "path": "AppliedPane.java",
+      "sha256": "a6713fb889bfe7e3d33e48ab7e5b3c41010a003c60bac0228adaab6e9790cb7f",
+      "size": 2522
+    },
+    {
+      "path": "ApplyLayoutRequest.java",
+      "sha256": "a1977345fc5b13ce60e4e651ba0a3167ba082155fe9deb93ae5e8f7fdec6ec6b",
+      "size": 4511
+    },
+    {
+      "path": "ApplyLayoutResult.java",
+      "sha256": "e32f7825203bf6dec087d9874b663d1883b7613cb86f082ae51af2f7be56dd56",
+      "size": 2674
+    },
+    {
+      "path": "AttachSurfaceRequest.java",
+      "sha256": "21964b4a58af6d2a01e046fad3a300086a0c7d21200072fa3c02d5fbf3f60a3f",
+      "size": 3906
+    },
+    {
+      "path": "AttachSurfaceRequestMode.java",
+      "sha256": "f53e6886af508945316ea8cf467e7714f9a9924220e5f94ceec2c95f27db7e41",
+      "size": 942
+    },
+    {
+      "path": "AttachedViewOutcomeResult.java",
+      "sha256": "87ebc317264038b895e72b442631b1bebf64ff7ee754823dc71345aa96912ea4",
+      "size": 2069
+    },
+    {
+      "path": "AttachedViewResizeResult.java",
+      "sha256": "f772496cb4c4e1a3a10a6cc963ce0da854ebf6c2eab494116cfc1c58fd8b2131",
+      "size": 3611
+    },
+    {
+      "path": "Authority.java",
+      "sha256": "fc01e4b9773129763f6ecc065046e2793716f06ad248cf12a12d51a98f29982a",
+      "size": 422
+    },
+    {
+      "path": "BellEvent.java",
+      "sha256": "f2dff6a6b56f32556c0ddb8f61c2ad50f940652db09fdc79110f0b087c384147",
+      "size": 2178
+    },
+    {
+      "path": "BrowserActivateRequest.java",
+      "sha256": "6bdb2c997a17d53d400628e0c82d03f47834209c8063e6caf8d081ad6c55a1d3",
+      "size": 2077
+    },
+    {
+      "path": "BrowserAttachEvent.java",
+      "sha256": "15cc5b9e2f08ff5c088cfc822098a17d8c33acd2f8e5a6cb47598b985b78ac27",
+      "size": 146
+    },
+    {
+      "path": "BrowserBackRequest.java",
+      "sha256": "9eae7758f4d01a29409bdb0f87a61547f406b2983efd99ae13dec624423029ec",
+      "size": 2037
+    },
+    {
+      "path": "BrowserForwardRequest.java",
+      "sha256": "af682acb19426fd2a117d5f5317c65fa7b8f3f7a1853d80f8036f070a0292a1a",
+      "size": 2067
+    },
+    {
+      "path": "BrowserFrame.java",
+      "sha256": "b6a27d5bc5821461cabe8f5a8a391dc8d23cdc570292945d9c1787fcafe40e73",
+      "size": 3685
+    },
+    {
+      "path": "BrowserFramePresentedRequest.java",
+      "sha256": "d13ea05e454932fb68c74f5b91c11865afdc781c60e1a7b68e1eeac289412004",
+      "size": 2874
+    },
+    {
+      "path": "BrowserInsertTextRequest.java",
+      "sha256": "e6b838929321e8b33789e6c337d8110a2b25dc83ed9ed68bf9c9672047bc0372",
+      "size": 2732
+    },
+    {
+      "path": "BrowserKeyPressRequest.java",
+      "sha256": "a870589137b0ca07a2611de3ad592f00eb3f9bf8f423feb04c17e0427f12c4f0",
+      "size": 5614
+    },
+    {
+      "path": "BrowserKeyRequest.java",
+      "sha256": "ec68a325dbcd465d165f4d65336cc90947358ff3d431a2c1c0df2a441e01f019",
+      "size": 6217
+    },
+    {
+      "path": "BrowserKeyRequestKind.java",
+      "sha256": "0409caaac082385bb31611c843bfb224eeac0dc9f3decd612dec30da2899ee54",
+      "size": 917
+    },
+    {
+      "path": "BrowserMouseGuardedRequest.java",
+      "sha256": "7c474e434a40053dab3de3778ec64771469f6feed98a32f45b0cc43668ff9b60",
+      "size": 6122
+    },
+    {
+      "path": "BrowserMouseGuardedRequestKind.java",
+      "sha256": "94b87d94f94110ae079c7fbd3a932dbcd829a70dd4915a12598a85a616ba91fd",
+      "size": 980
+    },
+    {
+      "path": "BrowserMouseRequest.java",
+      "sha256": "358061bec842183be8ca86132f5e55b3b3ff6c296aa2343248843940d182f76e",
+      "size": 5928
+    },
+    {
+      "path": "BrowserMouseRequestKind.java",
+      "sha256": "9cae3ef65930fadb615e28a9b8d1ac70d512cc05f1521e1904e0d6dbe750c49e",
+      "size": 945
+    },
+    {
+      "path": "BrowserNavigateRequest.java",
+      "sha256": "71f25720bd792d1f0c6efa5d3b34dae1b210bbb27391d99725186d0b0a4cf73f",
+      "size": 2686
+    },
+    {
+      "path": "BrowserProviderAuthentication.java",
+      "sha256": "960cdc007f18909987f57c620c7026a6344044b65c981451f653c1113e1e0113",
+      "size": 965
+    },
+    {
+      "path": "BrowserProviderSnapshot.java",
+      "sha256": "41370fb4c153461cf06148bb280bb7a1b1fc9ee406cfa7b2c9abc3eb490a1f55",
+      "size": 6364
+    },
+    {
+      "path": "BrowserProviderTarget.java",
+      "sha256": "92223fa716b5b079729e7e229d4011f7813d46ab75fce3cf667e73572d0bcc5f",
+      "size": 2678
+    },
+    {
+      "path": "BrowserProviderUnregisterResult.java",
+      "sha256": "1c3c59d06ed6da8628dac232ace00a0010ce7887fa584bf99b5ff0dbf5dd9fcf",
+      "size": 2058
+    },
+    {
+      "path": "BrowserReloadRequest.java",
+      "sha256": "7284e39766972ad0bf7ea387163c689f260f8c4c0bd00e804f82c90c1fb26fa3",
+      "size": 2057
+    },
+    {
+      "path": "BrowserStateEvent.java",
+      "sha256": "4751b1e81f5ba6e1d953668787ed42d827e6b1bb71d6fe42d7d441b57ade5571",
+      "size": 7654
+    },
+    {
+      "path": "BrowserStateEventStatus.java",
+      "sha256": "1c9fa76acb8a8d3e601ef992cc3f471e5ae27ff2ce99c9a7448dedc8f84a4b14",
+      "size": 961
+    },
+    {
+      "path": "BrowserWheelGuardedRequest.java",
+      "sha256": "aca2569f6c9e3b810f30ac2b3ec477ee14f5e5e9d85b03327683d7b8ea74a815",
+      "size": 4757
+    },
+    {
+      "path": "BrowserWheelRequest.java",
+      "sha256": "a19fbb55f9ab11822cdfa58d4e8802c9f130de5576291f2dec280a691a6b1df3",
+      "size": 4605
+    },
+    {
+      "path": "ByteAttachEvent.java",
+      "sha256": "484c82a9037d343d88978a3b735d3bf2e9d2f30b73b1a86f1b0318be8d406a43",
+      "size": 143
+    },
+    {
+      "path": "CellPixelFailure.java",
+      "sha256": "f9734ed366131510c733b3fa1c55afd00896c54486616efb0e05147e63bee20a",
+      "size": 2595
+    },
+    {
+      "path": "CellPixelResize.java",
+      "sha256": "154b12d0dfa1f306a9bcaf0e40d98ca2a9986ad4091e1ef5b86779919f43df21",
+      "size": 3964
+    },
+    {
+      "path": "CellPixelSurface.java",
+      "sha256": "1c8c5bfa39d949770a5a6ceafd4e95b3bc383ea59b6d05319019e742c044b828",
+      "size": 3300
+    },
+    {
+      "path": "ClearHistoryRequest.java",
+      "sha256": "ffc80cfcdf28e7c70a8caf1416776000f2dcb237635c9d163101d65868dd9c8f",
+      "size": 2798
+    },
+    {
+      "path": "ClearWindowTitleRequest.java",
+      "sha256": "ca1b50cf3003e4f36533d1adaed63bdd15efa035ff021ce496974114ac2c16b5",
+      "size": 1395
+    },
+    {
+      "path": "ClientAttachedEvent.java",
+      "sha256": "a4c1fe8ca01d1c033acdcdb6b75b02d24988402e37b0dd087e627405c095567b",
+      "size": 4388
+    },
+    {
+      "path": "ClientAttachedEventTransport.java",
+      "sha256": "38048973dac04e49e36ee72009ae186f7783215aa5b41b93703f192dbc6cc974",
+      "size": 952
+    },
+    {
+      "path": "ClientChangedEvent.java",
+      "sha256": "237bba9450d5f760e8707f118650df2c21655b396523d9aca666880978d089d2",
+      "size": 3547
+    },
+    {
+      "path": "ClientDetachedEvent.java",
+      "sha256": "e85702261f789466ff08ee9864e7c83283b0a421ea4d49a9531b709632ba92af",
+      "size": 2299
+    },
+    {
+      "path": "ClientFocusRequest.java",
+      "sha256": "843a7b8aded3614f09ddef26d9d53c5422baa8409cc83c5a1478895416bc1daf",
+      "size": 2065
+    },
+    {
+      "path": "ClientFocusResult.java",
+      "sha256": "5ed65119865675991c911c55bf994c7546d46485f79b942dc0082d1113548399",
+      "size": 2496
+    },
+    {
+      "path": "ClientInfo.java",
+      "sha256": "488f27748f93986685a411376bae1d1b7f99b0637e7cc4d2a991a6f91105ba48",
+      "size": 6909
+    },
+    {
+      "path": "ClientListInvalidatedEvent.java",
+      "sha256": "e30a82536a0944941d7aff59cf833e9e15e9d7ee9d16e5c28ee772f028769390",
+      "size": 1729
+    },
+    {
+      "path": "ClientSize.java",
+      "sha256": "88f589baf447ed47d12207db3d0d6aa13e5c8093f6c2fd2834b354a4cfaaa78f",
+      "size": 4036
+    },
+    {
+      "path": "ClientTransport.java",
+      "sha256": "f6bac34fbb6f3141d7d82bb4777e822ce73c6c3da7f161a845a5267f4ff89343",
+      "size": 907
+    },
+    {
+      "path": "ClosePaneRequest.java",
+      "sha256": "b30ac6be65c5aa54d48f638593efc6804888b2e0e1ee7305efe3d5e28c4c37e4",
+      "size": 1947
+    },
+    {
+      "path": "CloseProviderManagedWorkspaceRequest.java",
+      "sha256": "735776b78f503e9b8cad41bb4cd6df858b79cf3b603987d0d7b7daa71f3d3b6d",
+      "size": 3659
+    },
+    {
+      "path": "CloseScreenRequest.java",
+      "sha256": "18e537d215bde1addd2c7ee4366d1d69bf6d9d5a5cad1585571ee47aaef2f9bf",
+      "size": 2013
+    },
+    {
+      "path": "CloseSurfaceRequest.java",
+      "sha256": "393c2e92cd8969d83c221db5eed9a9b546f8bf014fbce242309592677607750a",
+      "size": 2046
+    },
+    {
+      "path": "CloseTerminalRequest.java",
+      "sha256": "30578b547046e5a669fa0a38ca79d26b15b0e7d840aa24cb4da6d85d9083bf8b",
+      "size": 6112
+    },
+    {
+      "path": "CloseTerminalResult.java",
+      "sha256": "529fea53fea646a5e972a48948230df0adc0f3c88d9f5cfb64c235338981a5f6",
+      "size": 7216
+    },
+    {
+      "path": "CloseWorkspaceRequest.java",
+      "sha256": "3322e405b74a7cbe0e8c09e1c11c286b6154923963584db5310c848354c1647c",
+      "size": 5723
+    },
+    {
+      "path": "ColorsChangedEvent.java",
+      "sha256": "3ffeb925757611be3469a23e1207e52e8d10c88badecbd324f8e275ecffe658c",
+      "size": 7860
+    },
+    {
+      "path": "CommandMetadata.java",
+      "sha256": "3e3320fe5a1bcaf9edf0e06424706fb95564716704af87bcdd3b531fb2de74dd",
+      "size": 471
+    },
+    {
+      "path": "Commands.java",
+      "sha256": "b2922298c586caeea2078d0c3cbca52965edb9399aca0322b6186852b2d07e73",
+      "size": 24992
+    },
+    {
+      "path": "ConfigReloadRequestedEvent.java",
+      "sha256": "94151605f14bdd6c8913f5eaa2b1b3046fc40f33d1998065c0d2cbfba0573bc8",
+      "size": 1729
+    },
+    {
+      "path": "CopyRequest.java",
+      "sha256": "98d5e03c2fc7935bada280db4c43017d56bc4e12182228c2af9d17cc19e71b9a",
+      "size": 2615
+    },
+    {
+      "path": "CopyRequestMode.java",
+      "sha256": "81e55b07112e4e7e10a55197c3f87eeff633cf71ed0e72ad6beff09e417c8a31",
+      "size": 935
+    },
+    {
+      "path": "CopyResult.java",
+      "sha256": "8a2a2b4b11ed160321e0abafc6fac5250495855060b8d3ce7757cf7eb1aceb0a",
+      "size": 2468
+    },
+    {
+      "path": "CopyResultMode.java",
+      "sha256": "e2543ef2d7ec3a891ce114e220711ab624d729c371e0e0bbbb2ee59e5e77f911",
+      "size": 930
+    },
+    {
+      "path": "CreateSurfaceWithReceiptRequest.java",
+      "sha256": "21b7225cb4e96ad1bb84069800aecd24f594e42878733a381d15c3d5adba53e3",
+      "size": 11138
+    },
+    {
+      "path": "CreateTerminalRequest.java",
+      "sha256": "7c5098deaafd5e45672c7d245e3ee68f6e22b48e30bbc98d6fe5b088599d1e5a",
+      "size": 10163
+    },
+    {
+      "path": "CreateWorkspaceRequest.java",
+      "sha256": "47d11d6e3dea7da0b281b3147704be392f4041c3af311e323c8327dece14fc8e",
+      "size": 5638
+    },
+    {
+      "path": "CursorStyle.java",
+      "sha256": "a1cf587b8592e9acf5c4350017f319371cac94b8d2d2e4148d759588cc0a3acf",
+      "size": 899
+    },
+    {
+      "path": "DeadPane.java",
+      "sha256": "fd0369d02f9cf43eb0475112fb7cb5ebe682d4e7b067f2eb6e7556f2f34a88d6",
+      "size": 1963
+    },
+    {
+      "path": "DeclarativeLayout.java",
+      "sha256": "c85afcbe2f2be368eec5831d2b1ec727041be94894c7dc905d428a52a7faade5",
+      "size": 739
+    },
+    {
+      "path": "DeclarativeLayoutLeaf.java",
+      "sha256": "7132f8a7830d4d9e82d16bfef28a30509da8d5355c58ae2f6f2216b13907586e",
+      "size": 2879
+    },
+    {
+      "path": "DeclarativeLayoutSplit.java",
+      "sha256": "ee60f0ab92b87af0922ac14c3b4d337334c7d625fb6b7e56ec87b58183ac6682",
+      "size": 3988
+    },
+    {
+      "path": "DeclarativeLayoutStack.java",
+      "sha256": "5d3279a8a05ff9f2b423ebeca1f692d3328a6d7259b13a866fa02bc59bf21a58",
+      "size": 3023
+    },
+    {
+      "path": "DeltaStreamEvent.java",
+      "sha256": "9d68d517c7ed2b02c67d7af1411089a9587bb52633de04653d514df28518ea9b",
+      "size": 145
+    },
+    {
+      "path": "DetachAttachedViewRequest.java",
+      "sha256": "caebc2c0bee7862b2784264305106ceaec9a357ca4c747056450dc80dedd0be7",
+      "size": 2767
+    },
+    {
+      "path": "DetachClientRequest.java",
+      "sha256": "e2fecde96fa9445b0d058725b8520410f644e5b6437b712b8cbb23624fea8425",
+      "size": 2023
+    },
+    {
+      "path": "DetachedEvent.java",
+      "sha256": "bd496b58a85db47f454483ee0be34d3b7d4040638c703d7ba94c56f32ff46e68",
+      "size": 2289
+    },
+    {
+      "path": "EmptyEvent.java",
+      "sha256": "e02cc1ac66e2fd3de29acf244b96e9ba6fba9313a25365bf45b68d956064eb60",
+      "size": 1513
+    },
+    {
+      "path": "EmptyResult.java",
+      "sha256": "87a00f2c9e7fced48eb4b9ba978841578e424d74cccd82fc23f6a42d67880278",
+      "size": 1221
+    },
+    {
+      "path": "EventMetadata.java",
+      "sha256": "c533b416f71681543eb593aed7a3f2709e8a5147d65d9629fb2e11ae92a49a55",
+      "size": 310
+    },
+    {
+      "path": "Events.java",
+      "sha256": "71c5c3389dd353275d2820e385d869a46006b00fdc41064cb6b6ddc4754b2e8e",
+      "size": 9039
+    },
+    {
+      "path": "ExportLayoutRequest.java",
+      "sha256": "766b2eb060c2ed112abb21be9dbf983310f0fd048db597836311f58590617f85",
+      "size": 1979
+    },
+    {
+      "path": "ExportLayoutResult.java",
+      "sha256": "27e8fe3102008b2d3c934ef2f70eabebbda04d534a6d83abb48b357b61303b12",
+      "size": 2664
+    },
+    {
+      "path": "ExportedPane.java",
+      "sha256": "a494cbfbb79dee84b8527ec32e898eba554a9ef586aac89ad7fecd91ab7044f7",
+      "size": 2648
+    },
+    {
+      "path": "FocusDirectionRequest.java",
+      "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
+      "size": 2577
+    },
+    {
+      "path": "FocusDirectionResult.java",
+      "sha256": "827cd11dc06f6d9025ff0037933909b6f0b39f06416146a3a7b38f608d4b8caf",
+      "size": 1913
+    },
+    {
+      "path": "FocusPaneRequest.java",
+      "sha256": "cb72e80e97f65aaa871300a6361fe522ee91a97e0692daae4e67cf64e00d3918",
+      "size": 1947
+    },
+    {
+      "path": "FrameEvent.java",
+      "sha256": "d53af0f648ee8db617e191ced7c871e368d5a01b192282c9525f50d158d0b70f",
+      "size": 4641
+    },
+    {
+      "path": "FrontendFocusTarget.java",
+      "sha256": "a3b3f06559645e967dfac2160207be7b61b36d48f5d63028c54c825d934bdaf7",
+      "size": 1033
+    },
+    {
+      "path": "FrontendJournalEvent.java",
+      "sha256": "7aedd12937e31a202dd4c857be11cf84ed13ce6cff2d3d0a66253d7be4ad7d32",
+      "size": 773
+    },
+    {
+      "path": "FrontendJournalEventFocus.java",
+      "sha256": "34bee4295d467a7b452f23d748cfbd8081b4207fb4ce5efbe8e58fbf83f74b21",
+      "size": 8163
+    },
+    {
+      "path": "FrontendJournalEventResize.java",
+      "sha256": "9f3017c47b09bd68e80e4938002c19e5146e2c25f9694d814a8413fc7c30a79f",
+      "size": 6758
+    },
+    {
+      "path": "FrontendJournalEventViewport.java",
+      "sha256": "02a38bb0aa4ab38ce91bb450bb3104887e8cb390a9e8c50d6eac84609c47da06",
+      "size": 6849
+    },
+    {
+      "path": "FrontendProjection.java",
+      "sha256": "354e5556dbdb9a9c9cec08e3fdeb5c90545ca08bc1939ea80be88ec06c983632",
+      "size": 6598
+    },
+    {
+      "path": "FrontendProjectionChangedEvent.java",
+      "sha256": "dc17be6a145235bc5115819df7cea9ff08aed3e553f6b8ac9c1b1889691675e4",
+      "size": 6385
+    },
+    {
+      "path": "GeneratedCmuxClient.java",
+      "sha256": "154ab10e94f06c8cec8861331c70903b93d6cc5dffe0c8469a6990b7692cc9b1",
+      "size": 24183
+    },
+    {
+      "path": "GetBrowserProviderRequest.java",
+      "sha256": "24d77078eb5243b6944911fbadabe0622f74fb678e8056724732f9bbcbb74a01",
+      "size": 1418
+    },
+    {
+      "path": "GetCellPixelsRequest.java",
+      "sha256": "bdd5e6d52e1c900f523cc688ff381e91f0566b5fc6a822ce824b84787257dc0c",
+      "size": 1369
+    },
+    {
+      "path": "GetCellPixelsResult.java",
+      "sha256": "d29e71cb2e5f6ada5e49e14496576397f67f5a202cb042fadd48555f19333fa1",
+      "size": 3473
+    },
+    {
+      "path": "GetFrontendProjectionRequest.java",
+      "sha256": "f5ed502bdb2612a465c16ff64056d8f9b4f17bc4b093c02718fdc605d7a1b8b9",
+      "size": 3602
+    },
+    {
+      "path": "GraphicsStatusEvent.java",
+      "sha256": "a53bd8d72dd6c0b4b618d1c9bc43aa15840ee6b18daa65de41221b8e7422a506",
+      "size": 6890
+    },
+    {
+      "path": "GraphicsStatusEventKind.java",
+      "sha256": "47503857ebc1b24813505e9f47dad13f23477bac6a38c90887be3bf3dd70f52c",
+      "size": 1135
+    },
+    {
+      "path": "IdMapping.java",
+      "sha256": "e35ddb332efca399d079c362172f47ba1053f917077d86c3ef62652c254b2403",
+      "size": 3101
+    },
+    {
+      "path": "IdMappingKind.java",
+      "sha256": "87c14962c5e33751f065b25be7556d889fa150f42307cea8a1b53cc2e84a5c06",
+      "size": 937
+    },
+    {
+      "path": "IdentifyRequest.java",
+      "sha256": "d4f60f090c8924ff3052cfe80a5a0cc17954f9a76063cd315ba5b9ecb158812b",
+      "size": 1321
+    },
+    {
+      "path": "IdentifyResult.java",
+      "sha256": "01d12a8f161f06e624efd559b338cb7fccafe511aef96e0cc091b35098566702",
+      "size": 10786
+    },
+    {
+      "path": "IdsRequest.java",
+      "sha256": "5b06cd97d61151273629225c7a3551c1ad4111a67bea3efcb7a7aae5f67ed6d4",
+      "size": 1873
+    },
+    {
+      "path": "IdsRequestKind.java",
+      "sha256": "47a1694f68de1318ce2fe70491c728be1a22e66482ed6520b7190c2cee7870c6",
+      "size": 942
+    },
+    {
+      "path": "IdsResult.java",
+      "sha256": "e7d564deb5069396421c91febce6d1ac41475c2440efc3f21e58926241f6f625",
+      "size": 1873
+    },
+    {
+      "path": "JournalFrontendEventRequest.java",
+      "sha256": "38857e31920f4e6dd39606fbcd82b859a61c55d44de60c28dd871e54490b74af",
+      "size": 2119
+    },
+    {
+      "path": "JournalFrontendEventResult.java",
+      "sha256": "afb152fb35f7b7b7a7a87e335798db9567117381eb9ce326fc106f971ed61094",
+      "size": 1593
+    },
+    {
+      "path": "KittyGraphicsState.java",
+      "sha256": "0e848438699ec59e5e350eb366300d0013ebc245d8d68adfb57f5b36fe092e80",
+      "size": 9264
+    },
+    {
+      "path": "KittyImageAlias.java",
+      "sha256": "24f3178aefaad9b9bc8bb7c0116c5bda9b8e52fc9a873060f9e8a1b1f0167d4f",
+      "size": 2661
+    },
+    {
+      "path": "Layout.java",
+      "sha256": "648d2528387849a64a3827238cabdaa776471db4bd346d8d1ef54fd80b56be26",
+      "size": 651
+    },
+    {
+      "path": "LayoutChangedEvent.java",
+      "sha256": "73cad6c52efe673777c1cc8ee7247a300e7bf5df59d4c5fb8e83f8712015079e",
+      "size": 2285
+    },
+    {
+      "path": "LayoutLeaf.java",
+      "sha256": "145f573f6c5b2c78cc85baba7038fb2659e2d1896a80a3ba0d44b60b437b7aea",
+      "size": 2042
+    },
+    {
+      "path": "LayoutSplit.java",
+      "sha256": "424703677780650fbc0e9671ba2c49cb63ab2926b60f6e68a78d5a3a0249ce67",
+      "size": 4381
+    },
+    {
+      "path": "LayoutStack.java",
+      "sha256": "9beac7648d755599a1cfc406f3e8477f9423d4e65cb408ed88fcffbb0e00f4c2",
+      "size": 2880
+    },
+    {
+      "path": "LayoutUndoConfirmationRequired.java",
+      "sha256": "2fdaa1dcf19fae72465e5b79c869a64d5b8e45935acb60de8f949a6ec0912602",
+      "size": 4268
+    },
+    {
+      "path": "LayoutUndoResult.java",
+      "sha256": "26f30c464ff76875052fac5ae0d7b269c31264f78e0f23d665f38b7b57909123",
+      "size": 2506
+    },
+    {
+      "path": "LayoutUndoUndone.java",
+      "sha256": "7342e9191bd6f7cb5d4d9cbeaaabb22252b65a5eb7ba8fadba03a67e97b8c6b1",
+      "size": 3843
+    },
+    {
+      "path": "ListAgentsRequest.java",
+      "sha256": "8798571419ab03ce29101cb3bb786344dd3ec7f195c3cea91a27f211ada620c4",
+      "size": 2585
+    },
+    {
+      "path": "ListAgentsResult.java",
+      "sha256": "48105430322199612f1460f4e2dc3e9356be32477deeee548a42bba5f16547a4",
+      "size": 2015
+    },
+    {
+      "path": "ListClientsRequest.java",
+      "sha256": "6b8096e1ff9aa50a7895ee85244d76a526bfd42bf892c60cd3b299f66c59796e",
+      "size": 1349
+    },
+    {
+      "path": "ListTerminalsRequest.java",
+      "sha256": "4388307dac4244edbc36240493709adc3a5b1cedf3a8aa4024c869d73834656a",
+      "size": 1367
+    },
+    {
+      "path": "ListTerminalsResult.java",
+      "sha256": "20457e7b2a8903efb16005cb14393c293c6ab5c4677f4cdbd85b1193a1e39ab3",
+      "size": 4575
+    },
+    {
+      "path": "ListWorkspacesRequest.java",
+      "sha256": "11f2b1758a894dd565bd685d6b40936c05257771f39e5235dcdd01f47cd01875",
+      "size": 1376
+    },
+    {
+      "path": "LivePane.java",
+      "sha256": "65a6606f6c558c1acf113edbe09dfaa3360c573a4948c3d45519954a03d9ab87",
+      "size": 5040
+    },
+    {
+      "path": "MarkWorkspacesProviderManagedRequest.java",
+      "sha256": "dbc87645f2737dc605c2781747cb7b9b80dd464fc502f4f8d7fb7b04d4b7b473",
+      "size": 2275
+    },
+    {
+      "path": "MintTerminalRendererByTerminalRequest.java",
+      "sha256": "dc51740173526cc60375f80299ae6c753ba2dcdacb899e0712e79ce069dbc7cc",
+      "size": 2852
+    },
+    {
+      "path": "MintTerminalRendererRequest.java",
+      "sha256": "fcf2961cf08388970ae5c3782d64e71b8f1925bbefa2c0f29de9f4074f5fbf50",
+      "size": 2716
+    },
+    {
+      "path": "MintTerminalRendererResult.java",
+      "sha256": "61c148590d00f2e31a79d3911ced3f0963da72f3e15afe2f1d71c98bf512cf21",
+      "size": 6460
+    },
+    {
+      "path": "MoveTabRequest.java",
+      "sha256": "0abb9d5c154625a857be7e8a5aa033d7de1d1b972137c84b8bf1fe0fe51d0cce",
+      "size": 3267
+    },
+    {
+      "path": "MoveTerminalRequest.java",
+      "sha256": "67f4cf23f6a6c2290a0e87ae2eab96d56e06e2552efab99114b052bef5844654",
+      "size": 6915
+    },
+    {
+      "path": "MoveTerminalResult.java",
+      "sha256": "082f0ebde89ca7d0eda1f6325c0f79d5135b10f5af8b3a7d6ecbbd157a363fce",
+      "size": 11175
+    },
+    {
+      "path": "MoveWorkspaceRequest.java",
+      "sha256": "8f77fee5237a6a57f117d20bf657e76a8dcc8c609d99a3ca2dac62d01ce26e0c",
+      "size": 6361
+    },
+    {
+      "path": "NewBrowserTabRequest.java",
+      "sha256": "b75f3b0dfb06b7fcd2b1f22997b8257c2d96119c3dbcc07285ae01b059c4d185",
+      "size": 3749
+    },
+    {
+      "path": "NewPaneRequest.java",
+      "sha256": "ba971db8b38a687c7f1e160627e7ac36102d541e83faf9bf30c36b59cda54fb9",
+      "size": 3107
+    },
+    {
+      "path": "NewPaneRightRequest.java",
+      "sha256": "764fddc84e509c5632bb3999a2f6b6385758e7076f7541586e26468c9dbe1761",
+      "size": 3780
+    },
+    {
+      "path": "NewScreenRequest.java",
+      "sha256": "c0df7eabe937571619cb20852d9b89c6ddfaaf9e0c32400c543272a37cc9b8ff",
+      "size": 3193
+    },
+    {
+      "path": "NewTabRequest.java",
+      "sha256": "1f50958e47f1960f0680c3025308c650be52ff7b6eb0ea762cc99e5f5c0321fb",
+      "size": 3622
+    },
+    {
+      "path": "NewWorkspaceRequest.java",
+      "sha256": "2649675bdac7781dd2ec8ce1289e63cc4a3e36542e08ae947993c9972326b141",
+      "size": 3129
+    },
+    {
+      "path": "NotificationEvent.java",
+      "sha256": "55d14727fe45c9523c8556147bd4acf154a6ae7762795b2964b869e7b6ee1942",
+      "size": 5129
+    },
+    {
+      "path": "NotificationLevel.java",
+      "sha256": "443b78346bac75d46b686798116289de7c0dbf61fc80b70229c0a700a1be9a71",
+      "size": 927
+    },
+    {
+      "path": "NotificationMarker.java",
+      "sha256": "5ad17a1553f28d1cedbb460b0fe2355d665766748715d99e4caca6c425bfb9aa",
+      "size": 3413
+    },
+    {
+      "path": "NotifyRequest.java",
+      "sha256": "075fbb556334d50012818305a9c3375a1ed8ef6912b9fa002d333fc449e771cc",
+      "size": 3848
+    },
+    {
+      "path": "NotifyResult.java",
+      "sha256": "9ef5241eee3ac425a6c5b16b2c3e13eb564cfac4c250c1992455065ba5a454e4",
+      "size": 2025
+    },
+    {
+      "path": "OutputEvent.java",
+      "sha256": "dc501e8edc96e96f41d4d0f3fe0289638b096fa091dfcfdc639cdba71fb0a360",
+      "size": 3417
+    },
+    {
+      "path": "OverflowEvent.java",
+      "sha256": "56235262c6f96009773c6e61208f635fbdcdefc9dfd6ed32ef07724a938b1274",
+      "size": 3569
+    },
+    {
+      "path": "PairingRequestedEvent.java",
+      "sha256": "4198cb0c81d21846ca497bae1cfcf4627ffca04203e226317b4d1151511f7791",
+      "size": 4363
+    },
+    {
+      "path": "PairingResolvedEvent.java",
+      "sha256": "1f378af811b6f81bd0d138d93f39c8ad9d64c8062afa4870ad86df44ac0f85ac",
+      "size": 2336
+    },
+    {
+      "path": "PairingResponseRequest.java",
+      "sha256": "ec69f74c92ae9a29dcb79d4b7101dfbed1a3fcb81d7a7884aa3f94f0f088b63d",
+      "size": 2758
+    },
+    {
+      "path": "Pane.java",
+      "sha256": "02aec35983fab8ea110adf1e83dc28863f35d3fa4e4309763efba1d202be1b6e",
+      "size": 1993
+    },
+    {
+      "path": "PaneAddedEvent.java",
+      "sha256": "58b4fec77f28b355ad4e77af4b83bd19edf906d57ed36e937d5f086ee2c51994",
+      "size": 4885
+    },
+    {
+      "path": "PaneClosedEvent.java",
+      "sha256": "9c5ce731ba1e7bec7b8fa179df0385436fcdf46a04666877f874122c47806d88",
+      "size": 4902
+    },
+    {
+      "path": "PaneDirection.java",
+      "sha256": "99f89b4d8e1bd8eeb45839a6cdf835d214b4e251ac44924bd0f53d7bf44d030e",
+      "size": 915
+    },
+    {
+      "path": "PaneNeighborRequest.java",
+      "sha256": "e1b0335800c11d6d606226d23a50eb909f484b1110333007a94e41882a52341a",
+      "size": 2595
+    },
+    {
+      "path": "PaneNeighborResult.java",
+      "sha256": "278457e3f556c3b88fa832691156a8fb103f48600674b41a757a5815ee5ca443",
+      "size": 1898
+    },
+    {
+      "path": "PingRequest.java",
+      "sha256": "b72e9b6c0587db901dac4d17967260db93f82d0abd7f992a68061381dcff0710",
+      "size": 1285
+    },
+    {
+      "path": "PingResult.java",
+      "sha256": "33db8915404de53a8f81edd37b024d9bf360b25f30ebb75d48960ca506819ce0",
+      "size": 4254
+    },
+    {
+      "path": "ProcessInfoRequest.java",
+      "sha256": "d16de4af06635fb24ddfcddd1248fa0ef1e30b2592cac5a4177835f92abbc659",
+      "size": 2036
+    },
+    {
+      "path": "ProcessInfoResult.java",
+      "sha256": "5542d342c3efb421b8273d234ecf029b51a1ec853f7e78cd80cf7c273cbb3035",
+      "size": 4130
+    },
+    {
+      "path": "Protocol.java",
+      "sha256": "dd0a66fa9e5cb404d7055bd6918d057d3b8ce3943d7a6634aaed11f5ec42f20a",
+      "size": 4038
+    },
+    {
+      "path": "ProtocolEvent.java",
+      "sha256": "73664cdf32259ba592bccf1ddc31f8801c4173a581bf354df5dc29296445ae00",
+      "size": 184
+    },
+    {
+      "path": "ProtocolSupport.java",
+      "sha256": "706d4c4be2df7c7b629d19642c77374ef2492cb388046ce0e6661936907f8a85",
+      "size": 677
+    },
+    {
+      "path": "ProviderWorkspaceMutationResult.java",
+      "sha256": "92d2d877286137d3f7a07c26f01c375dd7ed984fe7d6c908690df26a61483409",
+      "size": 3690
+    },
+    {
+      "path": "PutFrontendProjectionRequest.java",
+      "sha256": "e9809b59609b29a72c222ab90ac5caa60fbbc7ad5bcc70832ca7f061092f945c",
+      "size": 9532
+    },
+    {
+      "path": "ReadScreenRequest.java",
+      "sha256": "ee023eca07f4ae0389717b3c455baa817ace428eea05d81fe04703ffde7e946f",
+      "size": 2026
+    },
+    {
+      "path": "ReadScreenResult.java",
+      "sha256": "3566eeb5cf219da2865f123d6b87d0e6c1dae272fb4552ea4f2fc28ef8428d56",
+      "size": 1877
+    },
+    {
+      "path": "ReadScrollbackRequest.java",
+      "sha256": "81e2d8672bd81b7bfcf83af093cafd7b2d8ada98b5c753cf00016d98381edb56",
+      "size": 3312
+    },
+    {
+      "path": "ReadScrollbackResult.java",
+      "sha256": "a0cb7c51adc7de08e1e8ad0fd4f42be2ecc8e6afbe738205af9253a190a6c5b5",
+      "size": 3892
+    },
+    {
+      "path": "RegisterBrowserProviderRequest.java",
+      "sha256": "acdfe2e16a16349f153a428278887b28b40c62fe52c5094ed366ff76963a80b1",
+      "size": 5504
+    },
+    {
+      "path": "ReleaseAttachedViewSizeRequest.java",
+      "sha256": "c1702edcb3b799556160255d068b92cb246162947e1920649f2019c217ff210f",
+      "size": 2823
+    },
+    {
+      "path": "ReleaseSurfaceSizeRequest.java",
+      "sha256": "3be2c7d9957c6ed54bf4536a09ed0f540a6762d301db09a7a7adb9ae95e533ad",
+      "size": 2107
+    },
+    {
+      "path": "ReloadConfigRequest.java",
+      "sha256": "15f808b94b92f425f8dcf93a6b8969c1f8476d6b787c0e180fc2e94d1b1d722c",
+      "size": 1358
+    },
+    {
+      "path": "ReloadConfigResult.java",
+      "sha256": "94b93c987c315a63322d159d8a9157d8b136498ee754a7adaa512eeda6b2797c",
+      "size": 2136
+    },
+    {
+      "path": "RenamePaneRequest.java",
+      "sha256": "869e4fdbf8a72e1b8c1f235cc60067551f7e356628e63160d99c56098402dedc",
+      "size": 2584
+    },
+    {
+      "path": "RenameProviderManagedWorkspaceRequest.java",
+      "sha256": "ef3da1f3f9e917aa9c3cf5b66cd2794cc22de961b9c4af70fed1c41eaf9d28f5",
+      "size": 4318
+    },
+    {
+      "path": "RenameScreenRequest.java",
+      "sha256": "c78d102f983d2711a714249fee4f7853ca09ea841c09a2800c5c49f3b676a501",
+      "size": 2652
+    },
+    {
+      "path": "RenameSurfaceRequest.java",
+      "sha256": "dad19f1e400f3935a5b81f219b1e65eca9e836e460291946ef0dd17070205cb7",
+      "size": 2686
+    },
+    {
+      "path": "RenameWorkspaceRequest.java",
+      "sha256": "1b86791b526625fc739e3c87eb8433ba074bc0d4543327c057e4aac2291ecc2c",
+      "size": 6370
+    },
+    {
+      "path": "RenderAttachEvent.java",
+      "sha256": "05cfe9ab156551d66aa7375d53d6a79a9df685fe7d9b9cdc731111b3f0576343",
+      "size": 145
+    },
+    {
+      "path": "RenderCursor.java",
+      "sha256": "288444314e130216501bd79a58d1b677a2908a8081e9993712305439a540e770",
+      "size": 4863
+    },
+    {
+      "path": "RenderDeltaEvent.java",
+      "sha256": "891813611f010ed7701f8121921010732d71be3b6ddc41e17f7468cc01e34960",
+      "size": 8213
+    },
+    {
+      "path": "RenderGraphicFormat.java",
+      "sha256": "2a9287077f3ac37fb0eeea11551193c560976d79e2511f43871fef4cbe4018db",
+      "size": 909
+    },
+    {
+      "path": "RenderGraphicImage.java",
+      "sha256": "d2d3211bfdd32b677e9f73aa9c6b9efdcbf72389a85b6da6e35a714395e356a5",
+      "size": 5186
+    },
+    {
+      "path": "RenderGraphicPlacement.java",
+      "sha256": "1d5f8f7f12e9929a8c4918aa5b45ead129aa74e7caca707b51038ae417d64b81",
+      "size": 16010
+    },
+    {
+      "path": "RenderGraphics.java",
+      "sha256": "1abf863d205ff1a359a7f65b83c51e9cb711067d98f445765d4de774d01e3be2",
+      "size": 4528
+    },
+    {
+      "path": "RenderGraphicsDelta.java",
+      "sha256": "f4b51dce1b732e072e901a0ed0559f2be276eb17b0ebdf6b747871b6aeec7f93",
+      "size": 4518
+    },
+    {
+      "path": "RenderRow.java",
+      "sha256": "630fdbf4930e0ac6b2ea25595805a0bf55f8f0c962f0275a705da6650fa09200",
+      "size": 2463
+    },
+    {
+      "path": "RenderRun.java",
+      "sha256": "02c7362a4d178f3dcab9d395dcdfd66e77856228658be6e671759d2ab105c714",
+      "size": 4896
+    },
+    {
+      "path": "RenderStateEvent.java",
+      "sha256": "01c4a4e5fc08242bef40fd80de2ae2fcd77d14d8c9bd994c7584bb936294f4d6",
+      "size": 8024
+    },
+    {
+      "path": "RenderUnderline.java",
+      "sha256": "dd3e43156d84b290fc17c12afab286e12465f3ce3c74a3cbaf3458deb7c266bc",
+      "size": 963
+    },
+    {
+      "path": "ReportAgentRequest.java",
+      "sha256": "596f8059e053f7a1c73aac3b9f8d25c6b93e68a4bc840b4ea4f01c0d991b1ace",
+      "size": 4037
+    },
+    {
+      "path": "ReportAgentResult.java",
+      "sha256": "491ad7eba751ae0a9820f775b42dc847acb61763e59c13a57f4d55bb136a16ad",
+      "size": 4005
+    },
+    {
+      "path": "ReportFocusRequest.java",
+      "sha256": "348a7e6b6f9ef6d95e74e3006a2069daee4b6fa5751cc666700214733d7d5257",
+      "size": 3263
+    },
+    {
+      "path": "ResizeAttachedViewRequest.java",
+      "sha256": "10aeba6c15c2d959a20cd18a908c5aac57c3c305e49cd259dfba3e57f83bdaa4",
+      "size": 3977
+    },
+    {
+      "path": "ResizeSurfaceRequest.java",
+      "sha256": "198e1aabd3fe1888904b6593851847da840e1c4a2b9519096874c59d8ee9d198",
+      "size": 3256
+    },
+    {
+      "path": "ResizeSurfaceResult.java",
+      "sha256": "a73208fe6bcb99dc9f0c76bf15351bed4d475c5350c275cd41e7b266d7e6c310",
+      "size": 2815
+    },
+    {
+      "path": "ResizedEvent.java",
+      "sha256": "c47b105665396450dcc1372287890933d9d8d087cbca29028a79214b5b8c34ba",
+      "size": 6958
+    },
+    {
+      "path": "ResolveTerminalRequest.java",
+      "sha256": "8e131b51b3498c3fde261c7c3ede00d6e02064077034b58baf71456dbb991da4",
+      "size": 2150
+    },
+    {
+      "path": "ResolveTerminalResult.java",
+      "sha256": "d7e0f9a05a7d4380161584ff5087ac986138486801fcc47da4f98d7e46ea4439",
+      "size": 9198
+    },
+    {
+      "path": "ResourceSelectors.java",
+      "sha256": "4e2e6307894a450e4a2ffbbc5f27c795be5ec759abaa895aa14f1a18f4fffac9",
+      "size": 11972
+    },
+    {
+      "path": "RunRequest.java",
+      "sha256": "4f93b99bf9632c76fb89822db67fc41b7b4cab420bfcb9ea7d568c857f98720b",
+      "size": 6763
+    },
+    {
+      "path": "RunResult.java",
+      "sha256": "4e95cdbb58fcae11206199d406488e4ec5ee8df6c0fd30150a1f92e908234699",
+      "size": 8755
+    },
+    {
+      "path": "Screen.java",
+      "sha256": "10a0e69c8fa60423d81f8a5691901f2e950e34ba68021c2f1d6c0071a39c6ddc",
+      "size": 6470
+    },
+    {
+      "path": "ScreenAddedEvent.java",
+      "sha256": "4a71b07e31d05e552fdf65b28bc9f8671e96d3c431ed39e6fbb9f791e3c2d26c",
+      "size": 4303
+    },
+    {
+      "path": "ScreenClosedEvent.java",
+      "sha256": "1b817abbc1db7122564c561def82987ef5b1f202b3bb330a8c9f1309d60f0bec",
+      "size": 4319
+    },
+    {
+      "path": "ScreenRenamedEvent.java",
+      "sha256": "ad4366f673bf36a82bca8bd0dd3869553dd5fe65b93950d2f3a14c52f3344e81",
+      "size": 3684
+    },
+    {
+      "path": "ScrollChangedEvent.java",
+      "sha256": "3b619ba97d2ebb89140d2b5a3b7763335b11c273e42c45ba59fb84ab6264a204",
+      "size": 3782
+    },
+    {
+      "path": "ScrollSurfaceRequest.java",
+      "sha256": "5b4bcda83509dd2e5c81609e811139a24b443f1674f4246f8c91caf851c14a2d",
+      "size": 2677
+    },
+    {
+      "path": "SelectScreenRequest.java",
+      "sha256": "93f8c76c4dd875cd9c55ffc1a7feccc6132fe7e1c90d0cd4f2389bf11a0e5987",
+      "size": 2561
+    },
+    {
+      "path": "SelectTabRequest.java",
+      "sha256": "4f185d89af417b4d58913bb1642fbd7ea19370df944b6907a32f8de2ac70d6bd",
+      "size": 3116
+    },
+    {
+      "path": "SelectWorkspaceRequest.java",
+      "sha256": "01a9e3aaefc343ead2d5d88c8cac31d3b7b67af31e29edaf92afbdf1987a0ae8",
+      "size": 2594
+    },
+    {
+      "path": "SendKeyRequest.java",
+      "sha256": "2c22b61802dfc683ea35af198c8e70c0a152444182cbbeb066abe45fc0d4597a",
+      "size": 2711
+    },
+    {
+      "path": "SendRequest.java",
+      "sha256": "9e59a67aa3147e0781978aae9c23c79c2c8cc79171eb0c1ec246a96d9a77d6d7",
+      "size": 3717
+    },
+    {
+      "path": "SetCellPixelsRequest.java",
+      "sha256": "826b10867af30ebde32269a2b394d67036d596c525eea4ca19c8cf7357cfe23d",
+      "size": 2721
+    },
+    {
+      "path": "SetCellPixelsResult.java",
+      "sha256": "9eb6f617e3246049af137e085259a2e915e8422fb37eeaf0d9acf677c59509d6",
+      "size": 2923
+    },
+    {
+      "path": "SetClientInfoRequest.java",
+      "sha256": "851670142c8ed76cb75dc4ce7e39585d2681c3ca3b4300fc07df5c7f0d26a973",
+      "size": 3419
+    },
+    {
+      "path": "SetClientSizingRequest.java",
+      "sha256": "4b4dfe87067e58a916e1330e33d3daea4d575ad64befa7bc815c25c9624854ba",
+      "size": 4048
+    },
+    {
+      "path": "SetDefaultColorsRequest.java",
+      "sha256": "7bf8cf1b85137e678d95b11d322c22de199abe39868cbe33ce5d93cbf2576db7",
+      "size": 7555
+    },
+    {
+      "path": "SetRatioRequest.java",
+      "sha256": "c78668b18bc49afcc72abb7d91f07feafb32f2a4fab990490dd0639762a27a3e",
+      "size": 3186
+    },
+    {
+      "path": "SetSplitRatioRequest.java",
+      "sha256": "cf8889ee1d32de4657cf5268e3f478438b31ee6e5bda26e74b9fef70bd52f0ce",
+      "size": 3374
+    },
+    {
+      "path": "SetViewportPaneWidthRequest.java",
+      "sha256": "fe05d186991def008910ab23a9b6b21fcd71acae99bb98fd6728852d7f31b152",
+      "size": 3436
+    },
+    {
+      "path": "SetWindowTitleRequest.java",
+      "sha256": "5eac6261d6384c422c517ca06b9f05034be307b9b8747830dcbb7f1c1ad8e9f5",
+      "size": 2021
+    },
+    {
+      "path": "ShutdownDaemonRequest.java",
+      "sha256": "b60b647ed6dc21658f10c7428df62efe67b766309b4878336d6eef4d360ec051",
+      "size": 3299
+    },
+    {
+      "path": "ShutdownDaemonResult.java",
+      "sha256": "60b706d96bb14141e7ec088ebdf27927c9a826d43a3af90b20930cb8a3066e90",
+      "size": 2869
+    },
+    {
+      "path": "SidebarPluginRequest.java",
+      "sha256": "058ae4891509c162a08466666ac63a7f4b0a90d183b7f20e6b3a24730f3c2a4f",
+      "size": 3195
+    },
+    {
+      "path": "SidebarPluginResult.java",
+      "sha256": "493268a3daaafbf22ac3d860e90458e8cfbdfe9d2cd2c48af94d5af30b0a2512",
+      "size": 3455
+    },
+    {
+      "path": "Size.java",
+      "sha256": "a4f8564a759c431d0c8ac99681702269481dbdafdb980d18dde7907159c181b7",
+      "size": 2323
+    },
+    {
+      "path": "SplitDirection.java",
+      "sha256": "c519c6eece8f31cba215694c9fc1e4ccf7d827ce6aaec1f55bf35e0de9c3189d",
+      "size": 888
+    },
+    {
+      "path": "SplitRequest.java",
+      "sha256": "9d2cc4d3118627028aad028234f69a63a563e3bf6db098c960e511c849d6de4f",
+      "size": 3705
+    },
+    {
+      "path": "StatusEvent.java",
+      "sha256": "46051b257ca04e117720b8c0c7fa4e59931984475549448d448d4101b11e333c",
+      "size": 2206
+    },
+    {
+      "path": "StreamKind.java",
+      "sha256": "9b425dfb45bf2a006dceb6572bc1ac88ddd9e8fdd40a2cea19cecd89d299bae5",
+      "size": 140
+    },
+    {
+      "path": "SubscribeEvent.java",
+      "sha256": "505812bd92e09fd6218b3c45fe01e910fecccc58bb5dd00b91b82138c887b0d0",
+      "size": 142
+    },
+    {
+      "path": "SubscribeRequest.java",
+      "sha256": "3d2bf4e413e0230cacbd33933da70f55f9d418cccb0b048a46318c580d52fea3",
+      "size": 2752
+    },
+    {
+      "path": "SubscribeRequestTreeEvents.java",
+      "sha256": "8973dd544450669eaaf078eefcdcd2a7c965a3408afe02ec305f827866a81563",
+      "size": 954
+    },
+    {
+      "path": "SurfaceExitedEvent.java",
+      "sha256": "4180b081bafd27ec10ff77fe1f105f4e12aaf7435a2d3afce45e759b03ae5ac7",
+      "size": 2308
+    },
+    {
+      "path": "SurfaceOutputEvent.java",
+      "sha256": "6822c7d400ca937e714e015b6c20cdf4252eefaff18f0076017490d44f210215",
+      "size": 2308
+    },
+    {
+      "path": "SurfaceResizeFailedEvent.java",
+      "sha256": "c327b0f0a1af92f6f16aaa0890c72d7da96fa576b5e6e5ee22e473452097bd47",
+      "size": 5938
+    },
+    {
+      "path": "SurfaceResizedEvent.java",
+      "sha256": "904655ec50a458733e59ec49b8b04ab6086dd85e784d317ca1c2a67d643c78ee",
+      "size": 4363
+    },
+    {
+      "path": "SurfaceResult.java",
+      "sha256": "7c810072ef76e279ca3ca9d025b321765318c9e0b49773821d127889a16c1c8a",
+      "size": 3515
+    },
+    {
+      "path": "SwapPaneRequest.java",
+      "sha256": "db61daddd4ef6ba54dfb4e5852163032b62f2e12292017c1c62727eaed923a5f",
+      "size": 3147
+    },
+    {
+      "path": "Tab.java",
+      "sha256": "506e7ee14985b2dc0de03a0d3d7da09316620dbbc342d6e67b1feba547e0e006",
+      "size": 13059
+    },
+    {
+      "path": "TabAddedEvent.java",
+      "sha256": "a28562ddafd4aa06572849fbbf1fbfb78a975aa4896231dd4c262e16b3a3be29",
+      "size": 5555
+    },
+    {
+      "path": "TabBrowserSource.java",
+      "sha256": "d9533bd3ab99ad8e2014009c6fe48f8c0689df9eabc6edfd4a7fc696ec437aa2",
+      "size": 912
+    },
+    {
+      "path": "TabBrowserStatus.java",
+      "sha256": "e0d3abcd1c69e7064a7d607730d3c617b673ff4719cd9ab0921432d00ae79501",
+      "size": 926
+    },
+    {
+      "path": "TabClosedEvent.java",
+      "sha256": "97fd75557f7cfd8afa98732fc8edd02242ad0a80be5e81d3e29a77e0f6d27de8",
+      "size": 5573
+    },
+    {
+      "path": "TabKind.java",
+      "sha256": "02f14095b45ea6dbb07ef7a6d15e8b83200751a887a59a943c9d11436a30a1e5",
+      "size": 855
+    },
+    {
+      "path": "TabRenamedEvent.java",
+      "sha256": "5f9e60b3e131175535d123989b3c26c190c441e7e0a19d20583b62bfbde4ff78",
+      "size": 4943
+    },
+    {
+      "path": "TerminalColors.java",
+      "sha256": "cd7512a60de651d72d10b669ace04571dc4d84861ef3952596fb1575b5b4d3e4",
+      "size": 6853
+    },
+    {
+      "path": "TerminalEventsRequest.java",
+      "sha256": "fab5652a4208b0ddb891c9f4c9f95a77944f32aa04420c444114b6ff5161778b",
+      "size": 2100
+    },
+    {
+      "path": "TerminalEventsResult.java",
+      "sha256": "4066b636da92abb2beb4d5500839571b83b08c91da65ab54c0a9cf64f0009d4d",
+      "size": 4553
+    },
+    {
+      "path": "TerminalExit.java",
+      "sha256": "6931fb28546af6e8aa61e46dfa8b8dd577a6ff2c0587f17156abbaa53c12c800",
+      "size": 2725
+    },
+    {
+      "path": "TerminalExitOutcome.java",
+      "sha256": "27ecd59a4fd810cb173954c7aefe7171af526aa2374a32ec4ece75298a48ac9b",
+      "size": 761
+    },
+    {
+      "path": "TerminalExitOutcomeExit.java",
+      "sha256": "3d40d8ca37b521e4078d1351f1d1dbc69d18d80198f045769cf13c427f7a1436",
+      "size": 2154
+    },
+    {
+      "path": "TerminalExitOutcomeSignal.java",
+      "sha256": "c99d05d515ab3941a5c3e6ace153b5a3dbba8c791a246c1e82fa447af2a97ecf",
+      "size": 2975
+    },
+    {
+      "path": "TerminalExitOutcomeUnknown.java",
+      "sha256": "dc923535021be4705f8394e07d48331250204d5e60845cec187faa95c20e47ce",
+      "size": 2270
+    },
+    {
+      "path": "TerminalKey.java",
+      "sha256": "8f72b2ea039793f3acac44fd4fca4e40b628ea19f3f89835f3acc0962e72be78",
+      "size": 3275
+    },
+    {
+      "path": "TerminalKeyAction.java",
+      "sha256": "bb5ce532fdfa84f0c25a5e36278855f5dfd6c08b780c67c193a31687c8f211fd",
+      "size": 931
+    },
+    {
+      "path": "TerminalKeyInput.java",
+      "sha256": "2bd1e650c15cd904509408a536a83e923e312a6aff09d24bb2a346744814e74e",
+      "size": 8775
+    },
+    {
+      "path": "TerminalLifecycle.java",
+      "sha256": "96a416b9f56b3e6cd7a0a1505083485f1bc10a2c6a42639e79d1ed308514fd9f",
+      "size": 995
+    },
+    {
+      "path": "TerminalModifiers.java",
+      "sha256": "34c0fac70a34cc8d8e252d687fc80912170042a6106d2fd47f51898173fd6aea",
+      "size": 5167
+    },
+    {
+      "path": "TerminalPlacement.java",
+      "sha256": "dac1c0f9828e387d889a1a6cf097a2545f34d6f7b254f2aaef38f8d749c7553c",
+      "size": 11717
+    },
+    {
+      "path": "TerminalRecord.java",
+      "sha256": "0098e249f96e48dc1afb66bc07ad90aacaa90f56bd090db9b62e5d56fa5f5f42",
+      "size": 5963
+    },
+    {
+      "path": "TerminalRegistryChangedEvent.java",
+      "sha256": "3ea630cc3c88e71a4a8efa021cdc48d45f94928f69d72862cc5f57ca8fc3c81f",
+      "size": 4555
+    },
+    {
+      "path": "TerminalRegistryEvent.java",
+      "sha256": "cfc56f058d2b7a690b507592571a91c3795cf1a85bbcb99358cc7742a6022c71",
+      "size": 6551
+    },
+    {
+      "path": "TitleChangedEvent.java",
+      "sha256": "d2db48831b9c7b55b92e9dbde6cf2637462502ec47c25a4c7e02e65eeed73f3d",
+      "size": 2869
+    },
+    {
+      "path": "Tree.java",
+      "sha256": "0df79544b10131b2d317ecd9d565271c00cc357346de24d21844c387cba7774d",
+      "size": 5571
+    },
+    {
+      "path": "TreeChangedEvent.java",
+      "sha256": "59886d6798ca74dc1317ed199d9fe459edfa0ec580660f25b39e7191c202053d",
+      "size": 1595
+    },
+    {
+      "path": "UndoLayoutRequest.java",
+      "sha256": "4da7877040565c040e806d7bc2d481fbe76c0fdc8ff6cc40b4afbf8f888dd368",
+      "size": 3339
+    },
+    {
+      "path": "UnknownEvent.java",
+      "sha256": "7d144832053387e71a17017c2ef1bb25e0f21f302729d180d69a5752fa4807de",
+      "size": 991
+    },
+    {
+      "path": "UnregisterBrowserProviderRequest.java",
+      "sha256": "ef2c71814ec5e334bf2a0476f08c287456ed2ca1de320f3864a15b64199bf6fb",
+      "size": 1481
+    },
+    {
+      "path": "ViewAttachmentOutcome.java",
+      "sha256": "85d28a1a2fc077c11ec292cc7f387e8794aa3dc22e141da7c760722f3c8e7170",
+      "size": 963
+    },
+    {
+      "path": "VtStateEvent.java",
+      "sha256": "32984fa6573b5d89371f1c5de476773ad2258c265156b69ecaabf8946bd78d54",
+      "size": 6406
+    },
+    {
+      "path": "VtStateRequest.java",
+      "sha256": "cc8f7f448d05082b09651f497fe3271389c6e78b33d0d3af45a1481268400f71",
+      "size": 1996
+    },
+    {
+      "path": "VtStateResult.java",
+      "sha256": "27507e2d0f1e9273bcdc7264a7f6ab529204ee04ab7df1aa0e3255d62c4a5951",
+      "size": 4818
+    },
+    {
+      "path": "WaitForRequest.java",
+      "sha256": "a3862bfeb421776f324f0d70172f58cff7d09dc3c799567458f8d07a0d974ccf",
+      "size": 3479
+    },
+    {
+      "path": "WaitForResult.java",
+      "sha256": "0aa7fc7a5b21ee6c535825eab0c5420dc64c477175a26f0be979c555554b5188",
+      "size": 2820
+    },
+    {
+      "path": "WindowTitleRequestedEvent.java",
+      "sha256": "9933ae71e30d43d15f375ac1bc470f397b394dfbd8c54782ad4319ec1d62785e",
+      "size": 2364
+    },
+    {
+      "path": "Workspace.java",
+      "sha256": "37b4b2ac889082fd95481de8e644ad36a207b05e9e315d7c9e355cc00145142a",
+      "size": 4922
+    },
+    {
+      "path": "WorkspaceAddedEvent.java",
+      "sha256": "9bd9d92bdf6763a25ec0549e92aba22b2fa46b80545ae4a86581dc611a0b021e",
+      "size": 7434
+    },
+    {
+      "path": "WorkspaceClosedEvent.java",
+      "sha256": "a272c0a07fe20dfd3d822e6d1d23e02c7d773cdb2bc5149a25f5d7c93a1293df",
+      "size": 7454
+    },
+    {
+      "path": "WorkspaceMovedEvent.java",
+      "sha256": "b2778e7b77085090f2aaf43c4efdd22e851b8ba4d2fbbd8ac6ee4c154f4e89be",
+      "size": 7434
+    },
+    {
+      "path": "WorkspaceMutationResult.java",
+      "sha256": "d2c2eb4399ad9e6faca6a6da675e3c9252f9f375734a230992f3dcb1bcfa1a51",
+      "size": 7127
+    },
+    {
+      "path": "WorkspaceRenamedEvent.java",
+      "sha256": "ca8ba6cadcb7d66e8d20afe9bdf08186a10b9c2d47955de02a68bcfed76c4189",
+      "size": 6820
+    },
+    {
+      "path": "ZoomPaneRequest.java",
+      "sha256": "e26e5703192d601e1f81cee09b095a4937aa04ee68290427b68881989bf80a84",
+      "size": 2531
+    },
+    {
+      "path": "ZoomPaneRequestMode.java",
+      "sha256": "780e12c0082837f4ed1c4bd44d15ee38970e56cab2bc8214a2ce8af6a2547adb",
+      "size": 927
+    },
+    {
+      "path": "ZoomPaneResult.java",
+      "sha256": "6dcc8ac93917feff335f35adff5fa0fc5b29dd09522ca7b66c1b8e91132d2d86",
+      "size": 3276
+    }
+  ],
+  "format": 1,
+  "ir_sha256": "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589",
+  "language": "java",
+  "mux_protocol": 12,
+  "schema_version": 2
+}

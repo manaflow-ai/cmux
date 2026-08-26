@@ -263,6 +263,16 @@ public final class GhosttyRuntime {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_RENDER {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let bridge = GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(surface)) else { return false }
+            Task { @MainActor [bridge] in
+                bridge.surfaceView?.drawForWakeup()
+            }
+            return true
+        }
+
         if action.tag == GHOSTTY_ACTION_SET_TITLE {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface,
@@ -429,27 +439,33 @@ private extension GhosttyRuntime {
     ) {
         guard let config else { return }
         #if os(iOS)
-        setupGhosttyiOSConfigEnvironment()
         ensureDefaultGhosttyiOSConfig(theme: theme)
-        ghostty_config_load_default_files(config)
+        // Default-file discovery is a macOS integration path in Ghostty's
+        // Apple wrapper. iOS owns one sandboxed file, so load it directly.
+        let configFile = ghosttyiOSConfigFileURL
+        configFile.path.withCString { path in
+            ghostty_config_load_file(config, path)
+        }
         applyGhosttyiOSDefaults(config, theme: theme)
         #else
         ghostty_config_load_default_files(config)
         #endif
     }
 
-    func setupGhosttyiOSConfigEnvironment() {
-        setenv("XDG_CONFIG_HOME", iOSConfigRootURL.path, 0)
-        if let env = getenv("XDG_CONFIG_HOME") {
-            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
-        }
+    var ghosttyiOSConfigFileURL: URL {
+        iOSConfigRootURL
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
     }
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
-        // The phone scrolls the authoritative Mac surface. Local scrollback exists
-        // only for bounded local text reads, so cap it below Ghostty's 10MB default.
+        // Screen-anchored sessions scroll a deep LOCAL scrollback: replays
+        // hydrate up to the user-configurable 20k-row window and live deltas
+        // keep appending, so the byte limit must hold that even at wide iPad
+        // grids (bytes, not rows).
         let defaults = """
-        scrollback-limit = 2000000
+        scrollback-limit = 16000000
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
@@ -499,11 +515,12 @@ private extension GhosttyRuntime {
     }
 
     func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
-        let configDirectory = iOSConfigRootURL.appendingPathComponent("ghostty", isDirectory: true)
-        let configFile = configDirectory.appendingPathComponent("config", isDirectory: false)
+        let configFile = ghosttyiOSConfigFileURL
+        let configDirectory = configFile.deletingLastPathComponent()
         guard !fileManager.fileExists(atPath: configFile.path) else { return }
 
         let defaultConfig = """
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false

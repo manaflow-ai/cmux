@@ -31,46 +31,22 @@ extension TerminalArtifactFilesSheet {
         .padding(.vertical, 10)
     }
 
-    // Keep the existing single toolbar menu so the content picker never creates
-    // a second glass-backed segmented control in the navigation bar.
     var viewModePicker: some View {
-        Menu {
-            Picker(
-                String(
-                    localized: "terminal.artifact.gallery.view_mode",
-                    defaultValue: "View",
-                    bundle: .module
-                ),
-                selection: $viewMode
-            ) {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.view_mode.list",
-                        defaultValue: "List",
-                        bundle: .module
-                    ),
-                    systemImage: "list.bullet"
-                )
-                .tag(ViewMode.list)
-
-                Label(
-                    String(
+        Button {
+            viewMode = viewMode == .list ? .grid : .list
+        } label: {
+            Image(systemName: viewMode == .list ? "square.grid.3x3" : "list.bullet")
+                .accessibilityLabel(viewMode == .list
+                    ? String(
                         localized: "terminal.artifact.gallery.view_mode.grid",
                         defaultValue: "Icons",
                         bundle: .module
-                    ),
-                    systemImage: "square.grid.2x2"
-                )
-                .tag(ViewMode.grid)
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: viewMode == .list ? "list.bullet" : "square.grid.2x2")
-                .accessibilityLabel(String(
-                    localized: "terminal.artifact.gallery.view_mode",
-                    defaultValue: "View",
-                    bundle: .module
-                ))
+                    )
+                    : String(
+                        localized: "terminal.artifact.gallery.view_mode.list",
+                        defaultValue: "List",
+                        bundle: .module
+                    ))
         }
     }
 
@@ -122,25 +98,43 @@ extension TerminalArtifactFilesSheet {
                     systemImage: "tray"
                 )
             } else {
+                let swipeOrder = ChatArtifactGallerySwipeOrder(references: artifacts)
                 artifactCollection(
                     artifacts.map(TerminalArtifactGalleryDisplayItem.init(reference:)),
                     loader: loader,
-                    scope: .inView
+                    scope: .inView,
+                    swipeOrder: swipeOrder
                 )
                 .refreshable { await refreshInView() }
             }
-        case .failed:
-            failureView { await refreshInView() }
+        case .failed(let failure):
+            failureView(failure: failure) { await refreshInView() }
         }
     }
 
     @ViewBuilder
     private var sessionContent: some View {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if query.isEmpty {
-            sessionSectionedContent(state: sessionState)
-        } else {
-            sessionSearchContent(state: searchState, query: query)
+        VStack(spacing: 0) {
+            galleryControls
+            if eagerPagingState == .loading {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .accessibilityLabel(String(
+                        localized: "terminal.artifact.gallery.loading_all",
+                        defaultValue: "Loading all files…",
+                        bundle: .module
+                    ))
+            }
+            Divider()
+            if query.isEmpty {
+                sessionSectionedContent(state: sessionState)
+            } else {
+                sessionSearchContent(state: searchState, query: query)
+            }
+        }
+        .task(id: eagerPagingTaskID) {
+            await loadRemainingSessionPages(query: query.isEmpty ? nil : query)
         }
     }
 
@@ -149,10 +143,19 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: nil) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: nil) }
         case .loaded(let snapshot):
-            if snapshot.isEmpty {
+            let visibleSnapshotIsEmpty = displaySettings.showMissingFiles
+                ? snapshot.isEmpty
+                : ChatArtifactGalleryPresentation(snapshot: snapshot).isEmpty
+            let presentation = ChatArtifactGalleryPresentation(
+                snapshot: snapshot,
+                filter: galleryFilter,
+                sort: gallerySort,
+                includesMissingFiles: displaySettings.showMissingFiles
+            )
+            if visibleSnapshotIsEmpty {
                 ScrollView {
                     ContentUnavailableView(
                         String(
@@ -168,17 +171,28 @@ extension TerminalArtifactFilesSheet {
                     await loadFirstSessionPage(query: nil, preservingContent: true)
                 }
             } else {
-                ScrollView {
-                    VStack(spacing: 0) {
+                let created = presentation.items(in: .created)
+                let attached = presentation.items(in: .attached)
+                let referenced = presentation.items(in: .referenced)
+                let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 0)
+                                .id(Self.sessionScrollTopID)
                         artifactSection(
                             title: String(
                                 localized: "terminal.artifact.gallery.section.created",
                                 defaultValue: "Created by agent",
                                 bundle: .module
                             ),
-                            count: snapshot.created.count,
-                            items: snapshot.created,
-                            expanded: $createdExpanded
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot ? created.count : snapshot.createdTotal)
+                                : nil,
+                            items: created,
+                            expanded: $createdExpanded,
+                            swipeOrder: swipeOrder
                         )
                         artifactSection(
                             title: String(
@@ -186,9 +200,12 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "You attached",
                                 bundle: .module
                             ),
-                            count: snapshot.attached.count,
-                            items: snapshot.attached,
-                            expanded: $attachedExpanded
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot ? attached.count : snapshot.attachedTotal)
+                                : nil,
+                            items: attached,
+                            expanded: $attachedExpanded,
+                            swipeOrder: swipeOrder
                         )
                         artifactSection(
                             title: String(
@@ -196,11 +213,33 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "Referenced",
                                 bundle: .module
                             ),
-                            count: snapshot.referencedTotal,
-                            items: snapshot.referenced,
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot
+                                    ? referenced.count
+                                    : snapshot.referencedTotal)
+                                : nil,
+                            items: referenced,
                             expanded: $referencedExpanded,
-                            pagingCursor: snapshot.nextCursor
+                            swipeOrder: swipeOrder,
+                            pagingCursor: usesCompleteSessionSnapshot ? nil : snapshot.nextCursor,
+                            showsEagerFooter: usesCompleteSessionSnapshot
                         )
+                    }
+                    }
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        let isAtTop = geometry.contentOffset.y
+                            <= geometry.contentInsets.top + Self.sessionTopTolerance
+                        let fits = geometry.contentSize.height
+                            <= geometry.containerSize.height + Self.sessionTopTolerance
+                        return isAtTop || fits
+                    } action: { _, isAtTopOrFits in
+                        sessionViewportIsAtTopOrFits = isAtTopOrFits
+                    }
+                    .overlay(alignment: .top) {
+                        if liveRefreshState.pendingNewFileCount > 0 {
+                            newFilesPill(snapshot: snapshot, proxy: proxy)
+                                .padding(.top, 8)
+                        }
                     }
                 }
                 .refreshable {
@@ -210,21 +249,60 @@ extension TerminalArtifactFilesSheet {
         }
     }
 
+    private func newFilesPill(
+        snapshot: SessionGallerySnapshot,
+        proxy: ScrollViewProxy
+    ) -> some View {
+        let format = String(
+            localized: "terminal.artifact.gallery.new_files",
+            defaultValue: "%lld new files",
+            bundle: .module
+        )
+        let title = String.localizedStringWithFormat(
+            format,
+            Int64(liveRefreshState.pendingNewFileCount)
+        )
+        return Button {
+            guard let reconciled = liveRefreshState.applyPending(to: snapshot) else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                sessionState = .loaded(reconciled)
+                proxy.scrollTo(Self.sessionScrollTopID, anchor: .top)
+            }
+        } label: {
+            Label(title, systemImage: "arrow.up")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
     @ViewBuilder
     private func sessionSearchContent(state: SessionLoadState, query: String) -> some View {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: query) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: query) }
         case .loaded(let snapshot):
-            if snapshot.referenced.isEmpty {
+            let presentation = ChatArtifactGalleryPresentation(
+                snapshot: snapshot,
+                filter: galleryFilter,
+                sort: gallerySort,
+                includesMissingFiles: displaySettings.showMissingFiles
+            )
+            let items = presentation.items(in: .referenced)
+            let swipeOrder = ChatArtifactGallerySwipeOrder(items: items)
+            if items.isEmpty {
                 ContentUnavailableView.search(text: query)
             } else {
                 ScrollView {
                     if viewMode == .list {
                         LazyVStack(spacing: 0) {
-                            ForEach(snapshot.referenced) { item in
+                            ForEach(items) { item in
                                 TerminalArtifactGalleryItemView(
                                     artifact: TerminalArtifactGalleryDisplayItem(
                                         galleryItem: item,
@@ -232,18 +310,25 @@ extension TerminalArtifactFilesSheet {
                                     ),
                                     layout: .list,
                                     loader: sessionLoader,
-                                    open: { open(item.path, scope: .session) }
+                                    scope: .session,
+                                    swipeOrder: swipeOrder,
+                                    open: open,
+                                    onCopiedPath: notifyPathCopied
                                 )
+                                .equatable()
                                 Divider().padding(.leading, 72)
                             }
-                            if let cursor = snapshot.nextCursor {
+                            if !usesCompleteSessionSnapshot,
+                               let cursor = snapshot.nextCursor {
                                 pagingFooter(cursor: cursor, query: query)
+                            } else if usesCompleteSessionSnapshot {
+                                eagerPagingFooter
                             }
                         }
                     } else {
                         LazyVGrid(columns: gridColumns, spacing: 16) {
                             Section {
-                                ForEach(snapshot.referenced) { item in
+                                ForEach(items) { item in
                                     TerminalArtifactGalleryItemView(
                                         artifact: TerminalArtifactGalleryDisplayItem(
                                             galleryItem: item,
@@ -251,12 +336,19 @@ extension TerminalArtifactFilesSheet {
                                         ),
                                         layout: .grid,
                                         loader: sessionLoader,
-                                        open: { open(item.path, scope: .session) }
+                                        scope: .session,
+                                        swipeOrder: swipeOrder,
+                                        open: open,
+                                        onCopiedPath: notifyPathCopied
                                     )
+                                    .equatable()
                                 }
                             } footer: {
-                                if let cursor = snapshot.nextCursor {
+                                if !usesCompleteSessionSnapshot,
+                                   let cursor = snapshot.nextCursor {
                                     pagingFooter(cursor: cursor, query: query)
+                                } else if usesCompleteSessionSnapshot {
+                                    eagerPagingFooter
                                 }
                             }
                         }
@@ -272,10 +364,12 @@ extension TerminalArtifactFilesSheet {
 
     private func artifactSection(
         title: String,
-        count: Int,
+        count: Int?,
         items: [ChatArtifactGalleryItem],
         expanded: Binding<Bool>,
-        pagingCursor: String? = nil
+        swipeOrder: ChatArtifactGallerySwipeOrder,
+        pagingCursor: String? = nil,
+        showsEagerFooter: Bool = false
     ) -> some View {
         DisclosureGroup(isExpanded: expanded) {
             if viewMode == .list {
@@ -285,12 +379,18 @@ extension TerminalArtifactFilesSheet {
                             artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                             layout: .list,
                             loader: sessionLoader,
-                            open: { open(item.path, scope: .session) }
+                            scope: .session,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                     if let pagingCursor {
                         pagingFooter(cursor: pagingCursor, query: nil)
+                    } else if showsEagerFooter {
+                        eagerPagingFooter
                     }
                 }
             } else {
@@ -301,19 +401,25 @@ extension TerminalArtifactFilesSheet {
                                 artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                                 layout: .grid,
                                 loader: sessionLoader,
-                                open: { open(item.path, scope: .session) }
+                                scope: .session,
+                                swipeOrder: swipeOrder,
+                                open: open,
+                                onCopiedPath: notifyPathCopied
                             )
+                            .equatable()
                         }
                     } footer: {
                         if let pagingCursor {
                             pagingFooter(cursor: pagingCursor, query: nil)
+                        } else if showsEagerFooter {
+                            eagerPagingFooter
                         }
                     }
                 }
                 .padding(.vertical, 12)
             }
         } label: {
-            Text(verbatim: "\(title) (\(count))")
+            Text(verbatim: count.map { "\(title) (\($0))" } ?? title)
                 .font(.headline)
         }
         .padding(.horizontal, 16)
@@ -324,7 +430,8 @@ extension TerminalArtifactFilesSheet {
     private func artifactCollection(
         _ artifacts: [TerminalArtifactGalleryDisplayItem],
         loader: ChatArtifactLoader,
-        scope: Scope
+        scope: Scope,
+        swipeOrder: ChatArtifactGallerySwipeOrder
     ) -> some View {
         switch viewMode {
         case .list:
@@ -335,8 +442,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .list,
                             loader: loader,
-                            open: { open(artifact.path, scope: scope) }
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                 }
@@ -349,8 +460,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .grid,
                             loader: loader,
-                            open: { open(artifact.path, scope: scope) }
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                     }
                 }
                 .padding(16)
@@ -371,34 +486,28 @@ extension TerminalArtifactFilesSheet {
         }
     }
 
-    private var loadingView: some View {
-        ProgressView(String(
-            localized: "terminal.artifact.gallery.loading",
-            defaultValue: "Loading files…",
-            bundle: .module
-        ))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func failureView(retry: @escaping @MainActor () async -> Void) -> some View {
-        ContentUnavailableView {
-            Label(
-                String(
-                    localized: "terminal.artifact.gallery.unreachable.title",
-                    defaultValue: "Mac unreachable",
-                    bundle: .module
-                ),
-                systemImage: "wifi.exclamationmark"
-            )
-        } description: {
-            Text(String(
-                localized: "terminal.artifact.gallery.unreachable.message",
-                defaultValue: "Check the connection to your Mac and try again.",
+    @ViewBuilder
+    private var eagerPagingFooter: some View {
+        switch eagerPagingState {
+        case .idle, .loading:
+            EmptyView()
+        case .capped:
+            let format = String(
+                localized: "terminal.artifact.gallery.showing_first",
+                defaultValue: "Showing first %lld files",
                 bundle: .module
+            )
+            Text(String.localizedStringWithFormat(
+                format,
+                Int64(ChatArtifactGalleryEagerPager.defaultMaximumReferencedRows)
             ))
-        } actions: {
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding()
+        case .failed:
             Button {
-                Task { await retry() }
+                eagerPagingRetryGeneration += 1
             } label: {
                 Label(
                     String(
@@ -409,12 +518,117 @@ extension TerminalArtifactFilesSheet {
                     systemImage: "arrow.clockwise"
                 )
             }
-            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
+            .padding()
+        }
+    }
+
+    private var loadingView: some View {
+        ProgressView(String(
+            localized: "terminal.artifact.gallery.loading",
+            defaultValue: "Loading files…",
+            bundle: .module
+        ))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func failureView(
+        failure: TerminalArtifactGalleryFailure,
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
+        let presentation = ChatArtifactFailurePresentation(
+            error: failure.error,
+            scope: scope == .session ? .chat : .terminal
+        )
+        return ContentUnavailableView {
+            Label(
+                presentation.title,
+                systemImage: presentation.systemImage
+            )
+        } description: {
+            Text(presentation.message)
+        } actions: {
+            if presentation.allowsRetry {
+                Button {
+                    Task { await retry() }
+                } label: {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.retry",
+                            defaultValue: "Retry",
+                            bundle: .module
+                        ),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
     }
 
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 96), spacing: 12)]
+        Array(
+            repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top),
+            count: 3
+        )
+    }
+
+    private static let sessionScrollTopID = "terminal-artifact-gallery-top"
+    private static let sessionTopTolerance: CGFloat = 1
+
+    private var galleryControls: some View {
+        HStack(spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ChatArtifactGalleryFilter.allCases, id: \.self) { filter in
+                        Button {
+                            galleryFilter = filter
+                        } label: {
+                            Text(filterTitle(filter))
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(galleryFilter == filter ? Color.white : Color.primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(
+                                    galleryFilter == filter
+                                        ? Color.accentColor
+                                        : Color(uiColor: .secondarySystemBackground),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(galleryFilter == filter ? .isSelected : [])
+                    }
+                }
+            }
+
+            TerminalArtifactGallerySortMenu(
+                value: TerminalArtifactGallerySortMenuValue(sort: gallerySort),
+                actions: TerminalArtifactGallerySortMenuActions(
+                    setSort: { gallerySort = $0 }
+                )
+            )
+            .equatable()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func filterTitle(_ filter: ChatArtifactGalleryFilter) -> String {
+        switch filter {
+        case .all:
+            String(localized: "terminal.artifact.gallery.filter.all", defaultValue: "All", bundle: .module)
+        case .images:
+            String(localized: "terminal.artifact.gallery.filter.images", defaultValue: "Images", bundle: .module)
+        case .code:
+            String(localized: "terminal.artifact.gallery.filter.code", defaultValue: "Code", bundle: .module)
+        case .logs:
+            String(localized: "terminal.artifact.gallery.filter.logs", defaultValue: "Logs", bundle: .module)
+        case .docs:
+            String(localized: "terminal.artifact.gallery.filter.docs", defaultValue: "Docs", bundle: .module)
+        case .folders:
+            String(localized: "terminal.artifact.gallery.filter.folders", defaultValue: "Folders", bundle: .module)
+        }
     }
 
     private func searchSubtitle(for item: ChatArtifactGalleryItem) -> String {
@@ -443,8 +657,17 @@ extension TerminalArtifactFilesSheet {
         return "\(provenance) · \(modifiedAt.formatted(date: .abbreviated, time: .omitted))"
     }
 
-    private func open(_ path: String, scope: Scope) {
-        selection = TerminalArtifactPathSelection(path: path, scope: scope)
+    private func open(
+        _ path: String,
+        scope: Scope,
+        swipeOrder: ChatArtifactGallerySwipeOrder
+    ) {
+        selection = TerminalArtifactPathSelection(
+            path: path,
+            scope: scope,
+            usesSessionAuthorization: scope == .session || sessionID != nil,
+            swipeOrder: swipeOrder
+        )
     }
 }
 #endif

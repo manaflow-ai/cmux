@@ -23,13 +23,17 @@ import {
   checkPresenceCaps,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
+  MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT,
   MAX_DEVICES_PER_TEAM,
   MAX_INSTANCES_PER_DEVICE,
+  MAX_SUBSCRIBERS_PER_TEAM,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   resolveSubscribeDeadline,
   routesEqual,
+  shouldDeliverConnectivityInvalidation,
   shouldPrune,
+  type ConnectivityInvalidationEvent,
   type HeartbeatInput,
   type PresenceEvent,
   type PresenceInstance,
@@ -68,6 +72,14 @@ import {
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
 import { sanitizePublishedRoutes } from "./routePrivacy";
+import {
+  ackPhoneReplies,
+  enqueuePhoneReply,
+  listPhoneReplies,
+  PHONE_REPLY_NUDGE_REVISION,
+  type EnqueuePhoneReplyResult,
+  type StoredPhoneReply,
+} from "./replies";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -76,8 +88,6 @@ const INSTANCE_PREFIX = "inst:";
  * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
-/** Combined WebSocket + SSE subscriber cap per team. */
-const MAX_SUBSCRIBERS_PER_TEAM = 64;
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
  * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
@@ -112,6 +122,10 @@ interface WsAttachment {
    * for an old client/worker that did not forward it; such a socket simply does
    * not get served `pairedMacs`. Persisted so it survives DO hibernation. */
   userId?: string;
+  /** Marks the separate account-scoped connectivity invalidation channel.
+   * The value comes from the worker's verified Stack identity, never the
+   * request body or query. */
+  connectivityAccountId?: string;
 }
 
 /** Whether a socket has subscribed to a given sync collection. A legacy
@@ -141,6 +155,18 @@ function wsUserId(ws: WebSocket): string | null {
   try {
     const attachment = ws.deserializeAttachment() as WsAttachment | null;
     return typeof attachment?.userId === "string" && attachment.userId ? attachment.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+function wsConnectivityAccountId(ws: WebSocket): string | null {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return typeof attachment?.connectivityAccountId === "string"
+      && attachment.connectivityAccountId
+      ? attachment.connectivityAccountId
+      : null;
   } catch {
     return null;
   }
@@ -332,17 +358,32 @@ export class TeamPresence extends DurableObject {
    * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
    * scoped clients restore/push through the scoped HTTP backup API until scoped
    * WebSocket subscriptions exist. Returns the number of records changed (no-op
-   * upserts of an unchanged payload are not counted). */
+   * upserts of an unchanged payload are not counted) plus the verified team the
+   * ops were stored under, echoed so the phone can persist which per-team DO a
+   * record's backup lives in and route its later delete tombstone there. */
   async backupPairedMacs(
     teamId: string,
     userId: string,
     ops: readonly PairedMacBackupOp[],
     clientScope?: string | null,
-  ): Promise<{ ok: true; changed: number } | { ok: false; error: string; status: number }> {
+    expectedRevision?: number,
+  ): Promise<
+    { ok: true; changed: number; teamId: string } | { ok: false; error: string; status: number }
+  > {
     await this.rememberTeamId(teamId);
     let deltas;
     try {
-      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+      deltas = await this.ctx.storage.transaction(async (transaction) => {
+        const storage: SyncStorage = transaction;
+        return await applyBackupOps(
+          storage,
+          userId,
+          ops,
+          Date.now(),
+          clientScope,
+          expectedRevision
+        );
+      });
     } catch (error) {
       if (error instanceof PairedMacBackupApplyError) {
         return { ok: false, error: error.code, status: 409 };
@@ -358,27 +399,111 @@ export class TeamPresence extends DurableObject {
     // next tombstone-GC deadline for this user's collection now.
     const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId, clientScope));
     if (gcTime !== null) await this.ensureAlarmAt(gcTime);
-    return { ok: true, changed: deltas.length };
+    return { ok: true, changed: deltas.length, teamId };
   }
 
   /** Read a user's backed-up saved-host list (the GET restore path). Called only
    * by the worker after it verifies the token, so `userId` is trusted. Returns
-   * live records plus retained delete tombstones for the per-user collection. */
+   * live records plus retained delete tombstones for the per-user collection,
+   * and echoes the verified team the collection was read from so the phone can
+   * persist where each restored record's backup lives. */
   async listPairedMacs(
     teamId: string,
     userId: string,
     clientScope?: string | null,
-  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
+  ): Promise<{
+    records: PairedMacBackupRecord[];
+    deletedMacDeviceIDs: string[];
+    revision: number;
+    teamId: string;
+  }> {
     await this.rememberTeamId(teamId);
     // A tagged scope is authoritative from its first read. An unscoped record
     // cannot prove which Mac app tag produced its routes, so falling back across
     // that boundary could reconnect one iOS build to another app instance.
-    return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
+    const snapshot = await this.ctx.storage.transaction(
+      async (transaction) => await listBackupSnapshot(
+        transaction,
+        userId,
+        clientScope
+      )
+    );
+    return {
+      records: snapshot.records,
+      deletedMacDeviceIDs: snapshot.deletedMacDeviceIDs,
+      revision: snapshot.revision,
+      teamId,
+    };
+  }
+
+  /** Broadcast a route-revision hint to every live client for one account.
+   *
+   * The worker chooses this DO from the verified Stack user id. No routes are
+   * present on this channel, and `delivered: 0` is success because the v2 sync
+   * performed on activation, foregrounding, and reconnect remains the
+   * correctness path. */
+  async invalidateConnectivity(
+    accountId: string,
+    revision: number,
+  ): Promise<{ ok: true; delivered: number }> {
+    const now = Date.now();
+    const event: ConnectivityInvalidationEvent = {
+      type: "connectivity.invalidate",
+      protocolVersion: 1,
+      revision,
+      at: now,
+    };
+    const json = JSON.stringify(event);
+    let delivered = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (!shouldDeliverConnectivityInvalidation({
+        accountId: wsConnectivityAccountId(ws),
+        expiresAt: wsExpiresAt(ws),
+      }, accountId, now)) continue;
+      try {
+        ws.send(json);
+        delivered += 1;
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+    return { ok: true, delivered };
+  }
+
+  // ---- Phone reply inbox (see replies.ts for the design) ----
+
+  /** Park one inline notification reply and nudge the account's live
+   * connectivity subscribers so a reply-aware Mac sweeps the inbox now.
+   * `delivered: 0` on the nudge is fine — the Mac also sweeps on subscriber
+   * (re)start and on foregrounding, and the entry waits out its TTL. */
+  async enqueuePhoneReply(
+    accountId: string,
+    reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
+  ): Promise<EnqueuePhoneReplyResult> {
+    const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
+    if (result.ok && !result.duplicate) {
+      const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
+      return { ...result, nudged: nudge.delivered };
+    }
+    return result;
+  }
+
+  /** Pending replies for one Mac, oldest first. */
+  async listPhoneReplies(macDeviceId: string): Promise<StoredPhoneReply[]> {
+    return listPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  }
+
+  /** Remove replies the Mac has finished processing. Idempotent. */
+  async ackPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
+    return ackPhoneReplies(this.ctx.storage, replyIds, Date.now());
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
 
   override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/v1/connectivity/subscribe") {
+      return this.subscribeConnectivity(request);
+    }
     const teamId = request.headers.get("x-presence-team-id");
     if (!teamId) return new Response("missing team", { status: 500 });
     await this.rememberTeamId(teamId);
@@ -401,18 +526,18 @@ export class TeamPresence extends DurableObject {
       );
     }
 
-    if (this.subscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
     // The verified Stack user id, forwarded by the worker. Pinned on the socket
     // so the per-user `pairedMacs` backup collection can be scoped to its owner.
     // Absent for an old worker that does not forward it (the socket then never
     // gets served `pairedMacs`).
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
+
+    if (this.presenceSubscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
+      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const pair = new WebSocketPair();
@@ -452,6 +577,61 @@ export class TeamPresence extends DurableObject {
     });
   }
 
+  /** Opens the quiet account-scoped connectivity channel.
+   *
+   * It is intentionally separate from team presence and device-owner pins:
+   * Iroh route authority belongs to a personal Stack account even while two
+   * app instances have different selected teams. The worker pins the verified
+   * account id in the socket attachment, and this DO is itself named from that
+   * account id. */
+  private async subscribeConnectivity(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return new Response(JSON.stringify({ error: "websocket_required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const accountId = request.headers.get("x-connectivity-account-id")?.trim();
+    if (!accountId) {
+      return new Response(JSON.stringify({ error: "account_required" }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const now = Date.now();
+    const expiresAt = resolveSubscribeDeadline(
+      request.headers.get("x-presence-expires-at"),
+      now,
+      MAX_SUBSCRIBE_AGE_MS,
+    );
+    if (expiresAt === null) {
+      return new Response(JSON.stringify({ error: "subscription_expired" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const connected = this.ctx.getWebSockets().filter(
+      (ws) => wsConnectivityAccountId(ws) !== null && wsExpiresAt(ws) > now,
+    ).length;
+    if (connected >= MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT) {
+      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({
+      expiresAt,
+      userId: accountId,
+      connectivityAccountId: accountId,
+    } satisfies WsAttachment);
+    await this.ensureAlarmAt(expiresAt);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
   // The presence subscribe stream is push-only, but sync rides the same socket:
   // a client sends `sync.hello` after connect to subscribe to collections with
   // the cursors it already holds, and the DO replies with a snapshot or catch-up
@@ -460,6 +640,8 @@ export class TeamPresence extends DurableObject {
   // backward-compatible with the one-way presence transport.
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (wsExpiresAt(ws) <= Date.now()) return;
+    // Connectivity invalidation channels are push-only.
+    if (wsConnectivityAccountId(ws) !== null) return;
     // Bound the inbound message BEFORE parsing: this is client-controlled input
     // on the live presence DO, so an unbounded JSON.parse would be a
     // resource-exhaustion vector. A well-formed `sync.hello` is tiny (a handful
@@ -753,8 +935,14 @@ export class TeamPresence extends DurableObject {
     }
   }
 
-  private subscriberCount(): number {
-    return this.ctx.getWebSockets().length + this.sseSubscribers.size;
+  private presenceSubscriberCount(): number {
+    let presence = this.sseSubscribers.size;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsConnectivityAccountId(ws) === null) {
+        presence += 1;
+      }
+    }
+    return presence;
   }
 
   private nextSubscriberDeadline(): number | null {
@@ -801,6 +989,8 @@ export class TeamPresence extends DurableObject {
     for (const event of events) {
       const json = JSON.stringify(event);
       for (const ws of this.ctx.getWebSockets()) {
+        // The account connectivity DO never receives team presence events.
+        if (wsConnectivityAccountId(ws) !== null) continue;
         // Deadline enforced at delivery too, so an expired subscriber never
         // receives data even if the closing alarm has not fired yet.
         if (wsExpiresAt(ws) <= now) {

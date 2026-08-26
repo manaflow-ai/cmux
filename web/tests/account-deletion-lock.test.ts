@@ -5,6 +5,7 @@ import {
   ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
   isBlockingAccountDeletionTombstone,
   withAccountDeletionAnalyticsForwardLease,
+  withAccountDeletionUserMutation,
 } from "../services/account/deletionLock";
 
 describe("account deletion tombstone lock", () => {
@@ -71,6 +72,52 @@ describe("account deletion tombstone lock", () => {
 
     expect(insertedExpiresAt?.getTime()).toBe(
       now.getTime() + ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
+    );
+  });
+
+  test("commits a durable user-mutation lease before external work starts", async () => {
+    let transactionDepth = 0;
+    let insertedLeaseCount = 0;
+    const tx = {
+      execute: async () => undefined,
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+      delete: () => ({ where: async () => undefined }),
+      insert: () => ({
+        values: async () => {
+          insertedLeaseCount += 1;
+        },
+      }),
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
+    };
+    const db = {
+      transaction: async (
+        operation: (transaction: typeof tx) => Promise<unknown>,
+      ) => {
+        transactionDepth += 1;
+        try {
+          return await operation(tx);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
+    } as unknown as ReturnType<typeof cloudDb>;
+
+    await withAccountDeletionUserMutation(
+      db,
+      "user-outside-transaction",
+      async () => {
+        expect(transactionDepth).toBe(0);
+        expect(insertedLeaseCount).toBe(1);
+        return "completed";
+      },
     );
   });
 });

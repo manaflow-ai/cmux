@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNotifications
 import SwiftUI
 
 struct MinimalModeSidebarTitlebarControlsOverlay: View {
-    let notificationStore: TerminalNotificationStore
+    let unreadModel: SidebarUnreadModel
+    let layoutModel: TitlebarControlsLayoutModel
     let leadingInset: CGFloat
     let topPadding: CGFloat
     let onToggleSidebar: () -> Void
@@ -21,7 +23,8 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
     var body: some View {
         if isMinimalMode {
             HiddenTitlebarSidebarControlsView(
-                notificationStore: notificationStore,
+                unreadModel: unreadModel,
+                layoutModel: layoutModel,
                 onToggleSidebar: onToggleSidebar,
                 onToggleNotifications: onToggleNotifications,
                 onNewTab: onNewTab,

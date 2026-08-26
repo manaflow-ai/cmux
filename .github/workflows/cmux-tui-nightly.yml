@@ -22,10 +22,18 @@ jobs:
       pypi_version: ${{ steps.version.outputs.pypi_version }}
       head_sha: ${{ steps.version.outputs.head_sha }}
     steps:
+      - name: Require main branch dispatch
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on main." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Derive nightly versions
@@ -49,6 +57,10 @@ jobs:
           npm_version="$next_stable-nightly.$stamp.$GITHUB_RUN_NUMBER"
           pypi_version="$next_stable.dev${stamp}${GITHUB_RUN_NUMBER}"
           head_sha="$(git rev-parse HEAD)"
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "Nightly checkout $head_sha does not match workflow commit $GITHUB_SHA" >&2
+            exit 1
+          fi
           {
             echo "npm_version=$npm_version"
             echo "pypi_version=$pypi_version"
@@ -66,6 +78,8 @@ jobs:
     needs: version
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: ${{ needs.version.outputs.npm_version }}
@@ -73,6 +87,7 @@ jobs:
       package_npm: true
       package_pypi: true
       include_windows: true
+      attest_packages: true
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
@@ -85,15 +100,28 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download npm package directories
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -102,8 +130,42 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ needs.version.outputs.npm_version }}" \
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.version.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/chatmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/heads/main"
+          done
+
+      # cmux-relay packages are validated in the artifact contract above but
+      # publish only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml); nightlies never move relay dist-tags.
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -112,6 +174,7 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
@@ -133,11 +196,23 @@ jobs:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pypi-wheels
           path: dist
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ needs.version.outputs.pypi_version }}"
 
       - name: Publish nightly package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1

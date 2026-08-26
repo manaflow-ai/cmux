@@ -16,6 +16,14 @@ import Foundation
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
 
+    func controlSystemSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
+    func controlSystemTabNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.tabNotFound", defaultValue: "Tab not found")
+    }
+
     // MARK: - identify (bridge to the still-shared v2Identify)
 
     func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue {
@@ -54,7 +62,11 @@ extension TerminalController: ControlSystemContext {
                     let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: workspace.id == manager.selectedTabId,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager
+                        )
                     )
                     windows = [
                         ControlSystemTreeWindowNode(
@@ -72,10 +84,16 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    controlSystemTreeWorkspaceNode(
+                    let selected = workspace.id == manager.selectedTabId
+                    return controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: selected,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager,
+                            includeGlobalDock: selected
+                        )
                     )
                 }
 
@@ -106,16 +124,22 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// Projects the authoritative control-plane workspace topology shared by
-    /// `system.tree`, `system.top`, and the task-manager snapshot.
+    /// Projects the requested control-plane workspace containers. Tree callers
+    /// include Dock stores; legacy top/task-manager callers explicitly pass
+    /// none because Dock process attribution is outside the list/tree parity
+    /// scope.
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
-        selected: Bool
+        selected: Bool,
+        dockStores: [DockSplitStore]
     ) -> ControlSystemTreeWorkspaceNode {
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
-        for (surfaceIndex, surface) in controlSurfaceSummaries(workspace: workspace).enumerated() {
-            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+        let surfaceSummaries = controlSurfaceSummaries(workspace: workspace) +
+            dockStores.flatMap { controlDockSurfaceSummaries(dock: $0) }
+        for (surfaceIndex, surface) in surfaceSummaries.enumerated() {
+            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
+                dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
@@ -129,7 +153,8 @@ extension TerminalController: ControlSystemContext {
                 indexInPane: surface.indexInPane,
                 tty: workspace.surfaceTTYNames[surface.surfaceID],
                 isBrowser: browserPanel != nil,
-                url: browserPanel?.currentURL?.absoluteString
+                url: browserPanel?.currentURL?.absoluteString,
+                dockScopeRawValue: surface.dockScopeRawValue
             )
             if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
@@ -142,10 +167,11 @@ extension TerminalController: ControlSystemContext {
             }
         }
 
+        let dockPaneSummaries = dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
         let paneSummaries = controlPaneSummaries(
             workspace: workspace,
             snapshot: workspace.bonsplitController.layoutSnapshot()
-        )
+        ) + dockPaneSummaries
         let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
             ControlSystemTreePaneNode(
                 paneID: pane.paneID,
@@ -153,9 +179,21 @@ extension TerminalController: ControlSystemContext {
                 isFocused: pane.isFocused,
                 surfaceIDs: pane.surfaceIDs,
                 selectedSurfaceID: pane.selectedSurfaceID,
-                surfaces: surfacesByPane[pane.paneID] ?? []
+                surfaces: surfacesByPane[pane.paneID] ?? [],
+                dockScopeRawValue: pane.dockScopeRawValue
             )
         }
+
+        // The flat `panes` array above discards how the workspace panes are
+        // arranged. Capture the live split tree so the wire carries direction
+        // + ratio + nesting; pane leaves reference the same UUIDs as `panes`.
+        // Dock panes live in separate Bonsplit trees, so they cannot be placed
+        // faithfully in this workspace tree. Fail closed when a Dock contributes
+        // panes rather than emitting a partial layout whose leaves disagree
+        // with the authoritative flat `panes` array.
+        let layout = dockPaneSummaries.isEmpty
+            ? systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+            : nil
 
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
@@ -164,8 +202,38 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            panes: panes
+            panes: panes,
+            layout: layout
         )
+    }
+
+    /// Map Bonsplit's `ExternalTreeNode` (from `treeSnapshot()`) into the
+    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` when any pane
+    /// leaf carries an unparseable id (not expected: `ExternalPaneNode.id` is a
+    /// `UUID.uuidString`) or any split carries an orientation outside the wire
+    /// contract's `horizontal`/`vertical` (also not expected). This is
+    /// fail-closed: because a `.split` requires BOTH converted children, a
+    /// single nil leaf propagates up through every ancestor split and nils the
+    /// ENTIRE workspace layout — the consumer sees `layout: null` and falls
+    /// back to the flat `panes` array rather than acting on a partial tree.
+    private func systemTreeLayoutNode(from node: ExternalTreeNode) -> ControlSystemTreeLayoutNode? {
+        switch node {
+        case .pane(let paneNode):
+            guard let paneID = UUID(uuidString: paneNode.id) else { return nil }
+            return .pane(paneID: paneID)
+        case .split(let splitNode):
+            guard
+                let orientation = ControlSystemTreeLayoutNode.SplitOrientation(rawValue: splitNode.orientation),
+                let first = systemTreeLayoutNode(from: splitNode.first),
+                let second = systemTreeLayoutNode(from: splitNode.second)
+            else { return nil }
+            return .split(
+                orientation: orientation,
+                ratio: splitNode.dividerPosition,
+                first: first,
+                second: second
+            )
+        }
     }
 
     // MARK: - auth.login / session / settings / feedback

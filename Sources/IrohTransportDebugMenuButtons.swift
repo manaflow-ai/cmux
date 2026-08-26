@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import SwiftUI
 
@@ -12,6 +13,7 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
             openReact: openReact,
             openSolid: openSolid
         )
+        NotificationDebugMenuButtons()
     }
 }
 

@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v1
+// cmux-omp-session-extension-marker v2
 // Bridges OMP session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -74,6 +74,7 @@ function base64NulSeparated(values: string[]): string {
 
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  env.CMUX_OMP_PID = String(process.pid);
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "omp";
@@ -87,6 +88,7 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
 interface HookInvocation {
   cmux: string;
   cwd: string;
+  sessionId: string;
   payload: string;
   env: NodeJS.ProcessEnv;
 }
@@ -128,9 +130,20 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
+function boundedHookText(value: string | undefined): string | undefined {
+  if (value === undefined || value.length <= 32768) return value;
+  return value.slice(0, 32768);
+}
+
+function isNestedArtifactSession(ctx: ExtensionContext): boolean {
+  const sessionFile = firstString(ctx.sessionManager.getSessionFile());
+  return sessionFile !== null && fs.existsSync(`${path.dirname(sessionFile)}.jsonl`);
+}
+
 function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
   if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
   if (!process.env.CMUX_SURFACE_ID) return null;
+  if (isNestedArtifactSession(ctx)) return null;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
   if (!sessionId) return null;
@@ -147,49 +160,244 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   return {
     cmux,
     cwd,
+    sessionId,
     payload: JSON.stringify(payload),
     env: hookEnvironment(cwd),
   };
 }
 
-async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
-  const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return;
-  await new Promise<void>((resolve) => {
+interface RunningHook {
+  completion: Promise<void>;
+  cancel: () => void;
+}
+
+function startHook(invocation: HookInvocation, subcommand: string): RunningHook {
+  let child: ReturnType<typeof spawn> | null = null;
+  let settle = () => {};
+  const terminate = () => {
+    if (child && !child.killed) child.kill("SIGKILL");
+  };
+  const completion = new Promise<void>((resolve) => {
     let settled = false;
-    const settle = () => {
+    const timeout = setTimeout(() => {
+      terminate();
+    }, 5000);
+    timeout.unref();
+    settle = () => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       resolve();
     };
     try {
-      const child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
+      child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
-        detached: true,
       });
       child.on("error", settle);
-      child.stdin.on("error", settle);
-      child.stdin.on("finish", settle);
-      child.unref();
+      child.on("close", settle);
+      child.stdin.on("error", () => {});
       child.stdin.end(invocation.payload);
     } catch (_) {
       settle();
     }
   });
+  return {
+    completion,
+    cancel: () => {
+      terminate();
+    },
+  };
+}
+
+interface QueuedHook {
+  invocation: HookInvocation;
+  subcommand: string;
+}
+
+function hookPriority(subcommand: string): number {
+  switch (subcommand) {
+    case "stop":
+      return 2;
+    case "session-start":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+const maxQueuedHooks = 16;
+const hookShutdownDeadlineMs = 2000;
+const hookQueue: QueuedHook[] = [];
+let hookWorker: Promise<void> | null = null;
+let activeHook: RunningHook | null = null;
+let activeHookSubcommand: string | null = null;
+
+async function drainHookQueue(): Promise<void> {
+  while (hookQueue.length > 0) {
+    const next = hookQueue.shift();
+    if (!next) continue;
+    const running = startHook(next.invocation, next.subcommand);
+    activeHook = running;
+    activeHookSubcommand = next.subcommand;
+    await running.completion;
+    if (activeHook === running) {
+      activeHook = null;
+      activeHookSubcommand = null;
+    }
+  }
+}
+
+function startHookWorker(): void {
+  if (hookWorker) return;
+  hookWorker = drainHookQueue().finally(() => {
+    hookWorker = null;
+    if (hookQueue.length > 0) startHookWorker();
+  });
+}
+
+async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let completed = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  await Promise.race([
+    worker.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  return completed;
+}
+
+async function awaitHookQueueDrain(): Promise<void> {
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand === "prompt-submit") hookQueue.splice(index, 1);
+  }
+  const worker = hookWorker;
+  if (!worker) return;
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand !== "stop") hookQueue.splice(index, 1);
+  }
+  if (activeHookSubcommand !== "stop") activeHook?.cancel();
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  hookQueue.splice(0);
+  activeHook?.cancel();
+  await worker;
+}
+
+function enqueueHook(invocation: HookInvocation, subcommand: string): void {
+  const duplicate = hookQueue.findIndex(
+    (queued) => queued.invocation.sessionId === invocation.sessionId && queued.subcommand === subcommand
+  );
+  if (duplicate >= 0) {
+    hookQueue.splice(duplicate, 1);
+    hookQueue.push({ invocation, subcommand });
+  } else {
+    if (hookQueue.length >= maxQueuedHooks) {
+      const priority = hookPriority(subcommand);
+      const evictable = hookQueue.findIndex((queued) => hookPriority(queued.subcommand) < priority);
+      if (evictable >= 0) hookQueue.splice(evictable, 1);
+      else return;
+    }
+    hookQueue.push({ invocation, subcommand });
+  }
+  startHookWorker();
+}
+
+function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
+  const invocation = hookInvocation(subcommand, ctx, extra);
+  if (!invocation) return Promise.resolve();
+  enqueueHook(invocation, subcommand);
+  return Promise.resolve();
+}
+
+// The pane's lifecycle in cmux must be owned by exactly one OMP session: the
+// top-level session driving the terminal. Subagents spawned by the task tool
+// run in the same process and inherit CMUX_SURFACE_ID, but each has its own
+// session id; without an ownership check, every subagent's agent_end reports
+// the whole pane idle while the main agent is still mid-turn, and Agent
+// Hibernation then SIGHUPs the live pane (issue #9591).
+//
+// Ownership must live on globalThis, not in module scope: OMP loads a fresh
+// copy of this module for every session in the process (each extension import
+// uses a unique ?mtime= cache-busting URL), so module state is per-session
+// while the pane is per-process.
+interface CmuxOmpPaneOwnership {
+  sessionId: string | null;
+}
+
+const cmuxOmpGlobals = globalThis as typeof globalThis & {
+  __cmuxOmpPaneOwnership?: CmuxOmpPaneOwnership;
+};
+
+function paneOwnership(): CmuxOmpPaneOwnership {
+  cmuxOmpGlobals.__cmuxOmpPaneOwnership ??= { sessionId: null };
+  return cmuxOmpGlobals.__cmuxOmpPaneOwnership;
+}
+
+function contextSessionId(ctx: ExtensionContext): string | null {
+  return firstString(ctx.sessionManager.getSessionId());
+}
+
+function isOwnerContext(ctx: ExtensionContext): boolean {
+  const sessionId = contextSessionId(ctx);
+  return sessionId !== null && sessionId === paneOwnership().sessionId;
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   api.on("session_start", async (_event, ctx) => {
+    // The top-level session bootstraps before any subagent can exist in this
+    // process, so the first session_start pins ownership. Later session_start
+    // events with a different session id are subagent bootstraps.
+    const ownership = paneOwnership();
+    if (ownership.sessionId === null) ownership.sessionId = contextSessionId(ctx);
+    if (!isOwnerContext(ctx)) return;
     await sendHook("session-start", ctx);
   });
 
+  // In-process session transitions (/new, fork, resume, handoff) fire only on
+  // the top-level runtime; subagent sessions never switch or branch. Re-pin
+  // ownership to the new session id and rebind the surface in cmux.
+  const adoptSwitchedSession = async (_event: unknown, ctx: ExtensionContext) => {
+    const sessionId = contextSessionId(ctx);
+    if (!sessionId) return;
+    const ownership = paneOwnership();
+    // OMP's reload() re-emits session_switch for the unchanged session file.
+    // A same-id "switch" is not an ownership transition: a spurious
+    // session-start would mark an idle pane running with no agent_end coming.
+    if (ownership.sessionId === sessionId) return;
+    ownership.sessionId = sessionId;
+    await sendHook("session-start", ctx);
+  };
+  api.on("session_switch", adoptSwitchedSession);
+  api.on("session_branch", adoptSwitchedSession);
+
   api.on("before_agent_start", async (event, ctx) => {
-    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
+    if (!isOwnerContext(ctx)) return;
+    await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
   });
 
   api.on("agent_end", async (event, ctx) => {
-    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    if (!isOwnerContext(ctx)) return;
+    // OMP emits agent_end as the universal terminal settle. willContinue marks
+    // a scheduled automatic continuation (auto-retry, queued messages,
+    // session_stop continuations, background jobs), so the turn is still
+    // logically running and the pane must not report idle yet. Read it
+    // defensively: AgentEndEvent predates the field on older OMP versions.
+    if ((event as { willContinue?: unknown }).willContinue === true) return;
+    await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
+  });
+
+  api.on("session_shutdown", async (_event, ctx) => {
+    // A subagent session's teardown must not drain (and drop queued
+    // prompt-submit entries of) the owner session's hook queue.
+    if (!isOwnerContext(ctx)) return;
+    await awaitHookQueueDrain();
   });
 }
 """#

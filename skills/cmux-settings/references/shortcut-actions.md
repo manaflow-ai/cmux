@@ -40,6 +40,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newWorkspaceGroup`
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.reopenClosedWorkspace`
+- `shortcuts.bindings.reopenClosedBrowserPanel` (legacy ID for **Reopen Last Closed**)
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.moveWorkspaceDown`
 
@@ -49,17 +51,33 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.prevSurface`
 - `shortcuts.bindings.moveSurfaceLeft`
 - `shortcuts.bindings.moveSurfaceRight`
+- `shortcuts.bindings.moveSurfaceToPreviousPane`
+- `shortcuts.bindings.moveSurfaceToNextPane`
+- `shortcuts.bindings.moveSurfaceToPaneLeft`
+- `shortcuts.bindings.moveSurfaceToPaneRight`
+- `shortcuts.bindings.moveSurfaceToPaneUp`
+- `shortcuts.bindings.moveSurfaceToPaneDown`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 - `shortcuts.bindings.clearScreenKeepScrollback`
+- `shortcuts.bindings.simulatorHome`
+- `shortcuts.bindings.simulatorRotateLeft`
+- `shortcuts.bindings.simulatorRotateRight`
+- `shortcuts.bindings.simulatorToggleAppearance`
+- `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`
 - `shortcuts.bindings.focusDown`
+- `shortcuts.bindings.focusPreviousPane`
+- `shortcuts.bindings.focusNextPane`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
+- `shortcuts.bindings.increaseWorkspaceTerminalFontSize`
+- `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
+- `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.equalizeSplits`
 
 ## Canvas
@@ -103,12 +121,14 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToSessions`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToDock`
+- `shortcuts.bindings.switchRightSidebarToMachines`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
+- `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.prevSidebarTabInGroup`
 
 ## Browser
 
-- `shortcuts.bindings.reopenClosedBrowserPanel`
 - `shortcuts.bindings.splitBrowserRight`
 - `shortcuts.bindings.splitBrowserDown`
 - `shortcuts.bindings.openBrowser`

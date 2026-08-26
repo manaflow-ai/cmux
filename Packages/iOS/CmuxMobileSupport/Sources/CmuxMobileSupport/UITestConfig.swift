@@ -79,11 +79,45 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Forces the legacy keyboard-dock path on any simulator. Legacy is the
+    /// shipping default, so this pin exists for explicit-path tests and
+    /// debugging. DEBUG-only.
+    public static var forceLegacyKeyboardDock: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the rebuilt (single-constraint) keyboard-dock path on iOS ≤26
+    /// simulators so CI keeps exercising the kill-switch fallback. DEBUG-only;
+    /// iOS 27+ ignores it because the rebuild misreads that OS's keyboard
+    /// frames.
+    public static var forceRebuildKeyboardDock: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the exact iOS 27 keyboard seat (notification authority,
+    /// will-frames only) on any simulator OS, so iOS ≤26 CI runners exercise
+    /// the path iOS 27 devices ship with. DEBUG-only.
+    public static var forceIOS27KeyboardSeat: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
     /// static workspace list with an unread row so layout screenshots can verify
-    /// the avatar column and unread indicator without sign-in or Mac pairing.
+    /// the leading workspace-row indicators without sign-in or Mac pairing.
     /// DEBUG-only.
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
@@ -92,6 +126,136 @@ public struct UITestConfig {
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// When `CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1`, the root view renders a
+    /// static Hidden Computers list with fixture rows so UI tests can exercise
+    /// the rows' swipe actions (the confirm-first Forget flow) without sign-in
+    /// or Mac pairing. DEBUG-only.
+    public static var hiddenComputersPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the full-app UI-test harness should treat the account-owned
+    /// revoke step of Forget Computer as successful. The remaining operation,
+    /// including durable paired-Mac deletion, store refresh, shell routing, and
+    /// modal presentation, continues through production code. DEBUG-only and
+    /// gated on mock data so dogfood builds can never skip a real revoke.
+    public static var successfulComputerForgetEnabled: Bool {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        return mockDataEnabled(from: environment)
+            && environment["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Push readiness preview state selected by
+    /// `CMUX_UITEST_PUSH_READINESS_PREVIEW`. A set value routes the root view
+    /// to the readiness preview and names its fixture state. DEBUG-only.
+    public static var pushReadinessPreviewState: String? {
+        pushReadinessPreviewState(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the push-readiness preview fixture from explicit process inputs.
+    public static func pushReadinessPreviewState(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        return env["CMUX_UITEST_PUSH_READINESS_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_PUSH_READINESS_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        #else
+        return nil
+        #endif
+    }
+
+    /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
+    ///
+    /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
+    /// Unknown or absent values return `nil` so normal root routing continues.
+    public static var changesPreviewMode: String? {
+        changesPreviewMode(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves a changes preview mode from explicit process inputs.
+    /// - Parameters:
+    ///   - env: Environment dictionary to inspect.
+    ///   - arguments: Launch arguments to inspect after the environment.
+    /// - Returns: A supported preview mode or `nil`.
+    public static func changesPreviewMode(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CHANGES_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CHANGES_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        guard let value, ["1", "diff", "empty", "states"].contains(value) else { return nil }
+        return value
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether the standalone task-composer accessibility preview is enabled.
+    ///
+    /// The preview presents the production sheet with deterministic templates
+    /// and a paired Mac, so UI tests can inspect its native accessibility tree
+    /// without depending on authentication or network pairing. DEBUG-only.
+    public static var taskComposerPreviewEnabled: Bool {
+        taskComposerPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the standalone task
+    /// composer accessibility preview.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose preview value is `"1"`.
+    public static func taskComposerPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the UI-test harness should auto-open the first workspace.
+    ///
+    /// When `CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`, the root view pushes the
+    /// first loaded workspace once after sign-in, so headless harnesses (for
+    /// example the scripted scroll verification) reach a terminal without GUI
+    /// taps. DEBUG-only.
+    public static var autoOpenFirstWorkspaceEnabled: Bool {
+        autoOpenFirstWorkspaceEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the auto-open-first-
+    /// workspace hook.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose value is `"1"`.
+    public static func autoOpenFirstWorkspaceEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE"] == "1"
         #else
         return false
         #endif
@@ -125,38 +289,21 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Whether the standalone streaming-chat preview is enabled.
+    /// The selected page of the standalone Mac-surface renderer gallery.
     ///
-    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
-    /// self-playing agent chat that drives the real conversation store with live
-    /// `streamingProse` events, so the incremental streaming preview can be
-    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
-    public static var streamingChatPreviewEnabled: Bool {
+    /// When `CMUX_UITEST_MAC_SURFACE_GALLERY` names a page (`todo`, `file`,
+    /// `markdown`, `fallback`, or `picker`), the root view renders that
+    /// production surface component with fixture data and a stub loader, so
+    /// dark/light simulator screenshots don't require sign-in, Mac pairing,
+    /// or a live connection. DEBUG-only.
+    public static var macSurfaceGalleryPreviewPage: String? {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
+        let value = ProcessInfo.processInfo.environment["CMUX_UITEST_MAC_SURFACE_GALLERY"]
+        guard let value, !value.isEmpty else { return nil }
+        return value
         #else
-        return false
+        return nil
         #endif
-    }
-
-    /// Whether the standalone agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
-    /// debug chat fixture directly so XCUITest can exercise chat layout without
-    /// sign-in, pairing, or workspace-shell timing. DEBUG-only.
-    public static var agentChatPreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatPreviewEnabled
-    }
-
-    /// Whether the inline workspace-shaped agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW=1`, the root view renders the
-    /// debug chat fixture with the same outer navigation/padding shape as the
-    /// in-place workspace chat pane, without sign-in or Mac pairing. DEBUG-only.
-    public static var agentChatInlinePreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatInlinePreviewEnabled
     }
 
     /// Whether mock data is enabled for an explicit environment.

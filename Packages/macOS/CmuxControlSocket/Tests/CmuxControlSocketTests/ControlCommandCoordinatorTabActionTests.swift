@@ -71,6 +71,42 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
     }
 
+    @Test func tabActionRejectsExplicitNullSurfaceIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
+    @Test func tabActionRejectsExplicitNullTabIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "tab_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Tab not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
     @Test func failedFullWidthTabToggleReturnsInvalidState() throws {
         let surfaceID = UUID()
         let context = FakeTabActionControlCommandContext()

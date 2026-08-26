@@ -1,5 +1,11 @@
+public import CMUXMobileCore
+
 /// Failures at the authenticated HTTP trust-broker boundary.
-public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
+public enum CmxIrohTrustBrokerClientError:
+    CmxRetryAfterProviding,
+    Equatable,
+    Sendable
+{
     /// The authenticated broker could not be reached through the current network.
     case connectivity
     case invalidBaseURL
@@ -11,7 +17,14 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
     case rejected(statusCode: Int, code: String?)
     case invalidResponse
 
-    static func preservesVerifiedPolicyDuringRefresh(_ error: any Error) -> Bool {
+    /// Whether an inconclusive refresh may preserve already-verified state.
+    ///
+    /// This never admits a new peer. Callers may retain only state whose own
+    /// signed lease or policy expiry remains authoritative.
+    static func preservesVerifiedStateDuringRefresh(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity:
@@ -19,7 +32,17 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
         case .rateLimited:
             return true
         case let .rejected(statusCode, _):
-            return statusCode == 408
+            // A 401 here already survived the
+            // broker client's single force-refresh retry, so it is a session
+            // transition still settling (rotation race, locked token store) or
+            // a server-side availability condition — not a trust change. The
+            // existing state remains bounded by its signed expiry; tearing it
+            // down buys nothing and turns a seconds-long auth blip into a full
+            // endpoint or session rebuild. A genuinely dead session clears
+            // auth state through the coordinator, which stops the runtime
+            // through the lifecycle owner instead.
+            return statusCode == 401
+                || statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
@@ -34,6 +57,9 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
 
     /// Accepts only failures that are safe to retry before any binding is trusted.
     static func retriesInitialActivation(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity, .rateLimited:
@@ -41,6 +67,8 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
         case let .rejected(statusCode, _):
             // A server failure cannot establish trust, so retrying the request
             // is safe while the lifecycle-owned start task remains current.
+            // An authentication rejection cannot establish initial trust. It
+            // must return to the auth lifecycle instead of retrying forever.
             return statusCode == 408
                 || statusCode == 425
                 || statusCode == 429

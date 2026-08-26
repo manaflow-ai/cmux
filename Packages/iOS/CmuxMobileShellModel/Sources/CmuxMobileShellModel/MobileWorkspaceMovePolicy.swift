@@ -1,7 +1,7 @@
 import Foundation
 
 /// Host-style workspace move normalization shared by iOS intent resolution and optimistic ordering.
-struct MobileWorkspaceMovePolicy {
+public struct MobileWorkspaceMovePolicy {
     let workspaces: [MobileWorkspacePreview]
     let groups: [MobileWorkspaceGroupPreview]
     // One synchronous drop runs the policy across per-workspace filters,
@@ -10,14 +10,30 @@ struct MobileWorkspaceMovePolicy {
     private let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
     private let groupByAnchorID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview]
 
-    init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview]) {
+    /// Creates a move policy for one authoritative or optimistic workspace snapshot.
+    ///
+    /// - Parameters:
+    ///   - workspaces: The workspace order against which to validate and predict a move.
+    ///   - groups: The known workspace groups and their anchor metadata.
+    public init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview]) {
         self.workspaces = workspaces
         self.groups = groups
         groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        groupByAnchorID = Dictionary(groups.map { ($0.anchorWorkspaceID, $0) }, uniquingKeysWith: { first, _ in first })
+        groupByAnchorID = Dictionary(
+            groups.compactMap { group in
+                group.liveAnchorWorkspaceID.map { ($0, group) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
-    func normalizedIntent(
+    /// Validates and canonicalizes a proposed host move for one workspace.
+    ///
+    /// - Parameters:
+    ///   - proposed: The proposed group membership and relative ordering.
+    ///   - movedWorkspaceID: The workspace being moved, or a group's anchor for a group move.
+    /// - Returns: A canonical move intent, or `nil` when the proposal is invalid or a no-op.
+    public func normalizedIntent(
         _ proposed: MobileWorkspaceMoveIntent,
         movedWorkspaceID: MobileWorkspacePreview.ID
     ) -> MobileWorkspaceMoveIntent? {
@@ -241,7 +257,9 @@ struct MobileWorkspaceMovePolicy {
             if let groupID = validGroupID(workspace.groupID),
                let group = groupsByID[groupID],
                emittedGroupIDs.insert(groupID).inserted {
-                let members = anchorFirst(groupedByGroupID[groupID] ?? [], anchorID: group.anchorWorkspaceID)
+                let members = group.liveAnchorWorkspaceID.map {
+                    anchorFirst(groupedByGroupID[groupID] ?? [], anchorID: $0)
+                } ?? (groupedByGroupID[groupID] ?? [])
                 for member in members where emittedWorkspaceIDs.insert(member.id).inserted {
                     reordered.append(member)
                 }
@@ -274,7 +292,7 @@ struct MobileWorkspaceMovePolicy {
             if let groupID = validGroupID(workspace.groupID),
                let group = groupsByID[groupID] {
                 if emittedGroupIDs.insert(groupID).inserted {
-                    ids.append(group.anchorWorkspaceID)
+                    ids.append(group.liveAnchorWorkspaceID ?? workspace.id)
                 }
             } else {
                 ids.append(workspace.id)
@@ -285,7 +303,7 @@ struct MobileWorkspaceMovePolicy {
            let workspace = workspacesByID[promotedWorkspaceID],
            let groupID = validGroupID(workspace.groupID),
            let group = groupsByID[groupID],
-           let groupIndex = ids.firstIndex(of: group.anchorWorkspaceID) {
+           let groupIndex = group.liveAnchorWorkspaceID.flatMap({ ids.firstIndex(of: $0) }) {
             let insertionIndex = promotedTopLevelInsertionIndex(
                 ids: ids,
                 groupIndex: groupIndex,
@@ -365,7 +383,7 @@ struct MobileWorkspaceMovePolicy {
     ) -> Int? {
         guard let groupID = validGroupID(workspace.groupID),
               let group = groupsByID[groupID],
-              workspace.id != group.anchorWorkspaceID else {
+              workspace.id != group.liveAnchorWorkspaceID else {
             return nil
         }
         let memberIndices = order.indices.filter { validGroupID(order[$0].groupID) == groupID }
@@ -375,7 +393,7 @@ struct MobileWorkspaceMovePolicy {
         }
         let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
             let member = order[index]
-            if member.id != group.anchorWorkspaceID, member.isPinned {
+            if member.id != group.liveAnchorWorkspaceID, member.isPinned {
                 count += 1
             }
         }
@@ -415,7 +433,7 @@ struct MobileWorkspaceMovePolicy {
               let group = groupsByID[groupID] else {
             return beforeWorkspaceID
         }
-        return group.anchorWorkspaceID
+        return group.liveAnchorWorkspaceID ?? beforeWorkspaceID
     }
 
     private func topLevelBeforeWorkspaceID(

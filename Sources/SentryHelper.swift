@@ -8,7 +8,7 @@ import Sentry
 
 /// Add a Sentry breadcrumb for user-action context in hang/crash reports.
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    guard SentrySDK.isEnabled else { return }
     let crumb = Breadcrumb(level: .info, category: category)
     crumb.message = message
     crumb.data = data
@@ -23,7 +23,7 @@ private func sentryCaptureMessage(
     data: [String: Any]?,
     contextKey: String?
 ) {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    guard SentrySDK.isEnabled else { return }
     _ = SentrySDK.capture(message: message) { scope in
         scope.setLevel(level)
         scope.setTag(value: category, key: "category")
@@ -54,7 +54,7 @@ func sentryCaptureError(
 
 @MainActor
 func sentryStartMemoryContextRefresh() {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    guard SentrySDK.isEnabled else { return }
     sentryScheduleMemoryContextRefresh(reason: "startup", minimumInterval: 0)
 }
 
@@ -66,7 +66,7 @@ func sentryStopMemoryContextRefresh() {
 }
 
 private func sentryRequestMemoryContextRefresh(reason: String) {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    guard SentrySDK.isEnabled else { return }
     Task { @MainActor in
         sentryScheduleMemoryContextRefresh(reason: reason)
     }
@@ -91,7 +91,7 @@ private func sentryScheduleMemoryContextRefresh(
 
 /// Refresh the memory/surface context attached to future Sentry events.
 func sentryRefreshMemoryContext(reason: String) async {
-    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    guard SentrySDK.isEnabled else { return }
 
     let processSnapshot = CmuxTopProcessSnapshot.captureCached(
         includeProcessDetails: false,

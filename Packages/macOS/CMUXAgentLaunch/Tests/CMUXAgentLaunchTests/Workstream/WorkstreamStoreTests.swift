@@ -120,6 +120,38 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("PostToolUse preserves failure status from the wire event")
+    func postToolUsePreservesFailureStatus() throws {
+        let data = try #require(
+            """
+            {
+              "session_id": "pi-session",
+              "hook_event_name": "PostToolUse",
+              "_source": "pi",
+              "tool_name": "bash",
+              "tool_input": {"kind": "object", "key_count": 2},
+              "is_error": true
+            }
+            """.data(using: .utf8)
+        )
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let encoded = try JSONEncoder().encode(event)
+        let encodedObject = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(encodedObject["is_error"] as? Bool == true)
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(event)
+
+        let item = try #require(store.items.first)
+        if case .toolResult(let toolName, _, let isError) = item.payload {
+            #expect(toolName == "bash")
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUse to decode as toolResult telemetry")
+        }
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(
@@ -137,6 +169,7 @@ struct WorkstreamStoreTests {
         )
         let events: [WorkstreamEvent.HookEventName] = [
             .postToolUse,
+            .postToolUseFailure,
             .preCompact,
             .postCompact,
             .subagentStart,
@@ -154,6 +187,11 @@ struct WorkstreamStoreTests {
         #expect(store.items.count == events.count)
         #expect(store.pending.isEmpty)
         #expect(store.items.allSatisfy { $0.status == .telemetry })
+        if case .toolResult(_, _, let isError) = store.items[1].payload {
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUseFailure to decode as an error tool result")
+        }
         #expect(store.items.map(\.title).contains("Compaction"))
         #expect(store.items.map(\.title).contains("Subagent"))
         #expect(!store.items.map(\.title).contains("PreCompact"))

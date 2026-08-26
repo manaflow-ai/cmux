@@ -145,6 +145,40 @@ struct MobileHostAuthorizationTests {
             #expect(error.code == "forbidden")
         }
     }
+    @Test func testAccountAuthorizedMacScopedMutationsSurviveMissingOrExpiredAttachTicket() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        guard MobileHostService.mobileHostCapabilities.contains(
+            "workspace.mutations.account_auth.v1"
+        ) else {
+            return #expect(
+                Bool(false),
+                "the host must advertise account-authorized workspace mutations"
+            )
+        }
+        let mutations: [(String, [String: Any])] = [
+            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
+            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+            ("workspace.group.create", [:]),
+            ("workspace.create", ["group_id": "group-main"]),
+        ]
+        for (method, params) in mutations {
+            for attachToken in [nil, "expired-or-unknown-token"] {
+                let request = MobileHostRPCRequest(
+                    id: method,
+                    method: method,
+                    params: params,
+                    auth: MobileHostRPCAuth(attachToken: attachToken, stackAccessToken: "cmux-dev-token")
+                )
+                let result = await service.debugAuthorizationError(for: request)
+                #expect(
+                    result == nil,
+                    "\(method) with \(attachToken == nil ? "no" : "a stale") attach token must be authorized by the Stack account gate"
+                )
+            }
+        }
+    }
     #endif
 
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
@@ -388,6 +422,47 @@ struct MobileHostAuthorizationTests {
             id: "workspace-list",
             method: "workspace.list",
             params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error == nil)
+    }
+    @Test func testScopedAttachTicketAcceptsMacCaffeineControl() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let requests: [(method: String, params: [String: Any])] = [
+            ("caffeine.status", [:]),
+            ("caffeine.set", ["enabled": true]),
+        ]
+        for (method, params) in requests {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(
+                    attachToken: ticket.authToken,
+                    stackAccessToken: nil
+                )
+            )
+            let error = MobileHostService.ticketAuthorizationError(
+                ticket: ticket,
+                request: request
+            )
+            #expect(error == nil)
+        }
+    }
+    @Test func testAttachTicketAcceptsMacDirectoryListForPairedDevice() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "directory-list",
+            method: "mobile.directory.list",
+            params: [
+                "path": "~",
+                "offset": 0,
+                "limit": 50,
+            ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil

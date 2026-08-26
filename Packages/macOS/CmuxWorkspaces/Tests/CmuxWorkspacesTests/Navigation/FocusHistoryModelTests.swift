@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxWorkspaces
 
@@ -90,6 +91,102 @@ struct FocusHistoryModelTests {
         let model = FocusHistoryModel(maxHistorySize: maxHistorySize)
         model.attach(host: host)
         return (model, host)
+    }
+
+    @Test func workspacesOnlyScopeSkipsPaneAndTabEntriesInTheCurrentWorkspace() {
+        let host = FakeFocusHistoryHost()
+        let model = FocusHistoryModel(navigationScope: { .workspacesOnly })
+        model.attach(host: host)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+
+        host.selectedWorkspaceId = wsA
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA1
+        model.recordFocusInHistory(workspaceId: wsA, panelId: panelA1, preservingForwardBranch: false)
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA2
+        model.recordFocusInHistory(workspaceId: wsA, panelId: panelA2, preservingForwardBranch: false)
+
+        #expect(!model.canNavigateBack)
+        #expect(model.focusHistoryMenuSnapshot(direction: .back).items.isEmpty)
+
+        host.selectedWorkspaceId = wsB
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB, preservingForwardBranch: false)
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+        #expect(!model.canNavigateBack)
+    }
+
+    @Test func workspacesOnlyScopePreservesForwardWorkspaceAfterPaneFocus() {
+        let host = FakeFocusHistoryHost()
+        let model = FocusHistoryModel(maxHistorySize: 3, navigationScope: { .workspacesOnly })
+        model.attach(host: host)
+        let panelA = UUID()
+        let panelB1 = UUID()
+        let panelB2 = UUID()
+        let panelC = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA: "a"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB1: "b1", panelB2: "b2"])
+        let wsC = host.addWorkspace(title: "C", panels: [panelC: "c"])
+
+        for (workspaceId, panelId) in [(wsA, panelA), (wsB, panelB1), (wsC, panelC)] {
+            host.selectedWorkspaceId = workspaceId
+            host.workspaces[workspaceId]?.rememberedFocusedPanelId = panelId
+            model.recordFocusInHistory(workspaceId: workspaceId, panelId: panelId)
+        }
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsB)
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB2
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB2)
+
+        #expect(model.canNavigateForward)
+        #expect(model.navigateForward())
+        #expect(host.selectedWorkspaceId == wsC)
+        #expect(model.navigateBack())
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+    }
+
+    @Test func switchingToWorkspacesOnlyCollapsesMenuAndUsesRememberedPanel() throws {
+        let host = FakeFocusHistoryHost()
+        let scope = OSAllocatedUnfairLock(initialState: FocusHistoryNavigationScope.panesAndTabs)
+        let model = FocusHistoryModel(navigationScope: { scope.withLock { $0 } })
+        model.attach(host: host)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelA3 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(
+            title: "A",
+            panels: [panelA1: "a1", panelA2: "a2", panelA3: "a3"]
+        )
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+
+        host.selectedWorkspaceId = wsA
+        for panelId in [panelA1, panelA2] {
+            host.workspaces[wsA]?.rememberedFocusedPanelId = panelId
+            model.recordFocusInHistory(workspaceId: wsA, panelId: panelId)
+        }
+        host.selectedWorkspaceId = wsB
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB)
+
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA3
+        scope.withLock { $0 = .workspacesOnly }
+        let item = try #require(model.focusHistoryMenuSnapshot(direction: .back).items.first)
+
+        #expect(model.focusHistoryMenuSnapshot(direction: .back).items.count == 1)
+        #expect(item.entry.panelId == nil)
+        #expect(item.panelTitle == nil)
+        #expect(model.navigateToFocusHistoryMenuItem(item))
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA3)
     }
 
     @Test func recordAndNavigateBackForwardAcrossWorkspaces() {

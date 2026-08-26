@@ -10,6 +10,13 @@ persists and publishes only exact managed relay URLs. Endpoint or
 identity-generation replacement requires explicit revocation and reapproval; a
 signature from only the proposed new key cannot replace an active binding.
 
+A signed registration may publish `directPorts` with independent IPv4 and IPv6
+UDP ports. The broker stores only those bounded ports, never a private address,
+and returns them as `direct_ports` only inside the authenticated same-account
+binding catalog. Clients combine a family-matching port with locally known
+addresses after EndpointID authentication. Legacy registrations omit the field
+and clear any previously published ports on their next signed refresh.
+
 `relay_fleet` is the server-configured connection preset/allowlist. It is not a
 peer address. Each peer's published `relay_url` comes from its signed
 `watch_addr` payload and must match that allowlist. Discovery defensively
@@ -27,23 +34,24 @@ defensively.
 
 The LAN rendezvous key is HMAC-derived from an independent random server secret,
 the exact Stack user id, and an account generation. Discovery reads active
-bindings and that generation in one transaction under the same account lock as
-registration and revocation, so it cannot mix tuples from opposite sides of a
-revocation. Every successful binding revoke increments the generation in the
-revocation transaction. Sign-out callers must invoke the authenticated revoke
-route with their captured binding id before discarding the Stack credential.
+bindings in stable UUID order, 128 rows per page. Its opaque cursor carries the
+generation and last binding id; registration and revocation rotate the
+generation whenever the active set changes, so a later page cannot mix tuples
+from opposite sides of a mutation. Legacy requests without `page_size` receive
+at most 256 bindings and no cursor, keeping old clients within their decoder
+limit while upgraded clients traverse every page. Sign-out callers must invoke
+the authenticated revoke route with their captured binding id before discarding
+the Stack credential.
 
-Postgres advisory locks make the authoritative limits concurrency-safe: six
-challenges per device per ten minutes, 32 outstanding challenges per account,
-32 active bindings per account, eight active bindings per physical device, 60
-pair grants per account per hour, three relay mints per endpoint per ten
-minutes, 12 relay mints per endpoint per day, and 100 relay mints per account
-per day. A relay reservation remains active for 60 seconds, then the next
-account-scoped reservation marks it expired before applying those quotas. The
-optional Vercel Firewall rule is defense in depth. A tagged-build
-device-limit override requires a server flag, an exact authenticated user-id
-allowlist match, and an exact deployment-environment allowlist match; it never
-raises the 32-binding account limit and records an audit marker on the binding.
+There is no total active-binding limit per account or device. Postgres advisory
+locks keep request-rate limits concurrency-safe: six challenges per device per
+ten minutes, 32 outstanding challenges per account, 60 pair grants per account
+per hour, three relay mints per endpoint per ten minutes, 12 relay mints per
+endpoint per day, and 100 relay mints per account per day. A relay reservation
+remains active for 60 seconds, then the next account-scoped reservation marks it
+expired before applying those quotas. The optional Vercel Firewall rule is
+defense in depth. A tagged-build override widens challenge issuance only after
+an exact authenticated user-id and deployment-environment allowlist match.
 
 Registration bootstraps a relay credential only when it creates a binding.
 Signed refreshes of the same binding return `relay.status = "not_requested"`;
@@ -76,12 +84,11 @@ hints and removes existing Iroh route bodies from the legacy device registry.
 Hosts republish sanitized EndpointID/managed-relay routes on their next refresh;
 non-Iroh routes are preserved in order.
 
-The `20260710113000_iroh_relay_reservation_expiry` migration adds the
-expanded status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock is
-released without scanning existing rows. Drizzle 1.0 applies all pending
-Postgres migrations in one transaction, so constraint validation must ship in
-a later deployment after this migration is recorded. That follow-up migration
-must run:
+The `20260710113000_iroh_relay_reservation_expiry` migration added the expanded
+status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock was released
+without scanning existing rows. The later
+`20260718120000_iroh_relay_status_validation` migration validates it after the
+schema change was recorded:
 
 ```sql
 ALTER TABLE "iroh_relay_token_issuances"

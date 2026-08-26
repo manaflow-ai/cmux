@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
+import CmuxWorkspaces
 import Darwin
 import os
 
@@ -31,8 +32,66 @@ enum TerminalStartupShellQuoting {
     }
 }
 
-fileprivate func shellSingleQuoted(_ value: String) -> String {
-    TerminalStartupShellQuoting.singleQuoted(value)
+/// Which syntax family the user's interactive shell parses. Everything cmux
+/// generates is POSIX; nushell is the one supported login shell that cannot
+/// parse it (see ``NushellTypedShellCommand``).
+enum TerminalStartupShellDialect: Equatable {
+    case posix
+    case nushell
+
+    /// Maps a shell executable path to its dialect by basename. Everything
+    /// except `nu` is treated as POSIX: every other login shell cmux supports
+    /// (zsh/bash/fish/csh/dash/ksh) parses the POSIX command strings cmux
+    /// generates.
+    static func forShellPath(_ shell: String?) -> TerminalStartupShellDialect {
+        guard let shell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !shell.isEmpty else {
+            return .posix
+        }
+        return URL(fileURLWithPath: shell).lastPathComponent == "nu" ? .nushell : .posix
+    }
+
+    /// Dialect of the login shell cmux spawns terminal surfaces with — the
+    /// same `$SHELL` fallback chain the spawn path uses.
+    static var loginShell: TerminalStartupShellDialect {
+        forShellPath(ProcessInfo.processInfo.environment["SHELL"])
+    }
+
+    /// Dialect for input typed into a remote host's shell after attach.
+    /// cmux does not (yet) know the remote login shell — the SSH bootstrap
+    /// resolves `$SHELL` on the host at runtime and nothing reports it back —
+    /// so remote input stays POSIX, which is what cmux has always sent to
+    /// remotes. If the bootstrap ever reports the remote shell, this is the
+    /// single seam to replace with real detection.
+    static let remoteHost: TerminalStartupShellDialect = .posix
+}
+
+/// Final rendering step for cmux-generated POSIX one-liners that get typed
+/// into (or pasted into) the user's interactive shell. POSIX shells receive
+/// the command verbatim; nushell receives it delegated through `/bin/sh`.
+/// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
+/// shell and do not need this.
+struct TerminalStartupTypedShellCommand {
+    /// Dialect of the shell that will parse the rendered input.
+    let dialect: TerminalStartupShellDialect
+
+    /// Defaults to the login shell cmux spawns local surfaces with; pass
+    /// ``TerminalStartupShellDialect/remoteHost`` when the input is typed
+    /// into a remote host's shell instead.
+    init(dialect: TerminalStartupShellDialect = .loginShell) {
+        self.dialect = dialect
+    }
+
+    /// Renders `posixCommand` for typing: verbatim for POSIX shells,
+    /// delegated through `/bin/sh` for nushell (which cannot parse POSIX).
+    func typedInput(posixCommand: String) -> String {
+        switch dialect {
+        case .posix:
+            return posixCommand
+        case .nushell:
+            return NushellTypedShellCommand().wrapping(posixCommand: posixCommand)
+        }
+    }
 }
 
 enum TerminalStartupWorkingDirectoryPrefix {
@@ -85,6 +144,18 @@ enum TerminalStartupWorkingDirectoryPrefix {
         } ?? trimmed
         return replacingRequiredChangeDirectoryPrefix(
             in: stripped,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    static func removingRequiredChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        return strippedRequiredChangeDirectoryPrefix(
+            from: trimmed,
             workingDirectory: workingDirectory
         )
     }
@@ -393,43 +464,49 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
+        let cwd = customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let workingDirectoriesToRemove = [
+            cwd,
+            normalized(launchCommand?.workingDirectory),
+        ].compactMap { $0 }
         let sanitizedCommandParts = customRegistration == nil
-            ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-                from: commandParts,
-                workingDirectory: cwd
-            )
+            ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
+                AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                    from: parts,
+                    workingDirectory: directory
+                )
+            }
             : commandParts
         // Render the claude/codex executable as the wrapper shim token so the
         // executed command routes through cmux's `claude`/`codex` wrapper
-        // (re-injecting the agent hooks) even inside the `$SHELL -lic` restore
-        // launcher, where the shell integration's PATH shim / shell function are
-        // not active and an `env`-prefixed invocation would otherwise hit the
-        // user's real binary. Without this, an auto-resumed codex session runs the
-        // bare `codex` binary, fires no SessionStart hook, and the session registry
-        // never marks it live, so the iOS GUI stays read-only.
-        // The token is POSIX-only, and the launcher dispatches through the user's
-        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
-        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
-        // cd-prefix rewriting keeps composing.
+        // (re-injecting the agent hooks) even when an `env`-prefixed invocation
+        // would otherwise bypass the shell integration's PATH shim / shell
+        // function and hit the user's real binary. Without this, an auto-resumed
+        // codex session fires no SessionStart hook and the session registry never
+        // marks it live, so the iOS GUI stays read-only.
+        // The token is POSIX-only, so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
         let shellCommand: String
         switch kind {
         case .claude:
             shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         case .codex:
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         default:
-            shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+            shellCommand = sanitizedCommandParts
+                .map(TerminalStartupShellQuoting.singleQuoted)
+                .joined(separator: " ")
         }
+        guard includeWorkingDirectoryPrefix else { return shellCommand }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -447,6 +524,17 @@ enum AgentResumeCommandBuilder {
         }
     }
 
+    static func piFamilyVersionProbe(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String
+    ) -> (executable: String, arguments: [String]) {
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: fallbackExecutable
+        )
+        return (original.executable, ["--version"])
+    }
+
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
         environment: [String: String]?
@@ -457,7 +545,15 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        let piFamilyUsesCapturedPath = kind == .pi
+            || kind.customAgentID == "pi"
+            || kind.customAgentID == "omp"
+        if piFamilyUsesCapturedPath,
+           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            selectedEnvironment["PATH"] = path
+        }
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -475,7 +571,7 @@ enum AgentResumeCommandBuilder {
         return environmentParts
     }
 
-    private static func resumeArguments(
+    fileprivate static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -483,7 +579,8 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        switch AgentResumeArgv().launcherResolution(
+        let resumeArgv = AgentResumeArgv()
+        switch resumeArgv.launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -496,15 +593,14 @@ enum AgentResumeCommandBuilder {
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
-            if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-                return resumeWithOption(
-                    kind: "antigravity",
-                    launchCommand: launchCommand,
-                    fallbackExecutable: customRegistration.defaultExecutable,
-                    option: "--conversation",
-                    sessionId: sessionId
-                )
+            if let registeredResumeKind = customRegistration.registeredResumeKind,
+               let arguments = resumeArgv.registeredBuiltInKind(
+                kind: registeredResumeKind,
+                sessionId: sessionId,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            ) {
+                return arguments
             }
             let arguments = customResumeArguments(
                 registration: customRegistration,
@@ -515,7 +611,7 @@ enum AgentResumeCommandBuilder {
             return arguments.isEmpty ? nil : arguments
         }
 
-        return AgentResumeArgv().builtInKind(
+        return resumeArgv.builtInKind(
             kind: kind.rawValue,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -739,7 +835,7 @@ enum AgentResumeCommandBuilder {
 }
 
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
-    static let maxInlineStartupInputBytes = 900
+    private static let maxInlineForkInputBytes = 900
 
     var kind: RestorableAgentKind
     var sessionId: String
@@ -750,158 +846,112 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
-    func resumeStartupInput(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
-    ) -> String? {
-        startupInput(
-            command: resumeCommand,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput
+    func preparedResumeArguments(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        observedPermissionMode: String?
+    ) -> [String]? {
+        AgentResumeCommandBuilder.resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registration,
+            observedPermissionMode: observedPermissionMode
         )
     }
 
-    func resumeStartupCommand(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    func resumeStartupInput(
+        useLocalRestoreVerb: Bool = true,
+        restoringWorkingDirectory: String? = nil
     ) -> String? {
-        guard let command = resumeCommand,
-              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-                  command: command,
-                  kind: kind,
-                  sessionId: sessionId,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
-                  workingDirectory: registration?.cwd == .ignore
-                      ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
-              ) else {
-            return nil
+        if useLocalRestoreVerb {
+            let executable = AgentRestoreLaunch.cliStartupExecutableToken
+            guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
+                  AgentRestoreCLIArgument(rawValue: sessionId) != nil else {
+                return " \(executable) restore --surface\n"
+            }
+            return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
+        let effectiveWorkingDirectory = resumeWorkingDirectory(
+            preferred: restoringWorkingDirectory
+        )
+        let restoreCommand = resumeCommand(
+            includeWorkingDirectoryPrefix: true,
+            restoringWorkingDirectory: effectiveWorkingDirectory
+        ).map { command in
+            AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
+                .applying(toStoredCommand: command) ?? command
+        }
+        return restoreCommand.map { $0 + "\n" }
     }
 
+    /// Input that forks this agent conversation when typed into a shell.
+    /// `dialect` must match the shell that will parse it — `.remoteHost` for
+    /// remote forks.
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         startupInput(
             command: forkCommand,
+            workingDirectory: nil,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            dialect: dialect
         )
     }
 
+    /// `dialect` describes the shell that will parse the returned input. Local
+    /// surfaces type into the user's login shell (`.loginShell` default);
+    /// remote workspaces type into the remote host's shell after attach, which
+    /// cmux treats as POSIX regardless of the local `$SHELL` — pass `.posix`
+    /// there so a local nushell login never leaks `^/bin/sh -c "…"` to a
+    /// remote zsh/bash.
     private func startupInput(
         command: String?,
+        workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard !allowOversizedInlineInput else {
+        let inlineInput = TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
+        guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
-        guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-            command: command,
-            kind: kind,
-            sessionId: sessionId,
+        guard let scriptInput = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        ).writeInvocationInput(
+            command: command,
+            workingDirectory: workingDirectory
         ) else {
             return nil
         }
-
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-}
-
-private enum AgentResumeScriptStore {
-    private static let directoryName = "cmux-agent-resume"
-    private static let scriptTTL: TimeInterval = 24 * 60 * 60
-
-    static func writeLauncherScript(
-        command: String,
-        kind: RestorableAgentKind,
-        sessionId: String,
-        fileManager: FileManager,
-        temporaryDirectory: URL,
-        returnToLoginShell: Bool = false,
-        workingDirectory: String? = nil
-    ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let safeSessionPrefix = sessionId
-                .prefix(12)
-                .map { character -> Character in
-                    character.isLetter || character.isNumber || character == "-" ? character : "_"
-                }
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: command,
-                    workingDirectory: workingDirectory
-                ))
-            } else {
-                lines.append(command)
-            }
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
-        }
+        return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
     }
 
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey])
-            if let modified = values?.contentModificationDate, modified < cutoff {
-                try? fileManager.removeItem(at: scriptURL)
+    private func resumeWorkingDirectory(preferred: String?) -> String? {
+        guard registration?.cwd != .ignore else { return nil }
+        for candidate in [preferred, workingDirectory, launchCommand?.workingDirectory] {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                continue
             }
+            return trimmed
         }
+        return nil
     }
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: true)
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -912,9 +962,20 @@ struct RestorableAgentSessionIndex: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
+        /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
+        let processLiveness: RestorableAgentProcessLiveness
+        /// Whether the persisted owner record carried a PID. A PID-less hook
+        /// record is durable post-exit state for stable ownership selection;
+        /// its liveness remains tri-state for shell-activity persistence.
+        let hasRecordedProcessID: Bool
         let processIDs: Set<Int>
+        let processIdentities: [Int: AgentPIDProcessIdentity]
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
+        let hibernationPanelProcessIDs: Set<Int>
+        let terminationProcessIDs: Set<Int>
+        let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
+        let containsUnrelatedProcess: Bool
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
@@ -932,9 +993,23 @@ struct RestorableAgentSessionIndex: Sendable {
         sessionIDSource: ProcessDetectedSessionIDSource
     )
 
+    typealias HibernationProcessScope = (
+        panelProcessIDs: Set<Int>,
+        terminationProcessIDs: Set<Int>,
+        containsUnrelatedProcess: Bool
+    )
+
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
+
+        init(kind: RestorableAgentKind, sessionId: String) {
+            self.kind = kind
+            self.sessionId = ManagedAgentSessionIdentity.canonicalSessionID(
+                kind: kind.rawValue,
+                sessionID: sessionId
+            )
+        }
     }
 
     private struct PanelKindKey: Hashable {
@@ -954,10 +1029,282 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    /// Whether every present hook-store file was read and decoded successfully.
+    /// Missing files are complete (the agent kind may not be installed); a
+    /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
+    let isComplete: Bool
+    private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
+    private let ambiguousPanelIds: Set<UUID>
+    private let equalRankAmbiguousPanelIds: Set<UUID>
+    private let boundedAmbiguousPanelIds: Set<UUID>
+
+    // A corrupt or very old hook store can contain an unbounded owner history
+    // for one surface. Keep stable-panel resolution bounded and fail closed if
+    // the bound is exceeded rather than scanning the whole history on autosave.
+    private static let maximumStablePanelCandidates = 4
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? entry(panelId: panelId)
+    }
+
+    func entry(panelId: UUID) -> Entry? {
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
+        return entriesByPanelId[panelId]
+    }
+
+    func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
+        ambiguousPanelIds.contains(panelId)
+    }
+
+    /// Recomputes owner ambiguity from current PID evidence.
+    ///
+    /// Cached ambiguity is intentionally not authoritative after processes
+    /// exit; only multiple live owners or inconclusive owner evidence keep a
+    /// panel blocked.
+    func hasCurrentAmbiguousPanel(
+        _ panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Bool {
+        // A truncated owner history is structurally incomplete; current PID
+        // probes cannot make the omitted records safe to ignore.
+        if boundedAmbiguousPanelIds.contains(panelId) {
+            return true
+        }
+        let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
+            revalidateProcessEvidence
+                ? Self.currentProcessEvidence(
+                    for: entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.cachedProcessEvidence(for: entry)
+        }
+        return evidence.filter { $0 == .live }.count > 1 || evidence.contains { $0 == .unknown }
+    }
+
+    func hasConflictingLiveStablePanelEntry(
+        workspaceId: UUID,
+        panelId: UUID,
+        expectedKind: String?,
+        expectedSessionId: String?,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Bool {
+        let liveEntries = (candidatesByPanelId[panelId] ?? []).compactMap { _, entry -> Entry? in
+            let isLive = revalidateProcessEvidence
+                ? Self.entryHasCurrentLiveProcess(
+                    entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.entryHasLiveProcess(entry)
+            guard isLive else {
+                return nil
+            }
+            return entry
+        }
+        guard !liveEntries.isEmpty else {
+            return false
+        }
+        guard let expectedKind, let expectedSessionId else { return true }
+        return liveEntries.contains { entry in
+            entry.snapshot.kind.rawValue != expectedKind ||
+                !ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: expectedKind,
+                    lhs: entry.snapshot.sessionId,
+                    rhs: expectedSessionId
+                )
+        }
+    }
+
+    /// Reports inconclusive PID evidence for any owner of a stable panel.
+    /// Restore must not launch while a recorded owner cannot be revalidated.
+    func hasUncertainStablePanelEntry(
+        panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Bool {
+        (candidatesByPanelId[panelId] ?? []).contains { _, entry in
+            let evidence = revalidateProcessEvidence
+                ? Self.currentProcessEvidence(
+                    for: entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.cachedProcessEvidence(for: entry)
+            return evidence == .unknown
+        }
+    }
+
+    func hasCurrentLiveProcessForStablePanel(
+        workspaceId: UUID,
+        panelId: UUID,
+        expectedKind: String? = nil,
+        expectedSessionId: String? = nil,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Bool {
+        guard let entry = entryForStablePanel(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processIdentityProvider: processIdentityProvider,
+            processPresenceProvider: processPresenceProvider,
+            revalidateProcessEvidence: revalidateProcessEvidence
+        ),
+        (revalidateProcessEvidence
+            ? Self.entryHasCurrentLiveProcess(
+                entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            )
+            : Self.entryHasLiveProcess(entry)) else {
+            return false
+        }
+        if let expectedKind, entry.snapshot.kind.rawValue != expectedKind {
+            return false
+        }
+        if let expectedSessionId,
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: entry.snapshot.kind.rawValue,
+               lhs: entry.snapshot.sessionId,
+               rhs: expectedSessionId
+           ) {
+            return false
+        }
+        return true
+    }
+
+    /// Returns whether the exact owner record still has a current process.
+    ///
+    /// An exact owner is allowed to bypass panel-only ambiguity only when its
+    /// recorded process generation is still present. Cached PID sets alone are
+    /// not sufficient because a PID may have exited or been reused.
+    func hasCurrentLiveProcessForOwner(
+        workspaceId: UUID,
+        panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Bool {
+        guard let entry = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] else {
+            return false
+        }
+        return revalidateProcessEvidence
+            ? Self.entryHasCurrentLiveProcess(
+                entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            )
+            : Self.entryHasLiveProcess(entry)
+    }
+
+    /// Resolves a restart-stable panel while preserving a live entry for its current owner.
+    ///
+    /// Dock owners can rotate independently of the panel UUID. An exact owner entry is
+    /// authoritative when it still carries live process evidence; otherwise the panel-only
+    /// index supplies the newest safe entry, with live process evidence taking precedence over
+    /// stale hook history.
+    ///
+    /// Snapshot projection can pass ``revalidateProcessEvidence`` as `false` when it already
+    /// owns one coherent loader result. That preserves the loader's cached liveness ranking
+    /// without issuing synchronous process probes from the main actor.
+    func entryForStablePanel(
+        workspaceId: UUID,
+        panelId: UUID,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
+        revalidateProcessEvidence: Bool = true
+    ) -> Entry? {
+        let candidates = candidatesByPanelId[panelId] ?? []
+        guard !candidates.isEmpty else { return nil }
+        guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+
+        let candidatesWithEvidence = candidates.map { key, entry in
+            (
+                key: key,
+                entry: entry,
+                evidence: revalidateProcessEvidence
+                    ? Self.currentProcessEvidence(
+                        for: entry,
+                        processIdentityProvider: processIdentityProvider,
+                        processPresenceProvider: processPresenceProvider
+                    )
+                    : Self.cachedProcessEvidence(for: entry)
+            )
+        }
+        let liveCandidates = candidatesWithEvidence.filter { $0.evidence == .live }
+        // Ownership-sensitive callers use live probes and must fail closed for
+        // every inconclusive candidate, including PID-less hook records. A
+        // snapshot projection explicitly opts into cached evidence so a
+        // historical PID-less record can still be persisted without main-actor
+        // process inspection.
+        let hasUncertainCandidate = candidatesWithEvidence.contains {
+            $0.evidence == .unknown &&
+                (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
+        }
+        guard !hasUncertainCandidate else { return nil }
+        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+            return exact.entry
+        }
+        if liveCandidates.count == 1 {
+            return liveCandidates[0].entry
+        }
+        // Multiple current owners cannot be resolved by a stable panel UUID.
+        // Do not let a stale exact-owner record or a cached timestamp pick one.
+        guard liveCandidates.isEmpty,
+              !ambiguousPanelIds.contains(panelId),
+              !equalRankAmbiguousPanelIds.contains(panelId) else {
+            return nil
+        }
+
+        return candidates
+            .map(\.1)
+            .max { lhs, rhs in
+                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
+            }
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -976,6 +1323,10 @@ struct RestorableAgentSessionIndex: Sendable {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
+    func processIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.processIdentities ?? [:]
+    }
+
     func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
         entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
     }
@@ -990,18 +1341,134 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    /// Fingerprints cache-visible agent identity and liveness, including entries without a live PID.
     func liveAgentProcessFingerprint() -> Set<String> {
-        Set(entriesByPanel.compactMap { key, entry in
+        Set(entriesByPanel.map { key, entry in
             let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
-            guard !processIDs.isEmpty else { return nil }
+            let processIdentities = entry.agentProcessIdentities
+                .sorted { $0.key < $1.key }
+                .map { processID, identity in
+                    "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
+                }
+                .joined(separator: ",")
+            let liveness: String
+            switch entry.processLiveness {
+            case .running:
+                liveness = "running"
+            case .exited:
+                liveness = "exited"
+            case .unknown:
+                liveness = "unknown"
+            }
             return [
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
-                processIDs.sorted().map(String.init).joined(separator: ",")
+                liveness,
+                entry.hasRecordedProcessID ? "pid-recorded" : "pidless",
+                processIDs.sorted().map(String.init).joined(separator: ","),
+                processIdentities
             ].joined(separator: "|")
         })
+    }
+
+    /// Revalidates cache-reported agent processes against one current process snapshot.
+    ///
+    /// Quit-time persistence cannot synchronously reload every hook store, but it also must not
+    /// trust a TTL-cached PID after exit, exec, PID reuse, or a session-changing relaunch. A cached
+    /// running entry stays live only when its exact process generation, cmux scope, executable,
+    /// invocation mode, and explicit session argument still match.
+    func revalidatingCachedProcesses(
+        against processSnapshot: CmuxTopProcessSnapshot,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        }
+    ) -> RestorableAgentSessionIndex {
+        let validator = CachedAgentProcessIdentityValidator()
+        var revalidatedEntries: [PanelKey: Entry] = [:]
+        revalidatedEntries.reserveCapacity(entriesByPanel.count)
+
+        for (key, entry) in entriesByPanel {
+            let recordedAgentProcessIDs = entry.agentProcessIDs.isEmpty
+                ? entry.processIDs
+                : entry.agentProcessIDs
+            let matchesByProcessID = Dictionary(uniqueKeysWithValues: recordedAgentProcessIDs.map { processID in
+                let processMatch = Self.scopedProcessMatch(
+                    for: entry.snapshot,
+                    workspaceId: key.workspaceId,
+                    panelId: key.panelId,
+                    processID: processID,
+                    recordedProcessIdentity: entry.agentProcessIdentities[processID]
+                        ?? entry.processIdentities[processID],
+                    currentProcessIdentity: processIdentityProvider(processID),
+                    processArgumentsProvider: processArgumentsProvider,
+                    processPresenceProvider: {
+                        processSnapshot.process(pid: $0) == nil ? .absent : .present
+                    },
+                    validator: validator
+                )
+                return (processID, processMatch)
+            })
+            let revalidatedLiveness = entry.processLiveness.revalidated(
+                against: matchesByProcessID.values
+            )
+            let processLiveness: RestorableAgentProcessLiveness = if entry.processLiveness == .running,
+                                                                    revalidatedLiveness != .running {
+                // Cache reuse is an optimization, not authority. Unknown argv or identity evidence
+                // must fail closed instead of letting shell activity revive a stale session binding.
+                .exited
+            } else {
+                revalidatedLiveness
+            }
+            let confirmedAgentProcessIDs = Set(matchesByProcessID.compactMap { processID, match in
+                match == .matches ? processID : nil
+            })
+            let confirmedAgentProcessIdentities = Dictionary(uniqueKeysWithValues:
+                confirmedAgentProcessIDs.compactMap { processID in
+                    processIdentityProvider(processID).map { (processID, $0) }
+                }
+            )
+            let currentPanelProcessIDs: Set<Int> = processLiveness == .running
+                ? Set(entry.processIDs.filter { processID in
+                    guard let process = processSnapshot.process(pid: processID) else { return false }
+                    return process.cmuxWorkspaceID == key.workspaceId
+                        && process.cmuxSurfaceID == key.panelId
+                }).union(confirmedAgentProcessIDs)
+                : []
+            let currentProcessIdentities = Dictionary(uniqueKeysWithValues:
+                currentPanelProcessIDs.compactMap { processID in
+                    processIdentityProvider(processID).map { (processID, $0) }
+                }
+            )
+
+            revalidatedEntries[key] = Entry(
+                snapshot: entry.snapshot,
+                lifecycle: entry.lifecycle,
+                updatedAt: entry.updatedAt,
+                processLiveness: processLiveness,
+                hasRecordedProcessID: entry.hasRecordedProcessID,
+                processIDs: currentPanelProcessIDs,
+                processIdentities: currentProcessIdentities,
+                agentProcessIDs: confirmedAgentProcessIDs,
+                agentProcessIdentities: confirmedAgentProcessIdentities,
+                hibernationPanelProcessIDs: entry.hibernationPanelProcessIDs.intersection(currentPanelProcessIDs),
+                terminationProcessIDs: entry.terminationProcessIDs.intersection(currentPanelProcessIDs),
+                terminationProcessIdentities: entry.terminationProcessIdentities.filter {
+                    currentPanelProcessIDs.contains($0.key)
+                },
+                containsUnrelatedProcess: processLiveness == .running && entry.containsUnrelatedProcess
+            )
+        }
+
+        return RestorableAgentSessionIndex(
+            entriesByPanel: revalidatedEntries,
+            isComplete: self.isComplete
+        )
     }
 
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
@@ -1043,15 +1510,25 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
         )
+        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
+            processSnapshot.agentHibernationProcessScope(
+                panelProcessIDs: detected.processIDs,
+                agentProcessIDs: detected.agentProcessIDs
+            )
+        }
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            hibernationProcessScopes: hibernationProcessScopes
         )
     }
 
@@ -1060,8 +1537,14 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
+        hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
         },
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
@@ -1070,11 +1553,13 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
+        var isComplete = true
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
+        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1088,14 +1573,26 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
-            guard fileManager.fileExists(atPath: fileURL.path),
-                  let data = try? Data(contentsOf: fileURL),
+            let fileURL = kind.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                continue
+            }
+            guard let data = try? Data(contentsOf: fileURL),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
+                isComplete = false
                 continue
             }
 
-            for record in state.sessions.values {
+            let hookRecords = kind == .hermesAgent
+                ? canonicalHermesHookRecords(
+                    state.sessions.values,
+                    homeDirectory: homeDirectory
+                )
+                : Array(state.sessions.values)
+            for record in hookRecords {
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
@@ -1113,13 +1610,16 @@ struct RestorableAgentSessionIndex: Sendable {
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
-                      let panelId = UUID(uuidString: effectiveRecord.surfaceId),
-                      hookRecordIsRestorable(
-                          effectiveRecord,
-                          kind: kind,
-                          fileManager: fileManager,
-                          claudeTranscriptLookup: claudeTranscriptLookup
-                      ) else {
+                      let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
+                    isComplete = false
+                    continue
+                }
+                guard hookRecordIsRestorable(
+                    effectiveRecord,
+                    kind: kind,
+                    fileManager: fileManager,
+                    claudeTranscriptLookup: claudeTranscriptLookup
+                ) else {
                     continue
                 }
 
@@ -1142,23 +1642,66 @@ struct RestorableAgentSessionIndex: Sendable {
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
-                let liveProcessID = liveScopedProcessID(
-                    for: effectiveRecord,
-                    kind: kind,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    processArgumentsProvider: processArgumentsProvider
-                )
+                let recordedProcessIdentity: AgentPIDProcessIdentity? = {
+                    guard let processID = effectiveRecord.pid,
+                          processID > 0,
+                          processID <= Int(Int32.max),
+                          let startSeconds = effectiveRecord.pidStartSeconds,
+                          let startMicroseconds = effectiveRecord.pidStartMicroseconds,
+                          startSeconds >= 0,
+                          startMicroseconds >= 0,
+                          startMicroseconds < 1_000_000 else {
+                        return nil
+                    }
+                    return AgentPIDProcessIdentity(
+                        pid: pid_t(processID),
+                        startSeconds: startSeconds,
+                        startMicroseconds: startMicroseconds
+                    )
+                }()
+                let currentProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
+                let processObservation = RestorableAgentProcessObservation(
+                    recordedProcessID: effectiveRecord.pid
+                ) { pid in
+                    scopedProcessMatch(
+                        for: snapshot,
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        processID: pid,
+                        recordedProcessIdentity: recordedProcessIdentity,
+                        currentProcessIdentity: currentProcessIdentity,
+                        processArgumentsProvider: processArgumentsProvider,
+                        processPresenceProvider: processPresenceProvider,
+                        validator: cachedAgentProcessValidator,
+                        hermesSessionValidation: .currentHookRecord
+                    )
+                }
+                let liveProcessID = processObservation.processID
+                let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
+                if let liveProcessID,
+                   let recordedProcessIdentity,
+                   Int(recordedProcessIdentity.pid) == liveProcessID {
+                    liveProcessIdentities = [liveProcessID: recordedProcessIdentity]
+                } else {
+                    liveProcessIdentities = [:]
+                }
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
+                    processLiveness: processObservation.liveness,
+                    hasRecordedProcessID: effectiveRecord.pid != nil,
                     processIDs: liveProcessID.map { [$0] } ?? [],
+                    processIdentities: liveProcessIdentities,
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: liveProcessID.map { [$0] } ?? [],
-                        processIdentityProvider: processIdentityProvider
-                    )
+                    agentProcessIdentities: liveProcessIdentities,
+                    hibernationPanelProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    terminationProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    terminationProcessIdentities: liveProcessIdentities,
+                    // A saved hook PID proves liveness but cannot prove the
+                    // surrounding pane is exclusive. Critical-pressure
+                    // termination requires a fresh process-tree detection.
+                    containsUnrelatedProcess: liveProcessID != nil
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -1176,7 +1719,11 @@ struct RestorableAgentSessionIndex: Sendable {
                         entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
                         isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
                             existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
+                            !ManagedAgentSessionIdentity.sessionIDsMatch(
+                                kind: kind.rawValue,
+                                lhs: existingPanelIDCandidate.entry.snapshot.sessionId,
+                                rhs: entry.snapshot.sessionId
+                            )
                     )
                 } else {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
@@ -1192,22 +1739,48 @@ struct RestorableAgentSessionIndex: Sendable {
                     hookCandidatesBySession[sessionKey] = entry
                 }
                 // A saved PID is liveness evidence only. It can go stale while the
-                // transcript and hook record are still restorable, so keep the
-                // snapshot and leave processIDs empty when the process is gone.
+                // transcript and hook record are still restorable, so keep the snapshot,
+                // record the exited generation, and leave processIDs empty when it is gone.
                 if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
                     resolved[key] = entry
                 }
             }
         }
 
-        func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
-            Entry(
+        func processDetectedEntry(
+            key: PanelKey,
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            detected: ProcessDetectedSnapshotEntry
+        ) -> Entry {
+            let processIdentities = Self.processIdentities(
+                for: detected.processIDs,
+                processIdentityProvider: processIdentityProvider
+            )
+            let hibernationScope = hibernationProcessScopes[key] ?? (
+                detected.processIDs,
+                detected.agentProcessIDs,
+                !detected.processIDs.isSubset(of: detected.agentProcessIDs)
+            )
+            let terminationProcessIdentities = Self.processIdentities(
+                for: hibernationScope.terminationProcessIDs,
+                processIdentityProvider: processIdentityProvider
+            )
+            return Entry(
                 snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
-                processIDs: detected.processIDs, agentProcessIDs: detected.agentProcessIDs,
-                agentProcessIdentities: agentProcessIdentities(
-                    for: detected.agentProcessIDs,
-                    processIdentityProvider: processIdentityProvider
-                )
+                processLiveness: .running,
+                hasRecordedProcessID: true,
+                processIDs: detected.processIDs,
+                processIdentities: processIdentities,
+                agentProcessIDs: detected.agentProcessIDs,
+                agentProcessIdentities: processIdentities.filter {
+                    detected.agentProcessIDs.contains($0.key)
+                },
+                hibernationPanelProcessIDs: hibernationScope.panelProcessIDs,
+                terminationProcessIDs: hibernationScope.terminationProcessIDs,
+                terminationProcessIdentities: terminationProcessIdentities,
+                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess
             )
         }
 
@@ -1233,7 +1806,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -1245,7 +1818,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1254,9 +1827,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 
@@ -1280,7 +1853,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+        return RestorableAgentSessionIndex(entriesByPanel: resolved, isComplete: isComplete)
     }
 
     private static func matchingHookEntry(
@@ -1292,12 +1865,134 @@ struct RestorableAgentSessionIndex: Sendable {
         [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
             .filter {
                 $0.snapshot.kind == snapshot.kind &&
-                    $0.snapshot.sessionId == snapshot.sessionId
+                    ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: snapshot.kind.rawValue,
+                        lhs: $0.snapshot.sessionId,
+                        rhs: snapshot.sessionId
+                    )
             }
             .max { $0.updatedAt < $1.updatedAt }
     }
 
-    private static func agentProcessIdentities(
+    /// Validates every Hermes hook identity in one database snapshot per Hermes home.
+    ///
+    /// Hermes can publish a short transport identity immediately before its durable
+    /// TUI row appears. A later hook from the same process generation carries the
+    /// durable identifier, but the short record can have the newer timestamp and win
+    /// normal hook selection. Canonicalize that record before any panel/session maps
+    /// are populated. A readable database is authoritative: missing or ambiguous
+    /// records are omitted. An unavailable database preserves the hook records so a
+    /// transient WAL/read failure cannot erase the last verified session.
+    private static func canonicalHermesHookRecords(
+        _ records: Dictionary<String, RestorableAgentHookSessionRecord>.Values,
+        homeDirectory: String
+    ) -> [RestorableAgentHookSessionRecord] {
+        struct LocatedRecord {
+            let record: RestorableAgentHookSessionRecord
+            let stateDBPath: String
+        }
+
+        let located = records.map { record -> LocatedRecord in
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = homeDirectory
+            if let captured = record.launchCommand?.environment {
+                environment.merge(captured) { _, incoming in incoming }
+            }
+            return LocatedRecord(
+                record: record,
+                stateDBPath: (HermesAgentSessionResolver.stateDBPath(env: environment) as NSString)
+                    .standardizingPath
+            )
+        }
+
+        var existencesByPath: [String: [String: HermesAgentSessionExistence]] = [:]
+        var unavailablePaths: Set<String> = []
+        for group in Dictionary(grouping: located, by: \.stateDBPath) {
+            let sessionIDs = Set(group.value.map {
+                $0.record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            })
+            guard let existences = HermesAgentIndex.sessionExistences(
+                sessionIDs: sessionIDs,
+                stateDBPath: group.key
+            ) else {
+                unavailablePaths.insert(group.key)
+                continue
+            }
+            existencesByPath[group.key] = existences
+        }
+
+        return located.compactMap { locatedRecord in
+            let record = locatedRecord.record
+            let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionID.isEmpty else { return nil }
+            if unavailablePaths.contains(locatedRecord.stateDBPath) {
+                return record
+            }
+            guard let existences = existencesByPath[locatedRecord.stateDBPath] else {
+                return record
+            }
+            if existences[sessionID] == .exists {
+                return record
+            }
+
+            let durableSiblings = located.filter { candidate in
+                let candidateSessionID = candidate.record.sessionId
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return candidate.stateDBPath == locatedRecord.stateDBPath
+                    && candidateSessionID.caseInsensitiveCompare(sessionID) != .orderedSame
+                    && existences[candidateSessionID] == .exists
+                    && sameHermesProcessGeneration(record, candidate.record)
+                    && sameHermesHookScope(record, candidate.record)
+                    && normalizedHermesHookWorkingDirectory(record)
+                        == normalizedHermesHookWorkingDirectory(candidate.record)
+            }
+            let durableSessionIDs = Set(durableSiblings.map { $0.record.sessionId.lowercased() })
+            guard durableSessionIDs.count == 1,
+                  let sibling = durableSiblings.max(by: {
+                      $0.record.updatedAt < $1.record.updatedAt
+                  })?.record else {
+                return nil
+            }
+
+            var canonical = record
+            canonical.sessionId = sibling.sessionId
+            canonical.launchCommand = canonical.launchCommand ?? sibling.launchCommand
+            canonical.cwd = canonical.cwd ?? sibling.cwd
+            return canonical
+        }
+    }
+
+    private static func sameHermesProcessGeneration(
+        _ lhs: RestorableAgentHookSessionRecord,
+        _ rhs: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        guard let lhsPID = lhs.pid,
+              lhsPID > 0,
+              let lhsStartSeconds = lhs.pidStartSeconds,
+              let lhsStartMicroseconds = lhs.pidStartMicroseconds else {
+            return false
+        }
+        return rhs.pid == lhsPID
+            && rhs.pidStartSeconds == lhsStartSeconds
+            && rhs.pidStartMicroseconds == lhsStartMicroseconds
+    }
+
+    private static func sameHermesHookScope(
+        _ lhs: RestorableAgentHookSessionRecord,
+        _ rhs: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        lhs.workspaceId.caseInsensitiveCompare(rhs.workspaceId) == .orderedSame
+            && lhs.surfaceId.caseInsensitiveCompare(rhs.surfaceId) == .orderedSame
+    }
+
+    private static func normalizedHermesHookWorkingDirectory(
+        _ record: RestorableAgentHookSessionRecord
+    ) -> String? {
+        normalizedNonEmptyValue(record.cwd ?? record.launchCommand?.workingDirectory)
+            .map { ($0 as NSString).standardizingPath }
+    }
+
+    private static func processIdentities(
         for processIDs: Set<Int>,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     ) -> [Int: AgentPIDProcessIdentity] {
@@ -1317,6 +2012,125 @@ struct RestorableAgentSessionIndex: Sendable {
             return false
         }
         return existing.updatedAt <= incoming.updatedAt
+    }
+
+    private static func entryHasLiveProcess(_ entry: Entry) -> Bool {
+        entry.processLiveness == .running && !entry.processIDs.isEmpty
+    }
+
+    private enum CurrentProcessEvidence: Equatable {
+        case live
+        case notLive
+        case unknown
+    }
+
+    private static func entryHasCurrentLiveProcess(
+        _ entry: Entry,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
+        processPresenceProvider: (Int) -> PIDPresence
+    ) -> Bool {
+        currentProcessEvidence(
+            for: entry,
+            processIdentityProvider: processIdentityProvider,
+            processPresenceProvider: processPresenceProvider
+        ) == .live
+    }
+
+    private static func currentProcessEvidence(
+        for entry: Entry,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
+        processPresenceProvider: (Int) -> PIDPresence
+    ) -> CurrentProcessEvidence {
+        let processIDs = recordedProcessIDs(for: entry)
+        guard !processIDs.isEmpty else {
+            return entry.processLiveness == .unknown && entry.hasRecordedProcessID
+                ? .unknown
+                : .notLive
+        }
+        guard entry.processLiveness == .running else {
+            return entry.processLiveness == .unknown ? .unknown : .notLive
+        }
+        let identities = entry.agentProcessIdentities.isEmpty
+            ? entry.processIdentities
+            : entry.agentProcessIdentities
+        var sawUnknown = false
+        for processID in processIDs {
+            guard let recordedIdentity = identities[processID] else {
+                switch processPresenceProvider(processID) {
+                case .present, .unknown:
+                    sawUnknown = true
+                case .absent:
+                    break
+                }
+                continue
+            }
+            guard let currentIdentity = processIdentityProvider(processID) else {
+                switch processPresenceProvider(processID) {
+                case .present, .unknown:
+                    sawUnknown = true
+                case .absent:
+                    break
+                }
+                continue
+            }
+            if currentIdentity == recordedIdentity {
+                return .live
+            }
+        }
+        return sawUnknown ? .unknown : .notLive
+    }
+
+    private static func cachedProcessEvidence(for entry: Entry) -> CurrentProcessEvidence {
+        guard !recordedProcessIDs(for: entry).isEmpty else {
+            return entry.processLiveness == .unknown && entry.hasRecordedProcessID
+                ? .unknown
+                : .notLive
+        }
+        switch entry.processLiveness {
+        case .running:
+            return .live
+        case .unknown:
+            return .unknown
+        case .exited:
+            return .notLive
+        }
+    }
+
+    private static func recordedProcessIDs(for entry: Entry) -> Set<Int> {
+        entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+    }
+
+    private static func shouldPreferStablePanelEntry(
+        _ candidate: Entry,
+        over existing: Entry
+    ) -> Bool {
+        let candidateLivenessRank = stablePanelLivenessRank(candidate)
+        let existingLivenessRank = stablePanelLivenessRank(existing)
+        if candidateLivenessRank != existingLivenessRank {
+            return candidateLivenessRank > existingLivenessRank
+        }
+        let candidateIsLive = entryHasLiveProcess(candidate)
+        let existingIsLive = entryHasLiveProcess(existing)
+        if candidateIsLive != existingIsLive {
+            return candidateIsLive
+        }
+        if candidate.updatedAt != existing.updatedAt {
+            return candidate.updatedAt > existing.updatedAt
+        }
+        let candidateIdentity = "\(candidate.snapshot.kind.rawValue):\(candidate.snapshot.sessionId)"
+        let existingIdentity = "\(existing.snapshot.kind.rawValue):\(existing.snapshot.sessionId)"
+        return candidateIdentity > existingIdentity
+    }
+
+    private static func stablePanelLivenessRank(_ entry: Entry) -> Int {
+        switch entry.processLiveness {
+        case .running:
+            return 2
+        case .unknown:
+            return 1
+        case .exited:
+            return 0
+        }
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1578,7 +2392,7 @@ struct RestorableAgentSessionIndex: Sendable {
         // launch dir. `.ignore` agents resume from the current directory, so the snapshot must carry
         // no saved cwd at all (downstream restore consumers read `workingDirectory` directly, not just
         // the command builder). The by-directory namespace below is only for built-in agents.
-        if let registration {
+        if let registration, !registration.isBuiltInKimi {
             return registration.cwd == .ignore ? nil : (recordedCwd ?? launchCwd)
         }
 
@@ -2148,55 +2962,42 @@ struct RestorableAgentSessionIndex: Sendable {
         regularFileState(atPath: path, fileManager: fileManager) == .nonEmpty
     }
 
-    private static func liveScopedProcessID(
-        for record: RestorableAgentHookSessionRecord,
-        kind: RestorableAgentKind,
+    private static func scopedProcessMatch(
+        for snapshot: SessionRestorableAgentSnapshot,
         workspaceId: UUID,
         panelId: UUID,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> Int? {
-        guard let pid = record.pid else {
-            return nil
+        processID: Int,
+        recordedProcessIdentity: AgentPIDProcessIdentity?,
+        currentProcessIdentity: AgentPIDProcessIdentity?,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        processPresenceProvider: (Int) -> PIDPresence,
+        validator: CachedAgentProcessIdentityValidator,
+        hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
+    ) -> RestorableAgentProcessMatch {
+        guard let recordedProcessIdentity,
+              Int(recordedProcessIdentity.pid) == processID else {
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
         }
-        guard pid > 0,
-              let process = processArgumentsProvider(pid),
-              process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return nil
+        guard let currentProcessIdentity,
+              Int(currentProcessIdentity.pid) == processID else {
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
         }
-
-        if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
-           liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return nil
+        guard currentProcessIdentity == recordedProcessIdentity else {
+            return .mismatches
         }
-
-        guard let recordedExecutable = recordedExecutableBasename(record),
-              let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return pid
+        guard let process = processArgumentsProvider(processID) else {
+            // A present process may be temporarily uninspectable. Only ESRCH-grade
+            // absence proves that the recorded generation exited.
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
         }
-        guard liveProcessExecutableMatchesRecordedAgent(
-            kind: kind,
-            liveExecutable: liveExecutable,
-            recordedExecutable: recordedExecutable,
-            arguments: process.arguments,
-            environment: process.environment
-        ) else {
-            return nil
+        guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
+            return .mismatches
         }
-        return pid
-    }
-
-    private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
-        let executable = normalizedProcessValue(record.launchCommand?.executablePath)
-            ?? normalizedProcessValue(record.launchCommand?.arguments.first)
-        return executable.map(executableBasename)
-    }
-
-    private static func executableBasename(_ value: String) -> String {
-        (value as NSString).lastPathComponent
-    }
-
-    private static func normalizedProcessValue(_ value: String?) -> String? {
-        normalizedNonEmptyValue(value)
+        return validator.currentProcess(
+            process,
+            matches: snapshot,
+            hermesSessionValidation: hermesSessionValidation
+        ) ? .matches : .mismatches
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
@@ -2207,16 +3008,136 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
+    private init(entriesByPanel: [PanelKey: Entry], isComplete: Bool = true) {
         self.entriesByPanel = entriesByPanel
-        var entriesByPanelId: [UUID: Entry] = [:]
+        self.isComplete = isComplete
+        // Keep only the bounded candidate prefix while indexing. Exact owner
+        // lookups still use `entriesByPanel`, but stable-panel resolution must
+        // never retain or sort an unbounded owner history a second time.
+        var candidatesByPanelId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousPanelIds: Set<UUID> = []
         for (key, entry) in entriesByPanel {
-            let existing = entriesByPanelId[key.panelId]
-            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
-                entriesByPanelId[key.panelId] = entry
+            guard !boundedAmbiguousPanelIds.contains(key.panelId) else {
+                continue
             }
+            var candidates = candidatesByPanelId[key.panelId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousPanelIds.insert(key.panelId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByPanelId[key.panelId] = candidates
         }
+
+        var entriesByPanelId: [UUID: Entry] = [:]
+        var ambiguousPanelIds: Set<UUID> = []
+        var equalRankAmbiguousPanelIds: Set<UUID> = []
+        for (panelId, candidates) in candidatesByPanelId {
+            let rankedCandidates = candidates.sorted { lhs, rhs in
+                Self.shouldPreferStablePanelEntry(lhs.1, over: rhs.1)
+            }
+            guard let selected = rankedCandidates.first?.1 else {
+                continue
+            }
+            let selectedIsLive = Self.entryHasLiveProcess(selected)
+            let liveCandidateCount = candidates.reduce(into: 0) { count, candidate in
+                if Self.entryHasLiveProcess(candidate.1) { count += 1 }
+            }
+            let topRankCount = candidates.reduce(into: 0) { count, candidate in
+                guard Self.entryHasLiveProcess(candidate.1) == selectedIsLive,
+                      candidate.1.updatedAt == selected.updatedAt else {
+                    return
+                }
+                count += 1
+            }
+            if liveCandidateCount > 1 || topRankCount > 1 ||
+                boundedAmbiguousPanelIds.contains(panelId) {
+                // Equal top-ranked owner records have no reliable panel-only winner.
+                ambiguousPanelIds.insert(panelId)
+            }
+            if topRankCount > 1 {
+                equalRankAmbiguousPanelIds.insert(panelId)
+            }
+            entriesByPanelId[panelId] = selected
+            candidatesByPanelId[panelId] = Array(
+                rankedCandidates.prefix(Self.maximumStablePanelCandidates)
+            )
+        }
+        self.candidatesByPanelId = candidatesByPanelId
         self.entriesByPanelId = entriesByPanelId
+        self.ambiguousPanelIds = ambiguousPanelIds
+        self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
+        self.boundedAmbiguousPanelIds = boundedAmbiguousPanelIds
+    }
+}
+
+/// Deferred launch data used when a restore starts before the shared live-agent
+/// index has completed its off-main refresh.
+struct DeferredAgentResumeRestore: Sendable {
+    let stablePanelID: UUID
+    let restorableAgent: SessionRestorableAgentSnapshot?
+    let resumeBinding: SurfaceResumeBindingSnapshot?
+    let restoresRemoteWorkspaceTerminalSnapshot: Bool
+    /// The persistent-SSH owner captured for deferred admission, if any.
+    let remoteResumeContext: SurfaceResumeRemoteContext?
+    /// Whether the resume command is embedded in the remote PTY attach script.
+    let remoteResumeCommandEmbedded: Bool
+    let workingDirectory: String?
+    let resumeWorkingDirectory: String?
+
+    init(
+        stablePanelID: UUID,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        restoresRemoteWorkspaceTerminalSnapshot: Bool,
+        remoteResumeContext: SurfaceResumeRemoteContext? = nil,
+        remoteResumeCommandEmbedded: Bool = false,
+        workingDirectory: String?,
+        resumeWorkingDirectory: String?
+    ) {
+        self.stablePanelID = stablePanelID
+        self.restorableAgent = restorableAgent
+        self.resumeBinding = resumeBinding
+        self.restoresRemoteWorkspaceTerminalSnapshot = restoresRemoteWorkspaceTerminalSnapshot
+        self.remoteResumeContext = remoteResumeContext
+        self.remoteResumeCommandEmbedded = remoteResumeCommandEmbedded
+        self.workingDirectory = workingDirectory
+        self.resumeWorkingDirectory = resumeWorkingDirectory
+    }
+
+    /// Retargets a transferred persistent-SSH restore after its binding has
+    /// been adopted by the destination workspace.
+    func retargetingRemoteOwner(
+        _ destinationContext: SurfaceResumeRemoteContext?
+    ) -> Self {
+        guard restoresRemoteWorkspaceTerminalSnapshot,
+              let sourceContext = remoteResumeContext,
+              let destinationContext,
+              sourceContext.surfaceID == destinationContext.surfaceID,
+              sourceContext.persistentPTYSessionID
+                  .trimmingCharacters(in: .whitespacesAndNewlines)
+                  == destinationContext.persistentPTYSessionID
+                      .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return self
+        }
+        let retargetedBinding = resumeBinding?.retargetingRemoteOwner(
+            expectedWorkspaceID: sourceContext.workspaceID,
+            expectedSurfaceID: sourceContext.surfaceID,
+            workspaceID: destinationContext.workspaceID,
+            surfaceID: destinationContext.surfaceID,
+            persistentPTYSessionID: destinationContext.persistentPTYSessionID
+        )
+        return Self(
+            stablePanelID: stablePanelID,
+            restorableAgent: restorableAgent,
+            resumeBinding: retargetedBinding,
+            restoresRemoteWorkspaceTerminalSnapshot:
+                restoresRemoteWorkspaceTerminalSnapshot,
+            remoteResumeContext: destinationContext,
+            remoteResumeCommandEmbedded: remoteResumeCommandEmbedded,
+            workingDirectory: workingDirectory,
+            resumeWorkingDirectory: resumeWorkingDirectory
+        )
     }
 }
 

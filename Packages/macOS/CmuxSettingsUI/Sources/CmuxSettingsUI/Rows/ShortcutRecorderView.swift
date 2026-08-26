@@ -369,7 +369,10 @@ public final class RecorderHostButton: NSButton {
             return
         }
 
-        guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return }
+        guard let key = recordedShortcutKey(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        ) else { return }
 
         let hasModifier = event.modifierFlags.contains(.command)
             || event.modifierFlags.contains(.option)
@@ -377,7 +380,7 @@ public final class RecorderHostButton: NSButton {
             || event.modifierFlags.contains(.shift)
 
         let stroke = ShortcutStroke(
-            key: chars.lowercased(),
+            key: key,
             command: event.modifierFlags.contains(.command),
             shift: event.modifierFlags.contains(.shift),
             option: event.modifierFlags.contains(.option),

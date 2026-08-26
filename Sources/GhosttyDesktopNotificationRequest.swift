@@ -1,7 +1,7 @@
 import Foundation
 
 /// Sendable payload copied at the synchronous Ghostty callback boundary.
-nonisolated struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
+struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let hookDirectory: String?

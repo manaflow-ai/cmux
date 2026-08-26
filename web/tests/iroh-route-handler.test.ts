@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
-import type { IrohFirewallCheck } from "../services/iroh/firewall";
-import { handleIrohRoute, IrohFirewallAdmission } from "../services/iroh/routeHandler";
+import {
+  buildConnectivityInvalidationRequest,
+  handleIrohRoute,
+} from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
 import { GET as retentionGet } from "../app/api/internal/iroh/retention/route";
@@ -16,11 +18,165 @@ const USER: AuthedUser = {
   selectedTeamId: "selected-team-id",
   teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null }],
   teamIds: ["selected-team-id"],
-  userBillingPlanId: null,
-  billingPlanId: null,
+      userBillingPlanId: null,
+      billingPlanId: null,
+      resolveSubrouterPermissions: async () => ({
+        use: false,
+        manageAccounts: false,
+      }),
 };
 
 describe("Iroh route boundary", () => {
+  test("builds an account-authenticated backend-only invalidation", async () => {
+    const publication = buildConnectivityInvalidationRequest(
+      authedPost("/api/devices/iroh/register", {}),
+      7,
+      {
+        baseURL: "https://presence.example.test/dev",
+        publisherSecret: "s".repeat(64),
+      },
+    );
+
+    expect(publication?.url).toBe(
+      "https://presence.example.test/v1/connectivity/invalidate",
+    );
+    expect(publication?.headers.get("authorization")).toBe("Bearer test-access");
+    expect(
+      publication?.headers.get("x-cmux-connectivity-publisher-secret"),
+    ).toBe("s".repeat(64));
+    expect(await publication?.json()).toEqual({ revision: 7 });
+    expect(buildConnectivityInvalidationRequest(
+      authedPost("/api/devices/iroh/register", {}),
+      7,
+      { baseURL: "https://presence.example.test" },
+    )).toBeNull();
+  });
+
+  test("publishes committed registration and revocation revisions", async () => {
+    const published: Array<{ authorization: string | null; revision: number }> = [];
+    const publishConnectivityInvalidation = async (request: Request, revision: number) => {
+      published.push({
+        authorization: request.headers.get("authorization"),
+        revision,
+      });
+    };
+    const register = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 7 }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+    const revoke = await handleIrohRoute(
+      authedPost("/api/devices/iroh", {}),
+      "revoke",
+      {
+        verify: async () => USER,
+        broker: broker({ revoke: () => Effect.succeed({ revoked: true, revision: 8 }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+
+    expect(register.status).toBe(201);
+    expect(revoke.status).toBe(200);
+    expect(published).toEqual([
+      { authorization: "Bearer test-access", revision: 7 },
+      { authorization: "Bearer test-access", revision: 8 },
+    ]);
+  });
+
+  test("keeps a committed mutation successful when invalidation delivery fails", async () => {
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 9 }) }),
+        publishConnectivityInvalidation: async () => {
+          throw new Error("presence unavailable");
+        },
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ revision: 9 });
+  });
+
+  test("returns a committed mutation before deferred invalidation delivery settles", async () => {
+    let releasePublication: (() => void) | undefined;
+    let scheduledPublication:
+      | (() => Promise<void>)
+      | undefined;
+    const publicationGate = new Promise<void>((resolve) => {
+      releasePublication = () => resolve();
+    });
+    let responseSettled = false;
+    const responsePromise = handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 10 }) }),
+        publishConnectivityInvalidation: async () => {
+          await publicationGate;
+        },
+        scheduleAfterResponse: (operation: () => Promise<void>) => {
+          scheduledPublication = operation;
+        },
+      },
+    ).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+
+    for (let attempt = 0; attempt < 50 && !responseSettled; attempt += 1) {
+      await Promise.resolve();
+    }
+    const settledBeforePublication = responseSettled;
+    releasePublication?.();
+    await scheduledPublication?.();
+    const response = await responsePromise;
+
+    expect(settledBeforePublication).toBe(true);
+    expect(response.status).toBe(201);
+  });
+
+  test("never publishes reads or failed mutations", async () => {
+    let published = 0;
+    const publishConnectivityInvalidation = async () => {
+      published += 1;
+    };
+    const discover = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({ discover: () => Effect.succeed({ revision: 10, bindings: [] }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+    const failed = await handleIrohRoute(
+      authedPost("/api/devices/iroh", {}),
+      "revoke",
+      {
+        verify: async () => USER,
+        broker: broker({
+          revoke: () => Effect.fail(new IrohDatabaseError({
+            operation: "revoke",
+            cause: { category: "connection" },
+          })),
+        }),
+        publishConnectivityInvalidation,
+      },
+    );
+
+    expect(discover.status).toBe(200);
+    expect(failed.status).toBe(503);
+    expect(published).toBe(0);
+  });
+
   test("requires authentication before returning the public verification-key set", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh"), "discover", {
@@ -36,154 +192,46 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
-  test("fails closed when the firewall check rejects", async () => {
+  test("rejects malformed discovery cursors before broker work", async () => {
     let brokerCalled = false;
-    const dependencies = {
-      verify: async () => USER,
-      broker: broker({
-        discover: () => {
-          brokerCalled = true;
-          return Effect.succeed({ bindings: [] });
-        },
-      }),
-      firewall: {
-        id: "iroh-test-rule",
-        check: async () => {
-          throw new Error("firewall unavailable");
-        },
-      },
-    };
-
     const response = await handleIrohRoute(
-      new Request("https://cmux.test/api/devices/iroh"),
-      "discover",
-      dependencies,
-    );
-
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
-    expect(brokerCalled).toBe(false);
-  });
-
-  test("bounds a firewall check that never settles", async () => {
-    let brokerCalled = false;
-    let aborted = false;
-    const check: IrohFirewallCheck = (_id, { signal }) => new Promise<never>((_resolve, reject) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-        reject(signal.reason);
-      }, { once: true });
-    });
-    const dependencies = {
-      verify: async () => USER,
-      broker: broker({
-        discover: () => {
-          brokerCalled = true;
-          return Effect.succeed({ bindings: [] });
-        },
-      }),
-      firewall: {
-        id: "iroh-test-rule",
-        timeoutMs: 10,
-        check,
-      },
-    };
-
-    const response = await handleIrohRoute(
-      new Request("https://cmux.test/api/devices/iroh"),
-      "discover",
-      dependencies,
-    );
-
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
-    expect(brokerCalled).toBe(false);
-    expect(aborted).toBe(true);
-  });
-
-  test("caps timed-out firewall work per identity and across the worker", async () => {
-    const admission = new IrohFirewallAdmission(2);
-    let started = 0;
-    let aborted = 0;
-    const check: IrohFirewallCheck = (_id, { signal }) => {
-      started += 1;
-      return new Promise<never>((_resolve, reject) => {
-        signal.addEventListener("abort", () => {
-          aborted += 1;
-          reject(signal.reason);
-        }, { once: true });
-      });
-    };
-    const firewall = {
-      id: "iroh-test-rule",
-      timeoutMs: 5,
-      admission,
-      check,
-    };
-    const discover = (userId: string) => handleIrohRoute(
-      new Request("https://cmux.test/api/devices/iroh"),
-      "discover",
-      {
-        verify: async () => ({ ...USER, id: userId }),
-        broker: broker({ discover: () => Effect.succeed({ bindings: [] }) }),
-        firewall,
-      },
-    );
-
-    const responses = await Promise.all([
-      discover("user-1"),
-      discover("user-1"),
-      discover("user-2"),
-      discover("user-3"),
-    ]);
-    expect(responses.map((response) => response.status)).toEqual([503, 503, 503, 503]);
-    expect(started).toBe(2);
-    expect(aborted).toBe(2);
-    expect(admission.activeCount).toBe(0);
-  });
-
-  test("aborts timed-out firewall work and admits recovery", async () => {
-    const admission = new IrohFirewallAdmission(2);
-    let started = 0;
-    let aborted = false;
-    let brokerCalls = 0;
-    const firewall = {
-      id: "iroh-test-rule",
-      timeoutMs: 5,
-      admission,
-      check: (_id: string, options?: unknown) => {
-        started += 1;
-        if (started > 1) return Promise.resolve({ rateLimited: false });
-        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
-        return new Promise<never>((_resolve, reject) => {
-          signal?.addEventListener("abort", () => {
-            aborted = true;
-            reject(signal.reason);
-          }, { once: true });
-        });
-      },
-    };
-    const discover = () => handleIrohRoute(
-      new Request("https://cmux.test/api/devices/iroh"),
+      new Request("https://cmux.test/api/devices/iroh?page_size=128&cursor=not-a-cursor"),
       "discover",
       {
         verify: async () => USER,
         broker: broker({
           discover: () => {
-            brokerCalls += 1;
+            brokerCalled = true;
             return Effect.succeed({ bindings: [] });
           },
         }),
-        firewall,
       },
     );
 
-    expect((await discover()).status).toBe(503);
-    expect(aborted).toBe(true);
-    expect((await discover()).status).toBe(200);
-    expect(started).toBe(2);
-    expect(brokerCalls).toBe(1);
-    expect(admission.activeCount).toBe(0);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_discovery_cursor" });
+    expect(brokerCalled).toBe(false);
+  });
+
+  test("rejects oversized discovery pages before broker work", async () => {
+    let brokerCalled = false;
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh?page_size=129"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({
+          discover: () => {
+            brokerCalled = true;
+            return Effect.succeed({ bindings: [] });
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_discovery_page_size" });
+    expect(brokerCalled).toBe(false);
   });
 
   test("authenticates before reading an oversized body", async () => {
@@ -262,6 +310,55 @@ describe("Iroh route boundary", () => {
     expect(receivedUserId).not.toBe("selected-team-id");
   });
 
+  test("forwards the exact app namespace to every mutation", async () => {
+    const received: string[] = [];
+    const receivedBindingIDs: string[] = [];
+    const namespaced = (
+      _userId: string,
+      _raw: unknown,
+      _now?: Date,
+      clientNamespace?: string,
+      bindingProof?: { bindingId: string },
+    ) => {
+      received.push(clientNamespace ?? "");
+      receivedBindingIDs.push(bindingProof?.bindingId ?? "");
+      return Effect.succeed({});
+    };
+    const namespacedBroker = broker({
+      issueEndpointAttestation: namespaced,
+      revoke: namespaced,
+      issuePairGrant: namespaced,
+      issueRelayToken: namespaced,
+    });
+    const operations = [
+      "endpoint_attestation",
+      "revoke",
+      "pair_grant",
+      "relay_token",
+    ] as const;
+    for (const operation of operations) {
+      const base = authedPost("/api/devices/iroh", {});
+      const headers = new Headers(base.headers);
+      headers.set("x-cmux-app-namespace", "dev.cmux.app.demo");
+      headers.set(
+        "x-cmux-iroh-binding-id",
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+      headers.set("x-cmux-iroh-request-time", "1785384000");
+      headers.set("x-cmux-iroh-request-signature", "A".repeat(86));
+      const response = await handleIrohRoute(
+        new Request(base, { headers }),
+        operation,
+        { verify: async () => USER, broker: namespacedBroker },
+      );
+      expect(response.status).toBe(operation === "revoke" ? 200 : 201);
+    }
+    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+    expect(receivedBindingIDs).toEqual(
+      Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
+    );
+  });
+
   test("maps DB-authoritative quota failures to typed 429 with Retry-After", async () => {
     const response = await handleIrohRoute(authedPost("/api/devices/iroh/relay-token", {
       bindingId: "30000000-0000-4000-8000-000000000001",
@@ -333,6 +430,8 @@ function broker(overrides: Partial<IrohTrustBrokerShape> = {}): IrohTrustBrokerS
     issueChallenge: unavailable,
     register: unavailable,
     discover: unavailable,
+    discoverComplete: unavailable,
+    discoverScoped: unavailable,
     issueEndpointAttestation: unavailable,
     revoke: unavailable,
     issuePairGrant: unavailable,

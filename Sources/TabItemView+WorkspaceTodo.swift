@@ -12,51 +12,53 @@ import SwiftUI
 extension TabItemView {
     @ViewBuilder
     var workspaceTodoContextMenuSection: some View {
-        let isMulti = contextMenuWorkspaceIds.count > 1
-        let markDoneLabel = isMulti
-            ? String(localized: "contextMenu.markWorkspacesDone", defaultValue: "Mark Workspaces as Done")
-            : String(localized: "contextMenu.markWorkspaceDone", defaultValue: "Mark Workspace as Done")
-        let markWorkspaceDoneShortcut = KeyboardShortcutSettings.shortcut(for: .markWorkspaceDone)
+        if WorkspaceTodoFeature.isEnabled {
+            let isMulti = contextMenuWorkspaceIds.count > 1
+            let markDoneLabel = isMulti
+                ? String(localized: "contextMenu.markWorkspacesDone", defaultValue: "Mark Workspaces as Done")
+                : String(localized: "contextMenu.markWorkspaceDone", defaultValue: "Mark Workspace as Done")
+            let markWorkspaceDoneShortcut = KeyboardShortcutSettings.shortcut(for: .markWorkspaceDone)
 
-        // The lane list is shared with the todo pane's status popover (one
-        // model, one apply path) so both surfaces stay in lockstep.
-        let statusLanes = snapshot.contextMenu.todoStatusLanes
-        Menu(String(localized: "contextMenu.workspaceStatus", defaultValue: "Status")) {
-            ForEach(statusLanes) { lane in
-                // Divider before the None row (separates opt-out from lanes).
-                if lane.isNone {
-                    Divider()
-                }
-                workspaceTodoStatusMenuButton(
-                    title: lane.title,
-                    isSelected: lane.isSelected
-                ) {
+            // The lane list is shared with the todo pane's status popover (one
+            // model, one apply path) so both surfaces stay in lockstep.
+            let statusLanes = snapshot.contextMenu.todoStatusLanes
+            Menu(String(localized: "contextMenu.workspaceStatus", defaultValue: "Status")) {
+                ForEach(statusLanes) { lane in
+                    // Divider before the None row (separates opt-out from lanes).
                     if lane.isNone {
-                        actions.hideTodoStatus(contextMenuWorkspaceIds)
-                    } else {
-                        actions.applyTodoStatus(lane.status, contextMenuWorkspaceIds)
+                        Divider()
+                    }
+                    workspaceTodoStatusMenuButton(
+                        title: lane.title,
+                        isSelected: lane.isSelected
+                    ) {
+                        if lane.isNone {
+                            actions.hideTodoStatus(contextMenuWorkspaceIds)
+                        } else {
+                            actions.applyTodoStatus(lane.status, contextMenuWorkspaceIds)
+                        }
+                    }
+                    // Divider after the Auto row (first lane, nil status, not None).
+                    if lane.status == nil, !lane.isNone {
+                        Divider()
                     }
                 }
-                // Divider after the Auto row (first lane, nil status, not None).
-                if lane.status == nil, !lane.isNone {
-                    Divider()
+            }
+
+            if let key = markWorkspaceDoneShortcut.keyEquivalent {
+                Button(markDoneLabel) {
+                    actions.applyTodoStatus(.done, contextMenuWorkspaceIds)
+                }
+                .keyboardShortcut(key, modifiers: markWorkspaceDoneShortcut.eventModifiers)
+            } else {
+                Button(markDoneLabel) {
+                    actions.applyTodoStatus(.done, contextMenuWorkspaceIds)
                 }
             }
-        }
 
-        if let key = markWorkspaceDoneShortcut.keyEquivalent {
-            Button(markDoneLabel) {
-                actions.applyTodoStatus(.done, contextMenuWorkspaceIds)
-            }
-            .keyboardShortcut(key, modifiers: markWorkspaceDoneShortcut.eventModifiers)
-        } else {
-            Button(markDoneLabel) {
-                actions.applyTodoStatus(.done, contextMenuWorkspaceIds)
-            }
-        }
-
-        Button(String(localized: "contextMenu.addChecklistItem", defaultValue: "Add Checklist Item…")) {
+            Button(String(localized: "contextMenu.addChecklistItem", defaultValue: "Add Checklist Item…")) {
             actions.requestChecklistAdd()
+            }
         }
     }
 
@@ -73,7 +75,6 @@ extension TabItemView {
             }
         }
     }
-
 }
 
 // MARK: - Command palette entries
@@ -110,59 +111,61 @@ enum WorkspaceTodoPaletteCommands {
             $0.bool(CommandPaletteContextKeys.hasWorkspace)
         }
         var contributions: [CommandPaletteCommandContribution] = []
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: statusAutoCommandId,
-                title: { _ in
-                    String(
-                        localized: "command.workspaceStatusAuto.title",
-                        defaultValue: "Workspace Status: Auto"
-                    )
-                },
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "status", "todo", "auto", "inferred", "clear"],
-                when: hasWorkspace
-            )
-        )
-        for status in WorkspaceTaskStatus.allCases {
+        if WorkspaceTodoFeature.isEnabled {
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: statusCommandId(status),
-                    title: { _ in statusTitle(status) },
+                    commandId: statusAutoCommandId,
+                    title: { _ in
+                        String(
+                            localized: "command.workspaceStatusAuto.title",
+                            defaultValue: "Workspace Status: Auto"
+                        )
+                    },
                     subtitle: workspaceSubtitle,
-                    keywords: ["workspace", "status", "todo", "lane", status.rawValue],
+                    keywords: ["workspace", "status", "todo", "auto", "inferred", "clear"],
+                    when: hasWorkspace
+                )
+            )
+            for status in WorkspaceTaskStatus.allCases {
+                contributions.append(
+                    CommandPaletteCommandContribution(
+                        commandId: statusCommandId(status),
+                        title: { _ in statusTitle(status) },
+                        subtitle: workspaceSubtitle,
+                        keywords: ["workspace", "status", "todo", "lane", status.rawValue],
+                        when: hasWorkspace
+                    )
+                )
+            }
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: markWorkspaceDoneCommandId,
+                    title: { _ in
+                        String(
+                            localized: "command.markWorkspaceDone.title",
+                            defaultValue: "Mark Workspace as Done"
+                        )
+                    },
+                    subtitle: workspaceSubtitle,
+                    keywords: ["workspace", "done", "complete", "finish", "todo", "status"],
+                    when: hasWorkspace
+                )
+            )
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: addChecklistItemCommandId,
+                    title: { _ in
+                        String(
+                            localized: "command.addWorkspaceChecklistItem.title",
+                            defaultValue: "Add Checklist Item…"
+                        )
+                    },
+                    subtitle: workspaceSubtitle,
+                    keywords: ["workspace", "checklist", "todo", "task", "add", "item"],
                     when: hasWorkspace
                 )
             )
         }
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: markWorkspaceDoneCommandId,
-                title: { _ in
-                    String(
-                        localized: "command.markWorkspaceDone.title",
-                        defaultValue: "Mark Workspace as Done"
-                    )
-                },
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "done", "complete", "finish", "todo", "status"],
-                when: hasWorkspace
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: addChecklistItemCommandId,
-                title: { _ in
-                    String(
-                        localized: "command.addWorkspaceChecklistItem.title",
-                        defaultValue: "Add Checklist Item…"
-                    )
-                },
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "checklist", "todo", "task", "add", "item"],
-                when: hasWorkspace
-            )
-        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: openTodoPaneCommandId,
@@ -196,6 +199,10 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: statusAutoCommandId,
             handler: withSelectedWorkspace { workspace in
+                guard WorkspaceTodoFeature.isEnabled else {
+                    NSSound.beep()
+                    return
+                }
                 WorkspaceTodoActions.applyStatusOverride(nil, to: [workspace])
             }
         )
@@ -203,6 +210,10 @@ enum WorkspaceTodoPaletteCommands {
             registry.register(
                 commandId: statusCommandId(status),
                 handler: withSelectedWorkspace { workspace in
+                    guard WorkspaceTodoFeature.isEnabled else {
+                        NSSound.beep()
+                        return
+                    }
                     WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
                 }
             )
@@ -210,12 +221,20 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: markWorkspaceDoneCommandId,
             handler: withSelectedWorkspace { workspace in
+                guard WorkspaceTodoFeature.isEnabled else {
+                    NSSound.beep()
+                    return
+                }
                 WorkspaceTodoActions.applyStatusOverride(.done, to: [workspace])
             }
         )
         registry.register(
             commandId: addChecklistItemCommandId,
             handler: withSelectedWorkspace { workspace in
+                guard WorkspaceTodoFeature.isEnabled else {
+                    NSSound.beep()
+                    return
+                }
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
             }
         )

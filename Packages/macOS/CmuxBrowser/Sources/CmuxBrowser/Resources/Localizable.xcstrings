@@ -1,0 +1,159 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
+          }
+        }
+      }
+    },
+    "diffViewer.error.duplicateEntry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate diff viewer allowlist entry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リスト項目が重複しています"
+          }
+        }
+      }
+    },
+    "diffViewer.error.emptyAllowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが空です"
+          }
+        }
+      }
+    },
+    "diffViewer.error.invalidEntry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid diff viewer allowlist entry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リスト項目が無効です"
+          }
+        }
+      }
+    },
+    "diffViewer.error.invalidManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid diff viewer manifest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアのマニフェストが無効です"
+          }
+        }
+      }
+    },
+    "diffViewer.error.invalidToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid diff viewer token"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアのトークンが無効です"
+          }
+        }
+      }
+    },
+    "diffViewer.error.manifestTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer manifest is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアのマニフェストが大きすぎます"
+          }
+        }
+      }
+    },
+    "diffViewer.error.unreadableFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer file is not readable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアのファイルを読み取れません"
+          }
+        }
+      }
+    },
+    "diffViewer.error.unsafeTrustedRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer trusted directory is unsafe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの信頼済みディレクトリは安全ではありません"
+          }
+        }
+      }
+    }
+  }
+}

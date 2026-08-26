@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+private let cliProcessLivenessTimeout: TimeInterval = 20 // Over 3× the observed loaded runtime.
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func testSessionsListTreatsTranscriptBackedClaudeRecordAsRestorable() throws {
         let cliPath = try bundledCLIPath()
@@ -53,7 +54,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -116,7 +117,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -196,7 +197,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -279,7 +280,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", containerSessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -347,7 +348,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -414,7 +415,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -479,7 +480,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))

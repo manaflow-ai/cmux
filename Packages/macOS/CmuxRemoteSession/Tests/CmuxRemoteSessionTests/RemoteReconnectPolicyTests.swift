@@ -105,6 +105,98 @@ struct RemoteReconnectPolicyTests {
         )
     }
 
+    @Test("Repeated identical bootstrap failures eventually park reconnect")
+    func repeatedBootstrapFailuresAreBounded() {
+        let policy = RemoteBootstrapRetryPolicy()
+        var previousFingerprint: String?
+        var consecutive = 0
+        var total = 0
+        var decisions: [RemoteBootstrapRetryPolicy.Decision] = []
+
+        for _ in 0..<policy.maxConsecutiveFailures {
+            let evaluation = policy.evaluate(
+                fingerprint: "cmux.remote.daemon:33",
+                previousFingerprint: previousFingerprint,
+                previousConsecutiveFailures: consecutive,
+                previousTotalFailures: total
+            )
+            previousFingerprint = evaluation.fingerprint
+            consecutive = evaluation.consecutiveFailures
+            total = evaluation.totalFailures
+            decisions.append(evaluation.decision)
+        }
+
+        #expect(decisions.dropLast().allSatisfy { $0 == .retry })
+        #expect(decisions.last == .suspend)
+        #expect(consecutive == policy.maxConsecutiveFailures)
+        #expect(total == policy.maxConsecutiveFailures)
+    }
+
+    @Test("A changed bootstrap failure fingerprint resets the consecutive budget")
+    func changedBootstrapFailureResetsConsecutiveBudget() {
+        let policy = RemoteBootstrapRetryPolicy()
+        let first = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:33",
+            previousFingerprint: nil,
+            previousConsecutiveFailures: 0,
+            previousTotalFailures: 0
+        )
+        let changed = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:31",
+            previousFingerprint: first.fingerprint,
+            previousConsecutiveFailures: first.consecutiveFailures,
+            previousTotalFailures: first.totalFailures
+        )
+
+        #expect(changed.decision == .retry)
+        #expect(changed.consecutiveFailures == 1)
+        #expect(changed.totalFailures == 2)
+    }
+
+    @Test("Bootstrap diagnostics do not change retry fingerprints")
+    func bootstrapDiagnosticsDoNotAffectFingerprint() {
+        let underlying = NSError(
+            domain: "cmux.remote.daemon",
+            code: 41,
+            userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon hello returned invalid JSON",
+            ]
+        )
+        let first = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: authentication failed"
+        )
+        let second = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: checksum mismatch"
+        )
+
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: first) ==
+                "cmux.remote.daemon:41:hello"
+        )
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: second) ==
+                "cmux.remote.daemon:41:hello"
+        )
+    }
+
+    @Test("Blocked bootstrap failures park immediately")
+    func blockedBootstrapFailureDoesNotSpin() {
+        let policy = RemoteBootstrapRetryPolicy()
+        let evaluation = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:31:blocked",
+            previousFingerprint: nil,
+            previousConsecutiveFailures: 0,
+            previousTotalFailures: 0
+        )
+
+        #expect(evaluation.decision == .suspend)
+        #expect(evaluation.consecutiveFailures == 1)
+    }
+
     @Test("System wake re-arms a suspended coordinator with fresh backoff")
     func systemWakeRearmsSuspendedCoordinator() {
         let provider = IntentionalCleanupTestTunnelProvider()
@@ -298,6 +390,7 @@ struct RemoteReconnectPolicyTests {
             host: IntentionalCleanupTestHost(),
             configuration: configuration,
             proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -311,7 +404,10 @@ struct RemoteReconnectPolicyTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }
@@ -375,10 +471,10 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("ProxyCommand destinations cannot be probed directly")
-    func proxyCommandResolvesToNil() {
+    func proxyCommandResolvesToNil() async {
         // sshConfigFile pins resolution to an empty config so the test stays
         // hermetic against the developer/CI user's ~/.ssh/config.
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 22,
             identityFile: nil,
@@ -389,8 +485,8 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("Resolves a direct destination's endpoint via ssh -G")
-    func resolvesDirectEndpoint() throws {
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+    func resolvesDirectEndpoint() async throws {
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 2222,
             identityFile: nil,

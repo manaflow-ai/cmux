@@ -2,13 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -19,11 +19,17 @@ if (hadOriginalNodeOptions) {
 }
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+try {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  fs.unlinkSync(__filename);
+  fs.rmdirSync(path.dirname(__filename));
+} catch {}
 `
 
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
-// It creates tmux shim scripts, sets up environment variables, gets the
-// focused context via system.identify, and exec's into `claude`.
+// It creates tmux shim scripts, validates the inherited launch surface, sets
+// up environment variables, and exec's into `claude`.
 func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() string) int {
 	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
 
@@ -32,18 +38,32 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 		fmt.Fprintf(os.Stderr, "cmux claude-teams: failed to create shim directory: %v\n", err)
 		return 1
 	}
-
 	// Resolve the agent executable BEFORE modifying PATH (so the shim
 	// directory doesn't shadow anything). Matches the Swift CLI behavior.
 	originalPath := os.Getenv("PATH")
 	claudePath := findExecutableInPath("claude", originalPath, shimDir)
+	if claudePath == "" {
+		fmt.Fprintf(os.Stderr, "cmux claude-teams: claude not found in PATH\n")
+		return 1
+	}
 
-	focused := getFocusedContext(rc)
+	nonLaunch := claudeTeamsLaunchIsNonLaunch(args)
+	launchContext, err := agentLaunchContextForInvocation(rc, nonLaunch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux claude-teams: %v\n", err)
+		return 1
+	}
+	if !nonLaunch {
+		if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux claude-teams: failed to configure shell wrapper: %v\n", err)
+			return 1
+		}
+	}
 
 	configureAgentEnvironment(agentConfig{
 		shimDir:        shimDir,
 		socketPath:     socketPath,
-		focused:        focused,
+		launchContext:  launchContext,
 		tmuxPathPrefix: "cmux-claude-teams",
 		cmuxBinEnvVar:  "CMUX_CLAUDE_TEAMS_CMUX_BIN",
 		termEnvVar:     "CMUX_CLAUDE_TEAMS_TERM",
@@ -57,10 +77,6 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 
 	launchArgs := claudeTeamsLaunchArgs(args)
 
-	if claudePath == "" {
-		fmt.Fprintf(os.Stderr, "cmux claude-teams: claude not found in PATH\n")
-		return 1
-	}
 	argv := append([]string{claudePath}, launchArgs...)
 	execErr := syscall.Exec(claudePath, argv, os.Environ())
 	fmt.Fprintf(os.Stderr, "cmux claude-teams: exec failed: %v\n", execErr)
@@ -86,18 +102,23 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	// Ensure oh-my-opencode plugin is set up
+	launchContext, err := agentLaunchContextForInvocation(rc, omoLaunchIsNonLaunch(args))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omo: %v\n", err)
+		return 1
+	}
+
+	// Ensure oh-my-opencode plugin is set up only after a real launch's
+	// inherited surface identity has been validated.
 	if err := omoEnsurePlugin(originalPath); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
 		return 1
 	}
 
-	focused := getFocusedContext(rc)
-
 	configureAgentEnvironment(agentConfig{
 		shimDir:        shimDir,
 		socketPath:     socketPath,
-		focused:        focused,
+		launchContext:  launchContext,
 		tmuxPathPrefix: "cmux-omo",
 		cmuxBinEnvVar:  "CMUX_OMO_CMUX_BIN",
 		termEnvVar:     "CMUX_OMO_TERM",
@@ -150,12 +171,16 @@ func runOMXRelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	focused := getFocusedContext(rc)
+	launchContext, err := agentLaunchContextForInvocation(rc, omxLaunchIsNonLaunch(args))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omx: %v\n", err)
+		return 1
+	}
 
 	configureAgentEnvironment(agentConfig{
 		shimDir:        shimDir,
 		socketPath:     socketPath,
-		focused:        focused,
+		launchContext:  launchContext,
 		tmuxPathPrefix: "cmux-omx",
 		cmuxBinEnvVar:  "CMUX_OMX_CMUX_BIN",
 		termEnvVar:     "CMUX_OMX_TERM",
@@ -186,12 +211,16 @@ func runOMCRelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	focused := getFocusedContext(rc)
+	launchContext, err := agentLaunchContextForInvocation(rc, omcLaunchIsNonLaunch(args))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omc: %v\n", err)
+		return 1
+	}
 
 	configureAgentEnvironment(agentConfig{
 		shimDir:        shimDir,
 		socketPath:     socketPath,
-		focused:        focused,
+		launchContext:  launchContext,
 		tmuxPathPrefix: "cmux-omc",
 		cmuxBinEnvVar:  "CMUX_OMC_CMUX_BIN",
 		termEnvVar:     "CMUX_OMC_TERM",
@@ -298,13 +327,15 @@ func writeShimIfChanged(path string, content string) error {
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 	if _, err := tempFile.WriteString(content); err != nil {
-		tempFile.Close()
-		return err
+		return closeTempFileAfterError(tempFile, err)
+	}
+	// Set the final executable mode while the descriptor is still open. This
+	// prevents a close-to-chmod window in which another same-UID process could
+	// observe or replace the temporary file.
+	if err := tempFile.Chmod(0755); err != nil {
+		return closeTempFileAfterError(tempFile, err)
 	}
 	if err := tempFile.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, 0755); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
@@ -313,132 +344,26 @@ func writeShimIfChanged(path string, content string) error {
 	return nil
 }
 
+func closeTempFileAfterError(file *os.File, primary error) error {
+	if closeErr := file.Close(); closeErr != nil {
+		return fmt.Errorf("%w (also failed to close temporary file: %v)", primary, closeErr)
+	}
+	return primary
+}
+
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// A predictable shared /tmp directory would let another same-UID process
+	// tamper with the module before Node loads it. Retain this randomized,
+	// private directory through the returned path for the launch lifetime.
+	dir, err := os.MkdirTemp(os.TempDir(), "cmux-claude-node-options-")
+	if err != nil {
 		return "", err
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", err
+		return "", fmt.Errorf("create Node options restore module: %w", errors.Join(err, os.RemoveAll(dir)))
 	}
 	return restoreModulePath, nil
-}
-
-// --- Focused context ---
-
-type focusedContext struct {
-	workspaceId string
-	windowId    string
-	paneHandle  string
-	paneId      string
-	surfaceId   string
-}
-
-func getFocusedContext(rc *rpcContext) *focusedContext {
-	return getFocusedContextWithTimeout(rc, 5*time.Second)
-}
-
-func getFocusedContextWithTimeout(rc *rpcContext, timeout time.Duration) *focusedContext {
-	// Use a goroutine with timeout so a slow/stale relay doesn't block agent launch.
-	type result struct {
-		payload map[string]any
-	}
-	ch := make(chan result, 1)
-	started := time.Now()
-	go func() {
-		payload, err := rc.call("system.identify", nil)
-		if err != nil {
-			ch <- result{}
-			return
-		}
-		ch <- result{payload: payload}
-	}()
-
-	var payload map[string]any
-	select {
-	case r := <-ch:
-		payload = r.payload
-	case <-time.After(timeout):
-		return nil
-	}
-
-	focused, _ := payload["focused"].(map[string]any)
-	if focused == nil {
-		return nil
-	}
-	ctx := focusedContextFromIdentify(focused)
-	if ctx == nil {
-		return nil
-	}
-
-	remaining := timeout - time.Since(started)
-	if remaining <= 0 {
-		return ctx
-	}
-	return canonicalizeFocusedContextWithTimeout(rc, focused, ctx, remaining)
-}
-
-func focusedContextFromIdentify(focused map[string]any) *focusedContext {
-	wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
-	paneHandle := stringFromAny(focused["pane_id"], focused["pane_ref"])
-	if wsId == "" || paneHandle == "" {
-		return nil
-	}
-	return &focusedContext{
-		workspaceId: wsId,
-		windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
-		paneHandle:  strings.TrimSpace(paneHandle),
-		paneId:      strings.TrimSpace(stringFromAny(focused["pane_uuid"], focused["pane_id"])),
-		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
-	}
-}
-
-func canonicalizeFocusedContextWithTimeout(
-	rc *rpcContext,
-	focused map[string]any,
-	base *focusedContext,
-	timeout time.Duration,
-) *focusedContext {
-	type result struct {
-		focused *focusedContext
-	}
-	ch := make(chan result, 1)
-	go func() {
-		enriched := *base
-		canonicalizeFocusedContext(rc, focused, &enriched)
-		ch <- result{focused: &enriched}
-	}()
-	select {
-	case r := <-ch:
-		return r.focused
-	case <-time.After(timeout):
-		return base
-	}
-}
-
-func canonicalizeFocusedContext(rc *rpcContext, focused map[string]any, ctx *focusedContext) {
-	canonicalPaneId := strings.TrimSpace(stringFromAny(focused["pane_uuid"]))
-	if canonicalWsId, err := tmuxResolveWorkspaceId(rc, ctx.workspaceId); err == nil {
-		if canonicalPaneId == "" {
-			if pid := strings.TrimSpace(stringFromAny(focused["pane_id"])); pid != "" {
-				if resolved, err := tmuxCanonicalPaneId(rc, pid, canonicalWsId); err == nil {
-					canonicalPaneId = resolved
-				}
-			}
-		}
-		if canonicalPaneId == "" {
-			if pid, err := tmuxCanonicalPaneId(rc, ctx.paneHandle, canonicalWsId); err == nil {
-				canonicalPaneId = pid
-			}
-		}
-	}
-	if canonicalPaneId == "" {
-		canonicalPaneId = strings.TrimSpace(stringFromAny(focused["pane_id"]))
-	}
-	if canonicalPaneId != "" {
-		ctx.paneId = strings.TrimSpace(canonicalPaneId)
-	}
 }
 
 func configureClaudeNodeOptions(restoreModulePath string) {
@@ -486,21 +411,12 @@ func cleanedNodeOptions(existing string) string {
 	return strings.Join(filtered, " ")
 }
 
-func stringFromAny(values ...any) string {
-	for _, v := range values {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
-	return ""
-}
-
 // --- Environment configuration ---
 
 type agentConfig struct {
 	shimDir        string
 	socketPath     string
-	focused        *focusedContext
+	launchContext  *agentLaunchContext
 	tmuxPathPrefix string
 	cmuxBinEnvVar  string
 	termEnvVar     string
@@ -522,18 +438,18 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Set fake TMUX/TMUX_PANE
 	fakeTmux := fmt.Sprintf("/tmp/%s/default,0,0", cfg.tmuxPathPrefix)
 	fakeTmuxPane := "%1"
-	if cfg.focused != nil {
-		windowToken := cfg.focused.windowId
+	if cfg.launchContext != nil {
+		windowToken := cfg.launchContext.windowId
 		if windowToken == "" {
-			windowToken = cfg.focused.workspaceId
+			windowToken = cfg.launchContext.workspaceId
 		}
-		paneIdForToken := cfg.focused.paneId
+		paneIdForToken := cfg.launchContext.paneId
 		if paneIdForToken == "" {
-			paneIdForToken = cfg.focused.paneHandle
+			paneIdForToken = cfg.launchContext.paneHandle
 		}
 		paneToken := tmuxStableNumericId(paneIdForToken)
 		fakeTmux = fmt.Sprintf("/tmp/%s/%s,%s,%s",
-			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, paneToken)
+			cfg.tmuxPathPrefix, cfg.launchContext.workspaceId, windowToken, paneToken)
 		fakeTmuxPane = "%" + paneToken
 	}
 	os.Setenv("TMUX", fakeTmux)
@@ -560,11 +476,27 @@ func configureAgentEnvironment(cfg agentConfig) {
 		os.Setenv("COLORTERM", "truecolor")
 	}
 
-	// Set workspace/surface IDs from focused context
-	if cfg.focused != nil {
-		os.Setenv("CMUX_WORKSPACE_ID", cfg.focused.workspaceId)
-		if cfg.focused.surfaceId != "" {
-			os.Setenv("CMUX_SURFACE_ID", cfg.focused.surfaceId)
+	// Publish only the socket-validated inherited routing identity. Invalid or
+	// incomplete ambient fragments must not leak into the agent process.
+	if cfg.launchContext != nil {
+		os.Setenv("CMUX_WORKSPACE_ID", cfg.launchContext.workspaceId)
+		os.Setenv("CMUX_TAB_ID", cfg.launchContext.workspaceId)
+		os.Setenv("CMUX_SURFACE_ID", cfg.launchContext.surfaceId)
+		os.Setenv("CMUX_PANEL_ID", cfg.launchContext.surfaceId)
+		if cfg.launchContext.paneId != "" {
+			os.Setenv("CMUX_PANE_ID", cfg.launchContext.paneId)
+		} else {
+			os.Unsetenv("CMUX_PANE_ID")
+		}
+	} else {
+		for _, key := range []string{
+			"CMUX_WORKSPACE_ID",
+			"CMUX_SURFACE_ID",
+			"CMUX_PANEL_ID",
+			"CMUX_TAB_ID",
+			"CMUX_PANE_ID",
+		} {
+			os.Unsetenv(key)
 		}
 	}
 

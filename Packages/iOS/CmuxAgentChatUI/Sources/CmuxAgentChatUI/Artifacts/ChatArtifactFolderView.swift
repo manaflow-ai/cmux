@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import SwiftUI
 
@@ -8,34 +9,23 @@ import AppKit
 #endif
 
 struct ChatArtifactFolderView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
+    let scope: ChatArtifactViewerScope
+    let onDone: () -> Void
 
     @Environment(\.chatArtifactLoader) private var loader
-    @Environment(\.dismiss) private var dismiss
     @State private var state: LoadState = .loading
-    @State private var selectedFile: ChatArtifactPathSelection?
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle(displayName)
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "chat.artifact.done", defaultValue: "Done", bundle: .module)) {
-                            dismiss()
-                        }
-                    }
-                }
-        }
-        .task(id: path) {
-            await load()
-        }
-        .sheet(item: $selectedFile) { selection in
-            ChatArtifactViewerSheet(path: selection.path)
-        }
+        content
+            .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+                await load()
+            }
     }
 
     @ViewBuilder
@@ -44,62 +34,99 @@ struct ChatArtifactFolderView: View {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .entries(let entries):
-            if entries.isEmpty {
-                Text(String(localized: "chat.artifact.folder.empty", defaultValue: "No files", bundle: .module))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(entries) { entry in
-                    row(entry)
+        case .listing(let listing):
+            VStack(spacing: 0) {
+                breadcrumb
+                Divider()
+                if listing.entries.isEmpty {
+                    Text(String(localized: "chat.artifact.folder.empty", defaultValue: "No items", bundle: .module))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        Section {
+                            ForEach(listing.entries) { entry in
+                                NavigationLink {
+                                    let route = childRoute(for: entry)
+                                    ChatArtifactViewerDestination(
+                                        path: route.path,
+                                        scope: route.scope,
+                                        onDone: onDone
+                                    )
+                                    .environment(\.chatArtifactLoader, route.loader)
+                                } label: {
+                                    rowLabel(entry)
+                                }
+                            }
+                        } footer: {
+                            if listing.isTruncated {
+                                Text(String(
+                                    localized: "chat.artifact.folder.showing_first_500",
+                                    defaultValue: "Showing first 500 items",
+                                    bundle: .module
+                                ))
+                            }
+                        }
+                    }
                 }
             }
-        case .failed:
+        case .failed(let error):
+            let failure = ChatArtifactFailurePresentation(error: error, scope: scope)
             VStack(spacing: 10) {
-                Text(String(localized: "chat.artifact.folder.load_failed", defaultValue: "Couldn't load this folder", bundle: .module))
+                Image(systemName: failure.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text(failure.title)
                     .font(.headline)
-                Button {
-                    Task { await load() }
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
-                        systemImage: "arrow.clockwise"
-                    )
+                Text(failure.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if failure.allowsRetry {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label(
+                            String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         }
     }
 
-    private func row(_ entry: ChatArtifactDirectoryEntry) -> some View {
-        Button {
-            guard !entry.isDirectory else { return }
-            selectedFile = ChatArtifactPathSelection(path: childPath(named: entry.name))
-        } label: {
-            HStack(spacing: 10) {
-                ChatArtifactFolderThumbnail(path: childPath(named: entry.name), entry: entry)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.name)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if !entry.isDirectory {
-                        Text(ByteCountFormatter.string(fromByteCount: entry.size, countStyle: .file))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 8)
-                if entry.isDirectory {
-                    Image(systemName: "folder")
+    private var breadcrumb: some View {
+        Text(parentPath)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .accessibilityLabel(Text(verbatim: path))
+    }
+
+    private func rowLabel(_ entry: ChatArtifactDirectoryEntry) -> some View {
+        HStack(spacing: 10) {
+            ChatArtifactFolderThumbnail(path: childPath(named: entry.name), entry: entry)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !entry.isDirectory {
+                    Text(ByteCountFormatter.string(fromByteCount: entry.size, countStyle: .file))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+            Spacer(minLength: 8)
         }
-        .buttonStyle(.plain)
-        .disabled(entry.isDirectory)
     }
 
     private func load() async {
@@ -107,9 +134,12 @@ struct ChatArtifactFolderView: View {
         do {
             let listing = try await loader.list(path: path)
             guard !Task.isCancelled else { return }
-            await MainActor.run { state = .entries(listing.entries) }
+            await MainActor.run { state = .listing(listing) }
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run { state = .failed }
+            let failure = (error as? ChatArtifactError) ?? .loadFailed
+            await MainActor.run { state = .failed(failure) }
         }
     }
 
@@ -117,23 +147,40 @@ struct ChatArtifactFolderView: View {
         (path as NSString).appendingPathComponent(name)
     }
 
-    private var displayName: String {
-        URL(fileURLWithPath: path).lastPathComponent
+    private func childRoute(for entry: ChatArtifactDirectoryEntry) -> ChatArtifactFolderRoute {
+        ChatArtifactFolderRoute(
+            parentPath: path,
+            childName: entry.name,
+            scope: scope,
+            loader: loader
+        )
+    }
+
+    private var parentPath: String {
+        guard path != "/" else { return "/" }
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent.isEmpty ? "/" : parent
     }
 
     private enum LoadState: Equatable {
         case loading
-        case entries([ChatArtifactDirectoryEntry])
-        case failed
+        case listing(ChatArtifactDirectoryListing)
+        case failed(ChatArtifactError)
     }
 }
 
 private struct ChatArtifactFolderThumbnail: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let entry: ChatArtifactDirectoryEntry
 
     @Environment(\.chatArtifactLoader) private var loader
     @State private var thumbnailData: Data?
+    @State private var thumbnailLoadIdentity: LoadIdentity?
 
     var body: some View {
         Group {
@@ -141,17 +188,26 @@ private struct ChatArtifactFolderThumbnail: View {
                 artifactImage(data: thumbnailData)
                     .scaledToFill()
             } else {
-                Image(systemName: entry.isDirectory ? "folder" : iconName)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                placeholder
             }
         }
         .frame(width: 34, height: 34)
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
-        .task(id: path) {
+        .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            guard !Task.isCancelled else { return }
+            let loadIdentity = LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)
+            thumbnailLoadIdentity = loadIdentity
+            thumbnailData = nil
             guard entry.kind == .image, loader.supportsArtifacts else { return }
-            thumbnailData = try? await loader.thumbnail(path: path, maxDimension: 96).data
+            do {
+                let data = try await loader.thumbnail(path: path, maxDimension: 96).data
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = data
+            } catch {
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = nil
+            }
         }
     }
 
@@ -161,29 +217,28 @@ private struct ChatArtifactFolderThumbnail: View {
         if let image = UIImage(data: data) {
             Image(uiImage: image).resizable()
         } else {
-            Image(systemName: iconName)
+            placeholder
         }
         #elseif canImport(AppKit)
         if let image = NSImage(data: data) {
             Image(nsImage: image).resizable()
         } else {
-            Image(systemName: iconName)
+            placeholder
         }
         #else
-        Image(systemName: iconName)
+        placeholder
         #endif
     }
 
-    private var iconName: String {
-        switch entry.kind {
-        case .image:
-            return "photo"
-        case .text:
-            return "doc.text"
-        case .binary:
-            return "doc"
-        case .directory:
-            return "folder"
-        }
+    private var placeholder: some View {
+        let kind: ChatArtifactKind = entry.isDirectory ? .directory : entry.kind
+        let glyph = ChatArtifactGalleryClassifier().glyphPresentation(
+            for: kind,
+            path: path
+        )
+        return Image(systemName: glyph.systemImageName)
+            .font(.body)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(glyph.tint.swiftUIColor)
     }
 }

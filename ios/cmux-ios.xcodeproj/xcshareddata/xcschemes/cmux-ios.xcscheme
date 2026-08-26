@@ -33,6 +33,9 @@
             reference = "container:cmux/cmux.xctestplan"
             default = "YES">
          </TestPlanReference>
+         <TestPlanReference
+            reference = "container:cmux/cmux-ui.xctestplan">
+         </TestPlanReference>
       </TestPlans>
       <Testables>
          <TestableReference

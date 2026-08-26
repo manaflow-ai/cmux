@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "TUI package version to publish, for example 0.1.0"
+        description: "Package version to publish, for example 0.1.0"
+        required: true
+        type: string
+      artifact_run_id:
+        description: "Successful cmux-tui release run containing verified packages"
         required: true
         type: string
       confirm_tui_cmux:
@@ -27,9 +31,21 @@ jobs:
     # `npx cmux` user (nightlies publish via cmux-tui-nightly.yml with --tag nightly).
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Require strict stable version
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require protected main and resolve release tag
+        id: release
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
@@ -38,24 +54,95 @@ jobs:
             echo "workflow_dispatch version must match stable X.Y.Z (no prerelease); nightlies go through cmux-tui-nightly.yml" >&2
             exit 1
           }
+          git fetch --force origin main --tags
+          tag="cmux-tui-v$DISPATCH_VERSION"
+          expected_ref="refs/tags/$tag"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "Refusing to publish npm from $GITHUB_REF; dispatch this workflow on $expected_ref." >&2
+            exit 1
+          fi
+          release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+            echo "release tag does not exist: $tag" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $tag is not an ancestor of protected main" >&2
+            exit 1
+          }
+          if [[ "$release_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag $tag resolves to $release_sha, but npm provenance would identify workflow commit $GITHUB_SHA" >&2
+            echo "Dispatch from main only while the release tag points at the current main commit." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "release_sha=$release_sha"
+          } >> "$GITHUB_OUTPUT"
 
-  build-package:
-    needs: validate-version
-    permissions:
-      contents: read
-    uses: ./.github/workflows/cmux-tui-build-package.yml
-    with:
-      version: ${{ inputs.version }}
-      package_npm: true
-      package_pypi: false
-      include_windows: false
+      - name: Require successful verified artifact run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "artifact_run_id must be a GitHub Actions run ID" >&2
+            exit 1
+          }
+
+          artifact_path=".github/workflows/cmux-tui-release.yml"
+          artifact_status=""
+          artifact_conclusion=""
+          release_sha="$RELEASE_SHA"
+          for _ in {1..24}; do
+            IFS=$'\t' read -r actual_path artifact_head_sha artifact_head_branch artifact_status artifact_conclusion <<<"$(
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN_ID" \
+                --jq '[.path, .head_sha, .head_branch, .status, (.conclusion // "")] | @tsv'
+            )"
+            if [[ "$actual_path" != "$artifact_path" ]]; then
+              echo "artifact run $ARTIFACT_RUN_ID came from $actual_path, expected $artifact_path" >&2
+              exit 1
+            fi
+            if [[ "$artifact_head_sha" != "$release_sha" ]]; then
+              echo "artifact run commit $artifact_head_sha does not match release commit $release_sha" >&2
+              exit 1
+            fi
+            if [[ "$artifact_head_branch" != "$RELEASE_TAG" ]]; then
+              echo "artifact run ref $artifact_head_branch does not match release tag $RELEASE_TAG" >&2
+              exit 1
+            fi
+            if [[ "$artifact_status" == "completed" ]]; then
+              break
+            fi
+            case "$artifact_status" in
+              queued|in_progress|pending|waiting|requested)
+                sleep 5
+                ;;
+              *)
+                echo "artifact run $ARTIFACT_RUN_ID has unexpected status $artifact_status" >&2
+                exit 1
+                ;;
+            esac
+          done
+          if [[ "$artifact_status" != "completed" ]]; then
+            echo "artifact run $ARTIFACT_RUN_ID did not complete in time" >&2
+            exit 1
+          fi
+          if [[ "$artifact_conclusion" != "success" ]]; then
+            echo "artifact run $ARTIFACT_RUN_ID concluded $artifact_conclusion" >&2
+            exit 1
+          fi
 
   publish:
-    needs: build-package
+    needs: validate-version
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
+      actions: read
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -69,12 +156,21 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
 
       - name: Download npm package directories
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -83,9 +179,48 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ inputs.version }}" \
+            --include-windows \
+            --install-npm-package cmux-tui-linux-x64 \
+            --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/chatmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/tags/$RELEASE_TAG"
+          done
+
+      # cmux-relay and its platform packages are validated and attested above
+      # as part of the artifact contract, but they are NOT published here: the
+      # relay's npm dist-tags move only through the cmux-relay-v* tag family
+      # (relay-publish-npm.yml), so a routine TUI release can never take over
+      # cmux-relay@latest from the shipping relay.
       - name: Publish platform packages
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           packages=(
@@ -93,10 +228,19 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
+            # A retried run must not fail on the packages an earlier attempt
+            # already published at this exact version.
+            if [[ "$(npm view "$package@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+              echo "Skipping $package@$PUBLISH_VERSION: already published"
+              continue
+            fi
             echo "Publishing $package"
-            if ! npm publish --provenance "dist/npm-packages/$package"; then
+            # --access public is required to publish a NEW unscoped package
+            # with --provenance and is a no-op for the existing public ones.
+            if ! npm publish --provenance --access public "dist/npm-packages/$package"; then
               cat >&2 <<'EOF'
           npm publish failed.
 
@@ -105,6 +249,7 @@ jobs:
           - cmux-tui-darwin-x64
           - cmux-tui-linux-x64
           - cmux-tui-linux-arm64
+          - cmux-tui-win32-x64
 
           Trusted publisher settings for each package:
           - Repository: manaflow-ai/cmux
@@ -116,8 +261,14 @@ jobs:
           done
 
       - name: Publish launcher package
+        env:
+          PUBLISH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if [[ "$(npm view "cmux@$PUBLISH_VERSION" version 2>/dev/null || true)" == "$PUBLISH_VERSION" ]]; then
+            echo "Skipping cmux@$PUBLISH_VERSION: already published"
+            exit 0
+          fi
           # Deliberately do not pass --tag: this coordinated TUI publish takes
           # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
-          npm publish --provenance dist/npm-packages/cmux
+          npm publish --provenance --access public dist/npm-packages/cmux

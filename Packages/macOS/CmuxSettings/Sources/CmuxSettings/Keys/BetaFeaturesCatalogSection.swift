@@ -47,6 +47,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
+    /// Workspace todo controls: the experimental UI that lets users add
+    /// checklist items and set workspace completion/status lanes. Defaults off
+    /// so the todo summary remains read-only unless the user opts in or the
+    /// remote rollout flag enables it.
+    public let workspaceTodoControls = DefaultsKey<Bool>(
+        id: "sidebar.beta.workspaceTodos.controls.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled"
+    )
+
     /// How a workspace row's checklist opens from its summary line while the
     /// workspace-todos feature is on: an anchored popover (default) or the
     /// round-1 inline expansion.
@@ -54,6 +64,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "sidebar.beta.workspaceTodos.checklistStyle",
         defaultValue: .popover,
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
+    )
+
+    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
+    /// Cloud VM surface (Settings section, palette commands, titlebar button,
+    /// new-workspace menu). Defaults off; the remote rollout flag can also
+    /// enable the same surfaces, so this opt-in only ever adds availability.
+    public let cloudMachines = DefaultsKey<Bool>(
+        id: "cloud.beta.machines.enabled",
+        defaultValue: false,
+        userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar

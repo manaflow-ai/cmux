@@ -1,9 +1,10 @@
 import { t } from "../i18n";
 import type { Toast } from "../hooks/useCmuxClient";
+import type { Id } from "cmux/raw";
 
 interface ToastsProps {
   toasts: Toast[];
-  onDismiss(notification: number): void;
+  onDismiss(notification: Id): void;
 }
 
 export function Toasts({ toasts, onDismiss }: ToastsProps) {

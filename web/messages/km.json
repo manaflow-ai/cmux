@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "បន្តនៅក្នុងស្ថានីយ",
+    "returnBody": "ដើម្បីបន្ត សូមត្រឡប់ទៅស្ថានីយដែលអ្នកបានដំណើរការ ssh cmux.cloud។",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "ការទូទាត់បានបញ្ចប់",
+        "body": "ការជាវរបស់អ្នកត្រូវបានបញ្ជាក់។ ដែនកំណត់ថ្មីអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "checkoutCanceled": {
+        "title": "ការទូទាត់ត្រូវបានបោះបង់",
+        "body": "ការទូទាត់ត្រូវបានបិទដោយមិនផ្លាស់ប្តូរគម្រោងរបស់អ្នក។"
+      },
+      "portalReturn": {
+        "title": "ត្រឡប់ពីវិបផតថលវិក្កយបត្រ",
+        "body": "ការផ្លាស់ប្តូរនៅក្នុងវិបផតថលវិក្កយបត្រអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "default": {
+        "title": "វិក្កយបត្របានបញ្ចប់",
+        "body": "ដំណើរការវិក្កយបត្ររបស់អ្នកបានបញ្ចប់។"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — ស្ថានីយដែលបង្កើតសម្រាប់ពហុកិច្ចការ",
     "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "cmux ទាក់ទងនឹង Ghostty យ៉ាងដូចម្ដេច?",
     "faqGhosttyA": "cmux មិនមែនជា fork នៃ Ghostty ទេ។ វាប្រើ <link>libghostty</link> ជាបណ្ណាល័យសម្រាប់ការបង្ហាញទែមីណល, ដូចគ្នានឹងកម្មវិធីប្រើ WebKit សម្រាប់ web views ដែរ។ Ghostty គឺជាទែមីណលឯករាជ្យ; cmux គឺជាកម្មវិធីផ្សេងដែលបង្កើតនៅលើម៉ាស៊ីនបង្ហាញរបស់វា។",
     "faqPlatformQ": "វាគាំទ្រប្រព័ន្ធប្រតិបត្តិការអ្វីខ្លះ?",
-    "faqPlatformA": "macOS តែប៉ុណ្ណោះសម្រាប់ពេលនេះ។ cmux គឺជាកម្មវិធី Swift + AppKit ដើម។",
+    "faqPlatformA": "សូមមើលកំណែ cmux ដែលមាននៅក្នុងម៉ឺនុយទាញយក។ សម្រាប់វេទិកាដែលមិនទាន់ចេញផ្សាយ សូម<waitlist>ចុះឈ្មោះក្នុងបញ្ជីរង់ចាំ</waitlist>។",
     "faqAgentsQ": "cmux ដំណើរការជាមួយ coding agent អ្វីខ្លះ?",
     "faqAgentsA": "ទាំងអស់។ cmux គឺជាទែមីណល, ដូច្នេះ agent ណាមួយដែលដំណើរការក្នុងទែមីណលអាចប្រើបានភ្លាមៗ: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, និងអ្វីផ្សេងទៀតដែលអ្នកអាចចាប់ផ្ដើមពីបន្ទាត់ពាក្យបញ្ជា។",
     "faqNotificationsQ": "ការជូនដំណឹងដំណើរការយ៉ាងដូចម្ដេច?",
@@ -112,6 +135,35 @@
     "faqFeatureA": "យើងចង់ស្ដាប់វា។ បើក <issuesLink>issue</issuesLink> ឬ <prLink>pull request</prLink> នៅលើ GitHub ឬ <mailLink>ផ្ញើអ៊ីមែលមកយើង</mailLink>។"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
+      "team": "ក្រុម"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "coderouterLink": "បើក coderouter",
+      "iosAppName": "កម្មវិធី iOS",
+      "iosAppDescription": "ដំឡើងកម្មវិធី cmux iOS តាមរយៈ TestFlight (ការចូលប្រើ beta)។",
+      "iosLink": "បើកកម្មវិធី iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
+      "title": "coderouter",
+      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។"
+    },
+    "accountMenu": {
+      "label": "ម៉ឺនុយគណនី",
+      "settings": "ការកំណត់",
+      "billing": "ការទូទាត់",
+      "signOut": "ចាកចេញ",
+      "signingOut": "កំពុងចាកចេញ…",
+      "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "organizationSwitchError": "មិនអាចប្ដូរអង្គការបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "signIn": "ចូល"
+    },
     "aiAccounts": {
       "metaTitle": "គណនី AI — cmux",
       "metaDescription": "គ្រប់គ្រងគណនីអ្នកផ្តល់សេវា AI របស់ក្រុមសម្រាប់ cmux។",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,25 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "បង្កើត tmux shim ក្នុងថត shim បណ្ដោះអាសន្នរបស់ surface បច្ចុប្បន្ន។ ផ្លូវនេះមាន UUID របស់ surface និងផ្លាស់ប្ដូរសម្រាប់ផ្ទាំងនីមួយៗ និងរាល់ពេលចាប់ផ្ដើមប្រព័ន្ធ ដូច្នេះមិនអាចបញ្ជាក់ផ្លូវថេរបានទេ",
+      "shimStep2": "កំណត់ TMUX និង TMUX_PANE ដើម្បីក្លែងធ្វើ tmux សម្រាប់ session ចាប់ផ្ដើម Claude Teams",
+      "shimDiagnostic": "shim នឹងបញ្ជូនទៅ cmux តែពេលកំណត់ <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> ប៉ុណ្ណោះ; បើមិនកំណត់ វានឹងបន្តដោយថ្លៃថ្នូរទៅឯកសារប្រតិបត្តិ tmux ពិតបន្ទាប់។ ដូច្នេះ <which>which tmux</which> មិនអាចបង្ហាញថា Claude Teams interception កំពុងដំណើរការឬអត់ទេ។",
+      "envTmux": "ផ្លូវ socket tmux សិប្បនិម្មិតសម្រាប់ session ដែលបានដំណើរការ cmux claude-teams",
+      "envTmuxPane": "អត្តសញ្ញាណ pane tmux សិប្បនិម្មិតសម្រាប់ session ដែលបានដំណើរការ cmux claude-teams; វាទទេនៅក្នុងផ្ទាំង agent ដែលបានបង្កើត",
+      "envSurface": "UUID របស់ surface បច្ចុប្បន្ន; ប្រើវាជាអត្តសញ្ញាណ surface នៅក្នុងផ្ទាំង agent ដែលបានបង្កើត",
+      "envScope": "តម្លៃសំយោគ <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> និងតម្លៃភាពឆបគ្នា tmux ដែលពាក់ព័ន្ធ ពិពណ៌នាអំពីសម័យដែលបានដំណើរការ <command>cmux claude-teams</command> មិនមែនផ្ទាំងដែលបានបង្កើតទេ។ ពីក្នុងផ្ទាំង agent សូមប្រើ <surface>CMUX_SURFACE_ID</surface> ហើយដំណើរការ <tree>cmux tree --json</tree>; វត្ថុ <caller>caller</caller> ក្នុងលទ្ធផលកំណត់អត្តសញ្ញាណផ្ទាំងដែលបានហៅ។",
+      "dirShimPath": "ថតសម្រាប់ surface នីមួយៗ នៅក្រោមថតបណ្ដោះអាសន្នរបស់ប្រព័ន្ធ (គ្មានផ្លូវថេរ)",
+      "dirShim": "មាន tmux shim សកម្ម ហើយត្រូវបានដាក់នៅខាងដើម PATH សម្រាប់ surface នោះ",
+      "dirStore": "កន្លែងផ្ទុកអចិន្ត្រៃយ៍សម្រាប់ buffer និង hook របស់ tmux-compat ព្រមទាំងស្ថានភាពទីតាំង/ប្លង់របស់ split",
+      "storeDetails": "គន្លឹះ routing សម្រាប់ការបែងចែកមាន៖",
+      "storeLastSplitSurface": "ផ្គូផ្គង UUID របស់ workspace នីមួយៗទៅ UUID របស់ surface ដែលបង្កើតដោយការបែងចែកចុងក្រោយ។ វាចាប់ផ្ដើម anchor ជួរឈរ agent ដែលកំណត់កន្លែងដាក់ការបែងចែក main-vertical បន្ទាប់។",
+      "storeMainVerticalLayouts": "ផ្គូផ្គង UUID របស់ workspace នីមួយៗទៅ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (surface មេ ឬ leader) និង <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (surface ខាងក្រោមបំផុតក្នុងជួរឈរ agent)។ ការបែងចែក teammate បន្ទាប់នឹងកំណត់គោលដៅជួរឈរនោះ ហើយតម្រៀបចុះក្រោម។",
+      "storeTroubleshooting": "ពិនិត្យគន្លឹះ routing ទាំងនេះ ប្រសិនបើផ្ទាំង teammate បង្ហាញជាផ្ទាំងថេបនៅខាងក្រោយ surface ដែលមានស្រាប់ ជំនួសឱ្យការបែងចែកនៅជាប់វា។"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "ចាប់ផ្ដើម",
@@ -841,8 +918,8 @@
       "concepts": "គំនិត",
       "anchorTitle": "កន្លែងធ្វើការយុថ្កា",
       "anchorDesc": "ក្រុមនីមួយៗត្រូវបានកាន់កាប់ដោយកន្លែងធ្វើការតែមួយប៉ុណ្ណោះដែលហៅថាយុថ្កា។ ក្បាលក្រុមនៅក្នុងរបារចំហៀងគឺជាការតំណាងរបស់យុថ្កា — គ្មានជួរដាច់ដោយឡែកសម្រាប់វាទេ។ ការចុចលើតំបន់ឈ្មោះក្បាលធ្វើឱ្យផ្ទាំងរបស់យុថ្កាបានផ្ដោត ការចុចលើ chevron បិទ/បើកការបង្រួម។",
-      "anchorNew": "យុថ្កាតែងតែថ្មីស្រឡាងនៅពេលក្រុមមួយត្រូវបានបង្កើត។ ពួកវាមិនដែលត្រូវបានតម្លើងពីកន្លែងធ្វើការដែលមានស្រាប់ឡើយ។ ថតធ្វើការរបស់យុថ្កាត្រូវបានទទួលមរតកពីកន្លែងធ្វើការដែលបានជ្រើសរើសដំបូងនៅពេលដាក់ការជ្រើសរើសជាក្រុម ឬពីកន្លែងធ្វើការសកម្មនៅពេលបង្កើតតាមរយៈ CLI ដោយគ្មាន --cwd។",
-      "anchorClose": "ការបិទកន្លែងធ្វើការយុថ្កាធ្វើឱ្យក្រុមរលាយ៖ សមាជិកផ្សេងទៀតទាំងអស់ក្លាយជាកន្លែងធ្វើការដែលគ្មានក្រុម ហើយនៅតែស្ថិតក្នុងបញ្ជីផ្ទាំង។ គ្មានអ្វីត្រូវបានបិទក្រៅពីយុថ្កាខ្លួនឯងទេ។ កម្មវិធីបង្ហាញប្រអប់បញ្ជាក់ជាមួយ \"Don't ask again\" មុនពេលរឿងនេះកើតឡើង។",
+      "anchorNew": "យុថ្ការបស់ក្រុមគឺតែងតែជាកន្លែងធ្វើការថ្មីស្រឡាងនៅពេលបង្កើត; ការដាក់ការជ្រើសរើសជាក្រុម ឬការបង្កើតក្រុម មិនដែលលើកកន្លែងធ្វើការដែលមានស្រាប់ណាមួយរបស់អ្នកឱ្យក្លាយជាយុថ្កាទេ។ (ការបិទយុថ្កានៅពេលក្រោយ នឹងលើកសមាជិកដំបូងដែលនៅសល់របស់ក្រុមឱ្យក្លាយជាយុថ្កា; សូមមើលខាងក្រោម។) ថតការងាររបស់យុថ្កាត្រូវបានទទួលពីកន្លែងធ្វើការដំបូងដែលបានជ្រើស នៅពេលដាក់ការជ្រើសរើសជាក្រុម ឬពីកន្លែងធ្វើការសកម្ម នៅពេលបង្កើតតាម CLI ដោយគ្មាន --cwd។",
+      "anchorClose": "ការបិទកន្លែងធ្វើការយុថ្កា នឹងបិទតែកន្លែងធ្វើការនោះប៉ុណ្ណោះ ហើយលើកសមាជិកដំបូងដែលនៅសល់របស់ក្រុម (សមាជិកដំបូងបំផុតដែលនៅតែមានតាមលំដាប់របស់ក្រុម) ឱ្យក្លាយជាយុថ្កាថ្មី ដូច្នេះក្រុម និងសមាជិកផ្សេងទៀតនៅដដែល (បន្ទាប់មក សមាជិកដែលត្រូវបានលើកនឹងបង្ហាញឈ្មោះក្រុមជាក្បាល)។ នៅពេលយុថ្កាជាកន្លែងធ្វើការតែមួយគត់របស់ក្រុម ក្រុមនឹងត្រូវបានដកចេញ។ ដើម្បីបំបែកក្រុមទៅជាកន្លែងធ្វើការដែលមិនបានដាក់ជាក្រុម សូមប្រើ Ungroup Workspaces; ដើម្បីបិទកន្លែងធ្វើការទាំងអស់នៅក្នុងក្រុម សូមប្រើ Delete Group។",
       "identityTitle": "អត្តសញ្ញាណក្រុម",
       "identityDesc": "ក្រុមមួយមានឈ្មោះ រូបតំណាង (SF Symbol មួយ លំនាំដើម folder.fill) និងពណ៌ផ្ទាល់ខ្លួនជាជម្រើស។ ទាំងនេះឯករាជ្យពីការប្ដូរតាមបំណងផ្ទាល់ខ្លួនរបស់កន្លែងធ្វើការយុថ្កា។ ពណ៌ និងរូបតំណាងរបស់យុថ្កាត្រូវបានបង្កើតពីក្រុមនៅពេលបង្កើត ប៉ុន្តែពួកវាអាចខុសគ្នាបន្ទាប់ពីនោះ។",
       "pinningTitle": "ការខ្ទាស់",
@@ -944,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
-          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។",
+          "urlAllowlist": "លំនាំម៉ាស៊ីន ឬ URL ដែលដាក់កម្រិតការរុករកក្នុងកម្មវិធីរុករកដែលបានបង្កប់។ ការកំណត់ណែនាំប្រភពអភិវឌ្ឍន៍ក្នុងម៉ាស៊ីន; ការរក្សាទុកបញ្ជីនឹងបើកការដាក់កម្រិតជាជម្រើស។ លុបធាតុដើម្បីទប់ស្កាត់ ឬទុកតម្លៃអ្នកប្រើឱ្យទទេ ប្រសិនបើគ្មានគោលការណ៍គ្រប់គ្រង ដើម្បីបិទការដាក់កម្រិត។"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",
@@ -969,7 +1047,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }
       },
@@ -1382,7 +1460,16 @@
     "changelog": {
       "title": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។",
-      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ"
+      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ",
+      "versionTitle": "cmux {version} · កំណត់ហេតុផ្លាស់ប្ដូរ",
+      "releaseNavLabel": "កំណែជិត cmux {version}",
+      "sections": {
+        "added": "បានបន្ថែម",
+        "changed": "បានផ្លាស់ប្តូរ",
+        "fixed": "បានជួសជុល",
+        "removed": "បានដកចេញ",
+        "contributors": "អ្នករួមចំណែក"
+      }
     },
     "navItems": {
       "gettingStarted": "ចាប់ផ្ដើម",
@@ -1408,9 +1495,9 @@
     },
     "dock": {
       "metaTitle": "Dock",
-      "metaDescription": "បន្ថែមការគ្រប់គ្រង TUI ផ្ទាល់ខ្លួនទៅរបារចំហៀងស្តាំរបស់ cmux ដោយប្រើ Dock JSON។",
+      "metaDescription": "បន្ថែមវត្ថុបញ្ជា terminal និង browser ទៅរបារចំហៀងស្តាំរបស់ cmux ដោយប្រើ Dock JSON សម្រាប់ dashboard និងទំព័រយោង។",
       "title": "Dock",
-      "intro": "Dock អនុញ្ញាតឱ្យអ្នកបន្ថែមការគ្រប់គ្រង TUI ទៅរបារចំហៀងស្តាំ។ ការគ្រប់គ្រងនីមួយៗគឺជាពាក្យបញ្ជាពី JSON ហើយត្រូវបានបង្ហាញនៅក្នុងផ្នែក terminal ផ្ទាល់ខ្លួនដែលគាំទ្រដោយ Ghostty។ ប្រើវាសម្រាប់ feed, logs, queues, git status, dev servers ឬ TUI ណាមួយដែលក្រុមរបស់អ្នកចង់មាននៅជិត workspace នីមួយៗ។",
+      "intro": "Dock អនុញ្ញាតឱ្យអ្នកបន្ថែមវត្ថុបញ្ជា terminal និង browser ទៅរបារចំហៀងស្តាំ។ វត្ថុបញ្ជា terminal ដំណើរការពាក្យបញ្ជាក្នុងផ្នែកដែលគាំទ្រដោយ Ghostty ខណៈដែលវត្ថុបញ្ជា browser បង្កប់ទំព័របណ្ដាញ។ ប្រើវាសម្រាប់ feed, logs, queues, git status, dev servers, dashboards ឬទំព័រយោងដែលក្រុមរបស់អ្នកចង់មាននៅជិត workspace នីមួយៗ។",
       "configTitle": "ការកំណត់",
       "configIntro": "cmux ស្វែងរកការកំណត់ Dock តាមលំដាប់នេះ៖",
       "projectConfig": "សម្រាប់ repo បច្ចុប្បន្ន project មេដែលនៅជិតបំផុត និងថត project ដែលនៅខាងក្នុង។",
@@ -1424,9 +1511,12 @@
       "descriptionHeader": "ការពិពណ៌នា",
       "fieldId": "identifier តែមួយគត់និងមានស្ថេរភាពសម្រាប់ control។ រក្សាវាឱ្យខ្លី ហើយកុំប្រើវាឡើងវិញសម្រាប់ពាក្យបញ្ជាផ្សេង។",
       "fieldTitle": "Label ដែលបង្ហាញក្នុង Dock header។",
-      "fieldCommand": "ពាក្យបញ្ជាដែលរត់ក្នុង Dock terminal។ វាចាប់ផ្តើមក្នុង login shell របស់អ្នក។",
+      "fieldCommand": "ពាក្យបញ្ជាដែលត្រូវដំណើរការក្នុង terminal របស់ Dock។ វាតម្រូវឱ្យមានសម្រាប់វត្ថុបញ្ជា terminal ហើយចាប់ផ្តើមក្នុង login shell។",
+      "fieldType": "ប្រភេទវត្ថុបញ្ជាជាជម្រើស៖ terminal (លំនាំដើម) ឬ browser។",
+      "fieldUrl": "ទំព័រដែលត្រូវបើក។ តម្រូវឱ្យមានសម្រាប់វត្ថុបញ្ជាកម្មវិធីរុករក។",
+      "fieldChrome": "ការបង្ហាញផ្ទាំងបញ្ជាកម្មវិធីរុករកជាជម្រើស។ លំនាំដើមគឺ true; false លាក់របារអាសយដ្ឋាន និងរបារឧបករណ៍ ធ្វើឱ្យ Focus Address Bar មិនមានប្រសិទ្ធភាពសម្រាប់ផ្ទាំងនោះ ខណៈដែល cmux browser goto/reload នៅតែអាចប្រើបាន។",
       "fieldCwd": "ថតការងារជាជម្រើស។ Relative paths ត្រូវបានដោះស្រាយពី project root សម្រាប់ project configs ឬពី home directory សម្រាប់ global configs។",
-      "fieldHeight": "កម្ពស់ terminal ជាជម្រើសក្នុង points។ Controls ដែលគ្មាន height ចែករំលែកទំហំដែលនៅសល់។",
+      "fieldHeight": "កម្ពស់វត្ថុបញ្ជាជាជម្រើស។ វត្ថុបញ្ជាដែលគ្មាន height ចែករំលែកទំហំដែលនៅសល់។",
       "fieldEnv": "Environment variables ជាជម្រើសដែលបញ្ជូនទៅ control នោះប៉ុណ្ណោះ។",
       "sharingTitle": "ចែករំលែកជាមួយក្រុម",
       "sharingIntro": "Dock ត្រូវបានរចនាឡើងសម្រាប់ចែករំលែកតាម source control នៅពេលពាក្យបញ្ជាជាកម្មសិទ្ធិរបស់ repo។",
@@ -1436,7 +1526,7 @@
       "agentPromptTitle": "ស្នើឱ្យ agent កំណត់វា",
       "agentPromptIntro": "ប្រើ prompt នេះនៅពេលអ្នកចង់ឱ្យ coding agent បង្កើត Dock controls។ វាប្រាប់ agent ឱ្យរត់ `cmux docs dock`, ពិនិត្យ project និងសួរមុននឹងទស្សន៍ទាយ។",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "ស្ដារវគ្គ",
@@ -1494,10 +1584,16 @@
       "flagName": "ទង់ជាតិ",
       "flagDesc": "ការពិពណ៌នា",
       "flagNameVal": "កំណត់ចំណងជើងកន្លែងធ្វើការ",
+      "flagCommand": "ដំណើរការអត្ថបទពាក្យបញ្ជាម្តងនៅក្នុងស្ថានីយពីចម្ងាយដំបូង បន្ទាប់ពី shell ចាប់ផ្តើម",
       "flagPort": "ច្រក SSH (លំនាំដើម 22)",
       "flagIdentity": "ផ្លូវទៅកាន់ឯកសារអត្តសញ្ញាណ",
       "flagSshOption": "ឆ្លងកាត់ជម្រើស SSH បំពាន (ឧ. -o StrictHostKeyChecking=no)",
+      "flagTransport": "មធ្យោបាយស្ថានីយអន្តរកម្ម៖ ssh (លំនាំដើម) ឬ mosh",
       "flagNoFocus": "បង្កើតកន្លែងធ្វើការដោយមិនចាំបាច់ប្តូរទៅវា។",
+      "moshTitle": "មធ្យោបាយស្ថានីយ Mosh",
+      "moshDesc": "ប្រើ cmux ssh user@remote --transport mosh នៅពេលស្ថានីយអន្តរកម្មត្រូវបន្តដំណើរការពេលប្តូរ Wi-Fi, VPN, hotspot ឬពេលដេកនិងភ្ញាក់។ Mosh ដឹកតែ PTY របស់ស្ថានីយប៉ុណ្ណោះ ខណៈ SSH នៅតែគ្រប់គ្រងទិន្នន័យពីចម្ងាយ ការរៀបចំនិងគ្រប់គ្រងសេវា cmux ប្រូកស៊ីកម្មវិធីរុករក ការផ្ទុកឡើង និងការតភ្ជាប់ឡើងវិញ។",
+      "moshFallback": "cmux ត្រូវការ Mosh 1.4 ឬថ្មីជាងនេះនៅក្នុងម៉ាស៊ីន និងពិនិត្យ mosh-server ពីចម្ងាយមុនចាប់ផ្តើម។ បើ client បាត់ ឬមិនត្រូវគ្នា server បាត់ ឬការពិនិត្យពីចម្ងាយបរាជ័យ cmux នឹងពន្យល់មូលហេតុ ហើយបន្តតាម SSH។",
+      "moshTmux": "បង្កើត Mosh workspace ដែលបង្កើត ឬភ្ជាប់ tmux session មានឈ្មោះ (លំនាំដើម៖ main)។ tmux profile ត្រូវបានរក្សាទុកពេល reconnect និង restore app session។ វាជា tmux terminal ដែល roam បាន មិនមែន native mirror របស់ cmux ssh-tmux ទេ។ --session <name> ជ្រើស session; flags ផ្សេងទៀតដូច cmux mosh។ បើគ្មាន Mosh profile ដដែលដំណើរការតាម SSH។",
       "deepLinksTitle": "តំណភ្ជាប់ជ្រៅ SSH",
       "deepLinksDesc": "ប្រើតំណភ្ជាប់ជ្រៅ cmux SSH នៅពេលដែលគេហទំព័រ ឬឧបករណ៍ចង់ផ្តល់ប៊ូតុង Open in cmux ។ តំណបើក cmux បង្ហាញប្រអប់បញ្ជាក់ បន្ទាប់មកដំណើរការពាក្យបញ្ជា cmux ssh ដែលសមមូលបន្ទាប់ពីអ្នកប្រើប្រាស់បញ្ជាក់។",
       "deepLinksWebFallbackDesc": "ប្រើ cmux.com fallback URL សម្រាប់ប៊ូតុងគេហទំព័រ។ វាបើកតំណដើម ហើយបង្ហាញការទាញយក ប្រសិនបើ cmux មិនត្រូវបានដំឡើង។",
@@ -3492,7 +3588,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។"
+    "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
+    "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
+    "signedOutSignIn": "ចូល"
   },
   "platforms": {
     "macos": "macOS",
@@ -3505,8 +3603,8 @@
     "title": "ចូលរួមបញ្ជីរង់ចាំ {platform}",
     "titleAny": "ចូលរួមបញ្ជីរង់ចាំ",
     "description": "ការគាំទ្រ {platform} កំពុងមកដល់។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលវារួចរាល់។",
-    "descriptionAny": "បច្ចុប្បន្ន cmux ផ្តោតលើ macOS ជាមុនសិន។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលកំណែ Linux, Windows ឬ Android រួចរាល់។",
-    "calloutText": "ឆាប់ៗនេះនៅលើ Linux, Windows និង Android។",
+    "descriptionAny": "ជ្រើសរើសវេទិកាដែលមិនទាន់ចេញផ្សាយ ហើយទុកអ៊ីមែលរបស់អ្នក។ យើងនឹងជូនដំណឹងនៅពេលកំណែនោះរួចរាល់។",
+    "calloutText": "កំណែ cmux បន្ថែមទៀតកំពុងមកដល់។",
     "platformsLabel": "វេទិកាណាខ្លះ?",
     "selectPlatform": "សូមជ្រើសវេទិកាយ៉ាងហោចណាស់មួយ។",
     "emailLabel": "អ៊ីមែល",
@@ -3520,5 +3618,87 @@
     "successBody": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេលកំណែ {platform} រួចរាល់។",
     "successBodyAny": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេល cmux រួចរាល់សម្រាប់វេទិការបស់អ្នក។",
     "done": "រួចរាល់"
+  },
+  "browserDownloads": {
+    "eyebrow": "កម្មវិធីរុករក cmux",
+    "title": "cmux សម្រាប់ {platform}",
+    "tagline": "កម្មវិធីរុករក Chromium និងកន្លែងធ្វើការសម្រាប់ភ្នាក់ងារ ដែលបានបង្កើតរួមគ្នាជាប្រព័ន្ធតែមួយ។",
+    "logoAlt": "រូបតំណាងកម្មវិធី cmux",
+    "featuresTitle": "បង្កើតឡើងសម្រាប់ការងារជាមួយភ្នាក់ងារ",
+    "features": {
+      "chromium": {
+        "title": "Chromium ពិតប្រាកដ",
+        "description": ": ផ្ទាំង ការបង្ហាញ កម្មវិធីបន្ថែម និងមុខងាររបារអាសយដ្ឋានកម្រិត Chrome"
+      },
+      "workspaces": {
+        "title": "កន្លែងធ្វើការផ្អែកលើកិច្ចការ",
+        "description": ": រៀបចំផ្ទាំងវេប និងឧបករណ៍តាមកិច្ចការ ជំនួសឱ្យរបារផ្ទាំងវែងមិនចេះចប់"
+      },
+      "terminals": {
+        "title": "ផ្ទៃស្ថានីយ",
+        "description": ": រក្សា shell និងផ្ទាំងកម្មវិធីរុករកក្នុងបង្អួច និង compositor តែមួយ"
+      },
+      "openSource": {
+        "title": "ឥតគិតថ្លៃ និងកូដបើកចំហ",
+        "description": ": ពិនិត្យកូដ រាយការណ៍បញ្ហា និង build ពី source នៅលើ GitHub"
+      }
+    },
+    "installTitle": "ដំឡើង",
+    "releaseTitle": "កំណែចេញផ្សាយ និងការអាប់ដេត",
+    "releaseBody": "តំណទាំងនេះតែងតែចង្អុលទៅកំណែ nightly ចុងក្រោយបំផុតនៅលើ <github>GitHub Releases</github>។ cmux ផ្ទៀងផ្ទាត់បញ្ជីការអាប់ដេតដែលបានចុះហត្ថលេខា មុននឹងដំឡើងការអាប់ដេត។",
+    "sourceLink": "មើលកូដប្រភពនៅលើ GitHub",
+    "otherPlatform": "cmux សម្រាប់ {platform}",
+    "macLink": "ស្ថានីយ cmux សម្រាប់ Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "ទាញយក cmux សម្រាប់ Windows",
+      "metaDescription": "ទាញយក cmux សម្រាប់ Windows x64៖ កម្មវិធីរុករក Chromium និងកន្លែងធ្វើការសម្រាប់ភ្នាក់ងារដែលឥតគិតថ្លៃ និងកូដបើកចំហ ជាមួយផ្ទាំងតាមកិច្ចការ និងផ្ទៃស្ថានីយ។",
+      "subtitle": "កំណែ x64 ដើមដែលមានផ្ទាំង Chromium កន្លែងធ្វើការ cmux និងការប្រើក្តារចុច Windows ដែលធ្លាប់ស្គាល់។",
+      "primaryCta": "ទាញយកកម្មវិធីដំឡើង (.exe)",
+      "secondaryCta": "ZIP ចល័ត",
+      "requirements": "Windows 10 ឬថ្មីជាងនេះ · x64",
+      "installBody": "ដំណើរការកម្មវិធីដំឡើង ហើយធ្វើតាមការណែនាំរបស់ Windows។ ជ្រើស ZIP ចល័ត ប្រសិនបើអ្នកចង់រក្សា cmux ក្នុងថត ដោយមិនដំឡើងទូទាំងប្រព័ន្ធ។"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "ទាញយក cmux សម្រាប់ Linux",
+      "metaDescription": "ទាញយក cmux សម្រាប់ Linux x64៖ កម្មវិធីរុករក Chromium និងកន្លែងធ្វើការសម្រាប់ភ្នាក់ងារដែលឥតគិតថ្លៃ និងកូដបើកចំហ ជាមួយផ្ទាំងតាមកិច្ចការ និងផ្ទៃស្ថានីយ។",
+      "subtitle": "កំណែ x64 ដើមដែលមានផ្ទាំង Chromium កន្លែងធ្វើការ cmux និងផ្ទៃស្ថានីយដែលបានរួមបញ្ចូល។",
+      "primaryCta": "ទាញយកកម្មវិធីដំឡើងដែលអាប់ដេតដោយស្វ័យប្រវត្តិ (.run)",
+      "secondaryCta": "កញ្ចប់ Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "ដំណើរការកម្មវិធីដំឡើងសម្រាប់អ្នកប្រើម្តងប៉ុណ្ណោះ។ វាដំឡើង cmux នៅក្នុង ~/.local ដោយមិនត្រូវការសិទ្ធិ root និងបើកការអាប់ដេតក្នុងកម្មវិធីដែលមានហត្ថលេខា។ ប្រសិនបើអ្នកចង់ឱ្យការអាប់ដេតត្រូវបានគ្រប់គ្រងដោយកម្មវិធីគ្រប់គ្រងកញ្ចប់របស់អ្នក សូមជ្រើសកញ្ចប់ Debian ជំនួសវិញ។"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "សូមស្វាគមន៍មកកាន់ cmux Pro 🎉",
+      "fallbackName": "មិត្តភក្តិ",
+      "greeting": "សួស្តី {name},",
+      "thanks": "អរគុណដែលបានចូលរួម cmux Pro! យើងកំពុងបន្តរៀបចំបទពិសោធន៍ Pro ឱ្យពេញលេញ ហើយការចូលប្រើ Cloud នឹងមកដល់ឆាប់ៗនេះ។",
+      "cloudStatus": "នៅពេលការចូលប្រើ Cloud ដាក់ឱ្យប្រើ យើងនឹងបន្ថែមក្រេឌីតប្រើប្រាស់ទៅក្នុងគណនីរបស់អ្នក តាមចំនួនខែដែលអ្នកបានជាវ។",
+      "currentBenefit": "ក្នុងពេលនេះ អត្ថប្រយោជន៍ Pro របស់អ្នកគឺការចូលប្រើ cmux លើ iOS មុនគេ។ ចុះឈ្មោះតាមតំណខាងក្រោម ហើយ Apple នឹងផ្ញើការអញ្ជើញ TestFlight បន្ទាប់ពីអ្នកចុះឈ្មោះរួច។",
+      "testflightLink": "ចុះឈ្មោះ TestFlight៖ {url}",
+      "testflightLinkLabel": "ចុះឈ្មោះ TestFlight",
+      "signoff": "រីករាយដែលមានអ្នកនៅទីនេះ!\nក្រុម cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro បានដំណើរការ",
+    "title": "សូមស្វាគមន៍មកកាន់ cmux Pro",
+    "body": "មុខងារ Pro កំពុងស្ថិតក្នុងការអភិវឌ្ឍ។ ការចូលប្រើ Cloud នឹងមកដល់ឆាប់ៗ ដោយមានក្រេឌីតប្រើប្រាស់សន្សំសម្រាប់រាល់ខែដែលអ្នកបន្តជាវ។ បច្ចុប្បន្ន Pro រួមបញ្ចូលការចូលប្រើ cmux លើ iOS តាម TestFlight។",
+    "done": "ទៅផ្ទាំងគ្រប់គ្រង",
+    "steps": {
+      "iosApp": {
+        "title": "កម្មវិធី cmux សម្រាប់ iOS",
+        "body": "ប្រើ cmux នៅលើទូរស័ព្ទរបស់អ្នក។",
+        "action": "ចូលរួម iOS បេតា"
+      },
+      "billing": {
+        "title": "គ្រប់គ្រងគម្រោងរបស់អ្នក",
+        "body": "មើលគម្រោង វិក្កយបត្រ និងជម្រើសបោះបង់របស់អ្នក។",
+        "action": "គ្រប់គ្រងគម្រោង"
+      }
+    }
   }
 }

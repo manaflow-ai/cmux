@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobileSupport
 import Foundation
 import Observation
 
@@ -20,12 +22,16 @@ public final class MobileDisplaySettings {
     // UserDefaults is Apple-documented thread-safe; the synchronous read in
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
+    private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
-    private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
-    private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    #if DEBUG
+    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -34,15 +40,9 @@ public final class MobileDisplaySettings {
     public static let defaultWorkspacePreviewLineCount = 2
     /// Debug slider range for moving the unread dot left, in points.
     public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for moving the workspace profile picture left, in points.
-    public static let profilePictureLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for the workspace profile picture size, in points.
-    public static let profilePictureSizeRange: ClosedRange<Double> = 36...64
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
-    public static let defaultProfilePictureLeftShift = 4.0
-    public static let defaultProfilePictureSize = 45.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -56,6 +56,43 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var showAltScreenNotice: Bool {
         didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+    }
+
+    /// Whether artifact galleries include paths that no longer exist on the
+    /// connected Mac. Defaults to `false`. Mutating this writes through to the
+    /// injected ``UserDefaults``.
+    public var showMissingFiles: Bool {
+        didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
+    }
+
+    /// Whether tapping a directory path in the terminal opens the folder browser.
+    /// Defaults to `true`. File-path taps remain enabled regardless of this value.
+    /// Mutating this writes through to the injected ``UserDefaults``.
+    public var terminalFolderTapEnabled: Bool {
+        didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
+    /// This is the sole observed writer for the persisted preference; haptic
+    /// emitters read the same defaults store through ``haptics``.
+    public var hapticFeedbackEnabled: Bool {
+        didSet {
+            defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
+        }
+    }
+
+    /// History rows the terminal mirror hydrates when it connects (deeper
+    /// values scroll further back; larger one-time download at connect).
+    /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
+    /// Mutating this clamps to the supported range and writes through to the
+    /// injected ``UserDefaults`` under the shared preference key the shell
+    /// reads at hydration time.
+    public var terminalScrollbackRows: Int {
+        didSet {
+            let clamped = MobileTerminalScrollbackPreference.clamped(terminalScrollbackRows)
+            if clamped != terminalScrollbackRows { terminalScrollbackRows = clamped }
+            defaults.set(clamped, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+        }
     }
 
     /// How many lines a workspace row's activity preview shows (1 or 2).
@@ -80,34 +117,53 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
-    /// values move the workspace profile picture left without changing text layout.
-    public var profilePictureLeftShift: Double {
+    #if DEBUG
+    /// Persisted selection for the debug-only Shell icon lab.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
         didSet {
-            let clamped = Self.clamped(profilePictureLeftShift, to: Self.profilePictureLeftShiftRange)
-            if clamped != profilePictureLeftShift { profilePictureLeftShift = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureLeftShiftKey)
+            defaults.set(
+                taskComposerShellIconVariant.rawValue,
+                forKey: Self.taskComposerShellIconVariantKey
+            )
         }
     }
 
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer.
-    public var profilePictureSize: Double {
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
         didSet {
-            let clamped = Self.clamped(profilePictureSize, to: Self.profilePictureSizeRange)
-            if clamped != profilePictureSize { profilePictureSize = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureSizeKey)
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
         }
     }
+    #else
+    /// Production builds expose only the shipping Shell icon treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
-    ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
-    ///   are initialized from `defaults`; absent keys read as their default
-    ///   (single-line titles, two preview lines) without a write.
+    ///     Defaults to `.standard`; tests pass a scoped suite. Stored properties
+    ///     are initialized from `defaults`; absent keys read as their default
+    ///     (single-line titles, enabled folder taps, hidden missing files, two
+    ///     preview lines) without a write.
     public init(defaults: UserDefaults = .standard) {
+        let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
+        self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
+        self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.hapticFeedbackEnabled = haptics.isEnabled
+        self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
@@ -117,16 +173,12 @@ public final class MobileDisplaySettings {
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
         )
-        let storedProfileLeftShift = defaults.object(forKey: Self.profilePictureLeftShiftKey) as? Double
-        self.profilePictureLeftShift = Self.clamped(
-            storedProfileLeftShift ?? Self.defaultProfilePictureLeftShift,
-            to: Self.profilePictureLeftShiftRange
-        )
-        let storedProfilePictureSize = defaults.object(forKey: Self.profilePictureSizeKey) as? Double
-        self.profilePictureSize = Self.clamped(
-            storedProfilePictureSize ?? Self.defaultProfilePictureSize,
-            to: Self.profilePictureSizeRange
-        )
+        #if DEBUG
+        self.taskComposerShellIconVariant = defaults.string(
+            forKey: Self.taskComposerShellIconVariantKey
+        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
+        #endif
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

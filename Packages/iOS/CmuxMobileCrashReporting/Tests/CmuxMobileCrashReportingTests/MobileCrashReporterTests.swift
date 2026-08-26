@@ -1,7 +1,7 @@
 import Sentry
 import Testing
 
-import CmuxMobileAnalytics
+import CMUXMobileCore
 @testable import CmuxMobileCrashReporting
 
 private struct FixedConsent: AnalyticsConsentProviding {
@@ -50,10 +50,28 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(capturedOptions?.shutdownTimeInterval == 0)
     }
 
+    @Test func localePreparationPrecedesSentryStartup() {
+        var sequence: [String] = []
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            prepareLocale: { sequence.append("locale") },
+            start: { _ in sequence.append("sentry") },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(sequence == ["locale", "sentry"])
+    }
+
     @Test func optionsFactoryMatchesMobileContract() {
         let options = MobileCrashReporter().makeOptions()
 
-        #expect(options.dsn == "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416")
+        #expect(options.dsn == "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
         #expect(options.sendDefaultPii == false)
         #expect(options.attachStacktrace == true)
@@ -67,6 +85,8 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
         #expect(options.enableAutoSessionTracking == false)
+        #expect(options.enableLogs == true)
+        #expect(options.beforeBreadcrumb != nil)
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
         #expect(options.enableMetricKitRawPayload == false)
@@ -340,5 +360,60 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(beforeSend(Event()) != nil)
         consent.enabled = false
         #expect(beforeSend(Event()) == nil)
+    }
+
+    @Test func beforeSendScrubsEventsThatPassConsent() throws {
+        let consent = CrashTestToggleConsent(enabled: true)
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        let beforeSend = try #require(captured?.beforeSend)
+        let event = Event()
+        event.message = SentryMessage(formatted: "dial from /Users/lawrence/dev failed")
+        let scrubbed = try #require(beforeSend(event))
+        #expect(scrubbed.message?.formatted == "dial from /Users/<redacted>/dev failed")
+    }
+
+    @Test func beforeSendLogGatesOnConsentAndScrubs() throws {
+        let consent = CrashTestToggleConsent(enabled: true)
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        let beforeSendLog = try #require(captured?.beforeSendLog)
+        let log = SentryLog(level: .info, body: "retry from /Users/lawrence/dev")
+        let scrubbed = try #require(beforeSendLog(log))
+        #expect(scrubbed.body == "retry from /Users/<redacted>/dev")
+
+        consent.enabled = false
+        #expect(beforeSendLog(SentryLog(level: .info, body: "x")) == nil)
+    }
+
+    @Test func breadcrumbHookScrubsData() throws {
+        let options = MobileCrashReporter().makeOptions()
+        let beforeBreadcrumb = try #require(options.beforeBreadcrumb)
+        let crumb = Breadcrumb(level: .info, category: "transport")
+        crumb.message = "token=abcdef0123456789zz"
+        let scrubbed = try #require(beforeBreadcrumb(crumb))
+        #expect(scrubbed.message == "token=<redacted-secret>")
     }
 }

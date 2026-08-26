@@ -19,19 +19,51 @@ VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+PROJECT_SUMMARY = "cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt"
+PROJECT_DESCRIPTION = """# cmux
+
+cmux is a tmux-like terminal multiplexer TUI backed by
+[libghostty-vt](https://github.com/ghostty-org/ghostty). It keeps machines,
+sessions, workspaces, screens, panes, tabs, terminals, and browser panes in
+one scriptable interface.
+
+This PyPI distribution provides the standalone `cmux` command for macOS and
+Linux:
+
+```bash
+python -m pip install cmux
+cmux
+```
+
+For one-off use, run `uvx cmux` or `pipx run cmux`. See the
+[cmux-tui documentation](https://github.com/manaflow-ai/cmux/tree/main/cmux-tui)
+for CLI commands, configuration, remote sessions, and SDKs.
+"""
 
 
 @dataclass(frozen=True)
 class Target:
     rust_target: str
-    platform_tag: str
+    platform_tags: tuple[str, ...]
 
 
 TARGETS = [
-    Target("aarch64-apple-darwin", "macosx_11_0_arm64"),
-    Target("x86_64-apple-darwin", "macosx_10_12_x86_64"),
-    Target("x86_64-unknown-linux-gnu", "manylinux_2_17_x86_64.manylinux2014_x86_64"),
-    Target("aarch64-unknown-linux-gnu", "manylinux_2_17_aarch64.manylinux2014_aarch64"),
+    Target("aarch64-apple-darwin", ("macosx_11_0_arm64",)),
+    Target("x86_64-apple-darwin", ("macosx_10_12_x86_64",)),
+    Target(
+        "x86_64-unknown-linux-musl",
+        (
+            "manylinux_2_17_x86_64.manylinux2014_x86_64",
+            "musllinux_1_2_x86_64",
+        ),
+    ),
+    Target(
+        "aarch64-unknown-linux-musl",
+        (
+            "manylinux_2_17_aarch64.manylinux2014_aarch64",
+            "musllinux_1_2_aarch64",
+        ),
+    ),
 ]
 
 
@@ -43,7 +75,7 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help="Directory containing cmux-tui-<rust-target> binaries.",
+        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
     )
     parser.add_argument(
         "--version",
@@ -76,7 +108,9 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
     return info, data, mode
 
 
-def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes, int]]:
+def wheel_bytes(
+    version: str, tag: str, binary: bytes, hook_binary: bytes
+) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
     return [
         (
@@ -102,6 +136,7 @@ def main() -> None:
             0o644,
         ),
         (f"{PACKAGE_NAME}/bin/cmux-tui", binary, 0o755),
+        (f"{PACKAGE_NAME}/bin/cmux-tui-hook", hook_binary, 0o755),
         (
             f"{dist_info}/WHEEL",
             text_bytes(
@@ -119,10 +154,12 @@ Tag: py3-none-{tag}
                 f"""Metadata-Version: 2.1
 Name: {DIST_NAME}
 Version: {version}
-Summary: cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt
+Summary: {PROJECT_SUMMARY}
 License: MIT
 Project-URL: Source, https://github.com/manaflow-ai/cmux
-"""
+Description-Content-Type: text/markdown
+
+{PROJECT_DESCRIPTION}"""
             ),
             0o644,
         ),
@@ -171,17 +208,23 @@ def main() -> None:
 
     for target in TARGETS:
         binary_path = binaries_dir / f"cmux-tui-{target.rust_target}"
+        hook_binary_path = binaries_dir / f"cmux-tui-hook-{target.rust_target}"
         if not binary_path.is_file():
             raise SystemExit(f"missing binary: {binary_path}")
-        wheel_name = f"{DIST_NAME}-{args.version}-py3-none-{target.platform_tag}.whl"
-        wheel_path = out_dir / wheel_name
-        if wheel_path.exists():
-            wheel_path.unlink()
-        write_wheel(
-            wheel_path,
-            wheel_bytes(args.version, target.platform_tag, binary_path.read_bytes()),
-            args.version,
-        )
+        if not hook_binary_path.is_file():
+            raise SystemExit(f"missing hook binary: {hook_binary_path}")
+        binary = binary_path.read_bytes()
+        hook_binary = hook_binary_path.read_bytes()
+        for platform_tag in target.platform_tags:
+            wheel_name = f"{DIST_NAME}-{args.version}-py3-none-{platform_tag}.whl"
+            wheel_path = out_dir / wheel_name
+            if wheel_path.exists():
+                wheel_path.unlink()
+            write_wheel(
+                wheel_path,
+                wheel_bytes(args.version, platform_tag, binary, hook_binary),
+                args.version,
+            )
 
 
 if __name__ == "__main__":

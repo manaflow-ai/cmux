@@ -87,7 +87,7 @@ final class TerminalOutputCollector {
 // cached-session-validation assertions moved there with the AuthCoordinator
 // lift; see Packages/Shared/CmuxAuthRuntime/Tests.
 
-@Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
+@Test func mobileRuntimeDefaultsAllowSlowRelayPairingWithinOneHardDeadline() {
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([])),
@@ -95,7 +95,8 @@ final class TerminalOutputCollector {
     )
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
-    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+    #expect(runtime.pairingAttemptTimeoutNanoseconds == 30 * 1_000_000_000)
 }
 
 @Test func mobileRuntimeMapsTimedOutStackTokenToRequestTimeout() {
@@ -901,6 +902,54 @@ final class TerminalOutputCollector {
     } else {
         Issue.record("manual loopback route should use host/port")
     }
+}
+
+@MainActor
+@Test func manualHostPairingRefreshesPairedMacPresentationImmediately() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString,
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let pairedMacStore = try MobilePairedMacStore(
+        databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+    )
+    let attachRoute = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "phone@example.com"
+        )
+    )
+
+    store.signIn()
+    #expect(store.pairedMacs.isEmpty)
+
+    await store.connectManualHost(
+        name: "",
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+
+    #expect(store.connectionState == .connected)
+    #expect(store.pairedMacs.map(\.macDeviceID) == ["test-mac"])
 }
 
 @MainActor
@@ -4057,11 +4106,28 @@ struct InertPushRegistration: PushRegistering {
     var isEnabled: Bool {
         get async { false }
     }
+    var snapshot: PushRegistrationSnapshot {
+        get async { .disabled }
+    }
+    func snapshots() async -> AsyncStream<PushRegistrationSnapshot> {
+        AsyncStream { continuation in
+            continuation.yield(.disabled)
+            continuation.finish()
+        }
+    }
     func setEnabled(_ enabled: Bool) async {}
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {}
+    func reconcileEnabledIntent(generation: UInt64) async {}
     func register(deviceToken: Data) async {}
+    func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}
     func unregisterFromServer() async {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
+    func unregisterFromServer(
+        accountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {}
 }
 
 @MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
@@ -4191,6 +4257,7 @@ struct InertPushRegistration: PushRegistering {
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
     #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .external)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
     // One-shot: a later layout remount cannot replay a stale push.
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)

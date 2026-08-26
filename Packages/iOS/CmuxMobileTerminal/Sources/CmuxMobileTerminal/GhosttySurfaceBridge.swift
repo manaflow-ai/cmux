@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import Foundation
+import GhosttyKit
 import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
@@ -11,16 +13,12 @@ import UIKit
 final class GhosttySurfaceBridge: @unchecked Sendable {
     // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    // Deliberately STRONG despite forming a view<->bridge cycle: libghostty
-    // holds the raw view pointer (`ghostty_platform_ios_s.uiview`,
-    // passUnretained in `makeSurface`), so the view must outlive every queued
-    // surface operation. A weak back-reference would let the view deallocate
-    // while queued renderer work still dereferences that pointer
-    // (use-after-free). The cycle means a closed terminal's view/bridge/
-    // surface are reclaimed only by the render-pipeline recovery rebuild, not
-    // by dismantle; fixing the leak needs retained-uiview / free-on-dismantle
-    // choreography, tracked in
-    // https://github.com/manaflow-ai/cmux/issues/7199.
+    // Deliberately STRONG: libghostty holds the raw view pointer
+    // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
+    // the view must outlive queued surface operations. Surface creation stores
+    // a retained bridge pointer; dismantle detaches this reference to break the
+    // view<->bridge cycle, and the host releases the retain only after
+    // synchronous C-surface teardown has stopped every callback.
     private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
@@ -62,9 +60,67 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         }
     }
 
+    func handleRenderPresented(token: UInt64) {
+        Task { @MainActor [weak self] in
+            guard let surfaceView = self?.surfaceView else { return }
+            // A verified replay owns the gate until its readback and layer
+            // presentation fence both settle. Ordinary and local-scroll
+            // frames still release the gate directly from this callback.
+            if surfaceView.handleVerifiedReplayRenderPresented(token: token) {
+                surfaceView.finishRenderSubmission(token: token)
+            }
+        }
+    }
+
+    func handleRenderFailed(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        Task { @MainActor [weak self] in
+            guard let surfaceView = self?.surfaceView else { return }
+            MobileDebugLog.anchormux(
+                "render.callback_failed token=\(token) status=\(status.rawValue)"
+            )
+            surfaceView.handleRenderSubmissionFailure(token: token, status: status)
+        }
+    }
+
+    static let ioWriteCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UnsafePointer<CChar>?,
+        UInt
+    ) -> Void = { userdata, buf, len in
+        guard let buf, len > 0 else { return }
+        let data = Data(bytes: buf, count: Int(len))
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleWrite(data)
+    }
+
+    static let renderPresentedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64
+    ) -> Void = { userdata, token in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+    }
+
+    static let renderFailedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64,
+        ghostty_render_presentation_status_e
+    ) -> Void = { userdata, token, status in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderFailed(
+            token: token,
+            status: status
+        )
+    }
+
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    static func releaseRetainedOpaque(_ userdata: UnsafeMutableRawPointer?) {
+        guard let userdata else { return }
+        Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).release()
     }
 }
 

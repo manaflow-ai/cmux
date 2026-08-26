@@ -24,6 +24,8 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surface);
 
+GHOSTTY_RUNTIME_TEST_STUB_WEAK float ghostty_surface_font_size(void *surface);
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_quicklook_font(void *surface);
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_config_new(void);

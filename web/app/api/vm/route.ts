@@ -20,8 +20,10 @@ import {
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
+  defaultMemoryMbForPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
+  maxMemoryMbForPlan,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
 import {
@@ -36,6 +38,7 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
@@ -49,8 +52,8 @@ import {
   measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -60,6 +63,7 @@ export async function GET(request: Request): Promise<Response> {
     "/api/vm GET failed",
     async ({ user, span }) => {
       let billingTeamId: string | null = null;
+      let listEntitlements: ReturnType<typeof resolveVmEntitlements> | null = null;
       const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
       try {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
@@ -67,6 +71,7 @@ export async function GET(request: Request): Promise<Response> {
             requestedBillingTeamId,
             requireTeam: false,
           });
+          listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
@@ -92,8 +97,22 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
+        displayName: entry.displayName,
       }));
-      return jsonResponse({ vms });
+      // Plan context for machine-fleet UIs: how many active VMs this caller may
+      // hold and which plan sets that ceiling. Personal accounts skip the team
+      // resolution above, so resolve lazily here.
+      if (!listEntitlements) {
+        try {
+          listEntitlements = resolveVmEntitlements(user, process.env, { requireTeam: false });
+        } catch {
+          listEntitlements = null;
+        }
+      }
+      const limits = listEntitlements
+        ? { maxActiveVms: listEntitlements.maxActiveVms, planId: listEntitlements.planId }
+        : undefined;
+      return jsonResponse({ vms, limits });
     },
   );
 }
@@ -166,7 +185,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
+          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona" && candidate.provider !== "blaxel") {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -179,6 +198,36 @@ export async function POST(request: Request): Promise<Response> {
         const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
         if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
           return invalidTeamIdResponse();
+        }
+        if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`persistentHome` must be a boolean when provided.",
+            action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
+            details: { field: "persistentHome" },
+          });
+        }
+        if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`perMachineHome` must be a boolean when provided.",
+            action: "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
+            details: { field: "perMachineHome" },
+          });
+        }
+        if (
+          candidate.memoryMb !== undefined &&
+          (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
+        ) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`memoryMb` must be an integer of at least 512 when provided.",
+            action: "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
+            details: { field: "memoryMb", minimumMemoryMb: 512 },
+          });
         }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
           return invalidTeamIdResponse();
@@ -238,9 +287,14 @@ export async function POST(request: Request): Promise<Response> {
 
         const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
         if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          const refreshedUser = await measureVmAsync(timing, "auth", () =>
-            verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-          );
+          let refreshedUser: AuthedUser | null;
+          try {
+            refreshedUser = await measureVmAsync(timing, "auth", () =>
+              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+            );
+          } catch (error) {
+            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
+          }
           if (!refreshedUser) return unauthorized();
           user = refreshedUser;
         }
@@ -292,6 +346,25 @@ export async function POST(request: Request): Promise<Response> {
           return vmRequiresProResponse();
         }
 
+        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryMb =
+          candidate.memoryMb === undefined
+            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
+            : candidate.memoryMb as number;
+        if (memoryMb > maxMemoryMb) {
+          return vmErrorResponse({
+            error: "vm_memory_exceeds_plan",
+            status: 400,
+            message: "The requested Cloud VM size exceeds this plan's memory limit.",
+            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
+            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
+          });
+        }
+        setSpanAttributes(span, {
+          "cmux.vm.memory_mb": memoryMb,
+          "cmux.vm.max_memory_mb": maxMemoryMb,
+        });
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -305,6 +378,9 @@ export async function POST(request: Request): Promise<Response> {
             provider,
             idempotencyKey,
             bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
+            persistentHome: candidate.persistentHome === true,
+            perMachineHome: candidate.perMachineHome === true,
+            memoryMb,
             timing,
           }));
         } catch (err) {
@@ -331,13 +407,10 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmLimitExceededError(err)) {
-            return vmErrorResponse({
-              error: "vm_active_limit_exceeded",
-              status: 402,
-              message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-              action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
-              extra: { limit: err.limit },
-              details: { limit: err.limit },
+            return vmActiveLimitExceededResponse({
+              limit: err.limit,
+              planId: entitlements.planId,
+              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {

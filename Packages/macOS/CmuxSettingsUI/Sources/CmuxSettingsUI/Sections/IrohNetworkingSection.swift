@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import SwiftUI
 
 /// Iroh relay policy, custom relay, and private-path diagnostics.
@@ -8,6 +9,13 @@ public struct IrohNetworkingSection: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+
+    /// Whether an MDM configuration profile disables iOS remote control,
+    /// which this networking stack exists to serve. Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders it.
+    @State private var remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
 
     public init(hostActions: SettingsHostActions) {
         _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))
@@ -19,12 +27,30 @@ public struct IrohNetworkingSection: View {
                 String(localized: "settings.section.networking", defaultValue: "Networking"),
                 section: .networking
             )
-            relayPolicyCard
-            customRelayCard
-            privateNetworkCard
+            if remoteControlManagedByPolicy {
+                SettingsCard {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.managedByOrganization",
+                        defaultValue: "Remote control from the iOS app is disabled by your organization."
+                    ))
+                }
+            }
+            Group {
+                relayPolicyCard
+                customRelayCard
+                privateNetworkCard
+                connectionCheckCard
+            }
+            .disabled(remoteControlManagedByPolicy)
             diagnosticsCard
         }
         .task { await model.observe() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
@@ -195,7 +221,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
             ))
         }
     }
@@ -224,16 +250,12 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            #if DEBUG
-            if let debugRelayOnlyEnabled = model.snapshot.debugRelayOnlyEnabled {
-                SettingsCardDivider()
-                IrohDebugRelayOnlyRow(
-                    isEnabled: debugRelayOnlyEnabled,
-                    isMutating: model.isMutating,
-                    setEnabled: { model.setDebugRelayOnly($0) }
-                )
-            }
-            #endif
+            IrohDiagnosticsReportRows(
+                report: model.diagnosticReport,
+                exportText: model.diagnosticExportText,
+                isMutating: model.isMutating,
+                clear: { await model.clearDiagnosticReport() }
+            )
             if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
                 SettingsCardNote(String(
                     localized: "settings.networking.attention",
@@ -241,6 +263,15 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private var connectionCheckCard: some View {
+        IrohConnectionCheckCard(
+            report: model.connectionCheck,
+            snapshot: model.snapshot,
+            isRunning: model.isRunningConnectionCheck,
+            run: model.runConnectionCheck
+        )
     }
 
     private enum PreferenceChoice: Hashable {
@@ -359,36 +390,262 @@ public struct IrohNetworkingSection: View {
     }
 }
 
-#if DEBUG
-private struct IrohDebugRelayOnlyRow: View {
-    let isEnabled: Bool
+@MainActor
+private struct IrohDiagnosticsReportRows: View {
+    let report: DiagnosticReport
+    let exportText: String
     let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
+    let clear: @MainActor @Sendable () async -> Void
+
+    @State private var showsClearConfirmation = false
 
     var body: some View {
+        SettingsCardDivider()
         SettingsCardRow(
             configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:debugRelayOnly",
+            searchAnchorID: "setting:networking:diagnostics:lastConnection",
             String(
-                localized: "settings.networking.debug.relayOnly",
-                defaultValue: "Relay-Only Verification"
-            ),
-            subtitle: String(
-                localized: "settings.networking.debug.relayOnly.subtitle",
-                defaultValue: "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
+                localized: "settings.networking.diagnostics.lastSuccess",
+                defaultValue: "Last Successful Connection"
             )
         ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
+            Text(diagnosticDate(report.lastConnectionSuccessDate))
+                .foregroundStyle(.secondary)
+        }
+
+        SettingsCardDivider()
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:diagnostics:lastFailure",
+            String(localized: "settings.networking.diagnostics.lastFailure", defaultValue: "Last Failure"),
+            subtitle: diagnosticDate(report.lastFailureDate),
+            controlWidth: 210
+        ) {
+            Text(failureKindText)
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(.secondary)
+        }
+
+        SettingsCardDivider()
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:diagnostics:eventCount",
+            String(localized: "settings.networking.diagnostics.eventCount", defaultValue: "Recorded Events")
+        ) {
+            Text(report.events.count, format: .number)
+                .foregroundStyle(.secondary)
+        }
+
+        SettingsCardDivider()
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:diagnostics:report",
+            String(localized: "settings.networking.diagnostics.report", defaultValue: "Connection Report"),
+            subtitle: String(
+                localized: "settings.networking.diagnostics.report.subtitle",
+                defaultValue: "Share a bounded, privacy-safe connection timeline with support."
             )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohDebugRelayOnly")
+        ) {
+            HStack(spacing: 6) {
+                ShareLink(item: exportText) {
+                    Label(
+                        String(
+                            localized: "settings.networking.diagnostics.share",
+                            defaultValue: "Share…"
+                        ),
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(exportText.isEmpty || isMutating)
+                .accessibilityIdentifier("SettingsIrohShareDiagnosticReport")
+
+                Button(role: .destructive) {
+                    showsClearConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .disabled(report.events.isEmpty || isMutating)
+                .accessibilityLabel(String(
+                    localized: "settings.networking.diagnostics.clear",
+                    defaultValue: "Clear Report"
+                ))
+                .accessibilityIdentifier("SettingsIrohClearDiagnosticReport")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+
+        SettingsCardNote(String(
+            localized: "settings.networking.diagnostics.privacy",
+            defaultValue: "The report stays on this Mac until you share it. It excludes terminal content, account and endpoint identities, network addresses, relay URLs, credentials, and raw errors."
+        ))
+        .confirmationDialog(
+            String(
+                localized: "settings.networking.diagnostics.clear.confirm",
+                defaultValue: "Clear this diagnostic report?"
+            ),
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(
+                String(localized: "settings.networking.diagnostics.clear", defaultValue: "Clear Report"),
+                role: .destructive
+            ) {
+                Task { await clear() }
+            }
+            Button(String(localized: "settings.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(
+                localized: "settings.networking.diagnostics.clear.message",
+                defaultValue: "This permanently removes the connection timeline stored on this Mac."
+            ))
+        }
+    }
+
+    private func diagnosticDate(_ date: Date?) -> String {
+        guard let date else {
+            return String(
+                localized: "settings.networking.diagnostics.notRecorded",
+                defaultValue: "Not Recorded"
+            )
+        }
+        return date.formatted(
+            .dateTime.year().month(.abbreviated).day().hour().minute().second()
+        )
+    }
+
+    private var failureKindText: String {
+        switch report.lastFailureKind {
+        case nil, .some(.none):
+            String(localized: "settings.networking.diagnostics.failure.none", defaultValue: "None")
+        case .some(.offline):
+            String(localized: "settings.networking.diagnostics.failure.offline", defaultValue: "Offline")
+        case .some(.timedOut):
+            String(localized: "settings.networking.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            String(
+                localized: "settings.networking.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
+        case .some(.connectionRefused):
+            String(
+                localized: "settings.networking.diagnostics.failure.connectionRefused",
+                defaultValue: "Connection Refused"
+            )
+        case .some(.hostUnreachable):
+            String(
+                localized: "settings.networking.diagnostics.failure.hostUnreachable",
+                defaultValue: "Host Unreachable"
+            )
+        case .some(.permissionDenied):
+            String(
+                localized: "settings.networking.diagnostics.failure.permissionDenied",
+                defaultValue: "Permission Denied"
+            )
+        case .some(.dnsFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.dnsFailed",
+                defaultValue: "Name Resolution Failed"
+            )
+        case .some(.secureChannelFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.secureChannelFailed",
+                defaultValue: "Secure Channel Failed"
+            )
+        case .some(.unsupportedRoute):
+            String(
+                localized: "settings.networking.diagnostics.failure.unsupportedRoute",
+                defaultValue: "Unsupported Route"
+            )
+        case .some(.noRoute):
+            String(
+                localized: "settings.networking.diagnostics.failure.noRoute",
+                defaultValue: "No Route Available"
+            )
+        case .some(.credentialUnavailable):
+            String(
+                localized: "settings.networking.diagnostics.failure.credentialUnavailable",
+                defaultValue: "Credentials Unavailable"
+            )
+        case .some(.policyUnavailable):
+            String(
+                localized: "settings.networking.diagnostics.failure.policyUnavailable",
+                defaultValue: "Relay Policy Unavailable"
+            )
+        case .some(.endpointUnavailable):
+            String(
+                localized: "settings.networking.diagnostics.failure.endpointUnavailable",
+                defaultValue: "Endpoint Unavailable"
+            )
+        case .some(.identityMismatch):
+            String(
+                localized: "settings.networking.diagnostics.failure.identityMismatch",
+                defaultValue: "Endpoint Identity Mismatch"
+            )
+        case .some(.admissionDenied):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionDenied",
+                defaultValue: "Connection Admission Denied"
+            )
+        case .some(.admissionLeaseExpired):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
+            )
+        case .some(.authorizationFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.authorizationFailed",
+                defaultValue: "Authorization Failed"
+            )
+        case .some(.accountMismatch):
+            String(
+                localized: "settings.networking.diagnostics.failure.accountMismatch",
+                defaultValue: "Account Mismatch"
+            )
+        case .some(.protocolViolation):
+            String(
+                localized: "settings.networking.diagnostics.failure.protocolViolation",
+                defaultValue: "Protocol Error"
+            )
+        case .some(.connectionClosed):
+            String(
+                localized: "settings.networking.diagnostics.failure.connectionClosed",
+                defaultValue: "Connection Closed"
+            )
+        case .some(.sendQueueOverflow):
+            String(
+                localized: "settings.networking.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
+            )
+        case .some(.routeGated):
+            String(
+                localized: "settings.networking.diagnostics.failure.routeGated",
+                defaultValue: "Connection Attempt Held"
+            )
+        case .some(.superseded):
+            String(
+                localized: "settings.networking.diagnostics.failure.superseded",
+                defaultValue: "Replaced by a Newer Attempt"
+            )
+        case .some(.payloadTooLarge):
+            DiagnosticEventPresentation().displayName(.payloadTooLarge)
+        case .some(.resourceLimitReached):
+            DiagnosticEventPresentation().displayName(.resourceLimitReached)
+        case .some(.attachmentCountLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentCountLimitReached)
+        case .some(.attachmentAggregateSizeLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentAggregateSizeLimitReached)
+        case .some(.localStateUnavailable):
+            DiagnosticEventPresentation().displayName(.localStateUnavailable)
+        case .some(.cancelled):
+            String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
+        case .some(.unknown):
+            String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
         }
     }
 }
-#endif
