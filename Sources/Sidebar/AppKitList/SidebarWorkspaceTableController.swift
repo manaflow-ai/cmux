@@ -504,6 +504,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                         columnWidth: width
                     )
                 )
+                // `prepareRows` can update an entry without changing its
+                // numeric height. Keep the settlement state armed for either
+                // case so a rapid reversal cannot treat this partial width as
+                // settled and carry it forward through the equivalence fast
+                // path.
+                hasLiveMeasuredRows = true
+                lastLiveMeasuredWidth = width
             }
             scheduleWidthRemeasure()
         }
