@@ -18,6 +18,7 @@ struct BrowserExternalURLPolicyTests {
         ("https://example\\.com/foo?bar+baz", "https://example.com/fooXbar+baz", true),
         ("foo+bar", "https://example.com/foo+bar", true),
         ("path(test)", "https://example.com/path(test)", true),
+        ("foo|bar", "https://example.com/foo", true),
         ("example.com/(foo|bar)", "https://example.com/foo", true),
         ("example.com/[0-9]+", "https://example.com/42", true),
         ("re:https?://example\\.com/.*", "https://example.com/path", true),
@@ -89,5 +90,13 @@ struct BrowserExternalURLPolicyTests {
         #expect(policy.patterns.count == 256)
         #expect(!policy.matches(try #require(URL(string: "https://host299.example"))))
         #expect(!oversizedPolicy.matches(try #require(URL(string: "https://\(String(repeating: "a", count: 4_097))"))))
+    }
+
+    @Test func pathologicalRegexShapesAndLongTargetsFailClosed() {
+        let policy = BrowserExternalURLPolicy(patterns: ["re:(a+)+$"])
+        #expect(!policy.matches("https://\(String(repeating: "a", count: 8_192))b"))
+
+        let ordinaryPolicy = BrowserExternalURLPolicy(patterns: ["example.com"])
+        #expect(!ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
     }
 }
