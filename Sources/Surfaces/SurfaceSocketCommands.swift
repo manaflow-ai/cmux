@@ -35,7 +35,7 @@ extension TerminalController {
             guard let workspaceID = surfaceTargetWorkspaceID(params) else {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
             }
-            let destination = Self.surfaceDestination(params, workspaceID: workspaceID)
+            let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
             return v2VmCall(id: id, timeoutSeconds: 180) {
                 let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: reuse)
                 return Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
@@ -56,7 +56,7 @@ extension TerminalController {
             if open, workspaceID == nil {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
             }
-            let destination = workspaceID.map { Self.surfaceDestination(params, workspaceID: $0) }
+            let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
             return v2VmCall(id: id, timeoutSeconds: 240) {
                 try await Self.surfaceNewTerminal(
                     machine: machine,
@@ -103,7 +103,7 @@ extension TerminalController {
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open: no target workspace (pass `workspace_id`, or select one).")
         }
-        let destination = Self.surfaceDestination(params, workspaceID: workspaceID)
+        let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: true)
             return Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
@@ -130,7 +130,7 @@ extension TerminalController {
         if open, workspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_new: no local workspace to open into (pass `local_workspace_id`, select one, or send `open: false`).")
         }
-        let destination = workspaceID.map { Self.surfaceDestination(targetParams, workspaceID: $0) }
+        let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(targetParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             var payload = try await Self.surfaceNewTerminal(
                 machine: .cloud(vmId),
@@ -159,7 +159,7 @@ extension TerminalController {
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open: no target workspace (pass `workspace_id`, or select one).")
         }
-        let destination = Self.surfaceDestination(params, workspaceID: workspaceID)
+        let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             do {
                 let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: false)
@@ -189,7 +189,7 @@ extension TerminalController {
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.port_open: no target workspace (pass `workspace_id`, or select one).")
         }
-        let destination = Self.surfaceDestination(params, workspaceID: workspaceID)
+        let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = SurfaceCatalog.shared
             if await catalog.resources[resource] == nil {
@@ -279,6 +279,28 @@ extension TerminalController {
             if let owner { return owner }
         }
         return v2MainSync { self.tabManager?.selectedTabId }
+    }
+
+    /// `pane_id` / `surface_id` may be UUIDs or handle refs (`pane:3`, `surface:7`); the pure
+    /// destination mapper needs pane UUIDs, so resolve refs here and turn a surface into the
+    /// pane that holds it.
+    nonisolated func surfaceResolvedParams(_ params: [String: Any]) -> [String: Any] {
+        var resolved = params
+        if let paneID = v2UUID(params, "pane_id") {
+            resolved["pane_id"] = paneID.uuidString
+        }
+        if resolved["pane_id"] == nil, let surfaceID = v2UUID(params, "surface_id") {
+            let paneID = v2MainSync { () -> String? in
+                guard let tabManager = self.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else { return nil }
+                return SurfacePaneFactory.paneID(ofPanel: surfaceID, in: workspace.id)
+            }
+            if let paneID {
+                resolved["pane_id"] = paneID
+                resolved["surface_id"] = nil
+            }
+        }
+        return resolved
     }
 
     /// Destination from the shared params: `pane_id` + `direction` → split that pane on that
