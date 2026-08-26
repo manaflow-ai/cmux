@@ -49,7 +49,7 @@ extension ClaudeHookSessionStore {
     func pendingSupersededSessionCleanupCandidates(
         for owner: ClaudeHookSessionRecord
     ) throws -> [ClaudeHookSessionRecord] {
-        try withLockedState { state in
+        try withLockedState(persistTaskSyncSidecar: true) { state in
             claimPendingSupersededSessionCleanupCandidates(in: &state, owner: owner)
         }
     }
@@ -204,7 +204,7 @@ extension ClaudeHookSessionStore {
     func acknowledgeSupersededSessionCleanup(_ candidates: [ClaudeHookSessionRecord]) throws {
         guard !candidates.isEmpty else { return }
         let candidatesByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.sessionId, $0) })
-        try withLockedState { state in
+        try withLockedState(persistTaskSyncSidecar: true) { state in
             var acknowledgedIDs: Set<String> = []
             for (sessionId, candidate) in candidatesByID {
                 guard let current = state.pendingSupersededSessionCleanup[sessionId],

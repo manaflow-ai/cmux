@@ -1786,6 +1786,9 @@ extension CMUXCLI {
             ) {
                 if let pendingCleanup = try sessionStore
                     .nextLegacyClaudeTaskOwnerCleanup() {
+                    // The claim above advances its retry timestamp before
+                    // external I/O; drain explicitly bypasses that timestamp
+                    // so the worker can process the record it just claimed.
                     _ = try? drainLegacyClaudeTaskChecklistOwner(
                         taskDirectoryName: pendingCleanup.directoryName,
                         sessionStore: sessionStore,
@@ -1796,28 +1799,34 @@ extension CMUXCLI {
                     )
                 }
                 let retiredDestinations = try sessionStore
-                    .retiredClaudeTaskListDestinationRecords(
-                        taskStoreIdentity: taskStoreIdentity
-                    ).sorted { $0.taskListID < $1.taskListID }
+                    .allRetiredClaudeTaskListDestinationRecords()
+                    .sorted {
+                        let lhsIdentity = $0.taskStoreIdentity?.rawValue ?? ""
+                        let rhsIdentity = $1.taskStoreIdentity?.rawValue ?? ""
+                        if lhsIdentity != rhsIdentity { return lhsIdentity < rhsIdentity }
+                        return $0.taskListID < $1.taskListID
+                    }
                 if !retiredDestinations.isEmpty,
                    ProcessInfo.processInfo.systemUptime < deadlineUptime {
                     let index = Int(Date.now.timeIntervalSince1970 / 60)
                         % retiredDestinations.count
                     let record = retiredDestinations[index]
-                    let cleanup = drainClaudeTaskChecklistOwner(
-                        taskDirectoryName: record.taskListID,
-                        taskStoreIdentity: taskStoreIdentity,
-                        client: client,
-                        telemetry: telemetry,
-                        workspaceIDs: record.workspaceIDs,
-                        deadlineUptime: deadlineUptime
-                    )
-                    if cleanup.succeeded, cleanup.completed {
-                        try sessionStore.clearClaudeTaskDirectoryBindings(
-                            directoryName: record.taskListID,
-                            taskStoreIdentity: taskStoreIdentity
+                    if let cleanupIdentity = record.taskStoreIdentity {
+                        let cleanup = drainClaudeTaskChecklistOwner(
+                            taskDirectoryName: record.taskListID,
+                            taskStoreIdentity: cleanupIdentity,
+                            client: client,
+                            telemetry: telemetry,
+                            workspaceIDs: record.workspaceIDs,
+                            deadlineUptime: deadlineUptime
                         )
-                        try sessionStore.removeClaudeTaskListDestinationRecord(record)
+                        if cleanup.succeeded, cleanup.completed {
+                            try sessionStore.clearClaudeTaskDirectoryBindings(
+                                directoryName: record.taskListID,
+                                taskStoreIdentity: cleanupIdentity
+                            )
+                            try sessionStore.removeClaudeTaskListDestinationRecord(record)
+                        }
                     }
                 }
                 let retiredTeams = try sessionStore
