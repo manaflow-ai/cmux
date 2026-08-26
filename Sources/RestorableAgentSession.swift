@@ -2434,12 +2434,12 @@ struct RestorableAgentSessionIndex: Sendable {
             return nil
         }
         let candidates = [launchCwd, recordedCwd].compactMap { $0 }
+        let roots = lookup.configRoots(for: record)
 
         // The transcript's own storage path names the project directory Claude will look in,
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let roots = lookup.configRoots(for: record)
             let expectedProjectDirName = claudeProjectDirName(
                 containingTranscriptPath: expandedTranscriptPath,
                 configRoots: roots
@@ -2454,7 +2454,6 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         // Probe the config directory for the candidate that holds the transcript on disk.
-        let roots = lookup.configRoots(for: record)
         if !roots.isEmpty {
             for candidate in candidates {
                 let projectDirName = encodeClaudeProjectDir(candidate)
@@ -2478,19 +2477,64 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
+        if let cached = claudePathMemo.withLock({ $0.encodedProjectDirByPath[path] }) {
+            return cached
+        }
         // Claude derives a project directory name by replacing both "/" and "." with "-"
         // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
         // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
+        var encoded = path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
+        // The NSString bridge hands back a lazily-bridged string whose == and
+        // hasPrefix fall off the memcmp fast path; the loader compares this value
+        // per record per reload.
+        encoded.makeContiguousUTF8()
+        claudePathMemo.withLock { memo in
+            memo.resetIfOverBudget()
+            memo.encodedProjectDirByPath[path] = encoded
+        }
+        return encoded
     }
 
     private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
-        let standardizedPath = (path as NSString).standardizingPath
+        // Pure string derivation, memoized process-wide: the loader re-runs it for
+        // every hook record on every reload (a few times per 5s window on busy
+        // machines) with inputs that almost never change, and the NSString
+        // standardizingPath + foreign-string hasPrefix below dominated its cost.
+        let memoKey = path + "\u{0}" + configRoots.joined(separator: "\u{0}")
+        if let cached = claudePathMemo.withLock({ memo -> String?? in
+            if let hit = memo.projectDirNameByKey[memoKey] { return hit }
+            if memo.projectDirNameMissKeys.contains(memoKey) { return String?.none }
+            return nil
+        }) {
+            return cached
+        }
+        let projectDirName = uncachedClaudeProjectDirName(
+            containingTranscriptPath: path,
+            configRoots: configRoots
+        )
+        claudePathMemo.withLock { memo in
+            memo.resetIfOverBudget()
+            if let projectDirName {
+                memo.projectDirNameByKey[memoKey] = projectDirName
+            } else {
+                memo.projectDirNameMissKeys.insert(memoKey)
+            }
+        }
+        return projectDirName
+    }
+
+    private static func uncachedClaudeProjectDirName(
+        containingTranscriptPath path: String,
+        configRoots: [String]
+    ) -> String? {
+        var standardizedPath = (path as NSString).standardizingPath
+        standardizedPath.makeContiguousUTF8()
         for root in configRoots {
             let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
                 .standardizingPath
-            let prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+            var prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+            prefix.makeContiguousUTF8()
             guard standardizedPath.hasPrefix(prefix) else { continue }
             let relativePath = String(standardizedPath.dropFirst(prefix.count))
             guard let projectDirName = relativePath.split(separator: "/", maxSplits: 1).first,
@@ -2665,11 +2709,38 @@ struct RestorableAgentSessionIndex: Sendable {
         initialState: ClaudeTranscriptSharedStore()
     )
 
+    // Pure string-derivation memos (no filesystem truth involved beyond the
+    // stable /var -> /private/var style system symlinks that standardizingPath
+    // resolves), so entries never go stale. Keys are hook-record paths, bounded
+    // in practice by the live hook stores; the budget reset is a backstop that
+    // trades a one-off recompute for a hard memory bound.
+    private struct ClaudePathMemo: Sendable {
+        static let entryBudget = 8192
+        var projectDirNameByKey: [String: String] = [:]
+        var projectDirNameMissKeys: Set<String> = []
+        var encodedProjectDirByPath: [String: String] = [:]
+
+        mutating func resetIfOverBudget() {
+            let count = projectDirNameByKey.count
+                + projectDirNameMissKeys.count
+                + encodedProjectDirByPath.count
+            guard count >= Self.entryBudget else { return }
+            projectDirNameByKey.removeAll(keepingCapacity: true)
+            projectDirNameMissKeys.removeAll(keepingCapacity: true)
+            encodedProjectDirByPath.removeAll(keepingCapacity: true)
+        }
+    }
+
+    private nonisolated static let claudePathMemo = OSAllocatedUnfairLock(
+        initialState: ClaudePathMemo()
+    )
+
     private final class ClaudeTranscriptLookupCache {
         private let homeDirectory: String
         private let fileManager: FileManager
         private let usesSharedStore: Bool
         private var defaultRoots: [String]?
+        private var configuredRootsByDir: [String: [String]] = [:]
         private var validatedProjectRootStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
         private var validatedProjectDirsStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
         private var projectDirsByConfigRoot: [String: [String]] = [:]
@@ -2692,13 +2763,21 @@ struct RestorableAgentSessionIndex: Sendable {
             if let configured = RestorableAgentSessionIndex.normalizedNonEmptyValue(
                 record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
             ) {
-                return [
+                // Records launched through the same wrapper share one configured
+                // dir; preferredPath probes the filesystem, so resolve each
+                // distinct value once per load instead of once per record.
+                if let cached = configuredRootsByDir[configured] {
+                    return cached
+                }
+                let roots = [
                     ClaudeConfigDirectoryPath.preferredPath(
                         configured,
                         fileManager: fileManager,
                         homeDirectory: homeDirectory
                     ),
                 ]
+                configuredRootsByDir[configured] = roots
+                return roots
             }
 
             if let defaultRoots {
@@ -2708,7 +2787,8 @@ struct RestorableAgentSessionIndex: Sendable {
             var roots: [String] = []
             var seen: Set<String> = []
             func appendRoot(_ path: String) {
-                let standardized = (path as NSString).standardizingPath
+                var standardized = (path as NSString).standardizingPath
+                standardized.makeContiguousUTF8()
                 guard seen.insert(standardized).inserted else { return }
                 roots.append(standardized)
             }
