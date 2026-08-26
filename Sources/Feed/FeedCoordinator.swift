@@ -37,6 +37,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor private var todoRecoveryEpochByWorkstream: [String: UInt64] = [:]
     @MainActor private var todoRecoveryRecency: [String] = []
     @MainActor private var activeWorkstreamIDsByWorkspace: [UUID: [String: String]] = [:]
+    @MainActor private let maxTrackedActiveWorkspaces = 128
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
     @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
     @MainActor private var dispatchTargetRecoveryScans: Set<UUID> = []
@@ -230,10 +231,17 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     private func pruneActiveWorkstreamSessions() {
-        guard let app = AppDelegate.shared else { return }
-        let liveWorkspaceIDs = Set(app.allWorkspacesForAgentTodoRetirement.map(\.id))
-        activeWorkstreamIDsByWorkspace = activeWorkstreamIDsByWorkspace.filter {
-            liveWorkspaceIDs.contains($0.key)
+        if let app = AppDelegate.shared {
+            let liveWorkspaceIDs = Set(app.allWorkspacesForAgentTodoRetirement.map(\.id))
+            activeWorkstreamIDsByWorkspace = activeWorkstreamIDsByWorkspace.filter {
+                liveWorkspaceIDs.contains($0.key)
+            }
+        }
+        guard activeWorkstreamIDsByWorkspace.count > maxTrackedActiveWorkspaces else { return }
+        let overflow = activeWorkstreamIDsByWorkspace.count - maxTrackedActiveWorkspaces
+        let evictedWorkspaceIDs = Array(activeWorkstreamIDsByWorkspace.keys.prefix(overflow))
+        for workspaceID in evictedWorkspaceIDs {
+            activeWorkstreamIDsByWorkspace.removeValue(forKey: workspaceID)
         }
     }
 
