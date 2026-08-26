@@ -7,6 +7,27 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
+    /// File-manager seam used to prove that unrelated hook writes do not
+    /// rewrite the task-sync sidecar.
+    final class TaskSyncCountingFileManager: FileManager {
+        private(set) var taskSyncSidecarCreateCount = 0
+
+        func resetTaskSyncSidecarCreateCount() {
+            taskSyncSidecarCreateCount = 0
+        }
+
+        override func createFile(
+            atPath path: String,
+            contents data: Data?,
+            attributes attr: [FileAttributeKey: Any]? = nil
+        ) -> Bool {
+            if path.contains(".task-sync.json") {
+                taskSyncSidecarCreateCount += 1
+            }
+            return super.createFile(atPath: path, contents: data, attributes: attr)
+        }
+    }
+
     struct Context {
         let cliPath: String
         let socketPath: String

@@ -10,6 +10,16 @@ public struct ClaudeTaskStoreIdentity: Codable, Hashable, Sendable {
     /// The URL-safe digest used in persistence and checklist ownership keys.
     public let rawValue: String
 
+    /// Restores an identity previously persisted by cmux.
+    ///
+    /// The raw value is intentionally opaque: callers should pass values read
+    /// from durable ownership records rather than constructing new namespaces.
+    ///
+    /// - Parameter rawValue: The persisted URL-safe identity digest.
+    public init(rawValue: String) {
+        self.rawValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Creates the stable namespace for a resolved Claude tasks directory.
     ///
     /// - Parameter tasksRootURL: The profile's resolved `tasks` directory.
