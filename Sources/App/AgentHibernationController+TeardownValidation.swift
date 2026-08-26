@@ -1,11 +1,23 @@
 import Foundation
 
 extension AgentHibernationController {
-    /// Requires an explicit fresh process entry with no unrelated process for pressure reclaim.
+    /// Requires explicit fresh process evidence for pressure reclaim.
     nonisolated static func memoryPressureTeardownAllowsProcessEntry(
         _ entry: RestorableAgentSessionIndex.Entry?
     ) -> Bool {
-        entry?.containsUnrelatedProcess == false
+        guard let entry, !entry.containsUnrelatedProcess else { return false }
+        switch entry.processLiveness {
+        case .exited:
+            return entry.processIDs.isEmpty &&
+                entry.hibernationPanelProcessIDs.isEmpty &&
+                entry.terminationProcessIDs.isEmpty &&
+                entry.terminationProcessIdentities.isEmpty
+        case .running:
+            return !entry.processIDs.isEmpty &&
+                entry.processSafetyAllowsScheduledHibernation
+        case .unknown:
+            return false
+        }
     }
 
     func teardownIsStillSafe(
