@@ -49,6 +49,79 @@ struct MachineSnapshot: Equatable, Identifiable {
     }
 }
 
+/// One terminal session row inside an expanded machine: the machine's daemon
+/// PTYs as last recorded by cmux Cloud (`cloud_vm_sessions`). Control-plane
+/// state, not a live daemon probe — rows can lag a daemon restart, and the UI
+/// says so.
+struct MachineSessionSnapshot: Equatable, Identifiable {
+    let id: String
+    /// Daemon session id — the attach key for `cmux vm shell <vm> --session <id>`.
+    let sessionId: String
+    let title: String?
+    let status: String
+    let attachmentCount: Int
+    let scrollbackBytes: Int
+    let createdAt: Date?
+
+    var displayName: String {
+        if let title, !title.isEmpty { return title }
+        return sessionId
+    }
+
+    var statusLabel: String {
+        switch status.lowercased() {
+        case "running":
+            return String(localized: "machines.session.status.running", defaultValue: "Running")
+        case "exited":
+            return String(localized: "machines.session.status.exited", defaultValue: "Exited")
+        default:
+            return status
+        }
+    }
+
+    /// "Running · 2 attached · 1.2 MB", dropping the pieces that say nothing
+    /// (zero attachments, zero scrollback).
+    var subtitle: String {
+        var parts = [statusLabel]
+        if attachmentCount > 0 {
+            parts.append(String(
+                format: String(localized: "machines.detail.session.attached", defaultValue: "%d attached"),
+                attachmentCount
+            ))
+        }
+        if scrollbackBytes > 0 {
+            parts.append(Self.byteFormatter.string(fromByteCount: Int64(scrollbackBytes)))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return formatter
+    }()
+}
+
+/// A local workspace currently attached to the machine (via its
+/// `managed_cloud_vm_id`), with enough identity for a focus jump.
+struct MachineWorkspaceSnapshot: Equatable, Identifiable {
+    let id: UUID
+    let title: String
+}
+
+/// Everything an expanded machine row shows: its terminals, and the local
+/// workspaces already attached to it. The desktop row needs no detail state —
+/// `MachineSnapshot.isDesktop` already carries it.
+struct MachineDetailSnapshot: Equatable {
+    var isLoading = false
+    var sessions: [MachineSessionSnapshot] = []
+    var workspaces: [MachineWorkspaceSnapshot] = []
+    var sessionsErrorDescription: String?
+    /// True once a session fetch has completed (success or failure), so the
+    /// empty state only shows after we actually asked the backend.
+    var hasLoadedSessions = false
+}
+
 /// Plan meter shown in the panel header: "2 of 3 machines".
 struct MachinePlanSnapshot: Equatable {
     let activeCount: Int
@@ -86,6 +159,27 @@ enum MachineSnapshotBuilder {
         }
     }
 
+    static func sessionSnapshot(from session: VMCloudSession) -> MachineSessionSnapshot {
+        MachineSessionSnapshot(
+            id: session.id,
+            sessionId: session.sessionId,
+            title: session.title?.isEmpty == false ? session.title : nil,
+            status: session.status,
+            attachmentCount: session.attachmentCount,
+            scrollbackBytes: session.scrollbackBytes,
+            createdAt: isoDate(session.createdAt)
+        )
+    }
+
+    static func isoDate(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let plain = ISO8601DateFormatter()
+        if let date = plain.date(from: raw) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw)
+    }
+
     static func planSnapshot(activeCount: Int, limits: VMPlanLimits?) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
         return MachinePlanSnapshot(
@@ -111,6 +205,68 @@ final class MachinesPanelViewModel: ObservableObject {
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
+    /// Machine ids whose row is expanded to show terminals + workspaces.
+    @Published private(set) var expandedMachineIds: Set<String> = []
+    /// Detail state per machine id, populated on expand and refreshed with the
+    /// fleet poll while expanded.
+    @Published private(set) var machineDetails: [String: MachineDetailSnapshot] = [:]
+    private var detailTasks: [String: Task<Void, Never>] = [:]
+
+    func toggleExpansion(machineId: String) {
+        if expandedMachineIds.contains(machineId) {
+            expandedMachineIds.remove(machineId)
+            detailTasks[machineId]?.cancel()
+            detailTasks[machineId] = nil
+        } else {
+            expandedMachineIds.insert(machineId)
+            refreshDetails(machineId: machineId)
+        }
+    }
+
+    /// Loads (or reloads) an expanded machine's terminals and attached
+    /// workspaces. Workspaces come from the local window state synchronously;
+    /// sessions from the Cloud control plane (last-known rows).
+    func refreshDetails(machineId: String) {
+        var detail = machineDetails[machineId] ?? MachineDetailSnapshot()
+        detail.workspaces = Self.attachedWorkspaces(machineId: machineId)
+        detail.isLoading = true
+        machineDetails[machineId] = detail
+        detailTasks[machineId]?.cancel()
+        guard let client = VMClient.shared else {
+            detail.isLoading = false
+            machineDetails[machineId] = detail
+            return
+        }
+        detailTasks[machineId] = Task { [weak self] in
+            var sessions: [MachineSessionSnapshot] = []
+            var errorDescription: String?
+            do {
+                sessions = try await client.listSessions(id: machineId)
+                    .map(MachineSnapshotBuilder.sessionSnapshot(from:))
+            } catch {
+                errorDescription = String(describing: error)
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                var detail = self.machineDetails[machineId] ?? MachineDetailSnapshot()
+                detail.isLoading = false
+                detail.hasLoadedSessions = true
+                detail.sessionsErrorDescription = errorDescription
+                if errorDescription == nil {
+                    detail.sessions = sessions
+                }
+                detail.workspaces = Self.attachedWorkspaces(machineId: machineId)
+                self.machineDetails[machineId] = detail
+                self.detailTasks[machineId] = nil
+            }
+        }
+    }
+
+    private static func attachedWorkspaces(machineId: String) -> [MachineWorkspaceSnapshot] {
+        (AppDelegate.shared?.workspacesAttached(toManagedCloudVMID: machineId) ?? [])
+            .map { MachineWorkspaceSnapshot(id: $0.id, title: $0.title) }
+    }
 
     func beginOperation(_ label: String) {
         activeOperation = label
@@ -197,6 +353,14 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+        cancelDetailTasks()
+    }
+
+    private func cancelDetailTasks() {
+        for task in detailTasks.values {
+            task.cancel()
+        }
+        detailTasks = [:]
     }
 
     /// Drop every locally cached machine and in-flight sample when auth ends.
@@ -208,12 +372,15 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTask = nil
         statsTask?.cancel()
         statsTask = nil
+        cancelDetailTasks()
         machines = []
         plan = nil
         activeOperation = nil
         lastErrorDescription = nil
         hasLoadedOnce = false
         isLoading = false
+        expandedMachineIds = []
+        machineDetails = [:]
     }
 
     private func performRefresh() async {
@@ -232,6 +399,14 @@ final class MachinesPanelViewModel: ObservableObject {
             refreshStats()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
             lastErrorDescription = nil
+            // Keep expanded details fresh alongside the fleet poll, and drop
+            // state for machines that no longer exist.
+            let liveIds = Set(snapshots.map(\.id))
+            expandedMachineIds.formIntersection(liveIds)
+            machineDetails = machineDetails.filter { liveIds.contains($0.key) }
+            for machineId in expandedMachineIds {
+                refreshDetails(machineId: machineId)
+            }
         } catch let error as VMClientError {
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
@@ -244,6 +419,9 @@ final class MachinesPanelViewModel: ObservableObject {
                 lastErrorDescription = nil
                 hasLoadedOnce = false
                 isLoading = false
+                cancelDetailTasks()
+                expandedMachineIds = []
+                machineDetails = [:]
                 return
             }
             lastErrorDescription = String(describing: error)
