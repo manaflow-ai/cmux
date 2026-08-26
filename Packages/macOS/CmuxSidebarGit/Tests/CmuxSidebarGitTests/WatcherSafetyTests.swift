@@ -166,4 +166,29 @@ import CmuxGit
         #expect(service.workspaceGitMetadataWatcherDescriptorInvalidatedKeys.isEmpty)
         #expect(refreshTask.isCancelled)
     }
+
+    @Test func missingConfigTargetsShareOneAncestorWatcher() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let configDirectory = fixture.root.appendingPathComponent("config-watch", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let firstPath = configDirectory.appendingPathComponent("first.inc").path
+        let secondPath = configDirectory.appendingPathComponent("second.inc").path
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let service = makeService(host: host, descriptorReader: descriptorReader)
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "shared-ancestor",
+            creationWatchPaths: [firstPath, secondPath]
+        ))
+
+        #expect(service.workspaceGitMetadataCreationWatchersByPath.count == 1)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
 }
