@@ -13,8 +13,11 @@ set -u
 DISPLAY="${DISPLAY:-:1}"
 export DISPLAY
 GEOMETRY="${CMUX_VNC_GEOMETRY:-1440x900}"
+# The driver's heal can run this before anything recreated $HOME (Blaxel's
+# rootfs transform drops /home/cua from the image), so never let an unwritable
+# HOME keep the desktop down: fall back to a per-user tmp dir for logs.
 LOG_DIR="$HOME/.cmux/desktop-logs"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" 2>/dev/null || { LOG_DIR="/tmp/cmux-desktop-logs-$(id -u)"; mkdir -p "$LOG_DIR"; }
 
 VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 

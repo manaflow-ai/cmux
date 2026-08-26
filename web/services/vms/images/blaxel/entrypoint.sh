@@ -11,6 +11,11 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 
+# Blaxel's rootfs transform does not carry /home/cua over from the image, so
+# recreate the desktop user's home on every boot before dropping privileges.
+mkdir -p /home/cua
+chown cua:cua /home/cua
+
 # Bring the desktop up, and bring it back if a component dies. The driver's
 # VNC heal covers bootstrap/resurrect only; this loop covers mid-life crashes.
 # start-vnc.sh is idempotent, so re-running it against a healthy desktop is a
