@@ -40,16 +40,6 @@ extension TerminalSurface {
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
-            },
-            rendererFrameNotice: { surfaceID in
-                Task { @MainActor in
-                    NSLog("flickdiag post surface=%@", surfaceID.uuidString)
-                    NotificationCenter.default.post(
-                        name: .terminalSurfaceDidRenderFrame,
-                        object: nil,
-                        userInfo: [TerminalSurfaceRenderNotice.surfaceIdKey: surfaceID]
-                    )
-                }
             }
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
