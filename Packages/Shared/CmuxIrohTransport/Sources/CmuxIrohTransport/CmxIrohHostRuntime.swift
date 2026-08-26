@@ -200,7 +200,16 @@ public actor CmxIrohHostRuntime {
         )
 
         do {
-            let endpointRelayProfile = try currentEndpointRelayProfile
+            // The debug-only forced relay wins over every stored or
+            // configured profile, including the relay-less
+            // `.unavailableManagedSelection` placeholder a host without a
+            // verifiable cached policy is configured with. The override is a
+            // custom profile, and custom relays are exempt from the
+            // withhold-until-registered ordering below, so it stays installed
+            // at bind and the endpoint dials the test relay immediately
+            // without reintroducing the pre-registration managed-relay race.
+            let endpointRelayProfile = try debugRelayOverride
+                ?? currentEndpointRelayProfile
                 ?? configuration.resolvedEndpointRelayProfile(
                     debugOverride: debugRelayOverride
                 )
