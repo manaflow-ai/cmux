@@ -165,8 +165,8 @@ final class WindowTerminalHostView: NSView {
                     eventType: eventType,
                     hasActiveDropDrag: hasActivePaneDropDrag,
                     hasLiveTabTransfer: (
-                        dragPasteboardTypes?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
-                            || dragPasteboardTypes?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
+                        dragPasteboardTypes.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
+                            || dragPasteboardTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType)
                     ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(
                         from: NSPasteboard(name: .drag)
                     ) != nil
