@@ -3722,8 +3722,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ event: TerminalPointerStyleEvent,
         focusGeneration: UInt64? = nil
     ) -> Bool {
-        // Base Ghostty shapes include persistent OSC 22 state and must survive
-        // focus epochs; only transient hyperlink hover is epoch-sensitive.
+        // Base Ghostty shapes include persistent OSC 22 state. While the view
+        // is waiting for a fresh post-focus shape, reject only old-epoch
+        // shapes; the forced replay restores persistent state authoritatively.
+        if case .ghosttyShape = event,
+           let focusGeneration,
+           focusGeneration != pointerStyleFocusGeneration,
+           suppressGhosttyPointerUntilFreshShape {
+            return false
+        }
         if case .ghosttyLinkHoverChanged = event,
            let focusGeneration,
            focusGeneration != pointerStyleFocusGeneration {
@@ -3738,7 +3745,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 pointerStyleFocusGeneration &+= 1
                 pointerStyleRefreshFocusGeneration = nil
             }
-            if !focused, terminalPointerStyle.ghosttyLinkHoverActive {
+            if !focused {
                 suppressGhosttyPointerUntilFreshShape = true
             }
             if didChangeFocus {
@@ -3746,10 +3753,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
-           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
-            suppressGhosttyPointerUntilFreshShape = false
-        }
-        if case .ghosttyLinkHoverChanged(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
             suppressGhosttyPointerUntilFreshShape = false
         }
