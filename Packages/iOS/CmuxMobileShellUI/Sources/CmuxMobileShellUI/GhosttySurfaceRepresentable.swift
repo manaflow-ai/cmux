@@ -150,6 +150,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        // Alternate-screen apps own the whole grid, so the keyboard
+        // blank-space absorption (top-pin while content is short) is
+        // disabled for them; reading the store property here keeps the flag
+        // live across mode flips.
+        surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid

@@ -131,6 +131,22 @@ import Testing
         #expect(flagOnly?.isSubagent == false)
     }
 
+    @Test func metaParsesAndValidatesCorrelationKey() {
+        let key = "11111111-1111-1111-1111-111111111111"
+        let parsed = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;a=cursor;n=0;k=\(key)"
+        )
+        #expect(parsed?.correlationKey == key)
+        #expect(
+            AgentNotificationMeta(meta: "c=needs-permission;p=0;k=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")?.correlationKey
+                == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        )
+        #expect(AgentNotificationMeta.isValidCorrelationKey(key))
+        #expect(!AgentNotificationMeta.isValidCorrelationKey("not-a-uuid"))
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;k=not-a-uuid") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;k=\(key);n=0") == nil)
+    }
+
     @Test func metaRejectsMalformedAgentFields() {
         // The extended grammar is just as strict as the legacy one: invalid
         // slugs, bad flags, reordered or duplicated fields all fold the whole
