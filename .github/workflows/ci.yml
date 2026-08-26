@@ -549,6 +549,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Web code auto-deploys on merge while DB migrations are dispatched
+      # separately, so destructive SQL needs an explicit deploy/migrate
+      # ordering plan (acknowledged in the .sql file). See the Aug 24/25 2026
+      # schema-drift outage.
+      - name: Lint migrations for additive SQL
+        run: bun scripts/lint-migrations-additive.ts
+
       - name: Apply migrations
         env:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
