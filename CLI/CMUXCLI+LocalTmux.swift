@@ -340,9 +340,24 @@ extension CMUXCLI {
         guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
             throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
         }
+        if !invocation.newClient,
+           invocation.surface == nil,
+           invocation.pane == nil,
+           originalRecord.surfaceID != nil,
+           let workspaceID = workspace.id,
+           try findExistingLocalTmuxSurface(
+               workspaceID: workspaceID,
+               sessionName: originalRecord.name,
+               persistedSurfaceID: originalRecord.surfaceID,
+               client: client
+           ) == nil {
+            throw CLIError(message: String(localized: "cli.localTmux.error.surfaceNotFound", defaultValue: "local-tmux surface target was not found"))
+        }
         let attachCommand = builder.attachCommand(sessionName: originalRecord.name)
         var payload: [String: Any]
         if !invocation.newClient,
+           invocation.surface == nil,
+           invocation.pane == nil,
            let workspaceID = workspace.id,
            let existingSurface = try findExistingLocalTmuxSurface(
                workspaceID: workspaceID,
@@ -350,26 +365,38 @@ extension CMUXCLI {
                persistedSurfaceID: originalRecord.surfaceID,
                client: client
            ),
-           try localTmuxSurfaceHasLiveClient(
+           let isLive = try localTmuxSurfaceHasLiveClient(
                workspaceID: workspaceID,
                surfaceID: existingSurface,
                client: client
            ) {
-            payload = [
-                "workspace_id": workspaceID,
-                "surface_id": existingSurface,
-                "session_name": originalRecord.name,
-                "session_id": originalRecord.id.uuidString,
-                "socket_path": builder.socketPath,
-                "reattached": true,
-                "mode": "local-tmux",
-            ]
-            if invocation.focus ?? true {
-                let focused = try client.sendV2(method: "surface.focus", params: [
+            if isLive {
+                payload = [
                     "workspace_id": workspaceID,
                     "surface_id": existingSurface,
+                    "session_name": originalRecord.name,
+                    "session_id": originalRecord.id.uuidString,
+                    "socket_path": builder.socketPath,
+                    "reattached": true,
+                    "mode": "local-tmux",
+                ]
+                if invocation.focus ?? true {
+                    let focused = try client.sendV2(method: "surface.focus", params: [
+                        "workspace_id": workspaceID,
+                        "surface_id": existingSurface,
+                    ])
+                    payload.merge(focused) { _, new in new }
+                }
+            } else {
+                payload = try client.sendV2(method: "surface.respawn", params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": existingSurface,
+                    "command": attachCommand,
+                    "initial_command": attachCommand,
+                    "tmux_start_command": attachCommand,
+                    "working_directory": originalRecord.cwd,
+                    "focus": invocation.focus ?? true,
                 ])
-                payload.merge(focused) { _, new in new }
             }
         } else if let workspaceID = workspace.id {
             var params: [String: Any] = [

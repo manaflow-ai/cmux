@@ -39932,6 +39932,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態に安全にアクセスできませんでした" } }
       }
     },
+    "cli.localTmux.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux surface target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のサーフェス対象が見つかりません" } }
+      }
+    },
     "cli.localTmux.error.startID": {
       "extractionState": "manual",
       "localizations": {
