@@ -34,6 +34,7 @@ struct ControlCommandExecutionPolicyTests {
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
+            "mobile.next_transport.pair",
             "mobile.terminal.set_font", "mobile.task.models.list",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
@@ -328,7 +329,9 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.agentJournalV1Commands == agentJournal)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
-        let diagnosticRead: Set<String> = ["iroh_diag"]
+        let diagnosticRead: Set<String> = [
+            "iroh_diag", "next_transport_ticket", "next_transport_grant",
+        ]
         #expect(ControlCommandExecutionPolicy.diagnosticReadV1Commands == diagnosticRead)
         let resolutionReads: Set<String> = [
             "list_windows", "current_window", "list_workspaces",

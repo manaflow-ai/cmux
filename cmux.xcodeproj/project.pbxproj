@@ -810,6 +810,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C54860010000000000000001 /* CmuxNavigationTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */; };
 		C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */; };
 		C54860130000000000000001 /* CmuxNavigationWorkspaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */; };
+		1A0B0C0D0E0F1011121A0013 /* CmuxNextTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F1011121A0012 /* CmuxNextTransport */; };
+		1A0B0C0D0E0F1011121A0015 /* CmuxNextTransportBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F1011121A0014 /* CmuxNextTransportBridge */; };
 		468110000000000000000001 /* CmuxNotificationHookCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000002 /* CmuxNotificationHookCache.swift */; };
 		468140000000000000000005 /* CmuxNotificationHookCacheEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */; };
 		468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */; };
@@ -1457,6 +1459,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
+		1B0B0901000000000000NT04 /* MobileHostNextTransportBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B0901000000000000NT03 /* MobileHostNextTransportBridge.swift */; };
+		1B0B0901000000000000NT02 /* MobileHostNextTransportRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B0901000000000000NT01 /* MobileHostNextTransportRuntime.swift */; };
 		A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */; };
 		A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
@@ -4296,6 +4300,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
+		1B0B0901000000000000NT03 /* MobileHostNextTransportBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNextTransportBridge.swift; sourceTree = "<group>"; };
+		1B0B0901000000000000NT01 /* MobileHostNextTransportRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNextTransportRuntime.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedInputTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedRequestQueue.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
@@ -5708,6 +5714,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
+				1A0B0C0D0E0F1011121A0013 /* CmuxNextTransport in Frameworks */,
+				1A0B0C0D0E0F1011121A0015 /* CmuxNextTransportBridge in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
 				F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */,
@@ -5992,6 +6000,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */,
 				A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */,
 				1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */,
+				1B0B0901000000000000NT01 /* MobileHostNextTransportRuntime.swift */,
+				1B0B0901000000000000NT03 /* MobileHostNextTransportBridge.swift */,
 				1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */,
 				1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */,
 				1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
@@ -8725,6 +8735,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C617000000000000000000A2 /* CmuxGit */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
+				1A0B0C0D0E0F1011121A0012 /* CmuxNextTransport */,
+				1A0B0C0D0E0F1011121A0014 /* CmuxNextTransportBridge */,
 				C5B6A10000000000000000A2 /* CmuxSidebarGit */,
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
@@ -8954,6 +8966,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
 				0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */,
 				1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */,
+				1A0B0C0D0E0F1011121A0011 /* XCLocalSwiftPackageReference "CmuxNextTransport" */,
 				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 			);
@@ -9985,6 +9998,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */,
 				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
+				1B0B0901000000000000NT04 /* MobileHostNextTransportBridge.swift in Sources */,
+				1B0B0901000000000000NT02 /* MobileHostNextTransportRuntime.swift in Sources */,
 				A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
@@ -12339,6 +12354,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxIrohTransport;
 		};
+		1A0B0C0D0E0F1011121A0011 /* XCLocalSwiftPackageReference "CmuxNextTransport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Shared/CmuxNextTransport;
+		};
 		1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/iOS/CmuxMobileTransport;
@@ -12888,6 +12907,16 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = 1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */;
 			productName = CmuxIrohTransport;
+		};
+		1A0B0C0D0E0F1011121A0012 /* CmuxNextTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A0B0C0D0E0F1011121A0011 /* XCLocalSwiftPackageReference "CmuxNextTransport" */;
+			productName = CmuxNextTransport;
+		};
+		1A0B0C0D0E0F1011121A0014 /* CmuxNextTransportBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A0B0C0D0E0F1011121A0011 /* XCLocalSwiftPackageReference "CmuxNextTransport" */;
+			productName = CmuxNextTransportBridge;
 		};
 		1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */ = {
 			isa = XCSwiftPackageProductDependency;

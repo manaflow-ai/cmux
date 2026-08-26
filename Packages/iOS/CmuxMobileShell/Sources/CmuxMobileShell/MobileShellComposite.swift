@@ -9938,10 +9938,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
+        // `.nextTransport` is the graduation facade's presence advertisement,
+        // never a legacy dial candidate. Excluded unconditionally (even with
+        // an empty supported-kinds allowlist) so it can never be selected.
         let orderedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
             to: ticket.routes,
             observedAt: Date()
-        ).sorted(by: Self.routeSortsBefore)
+        )
+        .filter { $0.kind != .nextTransport }
+        .sorted(by: Self.routeSortsBefore)
         let supportedRoutes: [CmxAttachRoute]
         if supportedKinds.isEmpty {
             supportedRoutes = orderedRoutes
@@ -10980,11 +10985,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
+    #if DEBUG
+    /// Graduation bootstrap probe, installed by the app layer. Receives the
+    /// live authenticated RPC client and the connected Mac's device id each
+    /// time a connection turns healthy.
+    @MainActor public static var nextTransportBootstrapProbe:
+        (@Sendable (_ client: MobileCoreRPCClient, _ macDeviceID: String) async -> Void)?
+    #endif
+
     func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
         }
+        #if DEBUG
+        // Graduation bootstrap seam: runs over THIS composite's live RPC
+        // client after a connection turns healthy (the release-gate
+        // pattern), so the probe never contends for the pooled control
+        // lane. Installer owns idempotence; absent hook is a no-op.
+        if let probe = Self.nextTransportBootstrapProbe,
+            let client = remoteClient,
+            let macDeviceID = activeTicket?.macDeviceID
+        {
+            Task { await probe(client, macDeviceID) }
+        }
+        #endif
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in
                 lastSuccessfulTerminalSubscription

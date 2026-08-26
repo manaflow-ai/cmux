@@ -492,6 +492,14 @@ final class MobileHostService {
         MobileHostPublicStatusCache.update(irohBinding: binding)
     }
 
+    /// Publishes (or clears, with `nil`) the graduation-track next-transport
+    /// advertisement. Facade-only: it rides presence/status so new clients can
+    /// discover the parallel host, and is excluded from attach tickets and
+    /// every legacy dial path.
+    func updateNextTransportRoute(_ route: CmxAttachRoute?) {
+        MobileHostPublicStatusCache.update(nextTransportRoute: route)
+    }
+
     func closeIrohConnections(bindingID: String) {
         for connection in MobileHostConnectionRegistry.shared.removeIrohConnections(
             bindingID: bindingID
@@ -1525,7 +1533,12 @@ final class MobileHostService {
         pairingURLScheme: CmxPairingURLScheme? =
             CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
+        // The next-transport advertisement never enters a minted ticket:
+        // tickets decode their routes strictly (one unknown kind fails the
+        // whole ticket on an old client), and every ticket consumer is a
+        // legacy dial path that must not treat the facade route as dialable.
         let routes = MobileHostPublicStatusCache.snapshot()
+            .filter { $0.kind != .nextTransport }
         let filteredRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,

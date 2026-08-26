@@ -5209,6 +5209,23 @@
         }
       }
     },
+    "mobile.settings.activeTransport.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
+          }
+        }
+      }
+    },
     "mobile.settings.activeTransport.simulator": {
       "extractionState": "manual",
       "localizations": {
@@ -20059,6 +20076,7 @@
     "mobile.connections.method.direct": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct"}},"ja":{"stringUnit":{"state":"translated","value":"ダイレクト"}}}},
     "mobile.settings.connectionMethod.directFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."}},"ja":{"stringUnit":{"state":"translated","value":"以下で有効にしたアドレスを使って、このコンピュータの暗号化されたIroh IDにダイヤルします。LAN、WireGuardなど到達可能なあらゆるネットワークで使えます。リレー探索や他のコンピュータのルートは使いません。"}}}},
     "mobile.connections.method.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh"}}}},
+    "mobile.connections.method.nextTransport": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Next transport"}},"ja":{"stringUnit":{"state":"translated","value":"次世代トランスポート"}}}},
     "mobile.connections.method.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale"}}}},
     "mobile.connections.method.websocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebSocket"}},"ja":{"stringUnit":{"state":"translated","value":"WebSocket"}}}},
     "mobile.connections.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computers"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},

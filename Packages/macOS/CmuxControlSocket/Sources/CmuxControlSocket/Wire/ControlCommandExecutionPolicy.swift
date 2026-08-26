@@ -95,6 +95,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        "mobile.next_transport.pair",
         // Provider discovery may read configuration or run `opencode models`;
         // it must never hold the main actor while waiting for process I/O.
         "mobile.task.models.list",
@@ -438,6 +439,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// callable from the main thread.
     static let diagnosticReadV1Commands: Set<String> = [
         "iroh_diag",
+        // Graduation P4 dev verbs (DEBUG-only surfaces): same actor-owned
+        // await shape as iroh_diag, so same worker policy.
+        "next_transport_ticket",
+        "next_transport_grant",
     ]
 
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2

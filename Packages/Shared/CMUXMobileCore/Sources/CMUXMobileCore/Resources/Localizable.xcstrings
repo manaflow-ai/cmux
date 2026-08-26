@@ -3746,6 +3746,23 @@
         }
       }
     },
+    "diagnostics.transport.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
+          }
+        }
+      }
+    },
     "diagnostics.transport.tailscale": {
       "extractionState": "manual",
       "localizations": {

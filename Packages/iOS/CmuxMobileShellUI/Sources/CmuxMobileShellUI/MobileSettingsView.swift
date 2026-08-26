@@ -591,6 +591,11 @@ struct MobileSettingsView: View {
                 "mobile.settings.activeTransport.simulator",
                 defaultValue: "Simulator"
             )
+        case .nextTransport:
+            L10n.string(
+                "mobile.settings.activeTransport.nextTransport",
+                defaultValue: "Next transport"
+            )
         }
     }
 

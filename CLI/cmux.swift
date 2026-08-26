@@ -5363,6 +5363,16 @@ struct CMUXCLI {
             let response = try sendV1Command("iroh_diag", client: client)
             print(response)
 
+        case "next-transport-ticket":
+            let response = try sendV1Command("next_transport_ticket", client: client)
+            print(response)
+
+        case "next-transport-grant":
+            // args: <deviceId> <devicePublicKeyB64> <appIdentity>
+            let response = try sendV1Command(
+                "next_transport_grant \(commandArgs.joined(separator: " "))", client: client)
+            print(response)
+
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))

@@ -182686,6 +182686,23 @@
         }
       }
     },
+    "settings.mobile.route.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
+          }
+        }
+      }
+    },
     "settings.mobile.route.tailscale": {
       "extractionState": "manual",
       "localizations": {

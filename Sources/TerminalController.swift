@@ -1307,6 +1307,14 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            // Graduation P4 dev verbs: the parallel next-transport host's
+            // dial ticket and per-device grant mint (dev signer), for handing
+            // an iOS dev build everything it needs to dial. Same semaphore
+            // pattern as iroh_diag; DEBUG-only surface.
+            case "next_transport_ticket":
+                return (true, nextTransportTicketText())
+            case "next_transport_grant":
+                return (true, nextTransportGrantText(args))
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -1548,6 +1556,14 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        #if DEBUG
+        case "mobile.next_transport.pair":
+            // Socket parity with the phone RPC dispatcher, so tooling can
+            // preflight the graduation bootstrap without a device.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                await self.v2MobileNextTransportPair(params: request.params)
+            }
+        #endif
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "mobile.compatible_tags.get":
@@ -11720,6 +11736,83 @@ class TerminalController {
         return export
     }
 
+    /// Serves `next_transport_ticket`: the parallel host's dial ticket
+    /// (key + addrs + relay), or a named reason it is unavailable.
+    private nonisolated func nextTransportTicketText() -> String {
+        #if DEBUG
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            let runtime = MobileHostNextTransportRuntime.shared
+            reply = runtime.ticketJSON
+                ?? "next-transport host not running (state: \(runtime.state)); enable it in Debug > Next Transport"
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "next-transport is a DEBUG-only surface"
+        #endif
+    }
+
+    /// Serves `next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>`.
+    private nonisolated func nextTransportGrantText(_ args: String) -> String {
+        #if DEBUG
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
+            return "usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            reply = MobileHostNextTransportRuntime.shared.mintGrant(
+                deviceID: parts[0], devicePublicKey: key, appIdentity: parts[2])
+                ?? "next-transport host not running; enable it in Debug > Next Transport"
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "next-transport is a DEBUG-only surface"
+        #endif
+    }
+
+    #if DEBUG
+    /// Serves `mobile.next_transport.pair` (graduation slice 2): the phone
+    /// requests its next-transport ticket + grant over the ALREADY
+    /// authenticated channel, replacing the dev-screen paste flow. Params
+    /// carry the phone's next-transport identity; the grant binds to it.
+    @MainActor
+    func v2MobileNextTransportPair(params: [String: Any]) -> V2CallResult {
+        guard
+            let deviceID = params["device_id"] as? String,
+            let keyB64 = params["device_public_key"] as? String,
+            let key = Data(base64Encoded: keyB64),
+            let appIdentity = params["app_identity"] as? String
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "device_id, device_public_key (base64), app_identity required",
+                data: nil)
+        }
+        let runtime = MobileHostNextTransportRuntime.shared
+        guard runtime.isEnabled, let ticket = runtime.ticketJSON,
+            let grant = runtime.mintGrant(
+                deviceID: deviceID, devicePublicKey: key, appIdentity: appIdentity)
+        else {
+            return .err(
+                code: "unavailable",
+                message: "next-transport host not running (state: \(runtime.state))",
+                data: nil)
+        }
+        return .ok([
+            "schema_version": 1,
+            "ticket": ticket,
+            "grant": grant,
+        ])
+    }
+    #endif
+
     private nonisolated func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -14788,6 +14881,8 @@ class TerminalController {
                 "schema_version": 1,
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
+        case "mobile.next_transport.pair":
+            result = v2MobileNextTransportPair(params: request.params)
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)

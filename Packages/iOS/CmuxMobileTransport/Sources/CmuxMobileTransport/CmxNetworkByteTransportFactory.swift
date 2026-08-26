@@ -104,7 +104,9 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 maximumReceiveLength: maximumReceiveLength,
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
-        case .iroh, .websocket:
+        case .iroh, .websocket, .nextTransport:
+            // `.nextTransport` is facade-only: the presence route advertises
+            // graduation-track support and is never a legacy dial candidate.
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
     }

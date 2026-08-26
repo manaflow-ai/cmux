@@ -142,6 +142,11 @@ extension MobileHostService {
             // authoritative. A workspace-scoped attach ticket must not make
             // the phone lose this host-wide control.
             return nil
+        case "mobile.next_transport.pair":
+            // DEBUG-only graduation bootstrap; Mac-scoped like host.status.
+            // The same-account gate is authoritative, and the minted grant
+            // binds to the exact device identity carried in the request.
+            return nil
         default:
             return scopedTicketError
         }

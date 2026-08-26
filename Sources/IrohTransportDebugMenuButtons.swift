@@ -9,6 +9,7 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
 
     var body: some View {
         IrohTransportDebugMenuButtons()
+        NextTransportDebugMenuButtons()
         AgentSessionDebugMenuButtons(
             openReact: openReact,
             openSolid: openSolid
@@ -75,3 +76,54 @@ struct IrohTransportDebugMenuButtons: View {
     }
 }
 #endif
+
+
+/// Graduation P4 (manaflow-ai/cmux#10629): dev toggle for the parallel
+/// next-transport host. Off by default; state is visible inline.
+struct NextTransportDebugMenuButtons: View {
+    @AppStorage(MobileHostNextTransportRuntime.debugDefaultsKey)
+    private var enabled = true
+
+    var body: some View {
+        // State rides the submenu title: a plain Text row inside a Menu
+        // renders dimmed (non-interactive), which buried the one line that
+        // matters. The state string is a dev diagnostic, not product copy.
+        Menu(
+            String(
+                localized: "debug.menu.nextTransport",
+                defaultValue: "Next Transport (dev)"
+            ) + nextTransportStateSuffix
+        ) {
+            Button {
+                enabled.toggle()
+                MobileHostNextTransportRuntime.shared.setEnabled(enabled)
+            } label: {
+                if enabled {
+                    Label(
+                        String(
+                            localized: "debug.menu.nextTransport.enabled",
+                            defaultValue: "Parallel Host Enabled"
+                        ),
+                        systemImage: "checkmark"
+                    )
+                } else {
+                    Text(
+                        String(
+                            localized: "debug.menu.nextTransport.enable",
+                            defaultValue: "Enable Parallel Host"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private var nextTransportStateSuffix: String {
+        let runtime = MobileHostNextTransportRuntime.shared
+        guard runtime.state != "off" else { return "" }
+        let admitted = runtime.admissions
+        return admitted == 0
+            ? " · \(runtime.state)"
+            : " · \(runtime.state) · \(admitted) admitted"
+    }
+}

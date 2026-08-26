@@ -16,6 +16,12 @@ public enum CmxAttachTransportKind: String, Codable, Sendable {
     case iroh
     case websocket
     case debugLoopback = "debug_loopback"
+    /// The graduation-track parallel transport (cmux/peer/1). Facade-only:
+    /// presence advertises it so new clients can discover the host, but no
+    /// legacy dial or route-selection path may ever attempt to dial it.
+    /// Old clients drop the unknown raw value at their failable-decode
+    /// boundaries.
+    case nextTransport = "next_transport"
 }
 
 public typealias MobileSyncTransportKind = CmxAttachTransportKind
