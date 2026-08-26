@@ -47,7 +47,7 @@ extension CMUXCLI {
         }
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = VibeHookConfig.installing(events: events, in: oldString)
+        let newString = VibeHookConfig().installing(events: events, in: oldString)
 
         if oldString == newString {
             print(String.localizedStringWithFormat(
@@ -85,7 +85,13 @@ extension CMUXCLI {
             do {
                 try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
             } catch {
-                throw CLIError(message: configDirectoryFileError)
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryCreateFailed",
+                        defaultValue: "cmux could not create the hooks directory at %@. Check the directory permissions, then run `cmux hooks setup` again."
+                    ),
+                    configDir
+                ))
             }
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
@@ -117,7 +123,7 @@ extension CMUXCLI {
         }
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = VibeHookConfig.uninstalling(from: oldString)
+        let newString = VibeHookConfig().uninstalling(from: oldString)
 
         guard oldString != newString else {
             print(String.localizedStringWithFormat(
@@ -134,8 +140,9 @@ extension CMUXCLI {
         print(String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.vibe.removed",
-                defaultValue: "Removed Mistral Vibe cmux hooks from %@"
+                defaultValue: "Removed %@ cmux hooks from %@"
             ),
+            def.displayName,
             filePath
         ))
     }
