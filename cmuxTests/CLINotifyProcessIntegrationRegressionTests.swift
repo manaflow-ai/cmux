@@ -488,6 +488,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCompactSessionNilExpectationDoesNotOverwriteConcurrentRecord() throws {
+        let context = try makeClaudeHookContext(name: "compact-nil-cas-race")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-nil-cas-race-session"
+        let concurrentWorkspaceId = "77777777-7777-7777-7777-777777777777"
+        let concurrentSurfaceId = "88888888-8888-8888-8888-888888888888"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root
+                .appendingPathComponent("claude-hook-sessions.json").path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: concurrentWorkspaceId,
+            surfaceId: concurrentSurfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+
+        XCTAssertFalse(try store.upsertCompactSessionIfCurrent(
+            sessionId: sessionId,
+            expectedRecord: nil,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            targetIsAuthoritative: true
+        ))
+        let record = try XCTUnwrap(try store.lookup(sessionId: sessionId))
+        XCTAssertEqual(record.workspaceId, concurrentWorkspaceId)
+        XCTAssertEqual(record.surfaceId, concurrentSurfaceId)
+    }
+
     func testClaudeCompactFallbackPersistsReconciliationForAuthoritativeStop() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-fallback")
         defer { context.cleanup() }
@@ -1936,6 +1971,99 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     "panel_apply_skipped": true,
                     "terminal_skip": false,
                     "target_unresolved": true,
+                ])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        func runPass() -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "auto-name"],
+                standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+            )
+        }
+
+        let first = runPass()
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertEqual(first.status, 0, first.stderr)
+        try updateClaudeHookSession(sessionId, context: context) { record in
+            record["autoNameLastAttemptAt"] = Date().timeIntervalSince1970
+                - AutoNamingEngine().config.minInterval - 1
+        }
+        let second = runPass()
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, second.stderr)
+
+        let invocations = try String(contentsOf: summarizerMarker, encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(invocations.count, 1)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, transcriptLineCount)
+        XCTAssertNil(record["autoNameLastTitle"])
+    }
+
+    func testClaudeAutoNameManualRejectionSettlesFirstTitleBaseline() throws {
+        let context = try makeClaudeHookContext(name: "claude-manual-rejection-baseline")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-manual-rejection-baseline-session"
+        let transcriptURL = context.root.appendingPathComponent("conversation.jsonl")
+        let transcript = (0..<12).map { index in
+            #"{"type":"user","message":{"content":"Investigate authentication \#(index)"}}"#
+        }.joined(separator: "\n")
+        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let transcriptLineCount = try autoNamingGrowthMetric(transcriptURL)
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 1,
+            lastTitle: nil,
+            lastNamedAt: nil,
+            lastAttemptAt: nil,
+            inFlightAt: nil
+        )
+
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invocations")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/bin/echo x >> \"\(summarizerMarker.path)\"\n/bin/echo 'New panel topic'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "workspace.set_auto_title":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["probe"] as? Bool == true {
+                    return self.v2Response(id: id, ok: true, result: [
+                        "enabled": true,
+                        "workspace_user_owned": false,
+                    ])
+                }
+                return self.v2Response(id: id, ok: true, result: [
+                    "workspace_applied": false,
+                    "workspace_apply_skipped": true,
+                    "panel_applied": NSNull(),
+                    "panel_apply_skipped": true,
+                    "terminal_skip": false,
+                    "target_unresolved": false,
                 ])
             default:
                 return self.v2Response(
