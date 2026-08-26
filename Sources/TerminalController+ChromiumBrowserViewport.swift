@@ -53,8 +53,18 @@ extension TerminalController {
             surfaceID = context.surfaceId
             isChromium = context.browserPanel.isChromiumBacked
         }
+        if isChromium,
+           let resolvedPanel,
+           resolvedPanel.isChromiumIsolationPendingForAutomation {
+            return .err(
+                code: "not_connected",
+                message: ChromiumBrowserDiagnostic.connectionClosed.message,
+                data: nil
+            )
+        }
         guard isChromium,
               let resolvedPanel,
+              !resolvedPanel.isChromiumIsolationPendingForAutomation,
               let workspaceID,
               let surfaceID else {
             return v2MainSync {

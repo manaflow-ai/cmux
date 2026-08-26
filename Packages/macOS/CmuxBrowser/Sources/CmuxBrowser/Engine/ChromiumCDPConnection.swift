@@ -2,11 +2,46 @@
 
 /// Actor-isolated CDP command router over an injected message transport.
 actor ChromiumCDPConnection {
-    typealias EventContinuation = AsyncStream<CDPEvent>.Continuation
     typealias FrameContinuation = AsyncStream<Data>.Continuation
+
+    /// Single-consumer event sequence backed by the actor's bounded queue.
+    /// Keeping the queue in the connection lets the receiver prioritize
+    /// lifecycle signals and emit one bounded resync marker when noncritical
+    /// events are discarded, without relying on `AsyncStream` eviction.
+    struct EventStream: AsyncSequence, Sendable {
+        typealias Element = CDPEvent
+
+        let connection: ChromiumCDPConnection
+
+        struct Iterator: AsyncIteratorProtocol {
+            let connection: ChromiumCDPConnection
+
+            mutating func next() async -> CDPEvent? {
+                await connection.nextEvent()
+            }
+        }
+
+        func makeAsyncIterator() -> Iterator {
+            Iterator(connection: connection)
+        }
+    }
 
     /// Byte token identifying a screencast frame envelope without parsing it.
     private static let screencastFrameToken = Data("\"method\":\"Page.screencastFrame\"".utf8)
+    /// Maximum number of decoded events retained while the single consumer is
+    /// awaiting a CDP command response.
+    private static let eventBufferCapacity = 512
+    private static let resyncEventMethod = "cmux.cdp.resyncRequired"
+    private static let priorityEventMethods: Set<String> = [
+        "Page.frameStartedLoading",
+        "Page.frameStoppedLoading",
+        "Page.lifecycleEvent",
+        "Page.loadEventFired",
+        "Page.crashed",
+        "Target.targetCrashed",
+        "Target.detachedFromTarget",
+        "Inspector.detached",
+    ]
 
     private let transport: any ChromiumCDPTransport
     private var receiverTask: Task<Void, Never>?
@@ -15,7 +50,9 @@ actor ChromiumCDPConnection {
     private var activeCommandIDs: Set<Int> = []
     private var cancelledCommandIDs: Set<Int> = []
     private var sendTasks: [Int: Task<Void, Never>] = [:]
-    private var eventContinuations: [UUID: EventContinuation] = [:]
+    private var eventQueue: [CDPEvent] = []
+    private var eventWaiter: CheckedContinuation<CDPEvent?, Never>?
+    private var eventResyncQueued = false
     private var frameContinuations: [UUID: FrameContinuation] = [:]
     private var activeTargetSessionID: String?
     private var isClosed = false
@@ -78,18 +115,8 @@ actor ChromiumCDPConnection {
         Task { await shutdown() }
     }
 
-    func events() -> AsyncStream<CDPEvent> {
-        let id = UUID()
-        return AsyncStream { continuation in
-            guard !isClosed else {
-                continuation.finish()
-                return
-            }
-            eventContinuations[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeEventContinuation(id) }
-            }
-        }
+    func events() -> EventStream {
+        EventStream(connection: self)
     }
 
     /// Streams decoded screencast frames without the generic event pipeline.
@@ -194,6 +221,10 @@ actor ChromiumCDPConnection {
             receiverTask?.cancel()
             receiverTask = nil
             activeTargetSessionID = nil
+            eventQueue.removeAll()
+            eventResyncQueued = false
+            eventWaiter?.resume(returning: nil)
+            eventWaiter = nil
             for task in sendTasks.values { task.cancel() }
             sendTasks.removeAll()
             let waiters = pending
@@ -205,10 +236,6 @@ actor ChromiumCDPConnection {
                     throwing: CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
                 )
             }
-            for continuation in eventContinuations.values {
-                continuation.finish()
-            }
-            eventContinuations.removeAll()
             for continuation in frameContinuations.values {
                 continuation.finish()
             }
@@ -220,8 +247,79 @@ actor ChromiumCDPConnection {
         await transport.close()
     }
 
-    private func removeEventContinuation(_ id: UUID) {
-        eventContinuations.removeValue(forKey: id)
+    private func nextEvent() async -> CDPEvent? {
+        if !eventQueue.isEmpty {
+            let event = eventQueue.removeFirst()
+            if event.method == Self.resyncEventMethod {
+                eventResyncQueued = false
+            }
+            return event
+        }
+        guard !isClosed else { return nil }
+        return await withCheckedContinuation { continuation in
+            eventWaiter = continuation
+        }
+    }
+
+    private func enqueueEvent(_ event: CDPEvent) {
+        if let waiter = eventWaiter {
+            eventWaiter = nil
+            waiter.resume(returning: event)
+            return
+        }
+
+        guard eventQueue.count < Self.eventBufferCapacity else {
+            if Self.priorityEventMethods.contains(event.method) {
+                var evictedNormalEvent = false
+                if let evictIndex = eventQueue.firstIndex(where: {
+                    !Self.priorityEventMethods.contains($0.method) &&
+                        $0.method != Self.resyncEventMethod
+                }) {
+                    eventQueue.remove(at: evictIndex)
+                    evictedNormalEvent = true
+                    eventQueue.append(event)
+                } else if let evictIndex = eventQueue.firstIndex(where: {
+                    $0.method != Self.resyncEventMethod
+                }) {
+                    eventQueue.remove(at: evictIndex)
+                    eventQueue.append(event)
+                }
+                if evictedNormalEvent, !eventResyncQueued {
+                    eventResyncQueued = true
+                    while eventQueue.count >= Self.eventBufferCapacity {
+                        guard let evictIndex = eventQueue.firstIndex(where: {
+                            $0.method != Self.resyncEventMethod
+                        }) else { break }
+                        eventQueue.remove(at: evictIndex)
+                    }
+                    if eventQueue.count < Self.eventBufferCapacity {
+                        eventQueue.append(CDPEvent(method: Self.resyncEventMethod))
+                    }
+                }
+                return
+            }
+
+            guard !eventResyncQueued else { return }
+            eventResyncQueued = true
+            // The queued normal events are older than the state we are about
+            // to re-read. Discard them at the resync boundary so they cannot
+            // replay stale URLs/loading state after the authoritative refresh.
+            eventQueue.removeAll {
+                !Self.priorityEventMethods.contains($0.method) &&
+                    $0.method != Self.resyncEventMethod
+            }
+            while eventQueue.count >= Self.eventBufferCapacity {
+                guard let evictIndex = eventQueue.firstIndex(where: {
+                    $0.method != Self.resyncEventMethod
+                }) else { break }
+                eventQueue.remove(at: evictIndex)
+            }
+            if eventQueue.count < Self.eventBufferCapacity {
+                eventQueue.append(CDPEvent(method: Self.resyncEventMethod))
+            }
+            return
+        }
+        eventQueue.append(event)
     }
 
     private func removeFrameContinuation(_ id: UUID) {
@@ -320,14 +418,14 @@ actor ChromiumCDPConnection {
         receiverTask = nil
         isClosed = true
         activeTargetSessionID = nil
+        eventQueue.removeAll()
+        eventResyncQueued = false
+        eventWaiter?.resume(returning: nil)
+        eventWaiter = nil
         let disconnectError = CDPError.disconnected(
             error?.localizedDescription ?? ChromiumBrowserDiagnostic.connectionClosed.message
         )
         failAllPending(with: disconnectError)
-        for continuation in eventContinuations.values {
-            continuation.finish()
-        }
-        eventContinuations.removeAll()
         for continuation in frameContinuations.values {
             continuation.finish()
         }
@@ -375,9 +473,7 @@ actor ChromiumCDPConnection {
             }
         }
         let event = CDPEvent(method: method, params: object["params"])
-        for continuation in eventContinuations.values {
-            continuation.yield(event)
-        }
+        enqueueEvent(event)
     }
 
     private static func pageTargetID(_ value: CDPValue) -> String? {

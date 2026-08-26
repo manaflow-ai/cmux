@@ -33,6 +33,7 @@
 
 static int g_initialized = 0;
 static int g_initialize_attempted = 0;
+static int g_remote_debugging_port = 0;
 static void (*g_schedule_work)(int64_t delay_ms) = NULL;
 
 // The cef_app_t and its process handler live for the process lifetime.
@@ -506,11 +507,16 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   g_app.on_before_command_line_processing = app_on_before_command_line_processing;
 
   g_initialized = cef_initialize(&main_args, &settings, &g_app, NULL) ? 1 : 0;
+  g_remote_debugging_port = g_initialized ? options->remote_debugging_port : 0;
   return g_initialized;
 }
 
 int cmux_cef_is_initialized(void) {
   return g_initialized;
+}
+
+int cmux_cef_remote_debugging_port(void) {
+  return g_remote_debugging_port;
 }
 
 void cmux_cef_set_schedule_work_callback(void (*schedule)(int64_t delay_ms)) {

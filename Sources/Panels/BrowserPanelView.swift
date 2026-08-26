@@ -2019,7 +2019,7 @@ struct BrowserPanelView: View {
         if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == panel.id {
             return true
         }
-        let fieldWindow = panel.browserContentWindow
+        let fieldWindow = panel.browserChromeWindow
             ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
            field.currentEditor() != nil {
@@ -2092,7 +2092,7 @@ struct BrowserPanelView: View {
         // Navigation-triggered omnibar blur can still be unwinding when Cmd+F opens
         // the browser find bar. Once find is visible, any delayed omnibar-exit
         // handoff must not reclaim first responder for WebKit.
-        panel.browserContentWindow === window &&
+        panel.browserChromeWindow === window &&
             isPanelFocusedInModel() &&
             panel.searchState == nil
     }
@@ -2143,7 +2143,7 @@ struct BrowserPanelView: View {
     private func isCommandPaletteVisibleForPanelWindow() -> Bool {
         guard let app = AppDelegate.shared else { return false }
 
-        let contentWindow = panel.browserContentWindow
+        let contentWindow = panel.browserChromeWindow
         if let window = contentWindow, app.isCommandPaletteVisible(for: window) {
             return true
         }
@@ -2166,7 +2166,7 @@ struct BrowserPanelView: View {
 
     private func commandPaletteVisibilityNotificationMatchesPanelWindow(_ notification: Notification) -> Bool {
         if let notificationWindow = notification.object as? NSWindow,
-           panel.browserContentWindow === notificationWindow {
+           panel.browserChromeWindow === notificationWindow {
             return true
         }
 

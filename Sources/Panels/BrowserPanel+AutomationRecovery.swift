@@ -42,6 +42,7 @@ extension BrowserPanel {
     ) {
         automationNavigationCoordinator.startExternalNavigation(ticket) { [weak self] in
             guard let self else { throw CancellationError() }
+            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
             self.shouldRenderWebView = true
             self.startChromiumIfNeeded()
             if recordTypedNavigation, let targetURL {
@@ -50,24 +51,30 @@ extension BrowserPanel {
             if let cef = self.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
                 await cef.startupReadinessTask?.value
                 try Task.checkCancellation()
+                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
                 if reload {
                     try await cef.reload()
                 } else if let targetURL {
                     try await cef.navigate(to: targetURL)
                 }
+                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
                 try await cef.waitForLoadCompletion()
+                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
                 return
             }
             guard let session = self.chromiumSessionForAutomation else {
                 throw CDPError.notConnected
             }
             let revision = await session.currentNavigationRevision()
+            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
             if reload {
                 try await self.browserEngineController.adapter.reload()
             } else if let targetURL {
                 try await self.browserEngineController.adapter.navigate(to: targetURL)
             }
+            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
             try await session.waitForNavigation(to: nil, after: revision)
+            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
         }
     }
 
@@ -75,7 +82,16 @@ extension BrowserPanel {
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
-        if isChromiumBacked {
+        if chromiumIsolationPending {
+            let ticket = automationNavigationCoordinator.begin(
+                instanceID: webViewInstanceID,
+                targetURL: targetURL,
+                allowsSameDocumentCompletion: false
+            )
+            automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
+            return ticket
+        }
+        if isChromiumBacked, !chromiumIsolationPending {
             let ticket = automationNavigationCoordinator.begin(
                 instanceID: webViewInstanceID,
                 targetURL: targetURL,
@@ -138,7 +154,8 @@ extension BrowserPanel {
         targetURL: URL
     )? {
         guard let targetURL = automationReloadTargetURL() else { return nil }
-        if isChromiumBacked {
+        guard !chromiumIsolationPending else { return nil }
+        if isChromiumBacked, !chromiumIsolationPending {
             let ticket = automationNavigationCoordinator.begin(
                 instanceID: webViewInstanceID,
                 targetURL: targetURL
@@ -214,6 +231,7 @@ extension BrowserPanel {
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
         if isChromiumBacked,
+           !chromiumIsolationPending,
            let chromium = browserEngineController.adapter as? (any ChromiumEngineAdapting) {
             chromium.clearDocumentScripts()
         }
@@ -250,7 +268,7 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
-        if isChromiumBacked {
+        if isChromiumBacked, !chromiumIsolationPending {
             guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
             do {
                 // A bounded Runtime.evaluate is the Chromium liveness probe;

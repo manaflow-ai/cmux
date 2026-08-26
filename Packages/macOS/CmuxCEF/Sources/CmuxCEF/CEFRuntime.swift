@@ -44,6 +44,16 @@ public enum CEFRuntime {
         cmux_cef_is_initialized() != 0
     }
 
+    /// The loopback CDP port captured by CEF's process-wide initialization.
+    ///
+    /// CEF accepts this setting only once per process. Consumers must use this
+    /// value, rather than a later per-pane preference, when publishing an
+    /// attach endpoint so metadata always describes the listener that exists.
+    public static var activeRemoteDebuggingPort: Int? {
+        let port = cmux_cef_remote_debugging_port()
+        return port > 0 ? Int(port) : nil
+    }
+
     /// Loads the CEF framework's code without initializing CEF.
     ///
     /// Chromium's allocator shim installs itself from the framework's static

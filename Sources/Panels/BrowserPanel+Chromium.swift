@@ -22,6 +22,55 @@ extension BrowserPanel {
             : requested
     }
 
+    /// Stops Chromium when its current workspace/policy no longer permits it.
+    ///
+    /// The compatibility ``WKWebView`` remains available for plumbing, but it
+    /// is intentionally not promoted here: silently switching engines would
+    /// change cookies and request routing under an existing page. A later
+    /// explicit navigation after the policy is relaxed may start Chromium again.
+    func enforceChromiumIsolationIfNeeded(reason: String) {
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
+        let effective = Self.effectiveBrowserEngine(
+            requested: .chromium,
+            isRemoteWorkspace: isRemoteWorkspace,
+            isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+        )
+        guard effective == .webkit else { return }
+
+        chromiumIsolationPending = true
+        automationNavigationCoordinator.cancelExternalNavigation()
+        automationNavigationCoordinator.invalidate()
+        shouldRenderWebView = false
+        isLoading = false
+        canGoBack = false
+        canGoForward = false
+        pageTitle = String(
+            localized: "browser.chromium.error.title",
+            defaultValue: "Chromium unavailable"
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "browser.chromium.isolation.blocked panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) remote=\(isRemoteWorkspace ? 1 : 0) " +
+            "allowlist=\(BrowserURLAllowlistPolicy(defaults: .standard).isActive ? 1 : 0)"
+        )
+#endif
+        refreshNavigationAvailability()
+
+        let controller = browserEngineController
+        chromiumIsolationTask = Task { @MainActor [weak self, controller] in
+            await controller.stopAndWait()
+            guard let self else { return }
+            self.chromiumIsolationPending = false
+            self.chromiumIsolationTask = nil
+            self.refreshWebViewLifecycleState()
+            self.refreshNavigationAvailability()
+            if self.isWebViewVisibleInUI {
+                self.restoreDeferredChromiumIfNeeded(reason: "isolation_complete")
+            }
+        }
+    }
+
     func makeBrowserEngineController() -> BrowserPaneEngineController {
         let controller = BrowserPaneEngineController(
             kind: engineKind,
@@ -35,7 +84,7 @@ extension BrowserPanel {
             self?.applyChromiumSnapshot(snapshot)
         }
         controller.setChromiumFocusHandler { [weak self] in
-            self?.noteWebViewFocused()
+            self?.noteChromiumContentFocused()
         }
         return controller
     }
@@ -44,14 +93,48 @@ extension BrowserPanel {
         engineKind == .chromium
     }
 
+    var isChromiumIsolationPendingForAutomation: Bool {
+        chromiumIsolationPending
+    }
+
     var chromiumContentView: NSView? {
         guard isChromiumBacked else { return nil }
         return browserEngineController.contentView
     }
 
-    /// Returns the window currently hosting the selected browser engine.
+    /// Returns the window that owns the selected browser content.
+    ///
+    /// CEF renders in a separate child window. Returning the host view's
+    /// parent here makes focus probes inspect the wrong responder chain.
     var browserContentWindow: NSWindow? {
+        if isChromiumBacked,
+           let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter,
+           cef.isBrowserWindowFocusReady {
+            return cef.browserWindow ?? chromiumContentView?.window
+        }
+        return isChromiumBacked ? chromiumContentView?.window : webView.window
+    }
+
+    /// Returns the cmux window containing browser chrome (omnibar, find bar,
+    /// and command-palette coordination). This differs from
+    /// ``browserContentWindow`` only for CEF's adopted child window.
+    var browserChromeWindow: NSWindow? {
         isChromiumBacked ? chromiumContentView?.window : webView.window
+    }
+
+    private var chromiumFocusTarget: (contentWindow: NSWindow, hostWindow: NSWindow, responder: NSView)? {
+        guard isChromiumBacked else { return nil }
+        if let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
+            guard cef.isBrowserWindowFocusReady,
+                  let window = cef.browserWindow,
+                  let hostWindow = chromiumContentView?.window,
+                  let responder = window.contentView else {
+                return nil
+            }
+            return (window, hostWindow, responder)
+        }
+        guard let host = chromiumContentView, let window = host.window else { return nil }
+        return (window, window, host)
     }
 
     var chromiumCDPEndpoint: BrowserCDPEndpoint? {
@@ -64,6 +147,7 @@ extension BrowserPanel {
     /// actor; callers must not retain the AppKit adapter itself off-main.
     var chromiumSessionForAutomation: ChromiumBrowserSession? {
         guard isChromiumBacked,
+              !chromiumIsolationPending,
               let chromium = browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter else {
             return nil
         }
@@ -74,7 +158,7 @@ extension BrowserPanel {
     /// Waiting for it guarantees document scripts, theme emulation, and the
     /// adapter's initial navigation have completed before socket automation.
     var chromiumStartupReadinessTaskForAutomation: Task<Void, Never>? {
-        guard isChromiumBacked else { return nil }
+        guard isChromiumBacked, !chromiumIsolationPending else { return nil }
         return browserEngineController.chromiumStartupReadinessTask
     }
 
@@ -154,6 +238,26 @@ extension BrowserPanel {
         return true
     }
 
+    /// Reveals a session-restored Chromium pane when its first visible host is
+    /// mounted. The shared hidden-WebKit discard manager records the persisted
+    /// render intent, but deliberately refuses to restore Chromium itself.
+    func restoreDeferredChromiumIfNeeded(reason: String) {
+        guard isChromiumBacked,
+              !chromiumIsolationPending,
+              Self.effectiveBrowserEngine(
+                  requested: .chromium,
+                  isRemoteWorkspace: isRemoteWorkspace,
+                  isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+              ) == .chromium,
+              !shouldRenderWebView,
+              hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView == true,
+              let restoreURL = currentURL else { return }
+
+        hiddenWebViewDiscardManager.clearDiscardState(reason: "chromium.\(reason)")
+        shouldRenderWebView = true
+        startChromiumIfNeeded(initialURL: restoreURL)
+    }
+
     func applyChromiumProfileIdentity(
         _ nextProfileID: UUID,
         restoreURL: URL?,
@@ -211,41 +315,74 @@ extension BrowserPanel {
 
     func focusChromiumContentIfVisible() {
         guard shouldRenderWebView,
-              let host = chromiumContentView,
-              let window = host.window,
-              !host.isHiddenOrHasHiddenAncestor else { return }
-        if Self.responderChainContains(window.firstResponder, target: host) {
+              let (contentWindow, hostWindow, responder) = chromiumFocusTarget,
+              !responder.isHiddenOrHasHiddenAncestor else { return }
+        // Keep cmux's registered parent window key for shortcut routing. The
+        // adopted CEF child remains the responder target without becoming the
+        // app's key-window identity.
+        hostWindow.makeKey()
+        if Self.responderChainContains(contentWindow.firstResponder, target: responder) {
             noteWebViewFocused()
-        } else if window.makeFirstResponder(host) {
+        } else if contentWindow.makeFirstResponder(responder) {
             noteWebViewFocused()
         }
     }
 
     func requestChromiumContentFocus() -> Bool {
         guard shouldRenderWebView,
-              let host = chromiumContentView,
-              let window = host.window,
-              !host.isHiddenOrHasHiddenAncestor else { return false }
+              let (contentWindow, hostWindow, responder) = chromiumFocusTarget,
+              !responder.isHiddenOrHasHiddenAncestor else { return false }
         suppressOmnibarAutofocus(for: 1.5)
-        return window.makeFirstResponder(host)
+        hostWindow.makeKey()
+        if Self.responderChainContains(contentWindow.firstResponder, target: responder) {
+            return true
+        }
+        let didFocus = contentWindow.makeFirstResponder(responder)
+        return didFocus
+    }
+
+    /// Reports focus against the actual engine window, including CEF's child
+    /// window rather than the cmux host window.
+    func isChromiumContentFocused() -> Bool {
+        guard let (contentWindow, hostWindow, responder) = chromiumFocusTarget,
+              hostWindow.isKeyWindow else { return false }
+        return Self.responderChainContains(contentWindow.firstResponder, target: responder)
+    }
+
+    func chromiumContentOwnsResponder(_ responder: NSResponder) -> Bool {
+        guard let target = chromiumFocusTarget?.responder else { return false }
+        return Self.responderChainContains(responder, target: target)
     }
 
     func unfocusChromiumContent() {
-        guard let host = chromiumContentView, let window = host.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: host) {
-            window.makeFirstResponder(nil)
+        clearChromiumFocusState()
+        guard let (contentWindow, _, responder) = chromiumFocusTarget else { return }
+        if Self.responderChainContains(contentWindow.firstResponder, target: responder) {
+            contentWindow.makeFirstResponder(nil)
         }
+    }
+
+    func clearChromiumFocusState() {
+        guard let (contentWindow, _, responder) = chromiumFocusTarget else { return }
+        guard Self.responderChainContains(contentWindow.firstResponder, target: responder) else {
+            return
+        }
+        contentWindow.makeFirstResponder(nil)
+    }
+
+    func noteChromiumContentFocused() {
+        noteWebViewFocused()
     }
 
     func canEnterChromiumFocusMode(searchIsActive: Bool, designModeIsActive: Bool) -> Bool {
         shouldRenderWebView &&
-            chromiumContentView?.window != nil &&
-            chromiumContentView?.isHiddenOrHasHiddenAncestor == false &&
+            chromiumFocusTarget?.responder.isHiddenOrHasHiddenAncestor == false &&
             !searchIsActive &&
             !designModeIsActive
     }
 
     func applyChromiumTheme(_ mode: BrowserThemeMode) {
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
         let scheme: String?
         switch mode {
         case .system:
@@ -260,7 +397,15 @@ extension BrowserPanel {
     }
 
     func startChromiumIfNeeded(initialURL: URL? = nil) {
-        guard isChromiumBacked else { return }
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
+        guard Self.effectiveBrowserEngine(
+            requested: .chromium,
+            isRemoteWorkspace: isRemoteWorkspace,
+            isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+        ) == .chromium else {
+            enforceChromiumIsolationIfNeeded(reason: "start_guard")
+            return
+        }
         browserEngineController.start(initialURL: initialURL)
     }
 
@@ -276,6 +421,7 @@ extension BrowserPanel {
     @discardableResult
     func switchChromiumToProfile(_ requestedProfileID: UUID) -> Bool {
         guard isChromiumBacked,
+              !chromiumIsolationPending,
               !preservesExplicitEphemeralWebsiteDataStoreForProfileSwitch else { return false }
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
@@ -311,7 +457,7 @@ extension BrowserPanel {
     }
 
     func navigateChromium(to url: URL) {
-        guard isChromiumBacked else { return }
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
         shouldRenderWebView = true
         startChromiumIfNeeded()
         Task { @MainActor [weak self] in
@@ -329,7 +475,7 @@ extension BrowserPanel {
     }
 
     func goBackChromium() {
-        guard isChromiumBacked else { return }
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.browserEngineController.waitForStartupReadiness()
@@ -339,7 +485,7 @@ extension BrowserPanel {
     }
 
     func goForwardChromium() {
-        guard isChromiumBacked else { return }
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.browserEngineController.waitForStartupReadiness()
@@ -349,7 +495,7 @@ extension BrowserPanel {
     }
 
     func reloadChromium() {
-        guard isChromiumBacked else { return }
+        guard isChromiumBacked, !chromiumIsolationPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.browserEngineController.waitForStartupReadiness()
@@ -362,7 +508,7 @@ extension BrowserPanel {
         _ script: String,
         awaitPromise: Bool = true
     ) async throws -> CDPValue {
-        guard isChromiumBacked else { throw CDPError.notConnected }
+        guard isChromiumBacked, !chromiumIsolationPending else { throw CDPError.notConnected }
         await browserEngineController.waitForStartupReadiness()
         try Task.checkCancellation()
         return try await browserEngineController.adapter.evaluateJavaScript(
@@ -372,7 +518,7 @@ extension BrowserPanel {
     }
 
     func screenshotChromium() async throws -> Data {
-        guard isChromiumBacked else { throw CDPError.notConnected }
+        guard isChromiumBacked, !chromiumIsolationPending else { throw CDPError.notConnected }
         await browserEngineController.waitForStartupReadiness()
         try Task.checkCancellation()
         return try await browserEngineController.adapter.screenshotPNG()
@@ -383,7 +529,9 @@ extension BrowserPanel {
     /// restores the last display URL.
     @discardableResult
     func recoverChromiumIfNeeded() -> Bool {
-        guard isChromiumBacked, hasRecoverableWebContentTermination else { return false }
+        guard isChromiumBacked,
+              !chromiumIsolationPending,
+              hasRecoverableWebContentTermination else { return false }
         hasRecoverableWebContentTermination = false
         let restoreURL = currentURL
         stopChromium()

@@ -1812,7 +1812,7 @@
           "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
         },
         "browser": {
-          "defaultEngine": "新しく作成する組み込みブラウザペインのレンダリングエンジンです。Chromium はオプトインで、別プロセスとして実行されます。",
+          "defaultEngine": "新しく作成する組み込みブラウザペインのレンダリングエンジンです。「自動」はシステムのデフォルトブラウザに従い、WebKit または Chromium を明示指定できます。Chromium は別プロセスで実行されます。",
           "remoteDebuggingPort": "ループバック専用の Chromium CDP ポートです。0 にすると外部からの CDP 接続を無効にします。",
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",

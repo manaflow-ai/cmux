@@ -154,6 +154,7 @@ extension TerminalController {
         let result: Result<Int, any Error>? = socketAwaitCallback(timeout: max(0.01, timeout)) { finish in
             registrationTask = Task { @MainActor in
                 guard browserPanel.isChromiumBacked,
+                      !browserPanel.isChromiumIsolationPendingForAutomation,
                       let chromium = browserPanel.browserEngineController.adapter as? (any ChromiumEngineAdapting) else {
                     finish(.failure(CDPError.notConnected))
                     return
@@ -229,7 +230,8 @@ extension TerminalController {
         var startupReadinessTask: Task<Void, Never>?
         var cefAdapter: CEFBrowserPaneEngineAdapter?
         v2MainSync {
-            guard browserPanel.isChromiumBacked else { return }
+            guard browserPanel.isChromiumBacked,
+                  !browserPanel.isChromiumIsolationPendingForAutomation else { return }
             browserPanel.startChromiumIfNeeded(initialURL: browserPanel.currentURL)
             cefAdapter = browserPanel.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter
             session = browserPanel.chromiumSessionForAutomation
@@ -238,6 +240,7 @@ extension TerminalController {
         if let cefAdapter {
             return v2AwaitCEFOperation(
                 adapter: cefAdapter,
+                browserPanel: browserPanel,
                 operation: operation,
                 timeout: timeout
             )
@@ -252,41 +255,58 @@ extension TerminalController {
         ) { finish in
             operationTask = Task {
                 do {
+                    func ensureIsolationIsStillClear() async throws {
+                        let pending = await MainActor.run {
+                            browserPanel.isChromiumIsolationPendingForAutomation
+                        }
+                        guard !pending else { throw CDPError.notConnected }
+                    }
+
+                    try await ensureIsolationIsStillClear()
                     await startupReadinessTask.value
                     try Task.checkCancellation()
+                    try await ensureIsolationIsStillClear()
                     let value: ChromiumAutomationResult
                     switch operation {
                     case .evaluate(let script, let awaitPromise):
                         try await session.waitForDocumentReady()
+                        try await ensureIsolationIsStillClear()
                         value = .value(try await session.evaluateJavaScript(script, awaitPromise: awaitPromise))
                     case .screenshot:
                         value = .screenshot(try await session.screenshotPNG())
                     case .navigate(let url):
                         let revision = await session.currentNavigationRevision()
+                        try await ensureIsolationIsStillClear()
                         try await session.navigate(to: url)
                         try await session.waitForNavigation(to: nil, after: revision)
                         value = .completed
                     case .back:
                         let revision = await session.currentNavigationRevision()
+                        try await ensureIsolationIsStillClear()
                         try await session.goBack()
                         try await session.waitForNavigation(to: nil, after: revision)
                         value = .completed
                     case .forward:
                         let revision = await session.currentNavigationRevision()
+                        try await ensureIsolationIsStillClear()
                         try await session.goForward()
                         try await session.waitForNavigation(to: nil, after: revision)
                         value = .completed
                     case .reload:
                         let revision = await session.currentNavigationRevision()
+                        try await ensureIsolationIsStillClear()
                         try await session.reload()
                         try await session.waitForNavigation(to: nil, after: revision)
                         value = .completed
                     case .setViewport(let width, let height):
+                        try await ensureIsolationIsStillClear()
                         try await session.setViewport(width: width, height: height)
                         value = .completed
                     case .command(let method, let parameters):
+                        try await ensureIsolationIsStillClear()
                         value = .command(try await session.sendCommand(method: method, parameters: parameters))
                     }
+                    try await ensureIsolationIsStillClear()
                     finish(.success(value))
                 } catch {
                     finish(.failure(error))
@@ -308,6 +328,7 @@ extension TerminalController {
     /// worker owns the wait and the timeout.
     private nonisolated func v2AwaitCEFOperation(
         adapter: CEFBrowserPaneEngineAdapter,
+        browserPanel: BrowserPanel,
         operation: ChromiumAutomationOperation,
         timeout: TimeInterval
     ) -> ChromiumAutomationOutcome {
@@ -317,8 +338,14 @@ extension TerminalController {
         ) { finish in
             operationTask = Task { @MainActor in
                 do {
+                    guard !browserPanel.isChromiumIsolationPendingForAutomation else {
+                        throw CDPError.notConnected
+                    }
                     await adapter.startupReadinessTask?.value
                     try Task.checkCancellation()
+                    guard !browserPanel.isChromiumIsolationPendingForAutomation else {
+                        throw CDPError.notConnected
+                    }
                     let value: ChromiumAutomationResult
                     switch operation {
                     case .evaluate(let script, let awaitPromise):
@@ -360,6 +387,9 @@ extension TerminalController {
                             method: method,
                             parameters: parameters
                         ))
+                    }
+                    guard !browserPanel.isChromiumIsolationPendingForAutomation else {
+                        throw CDPError.notConnected
                     }
                     finish(.success(value))
                 } catch {

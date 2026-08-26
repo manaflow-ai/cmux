@@ -33,6 +33,7 @@ public final class CEFBrowser {
     private var handle: OpaquePointer?
     private var eventContinuations: [UUID: AsyncStream<Event>.Continuation] = [:]
     private var devToolsContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var selfRetain: Unmanaged<CEFBrowser>?
 
     /// Creates a browser and its hosting window.
@@ -191,6 +192,22 @@ public final class CEFBrowser {
         if let handle { cmux_cef_browser_close(handle) }
     }
 
+    /// Requests teardown and waits until CEF has released the browser window.
+    ///
+    /// This is the safe lifecycle boundary for policy or workspace changes:
+    /// callers must not expose a replacement request context before `.closed`.
+    public func closeAndWait() async {
+        guard !isClosed else { return }
+        await withCheckedContinuation { continuation in
+            if isClosed {
+                continuation.resume()
+                return
+            }
+            closeWaiters.append(continuation)
+            close()
+        }
+    }
+
     /// Submits one DevTools protocol command.
     ///
     /// - Parameter message: UTF-8 JSON with `id`, `method`, optional `params`.
@@ -215,6 +232,9 @@ public final class CEFBrowser {
         isClosed = true
         nsWindow = nil
         publish(.closed)
+        let waiters = closeWaiters
+        closeWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
         for continuation in eventContinuations.values { continuation.finish() }
         eventContinuations.removeAll()
         for continuation in devToolsContinuations.values { continuation.finish() }

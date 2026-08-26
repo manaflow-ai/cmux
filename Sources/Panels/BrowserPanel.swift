@@ -1994,6 +1994,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    /// Whether this panel currently belongs to a remote workspace.
+    ///
+    /// Chromium has no request-interception or per-workspace proxy seam, so a
+    /// panel that crosses into a remote workspace must stop its Chromium child
+    /// before the new workspace can expose it to page traffic.
+    var isRemoteWorkspace: Bool
 
     @Published var profileID: UUID
     @Published var historyStore: BrowserHistoryStore
@@ -2116,7 +2122,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
     private var isPresentingPendingInteractiveBrowserPrompt = false
-    private var isWebViewVisibleInUI: Bool = false
+    var isWebViewVisibleInUI: Bool = false
     var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
@@ -2326,6 +2332,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
+    var chromiumIsolationTask: Task<Void, Never>?
+    var chromiumIsolationPending = false
     private(set) var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     var downloadDelegate: BrowserDownloadDelegate?
@@ -2569,6 +2577,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // WKWebView underneath it.
         if isChromiumBacked {
             cancelHiddenWebViewDiscard()
+            if visible {
+                restoreDeferredChromiumIfNeeded(reason: "visible.\(reason)")
+            }
             return
         }
 
@@ -3503,6 +3514,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
+        self.isRemoteWorkspace = isRemoteWorkspace
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         let browserEngineSettings = BrowserEngineSettingsStore(defaults: .standard)
@@ -4063,10 +4075,10 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWorkspaceStatus = status
     }
 
-    private func applyProxyConfigurationIfAvailable() {
+    private func applyProxyConfigurationIfAvailable(to targetStore: WKWebsiteDataStore? = nil) {
         guard #available(macOS 14.0, *) else { return }
 
-        let store = webView.configuration.websiteDataStore
+        let store = targetStore ?? webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
             // Local panes mirror an active system proxy with loopback excluded
             // (#5888); remote panes keep [] while their endpoint is pending/lost.
@@ -4241,6 +4253,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
+        self.isRemoteWorkspace = isRemoteWorkspace
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
@@ -4251,6 +4264,10 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore = targetStore
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
+        // Install the destination proxy before replacing a live WebKit view;
+        // replacement restores its URL immediately and must never issue the
+        // first request through the local machine.
+        applyProxyConfigurationIfAvailable(to: targetStore)
         if needsStoreSwap {
             clearBrowserAutomationUserScripts()
             replaceWebViewPreservingState(
@@ -4259,7 +4276,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "workspace_reattach"
             )
         }
-        applyProxyConfigurationIfAvailable()
+        enforceChromiumIsolationIfNeeded(reason: "workspace_reattach")
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -5159,13 +5176,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// redirects, while this sweep closes the window in which an already-open
     /// document could otherwise remain visible under a newly stricter policy.
     func enforceURLAllowlistPolicy() {
-        navigationDelegate?.enforceURLAllowlistPolicy(
-            in: webView,
-            displayURL: Self.remoteProxyDisplayURL(for: webView.url)
-                ?? webView.url
-                ?? currentURL
-                ?? navigationDelegate?.lastAttemptedURL
-        )
+        enforceChromiumIsolationIfNeeded(reason: "url_allowlist_changed")
+        if !isChromiumBacked {
+            navigationDelegate?.enforceURLAllowlistPolicy(
+                in: webView,
+                displayURL: Self.remoteProxyDisplayURL(for: webView.url)
+                    ?? webView.url
+                    ?? currentURL
+                    ?? navigationDelegate?.lastAttemptedURL
+            )
+        }
         for popup in popupControllers {
             popup.enforceURLAllowlistPolicy()
         }
@@ -5967,6 +5987,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     deinit {
         hiddenWebViewDiscardManager.stop()
+        chromiumIsolationTask?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
         detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
@@ -7646,6 +7667,7 @@ extension BrowserPanel {
 
     func noteAddressBarFocused() {
         clearBrowserFocusMode(reason: "addressBarFocused")
+        clearChromiumFocusState()
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
@@ -7653,6 +7675,7 @@ extension BrowserPanel {
 
     func noteFindFieldFocused() {
         clearBrowserFocusMode(reason: "findFieldFocused")
+        clearChromiumFocusState()
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
     }
@@ -7758,8 +7781,7 @@ extension BrowserPanel {
         }
 
         if Self.responderChainContains(responder, target: webView) ||
-            (isChromiumBacked &&
-             chromiumContentView.map { Self.responderChainContains(responder, target: $0) } == true) {
+            (isChromiumBacked && chromiumContentOwnsResponder(responder)) {
             return .browser(.webView)
         }
 
@@ -7793,10 +7815,16 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            let target = isChromiumBacked ? chromiumContentView : webView
-            guard let target,
-                  Self.responderChainContains(window.firstResponder, target: target) else { return false }
-            return window.makeFirstResponder(nil)
+            let focusWindow = isChromiumBacked ? (browserContentWindow ?? window) : window
+            if isChromiumBacked {
+                guard let firstResponder = focusWindow.firstResponder,
+                      chromiumContentOwnsResponder(firstResponder) else { return false }
+            } else {
+                guard Self.responderChainContains(focusWindow.firstResponder, target: webView) else {
+                    return false
+                }
+            }
+            return focusWindow.makeFirstResponder(nil)
         }
     }
 

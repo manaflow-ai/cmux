@@ -9446,13 +9446,7 @@ class TerminalController {
                   context.surfaceId == surfaceId else { return }
             let browserPanel = context.browserPanel
             if browserPanel.isChromiumBacked {
-                guard let host = browserPanel.chromiumContentView,
-                      let window = host.window,
-                      let firstResponder = window.firstResponder as? NSView else {
-                    focused = false
-                    return
-                }
-                focused = firstResponder === host || firstResponder.isDescendant(of: host)
+                focused = browserPanel.isChromiumContentFocused()
                 return
             }
             let webView = browserPanel.webView

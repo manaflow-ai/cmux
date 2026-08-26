@@ -1849,6 +1849,7 @@ final class BrowserEngineDefaultsMigrationTests: XCTestCase {
             .webkit
         )
     }
+
 }
 
 final class BrowserDefaultZoomRegressionTests: XCTestCase {

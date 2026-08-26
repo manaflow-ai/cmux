@@ -133,12 +133,7 @@ extension TerminalController: ControlBrowserPanelContext {
     func controlBrowserPanelIsWebViewFocused(panelID: UUID) -> ControlBrowserPanelWebViewFocusState {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return .panelNotFound }
         if panel.isChromiumBacked {
-            guard let host = panel.chromiumContentView,
-                  let window = host.window,
-                  let firstResponder = window.firstResponder as? NSView else {
-                return .focused(false)
-            }
-            return .focused(firstResponder === host || firstResponder.isDescendant(of: host))
+            return .focused(panel.isChromiumContentFocused())
         }
 
         let webView = panel.webView

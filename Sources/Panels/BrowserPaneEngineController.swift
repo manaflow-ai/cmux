@@ -127,4 +127,16 @@ final class BrowserPaneEngineController {
     func stop() {
         adapter.stop()
     }
+
+    /// Stops an engine at its completed lifecycle boundary when it exposes
+    /// asynchronous teardown (CEF); synchronous engines stop immediately.
+    func stopAndWait() async {
+        if let cef = adapter as? CEFBrowserPaneEngineAdapter {
+            await cef.stopAndWait()
+        } else if let chromium = adapter as? ChromiumBrowserPaneEngineAdapter {
+            await chromium.stopAndWait()
+        } else {
+            adapter.stop()
+        }
+    }
 }

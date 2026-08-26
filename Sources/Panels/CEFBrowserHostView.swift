@@ -25,6 +25,18 @@ final class CEFBrowserHostView: NSView {
 
     var onFocus: (() -> Void)?
 
+    /// Whether the CEF child is currently adopted over a visible pane and is
+    /// safe for focus operations. Inactive panes keep the browser alive but
+    /// order its child window out, so existence of the window alone is not a
+    /// focus guarantee.
+    var isFocusReady: Bool {
+        isAdopted &&
+            isPaneVisible &&
+            window != nil &&
+            !isHiddenOrHasHiddenAncestor &&
+            cefWindow?.isVisible == true
+    }
+
     init() {
         super.init(frame: .zero)
         wantsLayer = true

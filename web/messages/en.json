@@ -1889,7 +1889,7 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
-          "defaultEngine": "Rendering engine for newly-created embedded browser panes. Chromium is opt-in and runs out of process.",
+          "defaultEngine": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process.",
           "remoteDebuggingPort": "Loopback-only Chromium CDP port. Zero disables external CDP attachment.",
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",

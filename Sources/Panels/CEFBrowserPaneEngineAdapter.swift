@@ -16,6 +16,10 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private(set) var remoteDebuggingEndpoint: BrowserCDPEndpoint?
 
     var contentView: NSView? { hostView }
+    /// The CEF-owned child window, once browser creation has completed.
+    var browserWindow: NSWindow? { browser?.nsWindow }
+    /// Whether the child window is adopted over a visible pane.
+    var isBrowserWindowFocusReady: Bool { hostView.isFocusReady }
     var onSnapshot: ((ChromiumSessionSnapshot) -> Void)?
     var onContentFocused: (() -> Void)?
     var startupReadinessTask: Task<Void, Never>? { startupTask }
@@ -101,8 +105,14 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         guard CEFRuntimeBootstrap.initializeIfNeeded() else {
             throw CDPError.notConnected
         }
-        if remoteDebuggingPort.isExternallyAttachable {
-            remoteDebuggingEndpoint = BrowserCDPEndpoint(port: remoteDebuggingPort.rawValue)
+        // CEF captures the port during process-wide initialization. A later
+        // pane or settings change cannot move that listener, so publish only
+        // the port CEF actually owns.
+        if remoteDebuggingPort.isExternallyAttachable,
+           let activePort = CEFRuntime.activeRemoteDebuggingPort {
+            remoteDebuggingEndpoint = BrowserCDPEndpoint(port: activePort)
+        } else {
+            remoteDebuggingEndpoint = nil
         }
         // The default profile uses CEF's global request context: command-line
         // extensions (--load-extension) only attach there, matching Chrome's
@@ -130,6 +140,22 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     }
 
     func stop() {
+        let browser = beginStopRequest()
+        browser?.close()
+        finishStop()
+    }
+
+    /// Closes CEF and waits for its asynchronous `.closed` callback before
+    /// exposing a policy/workspace transition to the rest of cmux.
+    func stopAndWait() async {
+        let browser = beginStopRequest()
+        if let browser {
+            await browser.closeAndWait()
+        }
+        finishStop()
+    }
+
+    private func beginStopRequest() -> CEFBrowser? {
         startupTask?.cancel()
         startupTask = nil
         documentScriptRemovalTask?.cancel()
@@ -140,7 +166,11 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         eventTask = nil
         cancelReadyWaiters()
         hostView.detach()
-        browser?.close()
+        browser?.stopLoading()
+        return browser
+    }
+
+    private func finishStop() {
         browser = nil
         devTools = nil
         remoteDebuggingEndpoint = nil

@@ -1368,10 +1368,10 @@
       "properties": {
         "defaultEngine": {
           "type": "string",
-          "enum": ["webkit", "chromium"],
-          "default": "webkit",
+          "enum": ["auto", "webkit", "chromium"],
+          "default": "auto",
           "descriptionKey": "schemaDescriptions.browser.defaultEngine",
-          "description": "Rendering engine for newly-created embedded browser panes. Chromium is opt-in and runs out of process."
+          "description": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process."
         },
         "remoteDebuggingPort": {
           "type": "integer",

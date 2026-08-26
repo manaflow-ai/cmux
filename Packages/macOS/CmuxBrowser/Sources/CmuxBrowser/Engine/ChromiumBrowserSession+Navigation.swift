@@ -183,6 +183,9 @@ extension ChromiumBrowserSession {
     ) async {
         guard isCurrentConnection(connection, generation: generation) else { return }
         switch event.method {
+        case "cmux.cdp.resyncRequired":
+            await refreshDocumentState(using: connection, generation: generation)
+            publish()
         case "Page.frameNavigated":
             guard let frame = Self.mainFrame(from: event.params),
                   let url = frame["url"]?.stringValue,
@@ -241,6 +244,54 @@ extension ChromiumBrowserSession {
             markCrashed(connection: connection, generation: generation)
         default:
             break
+        }
+    }
+
+    /// Re-reads authoritative page state after the bounded CDP event stream
+    /// evicts an older notification. This keeps navigation waits truthful
+    /// without allowing an unbounded queue to retain every intermediate event.
+    private func refreshDocumentState(
+        using connection: ChromiumCDPConnection,
+        generation: UInt64
+    ) async {
+        guard isCurrentConnection(connection, generation: generation) else { return }
+        let wasLoading = isLoading
+        if let value = try? await connection.send(method: "Page.getFrameTree"),
+           isCurrentConnection(connection, generation: generation),
+           case .object(let root) = value,
+           case .object(let frameTree)? = root["frameTree"],
+           case .object(let frame)? = frameTree["frame"] {
+            if let frameID = frame["id"]?.stringValue {
+                mainFrameID = frameID
+            }
+            if let rawURL = frame["url"]?.stringValue,
+               let url = URL(string: rawURL) {
+                if currentURL != url {
+                    navigationRevision &+= 1
+                }
+                currentURL = url
+            }
+        }
+        guard isCurrentConnection(connection, generation: generation) else { return }
+        await refreshNavigationHistory(using: connection)
+        await refreshTitle(using: connection)
+        guard isCurrentConnection(connection, generation: generation) else { return }
+        let readinessValue = try? await connection.send(
+            method: "Runtime.evaluate",
+            parameters: .object([
+                "expression": .string("document.readyState"),
+                "returnByValue": .bool(true),
+            ])
+        )
+        guard isCurrentConnection(connection, generation: generation) else { return }
+        if case .object(let object)? = readinessValue,
+           case .object(let result)? = object["result"],
+           let readyState = result["value"]?.stringValue {
+            isLoading = readyState != "complete"
+        } else {
+            // A missing readiness response is not proof of completion; retain
+            // the state observed before the resync began.
+            isLoading = wasLoading
         }
     }
 

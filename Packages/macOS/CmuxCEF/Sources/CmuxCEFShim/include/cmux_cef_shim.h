@@ -65,6 +65,10 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options);
 /// Returns 1 once cmux_cef_initialize has succeeded.
 int cmux_cef_is_initialized(void);
 
+/// Returns the loopback CDP port captured by the successful process-wide
+/// initialization, or 0 when the external endpoint is disabled.
+int cmux_cef_remote_debugging_port(void);
+
 /// Registers the host's message-pump scheduler. CEF asks the host to call
 /// cmux_cef_do_work after `delay_ms` (0 means as soon as possible). The
 /// callback may be invoked from any thread.

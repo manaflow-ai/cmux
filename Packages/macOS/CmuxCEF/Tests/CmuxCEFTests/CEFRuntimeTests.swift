@@ -9,5 +9,6 @@ struct CEFRuntimeTests {
         // Full initialization requires the app bundle with the CEF framework
         // and helper bundles; package tests only cover the inert state.
         #expect(!CEFRuntime.isInitialized)
+        #expect(CEFRuntime.activeRemoteDebuggingPort == nil)
     }
 }
