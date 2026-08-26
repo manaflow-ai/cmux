@@ -1513,7 +1513,7 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert 'if [[ "$version" == *-rc.* ]]' in text
     # --access public is required for the first publish of each new unscoped
     # cmux-relay package name under --provenance and is a no-op afterwards.
-    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 2
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 1
     assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
         'npm publish --provenance --access public --tag "$DIST_TAG"', ""
     )
@@ -1528,7 +1528,11 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "runs-on: ubuntu-latest" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
-    assert "include_windows: true" in text
+    # The Rust machine relay has no Windows PTY backend yet. Its stable npm
+    # publisher must build and publish Unix packages only; Windows stays on
+    # the Node rollback lane until a tested backend exists.
+    assert "include_windows: false" in text
+    assert "cmux-relay-win32-x64" not in text
     assert "package_pypi: false" in text
     assert "validate_package_contract.py" in text
     assert "--install-npm-relay-package cmux-relay-linux-x64" in text
@@ -1537,6 +1541,40 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert '--source-digest "$GITHUB_SHA"' in text
     assert '--source-ref "$GITHUB_REF"' in text
     assert "persist-credentials: false" in text
+
+
+def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # The Rust cutover has one launcher plus four Unix target packages. Every
+    # package uses the same idempotent publish path for both `next` and
+    # `latest`; there is no local-tarball or failed-launcher fallback. A
+    # fallback could report a release as usable while the launcher is absent
+    # from the registry, so the workflow must fail closed instead.
+    publish_section = text.split(
+        "- name: Publish five Unix relay packages idempotently", 1
+    )[1].split("- name: Audit published npm signatures and provenance", 1)[0]
+    package_lines = re.findall(
+        r"^\s+(cmux-relay(?:-(?:darwin-arm64|darwin-x64|linux-x64|linux-arm64))?)\s*$",
+        publish_section,
+        re.MULTILINE,
+    )
+    assert package_lines == [
+        "cmux-relay-darwin-arm64",
+        "cmux-relay-darwin-x64",
+        "cmux-relay-linux-x64",
+        "cmux-relay-linux-arm64",
+        "cmux-relay",
+    ]
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' not in text
+    assert "LAUNCHER_PUBLISHED" not in text
+    assert "npm install -g ./dist/npm-packages/cmux-relay" not in text
+    assert "cmux-relay-win32-x64" not in text
+    assert 'publish_if_missing "$package"' in publish_section
+    assert "version_exists" in publish_section
+    assert "registry_integrity" in publish_section
+    assert "Audit published npm signatures and provenance" in text
+    assert text.count("cmux-relay --version") == 1
 
 
 def test_npm_builder_accepts_relay_release_candidate_versions() -> None:

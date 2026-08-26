@@ -96,7 +96,7 @@ public final class SocketDiscoveryTest {
 
     private static void rejectsUnsafeSessionNames() {
         for (String value : new String[] {
-            "", ".", "..", "a/b", "a\\b", "a\nb", "a\u0000b", "a\u0085b",
+            "", ".", "..", "a/b", "a/../b", "a\\b", "a\nb", "a\u0000b", "a\u0085b",
             "a\u2028b", "a\u2029b", "\uD800"
         }) {
             try {

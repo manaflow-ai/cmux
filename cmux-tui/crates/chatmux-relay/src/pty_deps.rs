@@ -9,9 +9,11 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -208,6 +210,154 @@ pub struct RealPtyDeps {
     shell: String,
 }
 
+/// A child spawned while an async open is still in progress. `spawn_blocking`
+/// does not stop its closure when the awaiting future is cancelled, so the
+/// closure and the async owner share this hand-off state. The child killer is
+/// installed before any fallible setup and is removed only after the returned
+/// `PtyHandle` owns the child.
+trait SpawnKiller: Send + Sync {
+    fn kill(&self);
+}
+
+struct PortableSpawnKiller(Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>);
+
+impl SpawnKiller for PortableSpawnKiller {
+    fn kill(&self) {
+        if let Ok(mut killer) = self.0.lock() {
+            let _ = killer.kill();
+        }
+    }
+}
+
+struct SpawnState {
+    cancelled: bool,
+    killer: Option<Arc<dyn SpawnKiller>>,
+}
+
+struct SpawnLifecycle {
+    state: Mutex<SpawnState>,
+}
+
+impl SpawnLifecycle {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(SpawnState { cancelled: false, killer: None }) })
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.state.lock().map(|state| state.cancelled).unwrap_or(true)
+    }
+
+    /// Install a kill handle unless cancellation won the race. The caller
+    /// must not publish a child before this succeeds.
+    fn install_killer(&self, killer: Arc<dyn SpawnKiller>) -> bool {
+        let mut state = self.state.lock().expect("spawn lifecycle lock");
+        if state.cancelled {
+            drop(state);
+            killer.kill();
+            return false;
+        }
+        state.killer = Some(killer);
+        true
+    }
+
+    fn cancel(&self) {
+        let killer = {
+            let mut state = self.state.lock().expect("spawn lifecycle lock");
+            state.cancelled = true;
+            state.killer.take()
+        };
+        if let Some(killer) = killer {
+            killer.kill();
+        }
+    }
+
+    /// Dispose the current failed child without marking the caller as
+    /// cancelled. A real PTY setup error may still degrade to a pipe shell;
+    /// cancellation remains a separate, sticky state checked before the
+    /// fallback child is spawned and again when its killer is installed.
+    fn kill_current(&self) {
+        let killer = self.state.lock().expect("spawn lifecycle lock").killer.take();
+        if let Some(killer) = killer {
+            killer.kill();
+        }
+    }
+
+    fn claim(&self) {
+        self.state.lock().expect("spawn lifecycle lock").killer = None;
+    }
+}
+
+/// Keeps the spawn killer armed until the manager has synchronously moved the
+/// returned control into an attachment or persistent shell session.
+struct SpawnGuardControl {
+    inner: Arc<dyn PtyControl>,
+    lifecycle: Arc<SpawnLifecycle>,
+    claimed: AtomicBool,
+}
+
+impl PtyControl for SpawnGuardControl {
+    fn write(&self, data: &[u8]) {
+        self.inner.write(data);
+    }
+
+    fn resize(&self, cols: u16, rows: u16) {
+        self.inner.resize(cols, rows);
+    }
+
+    fn pause(&self) {
+        self.inner.pause();
+    }
+
+    fn resume(&self) {
+        self.inner.resume();
+    }
+
+    fn release(&self) {
+        self.inner.release();
+    }
+
+    fn claim(&self) {
+        if !self.claimed.swap(true, Ordering::AcqRel) {
+            self.lifecycle.claim();
+        }
+    }
+
+    fn kill(&self) {
+        self.inner.kill();
+    }
+}
+
+impl Drop for SpawnGuardControl {
+    fn drop(&mut self) {
+        if !self.claimed.swap(true, Ordering::AcqRel) {
+            self.lifecycle.cancel();
+        }
+    }
+}
+
+struct SpawnCancellationGuard {
+    lifecycle: Arc<SpawnLifecycle>,
+    armed: bool,
+}
+
+impl SpawnCancellationGuard {
+    fn new(lifecycle: Arc<SpawnLifecycle>) -> Self {
+        Self { lifecycle, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SpawnCancellationGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.lifecycle.cancel();
+        }
+    }
+}
+
 impl RealPtyDeps {
     pub fn new(env: HashMap<String, String>) -> RealPtyDeps {
         // SAFETY: getuid is always safe.
@@ -245,11 +395,62 @@ impl PtyControl for MasterControl {
     }
 }
 
-/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails. The
-/// child is owned by its wait thread; kill signals it by pid.
+/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails. Keep
+/// the child handle behind one lock so `try_wait` can retire it atomically;
+/// no cancellation path ever signals a raw PID after it may be reused.
+struct PipeChild {
+    child: Mutex<Option<std::process::Child>>,
+}
+
+impl PipeChild {
+    fn new(child: std::process::Child) -> Arc<Self> {
+        Arc::new(Self { child: Mutex::new(Some(child)) })
+    }
+
+    fn kill(&self) {
+        if let Ok(mut child) = self.child.lock()
+            && let Some(child) = child.as_mut()
+        {
+            let _ = child.kill();
+        }
+    }
+
+    fn wait(&self) -> i64 {
+        loop {
+            let result = {
+                let mut slot = self.child.lock().expect("pipe child lock");
+                let Some(child) = slot.as_mut() else { return 0 };
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        // Retire the handle while the identity lock is still
+                        // held. A later kill cannot target the reused PID.
+                        *slot = None;
+                        Some(status.code().unwrap_or(0) as i64)
+                    }
+                    Ok(None) => None,
+                    Err(_) => {
+                        *slot = None;
+                        Some(1)
+                    }
+                }
+            };
+            if let Some(code) = result {
+                return code;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+impl SpawnKiller for PipeChild {
+    fn kill(&self) {
+        PipeChild::kill(self);
+    }
+}
+
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
-    pid: i32,
+    child: Arc<PipeChild>,
 }
 
 impl PtyControl for PipeControl {
@@ -265,14 +466,17 @@ impl PtyControl for PipeControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        // SAFETY: signalling a child pid this handle spawned; harmless if gone.
-        unsafe {
-            libc::kill(self.pid, libc::SIGKILL);
-        }
+        self.child.kill();
     }
 }
 
-fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
+fn spawn_real_pty(
+    spec: &SpawnSpec,
+    lifecycle: &Arc<SpawnLifecycle>,
+) -> anyhow::Result<Option<PtyHandle>> {
+    if lifecycle.is_cancelled() {
+        return Ok(None);
+    }
     let pair = cmux_pty::open(PtySize {
         rows: spec.rows,
         cols: spec.cols,
@@ -287,8 +491,25 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         command.env(key, value);
     }
     let spawned = pair.spawn(command)?;
-    let reader = spawned.master.try_clone_reader()?;
-    let writer = spawned.master.take_writer()?;
+    let abort_killer: Arc<dyn SpawnKiller> =
+        Arc::new(PortableSpawnKiller(Mutex::new(spawned.child.clone_killer())));
+    if !lifecycle.install_killer(Arc::clone(&abort_killer)) {
+        return Ok(None);
+    }
+    let reader = match spawned.master.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(error) => {
+            lifecycle.kill_current();
+            return Err(error.into());
+        }
+    };
+    let writer = match spawned.master.take_writer() {
+        Ok(writer) => writer,
+        Err(error) => {
+            lifecycle.kill_current();
+            return Err(error.into());
+        }
+    };
     let killer = spawned.child.clone_killer();
     let output = ThreadOutput::new();
 
@@ -312,18 +533,35 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         exit_output.push_exit(code);
     });
 
-    Ok(PtyHandle {
-        control: Arc::new(MasterControl {
-            master: Mutex::new(spawned.master),
-            writer: Mutex::new(writer),
-            killer: Mutex::new(killer),
+    let inner_control: Arc<dyn PtyControl> = Arc::new(MasterControl {
+        master: Mutex::new(spawned.master),
+        writer: Mutex::new(writer),
+        killer: Mutex::new(killer),
+    });
+    let handle = PtyHandle {
+        control: Arc::new(SpawnGuardControl {
+            inner: inner_control,
+            lifecycle: Arc::clone(lifecycle),
+            claimed: AtomicBool::new(false),
         }),
         output,
         banner: None,
-    })
+    };
+    if lifecycle.is_cancelled() {
+        handle.control.kill();
+        return Ok(None);
+    }
+    Ok(Some(handle))
 }
 
-fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
+fn spawn_pipe_mode(
+    spec: &SpawnSpec,
+    reason: &str,
+    lifecycle: &Arc<SpawnLifecycle>,
+) -> Option<PtyHandle> {
+    if lifecycle.is_cancelled() {
+        return None;
+    }
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
     command.args(&spec.args).current_dir(&spec.cwd).env_clear();
@@ -344,34 +582,57 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     match command.spawn() {
         Ok(mut child) => {
             let stdin = child.stdin.take();
-            let pid = child.id() as i32;
-            if let Some(stdout) = child.stdout.take() {
+            let child = PipeChild::new(child);
+            let abort_killer: Arc<dyn SpawnKiller> = child.clone();
+            if !lifecycle.install_killer(Arc::clone(&abort_killer)) {
+                child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            let (stdout, stderr) = {
+                let mut slot = child.child.lock().expect("pipe child lock");
+                let child_handle = slot.as_mut().expect("pipe child installed");
+                (child_handle.stdout.take(), child_handle.stderr.take())
+            };
+            if let Some(stdout) = stdout {
                 let out = Arc::clone(&output);
                 std::thread::spawn(move || pump_pipe(stdout, out));
             }
-            if let Some(stderr) = child.stderr.take() {
+            if let Some(stderr) = stderr {
                 let out = Arc::clone(&output);
                 std::thread::spawn(move || pump_pipe(stderr, out));
             }
-            // The wait would need its own thread; the shell exits when its
-            // pipes close, and the manager treats a data EOF plus process
-            // teardown as the end. Report exit when both pipes close.
             let wait_output = Arc::clone(&output);
+            let wait_child = Arc::clone(&child);
             std::thread::spawn(move || {
-                let code =
-                    child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
+                let code = wait_child.wait();
                 wait_output.push_exit(code);
             });
-            PtyHandle {
-                control: Arc::new(PipeControl { stdin: Mutex::new(stdin), pid }),
+            let inner_control: Arc<dyn PtyControl> =
+                Arc::new(PipeControl { stdin: Mutex::new(stdin), child });
+            let handle = PtyHandle {
+                control: Arc::new(SpawnGuardControl {
+                    inner: inner_control,
+                    lifecycle: Arc::clone(lifecycle),
+                    claimed: AtomicBool::new(false),
+                }),
                 output,
                 banner: Some(banner.into_bytes()),
+            };
+            if lifecycle.is_cancelled() {
+                handle.control.kill();
+                return None;
             }
+            Some(handle)
         }
         Err(error) => {
             let _ = error;
             output.push_exit(1);
-            PtyHandle { control: Arc::new(DeadControl), output, banner: Some(banner.into_bytes()) }
+            Some(PtyHandle {
+                control: Arc::new(DeadControl),
+                output,
+                banner: Some(banner.into_bytes()),
+            })
         }
     }
 }
@@ -399,25 +660,67 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
-/// Stop a daemon that was started by `ensure_daemon` but never became ready.
-/// The daemon is placed in its own process group, so cleanup also covers
-/// children it may have spawned before readiness failed.
-async fn cleanup_daemon(mut child: tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
+/// Owns a newly started cmux-tui daemon until readiness is proven. Dropping
+/// an async future does not drop a process group, so cancellation must start
+/// cleanup from `Drop` as well as from ordinary timeout/error paths.
+struct DaemonChildGuard {
+    child: Option<tokio::process::Child>,
+}
+
+impl DaemonChildGuard {
+    fn new(child: tokio::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    async fn cleanup(&mut self) {
+        let Some(child) = self.child.as_mut() else { return };
+        if let Some(pid) = child.id() {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
+            }
+        }
+        if matches!(tokio::time::timeout(Duration::from_millis(250), child.wait()).await, Ok(Ok(_)))
+        {
+            self.child = None;
+            return;
+        }
+        if let Some(pid) = child.id() {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        let _ = child.kill().await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
+        self.child = None;
+    }
+
+    fn disarm(&mut self) {
+        self.child = None;
+    }
+}
+
+impl Drop for DaemonChildGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        // Kill synchronously before scheduling the reaper. This closes the
+        // cancellation window even if the runtime is already shutting down.
+        let exited = child.try_wait().ok().flatten().is_some();
+        if !exited {
+            if let Some(pid) = child.id() {
+                unsafe {
+                    let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                }
+            }
+            let _ = child.start_kill();
+        }
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = child.wait().await;
+            });
+        } else {
+            let _ = child.try_wait();
         }
     }
-    if tokio::time::timeout(Duration::from_millis(250), child.wait()).await.is_ok() {
-        return;
-    }
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    let _ = child.kill().await;
-    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
 }
 
 #[async_trait]
@@ -427,15 +730,27 @@ impl PtyDeps for RealPtyDeps {
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
         let output = ThreadOutput::new();
-        tokio::task::spawn_blocking(move || match spawn_real_pty(&spec) {
-            Ok(handle) => handle,
-            Err(error) => spawn_pipe_mode(&spec, &error.to_string()),
+        let lifecycle = SpawnLifecycle::new();
+        let mut cancellation = SpawnCancellationGuard::new(Arc::clone(&lifecycle));
+        let result = tokio::task::spawn_blocking(move || match spawn_real_pty(&spec, &lifecycle) {
+            Ok(Some(handle)) => Some(handle),
+            Ok(None) => None,
+            Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &lifecycle),
         })
-        .await
-        .unwrap_or_else(|_| {
-            output.push_exit(1);
-            PtyHandle { control: Arc::new(DeadControl), output, banner: None }
-        })
+        .await;
+        // The returned PtyHandle keeps the child-kill guard armed. Disarm the
+        // await guard in this poll; the caller must explicitly transfer the
+        // handle before its own guard is removed.
+        if result.is_ok() {
+            cancellation.disarm();
+        }
+        match result {
+            Ok(Some(handle)) => handle,
+            Ok(None) | Err(_) => {
+                output.push_exit(1);
+                PtyHandle { control: Arc::new(DeadControl), output, banner: None }
+            }
+        }
     }
 
     async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
@@ -450,8 +765,8 @@ impl PtyDeps for RealPtyDeps {
             };
         }
         // Never a bare `cmux` on PATH — that name is ambiguous; only cmux-tui.
-        for dir in self.env.get("PATH").map(String::as_str).unwrap_or("").split(':') {
-            if dir.is_empty() {
+        for dir in path_entries(self.env.get("PATH").map(String::as_str).unwrap_or("")) {
+            if dir.as_os_str().is_empty() {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
@@ -491,7 +806,11 @@ impl PtyDeps for RealPtyDeps {
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                Ok(control) => control_ready(&control, session).await,
+                Ok(control) => {
+                    let ready = control_ready(&control, session).await;
+                    control.end();
+                    ready
+                }
                 Err(_) => false,
             };
             if ready {
@@ -521,6 +840,7 @@ impl PtyDeps for RealPtyDeps {
         command.process_group(0);
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
+        let mut child = DaemonChildGuard::new(child);
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
@@ -528,8 +848,14 @@ impl PtyDeps for RealPtyDeps {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control) if control_ready(&control, session).await => {
-                            return Ok(EnsureDaemon { created: true, socket_path });
+                        Ok(control) => {
+                            let ready = control_ready(&control, session).await;
+                            control.end();
+                            if ready {
+                                child.disarm();
+                                return Ok(EnsureDaemon { created: true, socket_path });
+                            }
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
@@ -537,14 +863,14 @@ impl PtyDeps for RealPtyDeps {
                 // Do not unlink the path here. Another daemon may have won
                 // the socket race after our initial absence check; ownership
                 // of a pathname cannot be proven after the fact.
-                cleanup_daemon(child).await;
+                child.cleanup().await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        cleanup_daemon(child).await;
+        child.cleanup().await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
@@ -585,6 +911,10 @@ async fn is_executable(path: &Path) -> bool {
     }
 }
 
+fn path_entries(value: &str) -> Vec<PathBuf> {
+    std::env::split_paths(&OsString::from(value)).collect()
+}
+
 /// Session-name validity is re-exported so the daemon path can reject early.
 pub fn valid_session(name: &str) -> bool {
     session_name_ok(name)
@@ -596,6 +926,31 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
     use std::thread;
+
+    struct CountingSpawnKiller(TestArc<AtomicUsize>);
+
+    impl SpawnKiller for CountingSpawnKiller {
+        fn kill(&self) {
+            self.0.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn failed_spawn_cleanup_keeps_pipe_fallback_eligible() {
+        let lifecycle = SpawnLifecycle::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let first: Arc<dyn SpawnKiller> = Arc::new(CountingSpawnKiller(TestArc::clone(&kills)));
+        assert!(lifecycle.install_killer(first));
+        lifecycle.kill_current();
+        assert_eq!(kills.load(AtomicOrdering::SeqCst), 1);
+        assert!(!lifecycle.is_cancelled());
+
+        let fallback: Arc<dyn SpawnKiller> = Arc::new(CountingSpawnKiller(TestArc::clone(&kills)));
+        assert!(lifecycle.install_killer(fallback));
+        lifecycle.cancel();
+        assert_eq!(kills.load(AtomicOrdering::SeqCst), 2);
+        assert!(lifecycle.is_cancelled());
+    }
 
     #[test]
     fn session_socket_path_matches_core_fallback_order() {
@@ -619,6 +974,17 @@ mod tests {
         let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
             .expect_err("path separator must be rejected");
         assert!(error.contains("invalid session"));
+    }
+
+    #[test]
+    fn path_entries_uses_platform_path_separator() {
+        let value = if cfg!(windows) { r"C:\\tools;D:\\bin" } else { "/opt/tools:/usr/local/bin" };
+        let entries = path_entries(value);
+        if cfg!(windows) {
+            assert_eq!(entries, vec![PathBuf::from(r"C:\tools"), PathBuf::from(r"D:\bin")]);
+        } else {
+            assert_eq!(entries, vec![PathBuf::from("/opt/tools"), PathBuf::from("/usr/local/bin")]);
+        }
     }
 
     #[test]
