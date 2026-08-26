@@ -48,7 +48,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             await inFlight.value
             return
         }
-        let task = Task { [weak self] in await self?.performRefresh(force: force) }
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.performRefresh(force: force)
+        }
         refreshInFlight = task
         await task.value
         refreshInFlight = nil
