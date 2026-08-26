@@ -177,3 +177,61 @@ import Testing
             >= MobileLeadingToolbarTitleWidth.unmeasuredTrailingItemReserve)
     }
 }
+
+extension MobileLeadingToolbarTitleWidthTests {
+    @Test func badgedBackButtonShrinksTheTitle() {
+        // iOS 27 sim dogfood: opening a workspace while another held unread
+        // rendered the chevron + badge back button ~24pt wider than the bare
+        // chevron the reserve assumed, folding the picker into the More menu
+        // from the first pass, invisibly to the recovery ratchet.
+        let bare = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+        let badged = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            backButtonUnreadCount: 3,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+        let wideBadge = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            backButtonUnreadCount: 250,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+
+        #expect(bare.cap - badged.cap
+            == MobileLeadingToolbarTitleWidth.backButtonBadgeReserve)
+        #expect(bare.cap - wideBadge.cap
+            == MobileLeadingToolbarTitleWidth.backButtonWideBadgeReserve)
+    }
+
+    @Test func badgeWithoutBackButtonReservesNothing() {
+        let value = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: false,
+            backButtonUnreadCount: 5,
+            hasTrailingCluster: true,
+            trailingItemCount: 1
+        )
+        let bare = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: false,
+            hasTrailingCluster: true,
+            trailingItemCount: 1
+        )
+
+        #expect(value.cap == bare.cap)
+    }
+}
