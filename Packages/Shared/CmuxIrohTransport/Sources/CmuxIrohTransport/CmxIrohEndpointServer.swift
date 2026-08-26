@@ -62,6 +62,10 @@ public actor CmxIrohEndpointServer {
         let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
+        /// Awaits the transport's own terminal signal for this connection and
+        /// releases the admission slot the moment it fires, so capacity is
+        /// tied to connection liveness rather than to the handler unwinding.
+        let closeWatcherTask: Task<Void, Never>
         let sequence: UInt64
         var isUsable: Bool
     }
@@ -171,6 +175,7 @@ public actor CmxIrohEndpointServer {
         }
         for connection in connections {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(
                 errorCode: 1,
                 reason: "server_stopped"
@@ -352,13 +357,14 @@ public actor CmxIrohEndpointServer {
         let activeForIdentity = activeConnections.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
-        let hasReplaceableConnection = activeConnections.values.contains {
-            $0.remoteIdentity == remoteIdentity && !$0.isUsable
-        }
+        // A TLS-authenticated peer may always run one replacement admission
+        // against its own connections: capacity held by a dead predecessor
+        // must not refuse the redial until the idle timer notices the death.
+        // The reservation is identity-scoped (a stranger has nothing of its
+        // own to replace, so it can never preempt an occupied slot) and is
+        // bounded to one in flight by the pending-per-identity check above.
         let canReserveReplacement = pendingForIdentity == 0
-            && maximumConnectionsPerIdentity > 1
-            && activeForIdentity >= maximumConnectionsPerIdentity
-            && hasReplaceableConnection
+            && activeForIdentity > 0
         let otherPendingCount = pendingAdmissions.count - 1
         guard otherPendingCount + activeConnections.count < maximumConnections
                 || canReserveReplacement else {
@@ -415,9 +421,14 @@ public actor CmxIrohEndpointServer {
         admission.deadlineTask.cancel()
 
         // An authenticated replacement may use the one admission reservation
-        // above the steady identity bound. Reclaim only the oldest connection
-        // that never became application-usable. A known-good session is retired
-        // exclusively by markUsable below.
+        // above the steady identity bound. Reclaim the oldest connection that
+        // never became application-usable; when only usable predecessors
+        // exist (a dead peer's session stays "usable" until the idle timer
+        // notices), admission proceeds one over the bound and markUsable
+        // below retires the predecessor after the replacement proves itself,
+        // so a live session is never torn down for an unproven redial and a
+        // dead one stops pinning capacity. An identity with no connection of
+        // its own can never exceed the bounds.
         let activeForIdentity = activeConnections.filter { _, connection in
             connection.generation == generation
                 && connection.remoteIdentity == remoteIdentity
@@ -429,23 +440,29 @@ public actor CmxIrohEndpointServer {
                 .filter { !$0.value.isUsable }
                 .min { $0.value.sequence < $1.value.sequence }
             : nil
-        if requiresReplacement, replaced == nil {
+        if requiresReplacement, replaced == nil, activeForIdentity.isEmpty {
             return false
         }
         if let replaced {
             activeConnections[replaced.key] = nil
         }
         nextConnectionSequence &+= 1
+        let closeWatcherTask = Task { [weak self] in
+            await connection.waitUntilClosed()
+            await self?.releaseClosedConnection(id)
+        }
         activeConnections[id] = ActiveConnection(
             generation: generation,
             remoteIdentity: remoteIdentity,
             connection: connection,
             handlerTask: admission.handlerTask,
+            closeWatcherTask: closeWatcherTask,
             sequence: nextConnectionSequence,
             isUsable: false
         )
         if let replaced {
             replaced.value.handlerTask.cancel()
+            replaced.value.closeWatcherTask.cancel()
             await replaced.value.connection.close(
                 errorCode: 0,
                 reason: "superseded_unready_connection"
@@ -474,6 +491,7 @@ public actor CmxIrohEndpointServer {
         activeConnections[id] = promoted
         for connection in superseded.values {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(
                 errorCode: 0,
                 reason: "superseded_connection"
@@ -496,12 +514,24 @@ public actor CmxIrohEndpointServer {
         guard let active = activeConnections.removeValue(forKey: id) else {
             return
         }
+        active.closeWatcherTask.cancel()
         if error != nil {
             await active.connection.close(
                 errorCode: 1,
                 reason: "connection_failed"
             )
         }
+    }
+
+    /// Releases the admission slot as soon as the transport reports the
+    /// connection terminal (peer close, transport error, or its own timeout),
+    /// instead of when the handler serving it eventually unwinds.
+    private func releaseClosedConnection(_ id: UUID) {
+        guard let active = activeConnections.removeValue(forKey: id) else {
+            return
+        }
+        active.handlerTask.cancel()
+        active.closeWatcherTask.cancel()
     }
 
     private func timeOutAdmission(_ id: UUID) async {
@@ -539,6 +569,7 @@ public actor CmxIrohEndpointServer {
         for id in active.keys { activeConnections[id] = nil }
         for connection in active.values {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(errorCode: 1, reason: reason)
         }
     }
