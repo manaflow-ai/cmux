@@ -119,6 +119,10 @@ extension AppDelegate {
 
     private func pruneInactiveRecoverableMainWindowRoutes(reason: String) {
         let inactiveRoutes = mainWindowLifecycleCoordinator.orphanedRoutes().filter { route in
+            // A frozen route is intentionally manager-less after its live graph
+            // has been torn down. It remains the retryable persistence owner and
+            // must not be mistaken for an inactive live route by a terminal sweep.
+            guard route.frozenWindowSnapshot == nil else { return false }
             guard let manager = route.tabManager else { return true }
             return !tabManagerCanOwnRecoverableMainWindowRoute(manager)
         }
@@ -775,7 +779,8 @@ extension AppDelegate {
             sidebar: sidebar,
             sidebarSelection: sidebarSelection,
             frozenWindowDockSnapshot: nil,
-            retainTabManager: true
+            retainTabManager: true,
+            retainedWindowDock: windowDock
         )
         guard mainWindowLifecycleCoordinator.rememberStandaloneOrphanedRoute(route) else {
             windowDock?.retire()
@@ -821,7 +826,10 @@ extension AppDelegate {
         let routeManager = route.tabManager
         return route.workspaceIds.filter { workspaceId in
             guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
-                return routeManager == nil
+                // A workspace can be temporarily unindexed while its route still
+                // owns the last live manager. Include it so remote mirrors cannot
+                // outlive the route merely because the ownership index is cold.
+                return true
             }
             return currentOwner === routeManager
         }
@@ -857,6 +865,18 @@ extension AppDelegate {
             return nil
         }
         return (route.windowId, manager)
+    }
+
+    /// Resolves a main-window owner only when the supplied AppKit object is the
+    /// exact registered or recoverable identity. Stable identifiers alone are
+    /// insufficient during duplicate-window cleanup.
+    func mainWindowOwnerIdentity(
+        forExactWindow window: NSWindow
+    ) -> (windowId: UUID, tabManager: TabManager)? {
+        if let context = contextForMainTerminalWindow(window, reindex: false) {
+            return (context.windowId, context.tabManager)
+        }
+        return recoverableMainWindowIdentity(forExactWindow: window)
     }
 
     func ownsMainWindowTabManager(_ tabManager: TabManager) -> Bool {
@@ -1002,9 +1022,13 @@ extension AppDelegate {
         if let windowId = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId {
             return windowId
         }
+        // Windowless live orphans still reserve their manager identity. Callers
+        // that require an AppKit window use `mainWindowRouteSnapshot(windowId:)`.
         guard let route = mainWindowLifecycleCoordinator.orphanedRoutes().first(where: {
             $0.tabManager === tabManager
-        }), recoverableMainWindowRouteSnapshot(for: route) != nil else {
+                && $0.frozenWindowSnapshot == nil
+                && tabManagerCanOwnRecoverableMainWindowRoute(tabManager)
+        }) else {
             return nil
         }
         return route.windowId

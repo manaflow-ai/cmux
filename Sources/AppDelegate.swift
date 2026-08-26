@@ -9876,24 +9876,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
             self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
         }
-        controller.onClose = { [weak self, weak controller] in
+        controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
-            let manager = self.tabManagerForWindowTeardown(windowId: windowId)
+            guard let exactOwner = self.mainWindowOwnerIdentity(forExactWindow: closingWindow),
+                  exactOwner.windowId == windowId else {
+                // A rejected duplicate can share the stable identifier with the
+                // surviving owner. It has no exact route, so it must not clean up
+                // the surviving manager's remote sessions.
+                self.mainWindowControllers.removeAll(where: { $0 === controller })
+                return
+            }
+            let manager = exactOwner.tabManager
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it
             // also closes the app window. A plain window/quit close leaves the marker
             // unset and falls through to detach below (server stays alive for resume).
-            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId),
-               let manager {
+            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(
+                windowId: exactOwner.windowId
+            ) {
                 for workspace in manager.tabs where workspace.isRemoteTmuxMirror {
                     self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
                 }
             }
-            if let manager {
-                self.remoteTmuxController.handleWindowWorkspacesClosed(
-                    workspaceIds: manager.tabs.map { $0.id }
-                )
-            }
+            self.remoteTmuxController.handleWindowWorkspacesClosed(
+                workspaceIds: manager.tabs.map { $0.id }
+            )
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] candidateWindow in

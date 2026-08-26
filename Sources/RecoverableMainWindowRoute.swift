@@ -10,6 +10,7 @@ final class RecoverableMainWindowRoute {
     private weak var weakTabManager: TabManager?
     private var retainedTabManager: TabManager?
     private var retainedContext: AppDelegate.MainWindowContext?
+    private var retainedWindowDock: DockSplitStore?
     var tabManager: TabManager? {
         retainedContext?.tabManager ?? retainedTabManager ?? weakTabManager
     }
@@ -35,6 +36,9 @@ final class RecoverableMainWindowRoute {
     var windowDock: MainWindowRouteDockState? {
         if let dock = retainedContext?.existingWindowDock() {
             return .live(dock)
+        }
+        if let retainedWindowDock, !retainedWindowDock.isRetired {
+            return .live(retainedWindowDock)
         }
         return frozenWindowDockSnapshot.map { .frozen($0) }
     }
@@ -71,12 +75,14 @@ final class RecoverableMainWindowRoute {
         sidebar: SidebarState,
         sidebarSelection: SidebarSelectionState,
         frozenWindowDockSnapshot: SessionSplitContainerSnapshot?,
-        retainTabManager: Bool
+        retainTabManager: Bool,
+        retainedWindowDock: DockSplitStore? = nil
     ) {
         self.windowId = windowId
         workspaceIds = tabManager.tabs.map(\.id)
         weakTabManager = tabManager
         retainedTabManager = retainTabManager ? tabManager : nil
+        self.retainedWindowDock = retainedWindowDock
         self.window = window
         payload = .live(
             sidebar: sidebar,
@@ -99,8 +105,14 @@ final class RecoverableMainWindowRoute {
     }
 
     func markForTeardown() {
+        let contextDock = retainedContext?.existingWindowDock()
         retainedContext?.teardownWindowDock()
         retainedContext = nil
+        if let retainedWindowDock,
+           retainedWindowDock !== contextDock {
+            retainedWindowDock.retire()
+        }
+        retainedWindowDock = nil
         retainedTabManager = nil
         payload = .teardown
         closeObserver = nil
