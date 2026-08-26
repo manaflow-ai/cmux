@@ -193,10 +193,6 @@ struct TerminalPointerStyleStateTests {
             GHOSTTY_MOUSE_SHAPE_HELP,
             runtimeLifetimeId: runtimeLifetimeId
         ))
-        state.apply(.ghosttyLinkHoverChanged(
-            false,
-            runtimeLifetimeId: runtimeLifetimeId
-        ))
 
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }

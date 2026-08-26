@@ -125,7 +125,7 @@ public struct TerminalPointerStyleState {
                 // matching empty-link action arrives. If no link action is
                 // emitted, preserve a persistent OSC 22 pointer.
                 if ghosttyShape == GHOSTTY_MOUSE_SHAPE_POINTER,
-                   isGhosttyLinkHoverDetected {
+                   !isGhosttyLinkHoverDetected {
                     pendingUnsupportedBaseAfterPointer = true
                 }
                 return false

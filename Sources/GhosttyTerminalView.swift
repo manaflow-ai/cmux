@@ -3743,7 +3743,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // pointer position. A stationary pointer otherwise may be treated as
         // a duplicate and produce no fresh shape/link callback.
         ghostty_surface_mouse_pos(surface, -1, -1, hoverMods)
-        guard let point = preferredPointerPoint() else { return true }
+        guard let point = currentMousePointInView(),
+              pointIsUsableForWordResolution(point) else {
+            return true
+        }
         ghostty_surface_mouse_pos(
             surface,
             point.x,
