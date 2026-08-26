@@ -216,6 +216,12 @@ final class ShortcutPrefixChordCoordinator {
         event: NSEvent
     ) -> Bool {
         guard let owner else { return false }
+        guard let recordedSuffix = ShortcutStroke.from(
+            event: event,
+            requireModifier: false
+        ) else {
+            return false
+        }
         let now = ProcessInfo.processInfo.systemUptime
         let eventWindowID = windowID(for: event)
         let eligible = bindings(for: event, owner: owner)
@@ -232,7 +238,7 @@ final class ShortcutPrefixChordCoordinator {
             return false
         }
         let result = verifier.handle(
-            stroke: binding.secondStroke,
+            stroke: recordedSuffix.cmuxSettingsShortcutStroke,
             now: now + 0.001,
             windowID: eventWindowID,
             bindings: eligible

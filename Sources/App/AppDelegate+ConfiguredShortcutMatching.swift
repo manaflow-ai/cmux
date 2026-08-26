@@ -31,6 +31,10 @@ extension AppDelegate {
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
+        if let resolvedActionID = activeResolvedPrefixChordActionID,
+           resolvedActionID != action.rawValue {
+            return false
+        }
         guard shortcutWhenClauseAllows(action: action, event: event) else {
             return false
         }

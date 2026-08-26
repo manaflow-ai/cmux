@@ -877,6 +877,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    /// Temporarily constrains the legacy dispatcher while a router-selected
+    /// prefix binding is being executed, so unrelated action branches cannot
+    /// consume the suffix first.
+    var activeResolvedPrefixChordActionID: String?
     lazy var shortcutPrefixChordCoordinator = ShortcutPrefixChordCoordinator(owner: self)
     // Eager initialization is intentional: SwiftUI checklist views read this
     // registry while evaluating `body`. A lazy property would mutate the
@@ -14324,6 +14328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        let isResolvedPrefixChord = activeResolvedPrefixChordActionID != nil
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
         if !isPlainEscape {
@@ -14337,9 +14342,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
-        let commandPalettePendingOpenInTargetWindow = commandPaletteTargetWindow.map {
-            isCommandPalettePendingOpen(for: $0)
-        } ?? false
+        let commandPalettePendingOpenInTargetWindow = !isResolvedPrefixChord
+            && (commandPaletteTargetWindow.map {
+                isCommandPalettePendingOpen(for: $0)
+            } ?? false)
         let commandPaletteOverlayVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteOverlayPresented(in: $0)
         } ?? false
@@ -14347,9 +14353,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isCommandPaletteResponderActive(in: $0)
         } ?? false
         let commandPaletteInteractiveInTargetWindow =
-            commandPaletteVisibleInTargetWindow
+            !isResolvedPrefixChord
+            && (commandPaletteVisibleInTargetWindow
             || commandPaletteOverlayVisibleInTargetWindow
-            || commandPaletteResponderActiveInTargetWindow
+            || commandPaletteResponderActiveInTargetWindow)
         let commandPaletteEffectiveInTargetWindow =
             commandPaletteInteractiveInTargetWindow
             || commandPalettePendingOpenInTargetWindow
@@ -14588,23 +14595,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let globalSearchShortcut = globalSearchShortcutForRouting()
-        let matchesGlobalSearchShortcut = matchGlobalSearchShortcut(
-            event: event,
-            normalizedFlags: normalizedFlags
-        )
+        let resolvedGlobalSearch = activeResolvedPrefixChordActionID
+            == KeyboardShortcutSettings.Action.globalSearch.rawValue
+        let matchesGlobalSearchShortcut =
+            (!isResolvedPrefixChord || resolvedGlobalSearch)
+            && matchGlobalSearchShortcut(
+                event: event,
+                normalizedFlags: normalizedFlags
+            )
         let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
+            isCommandPaletteVisible: isResolvedPrefixChord
+                ? false
+                : commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
         )
         let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
         let globalSearchUnarmedChordPrefixMatches = matchesUnarmedGlobalSearchChordPrefix(event, normalizedFlags: normalizedFlags)
-        switch routeVisibleGlobalSearchShortcut(event, normalizedFlags: normalizedFlags) {
-        case .handled:
-            return true
-        case .queryOwnsEvent:
-            return false
-        case .notApplicable:
-            break
+        if !isResolvedPrefixChord || resolvedGlobalSearch {
+            switch routeVisibleGlobalSearchShortcut(event, normalizedFlags: normalizedFlags) {
+            case .handled:
+                return true
+            case .queryOwnsEvent:
+                return false
+            case .notApplicable:
+                break
+            }
         }
         if matchesGlobalSearchShortcut,
            activeConfiguredShortcutChordPrefixForCurrentEvent != nil
@@ -14638,13 +14653,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // When the notifications popover is open, Escape should dismiss it immediately.
-        if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
+        if !isResolvedPrefixChord,
+           flags.isEmpty,
+           event.keyCode == 53,
+           titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true
         }
 
         // When the notifications popover is showing an empty state, consume plain typing
         // so key presses do not leak through into the focused terminal.
-        if flags.isDisjoint(with: [.command, .control, .option]),
+        if !isResolvedPrefixChord,
+           flags.isDisjoint(with: [.command, .control, .option]),
            titlebarAccessoryController.isNotificationsPopoverShown(),
            (notificationStore?.notifications.isEmpty ?? false) {
             return true
@@ -14655,7 +14674,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event) &&
             numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil
 
-        if !canvasSurfaceDigitShortcutIsActive,
+        if !isResolvedPrefixChord,
+           !canvasSurfaceDigitShortcutIsActive,
            let mode = rightSidebarModeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow,
            shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
@@ -14678,14 +14698,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        if handleFocusedFileExplorerOpenSelectionShortcut(
-            event,
-            preferredWindow: mainWindowForShortcutEvent(event) ?? resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
-        ) {
+        let resolvedFileExplorerAction = activeResolvedPrefixChordActionID == KeyboardShortcutSettings.Action.fileExplorerOpenSelection.rawValue
+            || activeResolvedPrefixChordActionID == KeyboardShortcutSettings.Action.fileExplorerOpenSelectionFinderAlias.rawValue
+        if (!isResolvedPrefixChord || resolvedFileExplorerAction),
+           handleFocusedFileExplorerOpenSelectionShortcut(
+               event,
+               preferredWindow: mainWindowForShortcutEvent(event) ?? resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
+           ) {
             return true
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
-        if handleSimulatorShortcutRouting(event) { return true }
+        if (!isResolvedPrefixChord || activeResolvedPrefixChordActionID?.hasPrefix("simulator") == true),
+           handleSimulatorShortcutRouting(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             if performFocusedDockShortcut(
                 .startFind,
@@ -14717,7 +14741,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         // Chrome-like omnibar navigation while holding Ctrl+N / Ctrl+P.
-        if let delta = controlOmnibarSelectionDelta(
+        if !isResolvedPrefixChord,
+           let delta = controlOmnibarSelectionDelta(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: flags,
             chars: chars
@@ -14732,7 +14757,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let delta = browserOmnibarSelectionDeltaForArrowNavigation(
+        if !isResolvedPrefixChord,
+           let delta = browserOmnibarSelectionDeltaForArrowNavigation(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: event.modifierFlags,
             keyCode: event.keyCode
@@ -14746,6 +14772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, most plain key events have no app-level shortcut behavior.
         if !isResolvedSystemDefinedChord,
+           !isResolvedPrefixChord,
            shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
             return false
         }
@@ -14818,7 +14845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if handleSavedLayoutShortcut(event) { return true }
+        if !isResolvedPrefixChord, handleSavedLayoutShortcut(event) { return true }
 
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
@@ -14847,11 +14874,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if handleConfiguredCmuxShortcut(
-            event: event,
-            actions: configuredCmuxShortcutActions,
-            context: configuredCmuxShortcutContext
-        ) {
+        if !isResolvedPrefixChord,
+           handleConfiguredCmuxShortcut(
+               event: event,
+               actions: configuredCmuxShortcutActions,
+               context: configuredCmuxShortcutContext
+           ) {
             return true
         }
 
@@ -15003,7 +15031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if handleAdjacentNavigationShortcut(event: event) { return true }
+        if !isResolvedPrefixChord, handleAdjacentNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             if performFocusedDockShortcut(

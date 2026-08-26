@@ -43,9 +43,9 @@ extension ShortcutListModel {
         let generation = prefixWriteGeneration
         let previous = prefix
         prefix = normalized
+        pendingWriteGeneration += 1
         let rebasingGeneration: Int?
         if firstStroke != nil {
-            pendingWriteGeneration += 1
             rebasingGeneration = pendingWriteGeneration
         } else {
             rebasingGeneration = nil
@@ -75,15 +75,26 @@ extension ShortcutListModel {
             if let firstStroke, let rebasingGeneration {
                 rebasedSnapshot = try await persistRebasedChordBindings(
                     to: firstStroke,
-                    generation: rebasingGeneration
+                    generation: rebasingGeneration,
+                    prefixGeneration: generation
                 )
             }
-            guard prefixWriteGeneration == generation else { return }
+            guard prefixWriteGeneration == generation else {
+                if let rebasedSnapshot {
+                    await restoreRebasedChordBindings(rebasedSnapshot)
+                }
+                return
+            }
             try await jsonStore.set(normalized, for: catalog.shortcuts.prefix)
             let committed = ShortcutPrefixPolicy().normalized(
                 await jsonStore.value(for: catalog.shortcuts.prefix)
             ) ?? .unbound
-            guard prefixWriteGeneration == generation else { return }
+            guard prefixWriteGeneration == generation else {
+                if let rebasedSnapshot {
+                    await restoreRebasedChordBindings(rebasedSnapshot)
+                }
+                return
+            }
             if let rebasedSnapshot {
                 await finalizeLegacyRebasedChords(rebasedSnapshot)
             }
@@ -96,7 +107,12 @@ extension ShortcutListModel {
                 prefixRejection = .chordConflict
                 return
             }
-            guard prefixWriteGeneration == generation else { return }
+            guard prefixWriteGeneration == generation else {
+                if let rebasedSnapshot {
+                    await restoreRebasedChordBindings(rebasedSnapshot)
+                }
+                return
+            }
             if let rebasedSnapshot {
                 await restoreRebasedChordBindings(rebasedSnapshot)
             }
@@ -115,6 +131,7 @@ extension ShortcutListModel {
         let generation = prefixWriteGeneration
         let previous = prefix
         prefix = .unbound
+        pendingWriteGeneration += 1
         let request = enqueueShortcutPersistence { [weak self] in
             await self?.persistResetPrefix(previous: previous, generation: generation)
         }
@@ -144,7 +161,8 @@ extension ShortcutListModel {
     /// existing chord reachable even when prefix edits overlap.
     private func persistRebasedChordBindings(
         to firstStroke: ShortcutStroke,
-        generation: Int
+        generation: Int,
+        prefixGeneration: UInt64
     ) async throws -> RebasedChordSnapshot? {
         // Read the snapshot at execution time, after all earlier queued
         // mutations have landed. The model cache may still be cold or waiting
@@ -162,6 +180,7 @@ extension ShortcutListModel {
             guard let second = shortcut.second else { continue }
             rebased[actionID] = StoredShortcut(first: firstStroke, second: second)
         }
+        guard prefixWriteGeneration == prefixGeneration else { return nil }
         guard rebased != current else {
             // A prefix request still advances the binding generation so it
             // orders behind any already-issued binding write. If that write
@@ -220,12 +239,26 @@ extension ShortcutListModel {
             // that the snapshot decoder intentionally retains as managed.
             for actionID in rebased.keys.sorted()
                 where rebased[actionID] != current[actionID] {
+                guard prefixWriteGeneration == prefixGeneration else {
+                    await restoreRebasedChordBindings(
+                        rebasedSnapshot,
+                        actionIDs: appliedActionIDs
+                    )
+                    return nil
+                }
                 let key = JSONKey<StoredShortcut>(
                     id: "\(catalog.shortcuts.bindings.id).\(actionID)",
                     defaultValue: .unbound
                 )
                 try await jsonStore.set(rebased[actionID] ?? .unbound, for: key)
                 appliedActionIDs.append(actionID)
+            }
+            guard prefixWriteGeneration == prefixGeneration else {
+                await restoreRebasedChordBindings(
+                    rebasedSnapshot,
+                    actionIDs: appliedActionIDs
+                )
+                return nil
             }
             guard pendingWriteGeneration == generation else { return rebasedSnapshot }
             let committed = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)

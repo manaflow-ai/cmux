@@ -27,6 +27,10 @@ extension AppDelegate {
             return false
         }
 
+        let previousResolvedActionID = activeResolvedPrefixChordActionID
+        activeResolvedPrefixChordActionID = binding.actionID
+        defer { activeResolvedPrefixChordActionID = previousResolvedActionID }
+
         // Config-defined actions have their own resolved executor (including
         // trust prompts and workspace/terminal command targets). Dispatch
         // directly when the id is not a built-in ShortcutAction, avoiding a
