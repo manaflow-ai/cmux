@@ -95,7 +95,10 @@ public final class SidebarDragState {
             dragImage: dragImage,
             capabilityValue: session.pasteboardValue
         ) else {
-            workspaceDragRegistry.end(sessionId: session.id)
+            workspaceDragRegistry.nativeDraggingSessionDidEnd(
+                sessionId: session.id,
+                capabilityValue: session.pasteboardValue
+            )
             clearPresentation()
             return false
         }
