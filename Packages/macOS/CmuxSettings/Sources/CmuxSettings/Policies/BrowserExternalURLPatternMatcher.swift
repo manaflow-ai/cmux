@@ -2,6 +2,8 @@ import Foundation
 
 /// Normalizes URL rules and evaluates them with bounded, precompiled matchers.
 struct BrowserExternalURLPatternMatcher: Sendable {
+    private let maximumTargetLength = 16_384
+    private let maximumMatchOperations = 1_000_000
     /// The largest number of rules retained by one policy snapshot.
     private let maximumPatternCount = 256
     /// The largest number of array elements inspected by one policy snapshot.
@@ -41,7 +43,25 @@ struct BrowserExternalURLPatternMatcher: Sendable {
 
     /// Returns whether one of the precompiled rules matches `target`.
     func matches(_ target: String) -> Bool {
-        compiledPatterns.contains { $0.matches(target) }
+        guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
+            return false
+        }
+
+        let normalizedTarget = compiledPatterns.contains(where: \.requiresNormalizedTarget)
+            ? target.lowercased().map(String.init)
+            : []
+        var operationBudget = maximumMatchOperations
+        for pattern in compiledPatterns {
+            if pattern.matches(
+                target,
+                normalizedTarget: normalizedTarget,
+                operationBudget: &operationBudget
+            ) {
+                return true
+            }
+            guard operationBudget >= 0 else { return false }
+        }
+        return false
     }
 
     /// Converts a legacy array value to the newline text expected by Settings.

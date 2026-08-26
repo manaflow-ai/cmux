@@ -2,8 +2,7 @@ import Foundation
 
 /// Matches `*` and `?` URL rules in linear time without regex backtracking.
 struct BrowserExternalURLWildcardPattern: Sendable {
-    private let maximumPatternLength = 256
-    private let maximumMatchOperations = 1_000_000
+    private let maximumPatternLength = 4096
     private let tokens: [BrowserExternalURLWildcardToken]
 
     /// Parses one glob, preserving backslash-escaped wildcard characters.
@@ -63,17 +62,18 @@ struct BrowserExternalURLWildcardPattern: Sendable {
     }
 
     /// Returns whether the glob matches `target` using a bounded greedy scan.
-    func matches(_ target: String) -> Bool {
-        let characters = target.lowercased().map(String.init)
+    func matches(
+        _ characters: [String],
+        operationBudget: inout Int
+    ) -> Bool {
         var tokenIndex = 0
         var characterIndex = 0
         var lastStarIndex: Int?
         var starMatchIndex = 0
-        var operations = 0
 
         while characterIndex < characters.count {
-            operations += 1
-            guard operations <= maximumMatchOperations else { return false }
+            operationBudget -= 1
+            guard operationBudget >= 0 else { return false }
             if tokenIndex < tokens.count,
                tokens[tokenIndex].kind != 0,
                tokenMatches(tokens[tokenIndex], character: characters[characterIndex]) {

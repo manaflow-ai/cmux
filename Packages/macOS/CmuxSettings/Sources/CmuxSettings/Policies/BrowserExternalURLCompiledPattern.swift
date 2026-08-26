@@ -2,7 +2,6 @@ import Foundation
 
 /// Stores one URL rule's bounded compiled representation.
 struct BrowserExternalURLCompiledPattern: Sendable {
-    private let maximumTargetLength = 16_384
     private let literalPattern: String?
     private let literalFallbackPattern: String?
     private let wildcardPattern: BrowserExternalURLWildcardPattern?
@@ -43,12 +42,17 @@ struct BrowserExternalURLCompiledPattern: Sendable {
         regex = nil
     }
 
-    func matches(_ target: String) -> Bool {
-        guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
-            return false
-        }
+    var requiresNormalizedTarget: Bool {
+        wildcardPattern != nil
+    }
+
+    func matches(
+        _ target: String,
+        normalizedTarget: [String],
+        operationBudget: inout Int
+    ) -> Bool {
         if let wildcardPattern {
-            return wildcardPattern.matches(target)
+            return wildcardPattern.matches(normalizedTarget, operationBudget: &operationBudget)
         }
         if let literalPattern {
             return target.range(of: literalPattern, options: [.caseInsensitive]) != nil
