@@ -50,7 +50,7 @@ import {
   type CloudVmRow,
   type VmRepositoryShape,
 } from "./repository";
-import { bestEffort, reportBestEffortFailure } from "./bestEffort";
+import { bestEffort, reportBestEffortFailure, type BestEffortContext } from "./bestEffort";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
 export type VmEntry = {
@@ -307,74 +307,43 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        homeVolume: input.perMachineHome
-          ? homeVolumeTemplateForUser(input.userId)
-          : input.persistentHome
-            ? homeVolumeNameForUser(input.userId)
-            : undefined,
-        memoryMb: input.memoryMb,
-      }),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
-            id: create.vm.id,
-            code: err.operation,
-            message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause) },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
-
-    const running = yield* measureVmEffect(
-      input.timing,
-      "mark_running",
-      repo.markCreateRunning({
-        id: create.vm.id,
-        providerVmId: handle.providerVmId,
-        image: handle.image,
-        imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
-      }),
-    ).pipe(
-      Effect.catchAll((err) =>
-        Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-          yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markCreateFailed({
-            id: create.vm.id,
-            code: "database_finalize_failed",
-            message: "Cloud VM state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            input,
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
-          return yield* Effect.fail(err);
+    const running = yield* compensated({
+      createHandle: measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+          homeVolume: input.perMachineHome
+            ? homeVolumeTemplateForUser(input.userId)
+            : input.persistentHome
+              ? homeVolumeNameForUser(input.userId)
+              : undefined,
+          memoryMb: input.memoryMb,
         }),
       ),
-    );
+      finalize: (handle) =>
+        measureVmEffect(
+          input.timing,
+          "mark_running",
+          repo.markCreateRunning({
+            id: create.vm.id,
+            providerVmId: handle.providerVmId,
+            image: handle.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+          }),
+        ),
+      destroyOrphan: (handle) => providers.destroy(input.provider, handle.providerVmId),
+      refund: refundCredit(billing, repo, create.vm, creditReservation),
+      markFailed: (failure) =>
+        repo.markCreateFailed({ id: create.vm.id, code: failure.code, message: failure.message }),
+      createFailureEvent: (failure) =>
+        recordCreateFailureEvent(repo, input, create.vm, failure.code, failure.message),
+      finalizeFailureMessage: "Cloud VM state update failed.",
+      context: { vmId: create.vm.id, provider: input.provider },
+    });
 
     yield* recordCreateSuccessEvents(repo, input, running);
 
@@ -495,83 +464,70 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-      }),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markBaseCreateFailed({
+    const running = yield* compensated({
+      createHandle: measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        }),
+      ),
+      finalize: (handle) =>
+        measureVmEffect(
+          input.timing,
+          "mark_base_running",
+          repo.markBaseCreateRunning({
             baseId: create.base.id,
             generation: create.generation.generation,
             vmId: create.vm.id,
+            providerVmId: handle.providerVmId,
+            image: handle.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
             userId: input.userId,
-            code: err.operation,
-            message: errorMessage(err.cause),
           }),
-          repo.recordUsageEvent({
+        ),
+      destroyOrphan: (handle) => providers.destroy(input.provider, handle.providerVmId),
+      refund: refundCredit(billing, repo, create.vm, creditReservation),
+      markFailed: (failure) =>
+        repo.markBaseCreateFailed({
+          baseId: create.base.id,
+          generation: create.generation.generation,
+          vmId: create.vm.id,
+          userId: input.userId,
+          code: failure.code,
+          message: failure.message,
+        }),
+      createFailureEvent: (failure) =>
+        repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          billingPlanId: input.billingPlanId,
+          vmId: create.vm.id,
+          eventType: "vm.base.create.failed",
+          provider: input.provider,
+          imageId: input.image,
+          metadata: { operation: failure.code, message: failure.message, baseName: input.baseName ?? "base" },
+        }),
+      finalizeFailureEvent: (failure) =>
+        recordCreateFailureEvent(
+          repo,
+          {
             userId: input.userId,
             billingTeamId: input.billingTeamId,
             billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.base.create.failed",
             provider: input.provider,
-            imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
-
-    const running = yield* measureVmEffect(
-      input.timing,
-      "mark_base_running",
-      repo.markBaseCreateRunning({
-        baseId: create.base.id,
-        generation: create.generation.generation,
-        vmId: create.vm.id,
-        providerVmId: handle.providerVmId,
-        image: handle.image,
-        imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
-        userId: input.userId,
-      }),
-    ).pipe(
-      Effect.catchAll((err) =>
-        Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-          yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markBaseCreateFailed({
-            baseId: create.base.id,
-            generation: create.generation.generation,
-            vmId: create.vm.id,
-            userId: input.userId,
-            code: "database_finalize_failed",
-            message: "Cloud VM Base state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            {
-              userId: input.userId,
-              billingTeamId: input.billingTeamId,
-              billingPlanId: input.billingPlanId,
-              provider: input.provider,
-              image: input.image,
-            },
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
-          return yield* Effect.fail(err);
-        }),
-      ),
-    );
+            image: input.image,
+          },
+          create.vm,
+          failure.code,
+          failure.message,
+        ),
+      finalizeFailureMessage: "Cloud VM Base state update failed.",
+      context: { vmId: create.vm.id, provider: input.provider },
+    });
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey }, running);
     yield* repo.recordUsageEvent({
@@ -789,70 +745,56 @@ export function forkVm(input: {
         timing: input.timing,
       }, create.vm, creditReservation);
 
-      const handle = yield* measureVmEffect(
-        input.timing,
-        "provider_create",
-        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
-      ).pipe(
-        Effect.tapError((err) =>
-          Effect.all([
-            refundCredit(billing, repo, create.vm, creditReservation),
-            repo.markCreateFailed({
+      const running = yield* compensated({
+        createHandle: measureVmEffect(
+          input.timing,
+          "provider_create",
+          providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+        ),
+        finalize: (handle) =>
+          measureVmEffect(
+            input.timing,
+            "mark_running",
+            repo.markCreateRunning({
               id: create.vm.id,
-              code: err.operation,
-              message: errorMessage(err.cause),
+              providerVmId: handle.providerVmId,
+              image: source.imageId,
+              imageVersion: source.imageVersion,
+              providerMetadata: handle.providerMetadata ?? source.providerMetadata,
             }),
-            repo.recordUsageEvent({
+          ),
+        destroyOrphan: (handle) => providers.destroy(source.provider, handle.providerVmId),
+        refund: refundCredit(billing, repo, create.vm, creditReservation),
+        markFailed: (failure) =>
+          repo.markCreateFailed({ id: create.vm.id, code: failure.code, message: failure.message }),
+        createFailureEvent: (failure) =>
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.failed",
+            provider: source.provider,
+            imageId: source.imageId,
+            metadata: { operation: failure.code, message: failure.message, sourceProviderVmId: source.providerVmId },
+          }),
+        finalizeFailureEvent: (failure) =>
+          recordCreateFailureEvent(
+            repo,
+            {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
-              vmId: create.vm.id,
-              eventType: "vm.create.failed",
               provider: source.provider,
-              imageId: source.imageId,
-              metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
-            }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-        ),
-      );
-
-      const running = yield* measureVmEffect(
-        input.timing,
-        "mark_running",
-        repo.markCreateRunning({
-          id: create.vm.id,
-          providerVmId: handle.providerVmId,
-          image: source.imageId,
-          imageVersion: source.imageVersion,
-          providerMetadata: handle.providerMetadata ?? source.providerMetadata,
-        }),
-      ).pipe(
-        Effect.catchAll((err) =>
-          Effect.gen(function* () {
-            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-            yield* refundCredit(billing, repo, create.vm, creditReservation);
-            yield* repo.markCreateFailed({
-              id: create.vm.id,
-              code: "database_finalize_failed",
-              message: "Cloud VM fork state update failed.",
-            }).pipe(Effect.catchAll(() => Effect.void));
-            yield* recordCreateFailureEvent(
-              repo,
-              {
-                userId: input.userId,
-                billingTeamId: input.billingTeamId,
-                billingPlanId: input.billingPlanId,
-                provider: source.provider,
-                image: source.imageId,
-              },
-              create.vm,
-              "database_finalize_failed",
-              errorMessage(err.cause),
-            ).pipe(Effect.catchAll(() => Effect.void));
-            return yield* Effect.fail(err);
-          }),
-        ),
-      );
+              image: source.imageId,
+            },
+            create.vm,
+            failure.code,
+            failure.message,
+          ),
+        finalizeFailureMessage: "Cloud VM fork state update failed.",
+        context: { vmId: create.vm.id, provider: source.provider },
+      });
 
       yield* recordCreateSuccessEvents(repo, input, running);
       const fork = vmEntryFromRow(running);
@@ -2229,6 +2171,83 @@ function recordGrantEvent(
       customerType: grant.customerType,
       customerIdSet: !!grant.customerId,
     },
+  });
+}
+
+type CreateCompensationFailure = {
+  readonly code: string;
+  readonly message: string;
+};
+
+type CompensatedCreateInput<H> = {
+  /** Provider-side create (or fork) that allocates the paid VM. */
+  readonly createHandle: Effect.Effect<H, VmProviderOperationError>;
+  /** Durable finalize write; failing it orphans the provider VM. */
+  readonly finalize: (handle: H) => Effect.Effect<CloudVmRow, VmDatabaseError>;
+  /** Destroys the provider VM that finalize failed to record. */
+  readonly destroyOrphan: (handle: H) => Effect.Effect<void, VmProviderOperationError>;
+  /** Refund of the reserved create credit (already best-effort). */
+  readonly refund: Effect.Effect<void, never>;
+  readonly markFailed: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  readonly createFailureEvent: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  /** Base records a different event type per stage; defaults to createFailureEvent. */
+  readonly finalizeFailureEvent?: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  /** Durable failure message when the finalize write fails (user-facing). */
+  readonly finalizeFailureMessage: string;
+  readonly context: BestEffortContext;
+};
+
+/**
+ * The shared create-fail-refund-markFailed-usage-event compensation used by
+ * createVm, finishBaseCreate, and forkVm. Every compensation step is
+ * best-effort (reported, never masking the original failure) and the
+ * original error always propagates to the caller.
+ */
+function compensated<H>(
+  input: CompensatedCreateInput<H>,
+): Effect.Effect<CloudVmRow, VmProviderOperationError | VmDatabaseError> {
+  const compensate = (
+    markFailure: CreateCompensationFailure,
+    eventFailure: CreateCompensationFailure,
+    eventFor: (failure: CreateCompensationFailure) => Effect.Effect<unknown, VmWorkflowError>,
+    orphanedHandle?: H,
+  ): Effect.Effect<void, never> =>
+    Effect.gen(function* () {
+      if (orphanedHandle !== undefined) {
+        yield* input.destroyOrphan(orphanedHandle).pipe(
+          bestEffort("provider_destroy_rollback", input.context),
+        );
+      }
+      yield* input.refund;
+      yield* input.markFailed(markFailure).pipe(bestEffort("mark_create_failed", input.context));
+      yield* eventFor(eventFailure).pipe(
+        bestEffort("usage_event.vm.create.failed", input.context),
+      );
+    });
+
+  return Effect.gen(function* () {
+    const handle = yield* input.createHandle.pipe(
+      Effect.tapError((err) => {
+        const failure = { code: err.operation, message: errorMessage(err.cause) };
+        return compensate(failure, failure, input.createFailureEvent);
+      }),
+    );
+    return yield* input.finalize(handle).pipe(
+      Effect.tapError((err) =>
+        compensate(
+          { code: "database_finalize_failed", message: input.finalizeFailureMessage },
+          { code: "database_finalize_failed", message: errorMessage(err.cause) },
+          input.finalizeFailureEvent ?? input.createFailureEvent,
+          handle,
+        )
+      ),
+    );
   });
 }
 
