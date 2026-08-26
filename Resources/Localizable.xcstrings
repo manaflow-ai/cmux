@@ -54117,6 +54117,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.inputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.recovered": {
       "extractionState": "manual",
       "localizations": {
@@ -55560,6 +55577,23 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s). Input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.reconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -55628,6 +55662,40 @@
         }
       }
     },
+    "cli.sshPtyAttach.flushInputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal SSH input flush does not accept arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部 SSH 入力フラッシュは引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.flushInputFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルの入力を安全に破棄できませんでした。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
       "extractionState": "manual",
       "localizations": {
@@ -55692,6 +55760,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputGuardFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be protected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を保護できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
