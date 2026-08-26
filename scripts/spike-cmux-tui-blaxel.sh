@@ -40,6 +40,7 @@ while (( $# )); do
   shift
 done
 [[ -n "$NAME" ]] || { echo "--name is required" >&2; exit 64; }
+[[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "--name must be a single path component" >&2; exit 64; }
 case "$cmd" in up|evidence|attach|destroy) ;; *) sed -n '3,12p' "$0"; exit 64 ;; esac
 
 if [[ -z "${BL_API_KEY:-}" && -r "$HOME/.secrets/blaxel.env" ]]; then
@@ -161,9 +162,10 @@ up)
     fi
     sleep 2
   done
+  [[ -n "${invitation_id:-}" ]] || { echo "enrollment was never requested; see $STATE_ROOT/connect.log" >&2; exit 1; }
 
   echo "==> done. attach interactively with:"
-  echo "    CMUX_REMOTE_STATE_DIR=$CLIENT_STATE $CLIENT remote connect '$(route)'"
+  echo "    $0 attach --name $NAME"
   ;;
 
 evidence)
@@ -180,7 +182,8 @@ evidence)
   sleep 1
   printf '%s\n' "{\"type\":\"snapshot-process-terminal\",\"process\":\"$proc\"}" | rpc > "$STATE_ROOT/snapshot-before.json"
 
-  echo "==> new connection (previous rpc connections are gone), write again, snapshot"
+  echo "==> SIGKILL the enrollment-era client link, connect fresh, write again, snapshot"
+  [[ -s "$STATE_ROOT/connect.pid" ]] && kill -9 "$(cat "$STATE_ROOT/connect.pid")" 2>/dev/null || true
   data2="$(printf 'echo RECONNECTED-AFTER-DROP\n' | base64)"
   { printf '%s\n' "{\"type\":\"write-process\",\"process\":\"$proc\",\"write_id\":2,\"data\":\"$data2\",\"eof\":false}"; sleep 1; \
     printf '%s\n' "{\"type\":\"snapshot-process-terminal\",\"process\":\"$proc\"}"; } | rpc > "$STATE_ROOT/snapshot-after.json"

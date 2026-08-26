@@ -34,6 +34,7 @@ while (( $# )); do
   shift
 done
 [[ -n "$NAME" ]] || { echo "--name is required" >&2; exit 64; }
+[[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "--name must be a single path component" >&2; exit 64; }
 case "$cmd" in up|evidence|attach|down) ;; *) sed -n '7,12p' "$0"; exit 64 ;; esac
 
 BIN="${BINARY:-${CMUX_TUI_BIN:-$REPO_ROOT/cmux-tui/target/debug/cmux-tui}}"
