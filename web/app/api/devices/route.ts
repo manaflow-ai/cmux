@@ -29,7 +29,6 @@ import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
-import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
@@ -119,15 +118,26 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
 
 /**
  * Keep only structurally valid route entries (a plain object), bounded by
- * `MAX_ROUTES`. Legacy route semantics remain client-owned so the server stays
- * forward-compatible with non-Iroh route kinds. Iroh entries cross the stricter
- * publication policy after this structural bound.
+ * `MAX_ROUTES`. Route semantics remain client-owned so the server stays
+ * forward-compatible with new route kinds: entries pass through opaque.
  */
 function routesArray(value: unknown): unknown[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry))
     .slice(0, MAX_ROUTES);
+}
+
+/**
+ * Server-side route publication policy. The retired iroh transport is gone, so
+ * any `kind: "iroh"` entry an old client still publishes is dropped before the
+ * routes jsonb is stored or served (it could carry private direct-address path
+ * hints). Every other kind passes through unchanged.
+ */
+function dropIrohRoutes(routes: readonly unknown[]): unknown[] {
+  return routes.filter(
+    (entry) => (entry as Record<string, unknown>).kind !== "iroh",
+  );
 }
 
 
@@ -168,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
   const { manual: _ignoredManualLabel, ...labels } = rawLabels;
   void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
-  const routes = sanitizeServerPublishedRoutes(routesArray(body.value.routes));
+  const routes = dropIrohRoutes(routesArray(body.value.routes));
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);
   // `manual: true` marks a user-initiated remote added through the cmux CLI
   // (`cmux remotes add`) rather than a Mac self-registering its own live
@@ -413,7 +423,7 @@ export async function GET(request: Request): Promise<Response> {
     lastSeenAt: device.lastSeenAt.toISOString(),
     instances: (instancesByDevice.get(device.id) ?? []).map((instance) => ({
       tag: instance.tag,
-      routes: sanitizeServerPublishedRoutes(
+      routes: dropIrohRoutes(
         Array.isArray(instance.routes) ? instance.routes : [],
       ),
       labels: instance.labels,

@@ -35,7 +35,6 @@ let sql: Sql | null = null;
 const DEVICE_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_B = "22222222-2222-4222-8222-222222222222";
 const IROH_ENDPOINT_ID = "a".repeat(64);
-const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
 
 const legacyTailscaleRoute = {
   id: "legacy",
@@ -44,28 +43,28 @@ const legacyTailscaleRoute = {
   endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 },
 };
 
-const privateIrohRoute = {
-  id: "iroh-private",
+// Route shape an old released client still publishes for the retired iroh
+// transport. The server must drop it (never store or serve it), because its
+// endpoint can carry private direct-address hints.
+const legacyIrohRoute = {
+  id: "iroh-legacy",
   kind: "iroh",
   priority: 1,
   endpoint: {
     type: "peer",
     id: IROH_ENDPOINT_ID,
     relay_hint: "legacy-private-relay-hint",
-    relay_url: APPROVED_IROH_RELAY,
+    relay_url: "https://use4.relay.cmux.dev/",
     direct_addrs: ["192.168.1.20:49152", "100.64.1.2:49152"],
   },
 };
 
-const publicIrohRoute = {
-  id: "iroh-private",
-  kind: "iroh",
-  priority: 1,
-  endpoint: {
-    type: "peer",
-    id: IROH_ENDPOINT_ID,
-    relay_url: APPROVED_IROH_RELAY,
-  },
+// A non-iroh kind the server does not understand must pass through opaque.
+const unknownKindRoute = {
+  id: "future",
+  kind: "carrier_pigeon",
+  priority: 2,
+  endpoint: { type: "host_port", host: "100.77.7.7", port: 51007 },
 };
 
 function authHeaders(teamId?: string): Record<string, string> {
@@ -308,7 +307,7 @@ describe("device registry route", () => {
     expect(routes).toHaveLength(2);
   });
 
-  dbTest("persists and returns only public Iroh rendezvous data while preserving legacy routes", async () => {
+  dbTest("drops retired iroh routes while passing other kinds through opaque", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     const register = await POST(
@@ -316,18 +315,7 @@ describe("device registry route", () => {
         deviceId: DEVICE_A,
         platform: "mac",
         tag: "stable",
-        routes: [
-          legacyTailscaleRoute,
-          privateIrohRoute,
-          {
-            ...privateIrohRoute,
-            id: "iroh-unmanaged-relay",
-            endpoint: {
-              ...privateIrohRoute.endpoint,
-              relay_url: "https://attacker.example/relay",
-            },
-          },
-        ],
+        routes: [legacyTailscaleRoute, legacyIrohRoute, unknownKindRoute],
       }),
     );
     expect(register.status).toBe(200);
@@ -337,24 +325,15 @@ describe("device registry route", () => {
       where device_id in (select id from devices where device_uuid = ${DEVICE_A})
         and tag = 'stable'
     `;
-    expect(storedRoutes).toEqual([
-      legacyTailscaleRoute,
-      publicIrohRoute,
-      {
-        ...publicIrohRoute,
-        id: "iroh-unmanaged-relay",
-        endpoint: { type: "peer", id: IROH_ENDPOINT_ID },
-      },
-    ]);
+    expect(storedRoutes).toEqual([legacyTailscaleRoute, unknownKindRoute]);
+    expect(JSON.stringify(storedRoutes)).not.toContain("iroh");
     expect(JSON.stringify(storedRoutes)).not.toContain("192.168.1.20");
-    expect(JSON.stringify(storedRoutes)).not.toContain("legacy-private-relay-hint");
-    expect(JSON.stringify(storedRoutes)).not.toContain("attacker.example");
 
-    // Simulate an unsafe Iroh route written by a pre-hardening deployment. A
-    // same-team member must not receive its private hints from the GET boundary.
+    // Simulate an iroh route written by a pre-teardown deployment. A same-team
+    // member must not receive it from the GET boundary either.
     await sql`
       update device_app_instances
-      set routes = ${sql.json([legacyTailscaleRoute, privateIrohRoute])}
+      set routes = ${sql.json([legacyTailscaleRoute, legacyIrohRoute])}
       where device_id in (select id from devices where device_uuid = ${DEVICE_A})
         and tag = 'stable'
     `;
@@ -367,9 +346,9 @@ describe("device registry route", () => {
       devices: Array<{ instances: Array<{ routes: unknown[] }> }>;
     };
     const returnedRoutes = list.devices[0]?.instances[0]?.routes;
-    expect(returnedRoutes).toEqual([legacyTailscaleRoute, publicIrohRoute]);
+    expect(returnedRoutes).toEqual([legacyTailscaleRoute]);
+    expect(JSON.stringify(returnedRoutes)).not.toContain("iroh");
     expect(JSON.stringify(returnedRoutes)).not.toContain("192.168.1.20");
-    expect(JSON.stringify(returnedRoutes)).not.toContain("legacy-private-relay-hint");
   });
 
   dbTest("registers the same device UUID in two teams the user belongs to", async () => {
@@ -598,7 +577,7 @@ describe("device registry route", () => {
     expect(manualRoutesAreValid(ok({}, { type: undefined }))).toBe(false); // missing endpoint.type (iOS requires it)
     expect(manualRoutesAreValid(ok({}, { port: 0 }))).toBe(false); // port 0
     expect(manualRoutesAreValid(ok({}, { port: 70000 }))).toBe(false); // port out of range
-    expect(manualRoutesAreValid(ok({ kind: "iroh" }))).toBe(false); // wrong kind
+    expect(manualRoutesAreValid(ok({ kind: "lan" }))).toBe(false); // wrong kind
     expect(manualRoutesAreValid(ok({}, { host: "192.168.1.5" }))).toBe(false); // non-attachable host
     expect(
       manualRoutesAreValid([{ id: "m0", kind: "tailscale", endpoint: { type: "url", url: "wss://x" } }]),
