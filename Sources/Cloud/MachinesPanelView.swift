@@ -720,10 +720,18 @@ private struct MachineRow: View, Equatable {
                     .foregroundColor(.primary.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(subtitle)
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary.opacity(0.75))
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    // A box's type at a glance: a desktop machine has its screen,
+                    // a base machine is shell-only.
+                    Image(systemName: machine.isDesktop ? "display" : "terminal")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.6))
+                    Text(subtitle)
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.secondary.opacity(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 if let stats = machine.stats {
                     MachineStatsLine(stats: stats)
                         .padding(.top, 2)

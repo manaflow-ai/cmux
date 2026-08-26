@@ -1455,18 +1455,36 @@ impl OrderedControlQueue {
             // before input is admitted. If the bounded queue rejected the
             // report/claim pair, fail this attachment instead of letting
             // bytes overtake an authority transition that can never run.
-            let claim_requested = self.target.get().and_then(Weak::upgrade).is_some_and(|target| {
+            let claim_context = self.target.get().and_then(Weak::upgrade).and_then(|target| {
                 let generation = target.generation.load(Ordering::Acquire);
-                target
-                    .state
-                    .lock()
-                    .expect("terminal sizing state lock")
+                let target_state = target.state.lock().expect("terminal sizing state lock");
+                target_state
                     .claim_requested
-                    .is_some_and(|request| request.generation == generation)
+                    .filter(|request| request.generation == generation)
+                    .map(|request| (request, smallest_sizing_grid(&target_state.viewers)))
             });
-            let claim_without_fence = claim_requested
-                && state.claim_fence.is_none()
-                && !state.pending_resize.as_ref().is_some_and(|(_, _, _, claim)| *claim);
+            let claim_fence_matches = claim_context.is_some_and(|(request, current_grid)| {
+                state.claim_fence.is_some_and(|fence| {
+                    fence.generation == request.generation
+                        && fence.viewer_id == request.viewer_id
+                        && fence.endpoint_ptr == request.endpoint_ptr
+                        && current_grid == Some(fence.grid)
+                        && request.token.is_none_or(|token| token == fence.token)
+                })
+            });
+            let pending_claim_matches = claim_context.is_some_and(|(request, current_grid)| {
+                state.pending_resize.as_ref().is_some_and(
+                    |(generation, pending_endpoint, pending_grid, claim)| {
+                        *claim
+                            && *generation == request.generation
+                            && pending_endpoint.viewer_id == request.viewer_id
+                            && endpoint_ptr(pending_endpoint) == request.endpoint_ptr
+                            && current_grid == Some(*pending_grid)
+                    },
+                )
+            });
+            let claim_without_fence =
+                claim_context.is_some() && !claim_fence_matches && !pending_claim_matches;
             let owner_batch_failed = state.owner_resize_fence.as_ref().is_some_and(|fence| {
                 fence.generation == self.current_generation() && fence.response.is_none()
             });
@@ -2948,7 +2966,24 @@ impl TerminalSizing {
         claim: bool,
         generation: u64,
     ) -> (bool, bool) {
-        if Self::current_generation(target) != generation
+        let generation_current = Self::current_generation(target) == generation;
+        let candidate = if generation_current && state.owner.is_none() {
+            smallest_sizing_grid(&state.viewers).and_then(|current_grid| {
+                candidate_viewer_id_at_generation(state, generation).and_then(|id| {
+                    state.viewers.get(&id).map(|viewer| {
+                        (generation, id, current_grid, endpoint_ptr(&viewer.endpoint))
+                    })
+                })
+            })
+        } else {
+            None
+        };
+        // Clear a fence for an old candidate before any close-barrier early
+        // return. A replacement join can install a new ClaimRequest while
+        // its close is still queued; retaining the old fence would make input
+        // look authorized even though the replacement claim is not on wire.
+        target.queue.clear_stale_claim_fence_locked(queue_state, candidate);
+        if !generation_current
             || state.retired
             || state.owner != expected_owner
             || !target.queue.close_barrier_ready_locked(queue_state)
@@ -2959,22 +2994,7 @@ impl TerminalSizing {
             // after `wait_for_closing` completes; no command may overtake it.
             return (false, false);
         }
-        let candidate = if state.owner.is_none() {
-            smallest_sizing_grid(&state.viewers).and_then(|current_grid| {
-                candidate_viewer_id_at_generation(state, generation).map(|id| (id, current_grid))
-            })
-        } else {
-            None
-        };
         target.queue.discard_stale_owner_resize_fence_locked(queue_state);
-        target.queue.clear_stale_claim_fence_locked(
-            queue_state,
-            candidate.and_then(|(candidate_id, candidate_grid)| {
-                state.viewers.get(&candidate_id).map(|viewer| {
-                    (generation, candidate_id, candidate_grid, endpoint_ptr(&viewer.endpoint))
-                })
-            }),
-        );
         let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
             viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
         });
@@ -7690,6 +7710,61 @@ mod tests {
             "the renewed claim must be completed by its own generation"
         );
         coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_claim_fence_cannot_admit_input_for_current_claim() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-fence-input.sock"),
+            surface_id: 43,
+        };
+        coordinator
+            .join(key.clone(), 1, 43, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 1).expect("current endpoint");
+        let generation = TerminalSizing::current_generation(&target);
+        let grid = SizingGrid { cols: 80, rows: 24 };
+
+        // Model a replacement claim after the old candidate fence was left
+        // behind by a full close queue. The request names the current
+        // endpoint and generation, but the fence has an old token. Input
+        // must fail closed instead of passing the stale authority boundary.
+        {
+            let mut queue_state = target.queue.state.lock().unwrap();
+            let mut state = target.state.lock().unwrap();
+            state.owner = None;
+            state.claim_requested = Some(ClaimRequest {
+                generation,
+                viewer_id: 1,
+                token: Some(11),
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
+            queue_state.claim_fence = Some(ClaimFence {
+                generation,
+                viewer_id: 1,
+                grid,
+                token: 10,
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
+        }
+
+        let sends_before = control.sends().len();
+        endpoint.enqueue_input(b"stale-fence-input");
+        tokio::task::yield_now().await;
+
+        assert!(!endpoint.is_active(), "stale claim input must close the attachment");
+        assert_eq!(
+            control.sends().len(),
+            sends_before,
+            "input must not be sent while the current claim lacks its exact fence"
+        );
+        coordinator.leave_endpoint(&key, 1, &endpoint);
     }
 
     #[tokio::test]

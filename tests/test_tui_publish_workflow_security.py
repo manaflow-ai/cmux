@@ -1543,6 +1543,24 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "persist-credentials: false" in text
 
 
+def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # Pre-R5 rc era: npm allows one trusted publisher per package and the
+    # cmux-relay launcher's publisher stays with the chatmux Node lane until
+    # the R5 owner switch. Only the next dist-tag tolerates a failed launcher
+    # publish; a stable (latest) publish must hard-fail.
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' in text
+    assert "move the cmux-relay trusted publisher to this repository" in text
+    assert 'echo "published=false"' in text
+    # The rc fallback smoke installs the LOCAL launcher package so the
+    # registry platform packages are still exercised; the smoke itself is
+    # never skipped and always executes the installed binary.
+    assert "npm install -g ./dist/npm-packages/cmux-relay" in text
+    assert "LAUNCHER_PUBLISHED: ${{ steps.launcher.outputs.published }}" in text
+    assert text.count("cmux-relay --version") == 1
+
+
 def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
     builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
     namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")
