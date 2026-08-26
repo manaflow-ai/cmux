@@ -14,8 +14,8 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
-    static let enabledDefaultsKey = "cmux.irx.enabled"
-    static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+    nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
+    nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
     /// The activation gate, readable before any runtime exists. Release
     /// builds compile the code but can never enable it.
@@ -370,6 +370,7 @@ final class MobileHostIrxRuntime {
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
                 journal: journal)
         }
+        let runtime = self
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
         let exit = await MobileHostService.acceptTransport(
@@ -377,8 +378,8 @@ final class MobileHostIrxRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
-            isCurrent: { [weak self] in
-                await MainActor.run { self?.generationToken == token }
+            isCurrent: { [weak runtime] in
+                await MainActor.run { runtime?.generationToken == token }
             }
         )
         journal.record(

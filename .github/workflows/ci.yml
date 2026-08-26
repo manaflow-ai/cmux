@@ -583,7 +583,7 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    name: app-host unit tests (${{ matrix.shard }}/4)
+    name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
     # full app-host suite with 0 unexpected failures, so route through the
@@ -593,7 +593,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       # This independent job-level marker makes every app-host wrapper fail
       # closed if a setup step or environment handoff loses either redirect.
@@ -604,7 +604,12 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       # Keep one-off focused gates on the lightest measured shard so shard 1 no
       # longer carries the full shard plus every extra regression guard.
-      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
+      # Four-way packing now exceeds the app-host's memory budget as the suite
+      # grows: a shard can crash around 1,000 UI tests and poison the remaining
+      # selectors. Six-way packing keeps each broad shard near 13 minutes of
+      # measured work; allow focused gates and one app-host restart headroom.
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -1143,7 +1148,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           PHYSICAL_SHARD="${{ matrix.shard }}"
-          PHYSICAL_SHARD_TOTAL=4
+          PHYSICAL_SHARD_TOTAL=6
           LOGICAL_BATCHES_PER_WORKER=2
           LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
