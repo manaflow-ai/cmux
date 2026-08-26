@@ -26,6 +26,68 @@ nonisolated struct WebSurfaceSelectionReader {
         if (value.length <= maxTextCharacters) return value;
         return value.slice(0, maxTextCharacters - 1) + '…';
       };
+      const boundedControlText = (value, start, end) => {
+        const source = String(value || '');
+        const safeStart = Math.max(0, Math.min(source.length, Number(start) || 0));
+        const safeEnd = Math.max(safeStart, Math.min(source.length, Number(end) || 0));
+        const length = safeEnd - safeStart;
+        if (length <= maxTextCharacters) return source.slice(safeStart, safeEnd);
+        return source.slice(safeStart, safeStart + maxTextCharacters - 1) + '…';
+      };
+      // Range#toString materializes the complete DOM selection. Walk text
+      // nodes instead and stop after the wire budget, so large selections do
+      // not allocate an unbounded string on every selectionchange/read.
+      const boundedRangeText = (range) => {
+        try {
+          const root = range.commonAncestorContainer;
+          const ownerDocument = root.ownerDocument || root;
+          const walker = ownerDocument.createTreeWalker(root, 4);
+          const boundedRange = range.cloneRange();
+          let used = 0;
+          let truncated = false;
+          let node = root.nodeType === 3 ? root : walker.nextNode();
+          while (node) {
+            const value = node.nodeValue || '';
+            let start = 0;
+            let end = value.length;
+            if (range.comparePoint(node, end) < 0) {
+              node = walker.nextNode();
+              continue;
+            }
+            if (range.comparePoint(node, 0) > 0) break;
+            if (node === range.startContainer) {
+              start = Math.max(0, Math.min(end, range.startOffset));
+            }
+            if (node === range.endContainer) {
+              end = Math.max(start, Math.min(end, range.endOffset));
+            }
+            if (end > start) {
+              // Reserve one character for the visible truncation marker.
+              const remaining = maxTextCharacters - 1 - used;
+              if (remaining <= 0) {
+                boundedRange.setEnd(node, start);
+                truncated = true;
+                break;
+              }
+              const count = Math.min(remaining, end - start);
+              used += count;
+              if (count < end - start) {
+                boundedRange.setEnd(node, start + count);
+                truncated = true;
+                break;
+              }
+            }
+            if (node === range.endContainer) break;
+            node = walker.nextNode();
+          }
+          const text = boundedText(boundedRange.toString());
+          if (!truncated) return text;
+          const prefix = text.endsWith('…') ? text.slice(0, -1) : text;
+          return boundedText(prefix + '…');
+        } catch (_) {
+          return null;
+        }
+      };
       const empty = () => Object.freeze({ has_selection: false, text: '' });
       const unreadable = () => Object.freeze({
         has_selection: false,
@@ -78,7 +140,7 @@ nonisolated struct WebSurfaceSelectionReader {
               typeof active.selectionEnd === 'number' &&
               active.selectionEnd > active.selectionStart) {
             return selected(
-              String(active.value || '').slice(active.selectionStart, active.selectionEnd),
+              boundedControlText(active.value, active.selectionStart, active.selectionEnd),
               targetDocument,
               {
                 selection_control: active,
@@ -93,9 +155,11 @@ nonisolated struct WebSurfaceSelectionReader {
         const selection = targetWindow.getSelection();
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
           try {
-            return selected(selection.toString(), targetDocument, {
-              selection_range: selection.getRangeAt(0).cloneRange()
-            });
+            const range = selection.getRangeAt(0).cloneRange();
+            const text = boundedRangeText(range);
+            return text === null
+              ? unreadable()
+              : selected(text, targetDocument, { selection_range: range });
           } catch (_) {
             return unreadable();
           }
@@ -157,7 +221,8 @@ nonisolated struct WebSurfaceSelectionReader {
                 retainedRange.endContainer?.isConnected === false) {
               return false;
             }
-            return boundedText(retainedRange.toString()) === retainedSelection.text;
+            const text = boundedRangeText(retainedRange);
+            return text !== null && text === retainedSelection.text;
           } catch (_) {
             return false;
           }
@@ -167,7 +232,7 @@ nonisolated struct WebSurfaceSelectionReader {
             if (retainedControl.isConnected === false) return false;
             const start = Number(retainedControlStart);
             const end = Number(retainedControlEnd);
-            return boundedText(String(retainedControl.value || '').slice(start, end)) === retainedSelection.text;
+            return boundedControlText(retainedControl.value, start, end) === retainedSelection.text;
           } catch (_) {
             return false;
           }
