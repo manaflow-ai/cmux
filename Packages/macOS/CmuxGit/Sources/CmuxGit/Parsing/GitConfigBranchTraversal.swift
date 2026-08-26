@@ -217,11 +217,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         // synchronous directory stat on an unavailable mount.
         guard storageName == "reftable" || storageName == "files" else { return false }
         if storageName == "files" {
-            return configReader.read(
-                at: URL(fileURLWithPath: path).appendingPathComponent("packed-refs"),
-                maximumByteCount: 1,
-                deadline: deadline
-            ).isAvailable
+            // The configured path is the authoritative loose-ref store. Keep
+            // both refs and packed-refs candidates; the watcher filters absent
+            // paths without probing the potentially remote directory here.
+            return true
         }
         let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
         switch configReader.read(

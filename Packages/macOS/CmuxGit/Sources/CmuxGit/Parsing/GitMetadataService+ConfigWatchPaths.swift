@@ -65,10 +65,9 @@ extension GitMetadataService {
         guard references.checkedOutBranch != .unreadable else {
             // Keep the root metadata paths so a later HEAD/index/config event
             // can trigger a fresh plan instead of dropping the existing watcher.
-            pathsByRepository[repository.workTreeRoot] = [
-                repository.gitDirectory,
-                repository.commonDirectory,
-            ]
+            pathsByRepository[repository.workTreeRoot] = GitWorktreeConfigEnablementReader()
+                .rootConfigURLs(repository: repository, deadline: deadline)
+                .map(\.path)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)

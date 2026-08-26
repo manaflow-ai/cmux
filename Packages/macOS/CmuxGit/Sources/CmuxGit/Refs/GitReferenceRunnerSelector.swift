@@ -19,7 +19,8 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
             SystemWorkspaceChangesGitRunner(
                 executableURL: executableURL,
                 environment: environment,
-                boundedCommandWallTimeLimit: wallTimeLimit
+                boundedCommandWallTimeLimit: wallTimeLimit,
+                isolateRepositoryConfig: true
             ) as any WorkspaceChangesGitRunning
         }
         self.probesReferenceFormat = true

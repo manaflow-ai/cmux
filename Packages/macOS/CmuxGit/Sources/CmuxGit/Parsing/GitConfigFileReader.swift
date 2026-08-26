@@ -46,7 +46,7 @@ nonisolated struct GitConfigFileReader: Sendable {
         }
         var filesystem = statfs()
         guard Darwin.fstatfs(descriptor, &filesystem) == 0,
-              (filesystem.f_flags & Int64(MNT_LOCAL)) != 0 else {
+              (filesystem.f_flags & UInt32(MNT_LOCAL)) != 0 else {
             // A regular file on a remote filesystem can block in `read` despite
             // O_NONBLOCK. Fail closed so callers retain their wall-time bound.
             return .unavailable(consumedByteCount: 0)

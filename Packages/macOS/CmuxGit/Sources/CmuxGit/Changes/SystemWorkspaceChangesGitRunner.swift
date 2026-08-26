@@ -30,7 +30,8 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     init(
         executableURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        boundedCommandWallTimeLimit: TimeInterval = 30
+        boundedCommandWallTimeLimit: TimeInterval = 30,
+        isolateRepositoryConfig: Bool = false
     ) {
         let candidates = if let executableURL {
             [executableURL]
@@ -49,10 +50,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         for key in commandScopedKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
-        // Plumbing fallbacks must observe only the requested repository's local
-        // config. Global/system includes can inject unrelated remotes or FIFOs.
-        scopedEnvironment["GIT_CONFIG_NOSYSTEM"] = "1"
-        scopedEnvironment["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        if isolateRepositoryConfig {
+            // Reference plumbing must observe only the requested repository's
+            // local config. Global/system includes can inject unrelated remotes.
+            scopedEnvironment["GIT_CONFIG_NOSYSTEM"] = "1"
+            scopedEnvironment["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        }
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
         self.environment = scopedEnvironment
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)

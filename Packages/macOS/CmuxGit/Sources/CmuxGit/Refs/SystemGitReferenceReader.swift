@@ -369,10 +369,10 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     break
                 }
             } else if name == "refs" {
-                // A loose-ref directory is watched when the path itself is
-                // already inside the repository; external stores are only
-                // admitted by the bounded config traversal.
-                continue
+                // The configured external loose-ref store is authoritative;
+                // let the descriptor discard an absent path without probing it
+                // synchronously on this blocking lane.
+                paths.append(path)
             } else if name == "packed-refs",
                       configReader.read(
                           at: URL(fileURLWithPath: path),
