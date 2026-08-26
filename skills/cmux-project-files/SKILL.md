@@ -51,8 +51,11 @@ cmux note list
 cmux note path plan
 cmux note search "next step"
 cmux note open plan
-cmux note rm plan
+cmux note rm plan --yes
 ```
+
+Note removal is destructive and requires the explicit `--yes` confirmation
+flag.
 
 Names may be a filename, stem, `.cmux/...` reference, or unambiguous relative
 path. Prefer the returned `reference` from JSON output when mentioning a Note in
