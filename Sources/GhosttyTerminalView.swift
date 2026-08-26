@@ -3850,6 +3850,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private weak var pendingPasteSurface: TerminalSurface?
     private var pendingPastePayloads: [TerminalImageTransferPreparedContent] = []
     private var pendingPastePayloadBytes = 0
+    private var pendingPastePreparationTasks: [UUID: Task<TerminalImageTransferPreparedContent, Never>] = [:]
+    private var pendingPastePreparationOrder: [UUID] = []
+    private var pendingPastePreparedPayloadsByID: [UUID: TerminalImageTransferPreparedContent] = [:]
     private static let maximumPendingExplicitKeyDownEvents = 32
     private static let maximumPendingPasteActions = 32
     private static let maximumPendingPastePayloadBytes = 4 * 1_048_576
@@ -4233,39 +4236,64 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func queuePasteAfterSurfaceReady(for surface: TerminalSurface) -> Bool {
         if pendingPasteSurface !== surface {
             discardPendingPasteAfterSurfaceReady()
-            pendingPasteSurface = surface
         }
-        guard pendingPastePayloads.count < Self.maximumPendingPasteActions,
+        guard pendingPastePayloads.count + pendingPastePreparationOrder.count
+                < Self.maximumPendingPasteActions,
               let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(
                   for: GHOSTTY_CLIPBOARD_STANDARD
-              ) else {
+              ),
+              let preparationService = imageTransferPreparation else {
             return false
         }
+        pendingPasteSurface = surface
 
-        // Capture the payload while the user gesture is being handled. Replaying
-        // the binding later would read whatever happens to be on the clipboard
-        // after startup, which can duplicate a later paste. This cold path is
-        // bounded by both action count and retained payload bytes.
-        let payload = TerminalImageTransferPlanner.prepareSynchronously(
-            pasteboard: pasteboard,
-            mode: .paste
+        // Capture the pasteboard generation while the user gesture is being
+        // handled, then let the killable preparation worker materialize it off
+        // the main actor. The worker rejects a generation that changed before
+        // it could be read instead of replaying a later clipboard value.
+        let request = TerminalPasteboardReadRequest(
+            pasteboardName: pasteboard.name.rawValue,
+            changeCount: pasteboard.changeCount
         )
-        guard payload != .reject else { return false }
-        let payloadBytes = pendingPastePayloadByteCount(payload)
-        guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
-              pendingPastePayloadBytes <=
-                  Self.maximumPendingPastePayloadBytes - payloadBytes else {
-            payload.cleanupTransferredTemporaryFiles(
-                using: GhosttyApp.terminalPasteboard
+        let preparationID = UUID()
+        pendingPastePreparationOrder.append(preparationID)
+        let preparationTask = Task.detached(priority: .utility) {
+            await preparationService.prepare(
+                request: request,
+                mode: .paste
             )
-            return false
         }
-        pendingPastePayloads.append(payload)
-        pendingPastePayloadBytes += payloadBytes
+        pendingPastePreparationTasks[preparationID] = preparationTask
+        let surfaceID = surface.id
+        Task { @MainActor [weak self] in
+            let payload = await preparationTask.value
+            if let self {
+                self.completePendingPastePreparation(
+                    preparationID: preparationID,
+                    surfaceID: surfaceID,
+                    payload: payload
+                )
+            } else {
+                payload.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+            }
+        }
         return true
     }
 
     fileprivate func discardPendingPasteAfterSurfaceReady() {
+        for task in pendingPastePreparationTasks.values {
+            task.cancel()
+        }
+        pendingPastePreparationTasks.removeAll(keepingCapacity: false)
+        pendingPastePreparationOrder.removeAll(keepingCapacity: false)
+        for payload in pendingPastePreparedPayloadsByID.values {
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+        }
+        pendingPastePreparedPayloadsByID.removeAll(keepingCapacity: false)
         for payload in pendingPastePayloads {
             payload.cleanupTransferredTemporaryFiles(
                 using: GhosttyApp.terminalPasteboard
@@ -4276,19 +4304,77 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingPastePayloadBytes = 0
     }
 
+    private func completePendingPastePreparation(
+        preparationID: UUID,
+        surfaceID: UUID,
+        payload: TerminalImageTransferPreparedContent
+    ) {
+        pendingPastePreparationTasks.removeValue(forKey: preparationID)
+        guard pendingPastePreparationOrder.contains(preparationID) else {
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+            return
+        }
+        guard pendingPasteSurface?.id == surfaceID else {
+            pendingPastePreparationOrder.removeAll { $0 == preparationID }
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+            return
+        }
+
+        if payload != .reject {
+            let payloadBytes = pendingPastePayloadByteCount(
+                payload,
+                using: GhosttyApp.terminalPasteboard
+            )
+            guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
+                  pendingPastePayloadBytes <=
+                      Self.maximumPendingPastePayloadBytes - payloadBytes else {
+                payload.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+                pendingPastePreparedPayloadsByID[preparationID] = .reject
+                drainPendingPastePreparations()
+                return
+            }
+            pendingPastePayloadBytes += payloadBytes
+        }
+        pendingPastePreparedPayloadsByID[preparationID] = payload
+        drainPendingPastePreparations()
+        replayPendingPasteAfterSurfaceReadyIfNeeded()
+    }
+
+    private func drainPendingPastePreparations() {
+        while let preparationID = pendingPastePreparationOrder.first,
+              let payload = pendingPastePreparedPayloadsByID.removeValue(
+                  forKey: preparationID
+              ) {
+            pendingPastePreparationOrder.removeFirst()
+            if payload != .reject {
+                pendingPastePayloads.append(payload)
+            }
+        }
+    }
+
     fileprivate func replayPendingPasteAfterSurfaceReadyIfNeeded() {
+        drainPendingPastePreparations()
         guard !pendingPastePayloads.isEmpty else { return }
         guard let pendingSurface = pendingPasteSurface,
               pendingSurface === terminalSurface else {
             discardPendingPasteAfterSurfaceReady()
             return
         }
+        guard surface != nil else { return }
         let payloads = pendingPastePayloads
-        pendingPasteSurface = nil
         pendingPastePayloads.removeAll(keepingCapacity: false)
         pendingPastePayloadBytes = 0
+        if pendingPastePreparationOrder.isEmpty {
+            pendingPasteSurface = nil
+        }
         for payload in payloads {
-            guard pendingSurface === terminalSurface, surface != nil else {
+            guard pendingSurface === terminalSurface else {
                 payload.cleanupTransferredTemporaryFiles(
                     using: GhosttyApp.terminalPasteboard
                 )
@@ -4307,16 +4393,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func pendingPastePayloadByteCount(
-        _ payload: TerminalImageTransferPreparedContent
+        _ payload: TerminalImageTransferPreparedContent,
+        using pasteboardService: TerminalPasteboardService
     ) -> Int {
         switch payload {
         case .insertText(let text):
             return text.utf8.count
         case .fileURLs(let urls):
             return urls.reduce(into: 0) { total, url in
-                let (next, overflowed) = total.addingReportingOverflow(
-                    url.path.utf8.count
-                )
+                guard total != .max else { return }
+                var payloadBytes = url.path.utf8.count
+                if pasteboardService.isOwnedTemporaryImageFile(url) {
+                    let maybeFileSize = try? url.resourceValues(
+                        forKeys: [.fileSizeKey]
+                    ).fileSize
+                    guard let fileSize = maybeFileSize,
+                          fileSize >= 0 else {
+                        total = .max
+                        return
+                    }
+                    let (withFileSize, fileSizeOverflowed) = payloadBytes
+                        .addingReportingOverflow(fileSize)
+                    guard !fileSizeOverflowed else {
+                        total = .max
+                        return
+                    }
+                    payloadBytes = withFileSize
+                }
+                let (next, overflowed) = total.addingReportingOverflow(payloadBytes)
                 total = overflowed ? .max : next
             }
         case .reject:
@@ -5911,7 +6015,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
-            if cancelledDeferredAdmission || !pendingExplicitKeyDownEvents.isEmpty {
+            if cancelledDeferredAdmission ||
+                !pendingExplicitKeyDownEvents.isEmpty ||
+                terminalSurface?.canCreateRuntimeSurface == true {
                 queueExplicitKeyDownForInputDemand(event)
                 requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface.afterRestoreCancel")
                 return
@@ -8005,6 +8111,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     deinit {
+        discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
@@ -8282,18 +8389,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 target: resolvedImageTransferTarget(),
                 mode: mode
             )
-            let keepsFileOwnership = if case .uploadFiles = plan {
-                true
-            } else {
-                false
-            }
-            let accepted = executeImageTransferPlan(plan, onCancel: onCancel)
-            if !keepsFileOwnership {
-                preparedContent.cleanupTransferredTemporaryFiles(
-                    using: GhosttyApp.terminalPasteboard
-                )
-            }
-            return accepted
+            return executeImageTransferPlan(plan, onCancel: onCancel)
         }
     }
 

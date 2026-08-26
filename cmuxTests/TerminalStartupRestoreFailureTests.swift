@@ -133,7 +133,15 @@ struct TerminalStartupRestoreFailureTests {
         let retargeted = restore.retargetingRemoteOwner(destinationContext)
         #expect(retargeted.remoteResumeContext == destinationContext)
         #expect(retargeted.remoteResumeCommandEmbedded)
-        #expect(retargeted.resumeBinding == binding)
+        #expect(
+            retargeted.resumeBinding == binding.retargetingRemoteOwner(
+                expectedWorkspaceID: sourceWorkspaceID,
+                expectedSurfaceID: panelID,
+                workspaceID: destinationWorkspaceID,
+                surfaceID: panelID,
+                persistentPTYSessionID: destinationContext.persistentPTYSessionID
+            )
+        )
 
         let mismatchedSession = restore.retargetingRemoteOwner(
             SurfaceResumeRemoteContext(

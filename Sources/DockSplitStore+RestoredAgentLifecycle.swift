@@ -485,6 +485,19 @@ extension DockSplitStore {
             } else {
                 currentResumeBinding = nil
             }
+            if restore.remoteResumeCommandEmbedded {
+                // The attach command was embedded in the terminal's initial
+                // command before the ownership scan. Require the complete
+                // managed binding to remain unchanged (including its command,
+                // cwd, and launch flavor) so a changed resume payload can
+                // never execute from the stale terminal configuration.
+                guard let capturedBinding = restore.resumeBinding,
+                      let currentResumeBinding,
+                      capturedBinding == currentResumeBinding else {
+                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                    continue
+                }
+            }
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId

@@ -3120,10 +3120,17 @@ struct DeferredAgentResumeRestore: Sendable {
                       .trimmingCharacters(in: .whitespacesAndNewlines) else {
             return self
         }
+        let retargetedBinding = resumeBinding?.retargetingRemoteOwner(
+            expectedWorkspaceID: sourceContext.workspaceID,
+            expectedSurfaceID: sourceContext.surfaceID,
+            workspaceID: destinationContext.workspaceID,
+            surfaceID: destinationContext.surfaceID,
+            persistentPTYSessionID: destinationContext.persistentPTYSessionID
+        )
         return Self(
             stablePanelID: stablePanelID,
             restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
+            resumeBinding: retargetedBinding,
             restoresRemoteWorkspaceTerminalSnapshot:
                 restoresRemoteWorkspaceTerminalSnapshot,
             remoteResumeContext: destinationContext,
