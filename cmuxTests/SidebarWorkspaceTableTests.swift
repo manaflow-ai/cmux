@@ -835,6 +835,126 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func authoritativeApplyDuringWidthTransitionMeasuresChangedRowAtCurrentWidth() async throws {
+        let workspace = Workspace()
+        let initialModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "short initial description",
+            workspaceId: workspace.id
+        )
+        let nextModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: String(
+                repeating: "authoritative content that must wrap at the live width ",
+                count: 12
+            ),
+            workspaceId: workspace.id
+        )
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let initialRow = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: initialModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: initialModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: environment
+        )
+        let nextRow = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: nextModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: nextModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: environment
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [initialRow],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let table = container.tableView
+        let cell = try #require(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let settledWidth = container.clipView.bounds.width
+        #expect(settledWidth > 0)
+
+        // Change the live width without delivering its viewport callback. The
+        // next authoritative apply must still prepare the changed row at this
+        // width before it re-notes the newly configured cell.
+        let postsBoundsChanges = container.clipView.postsBoundsChangedNotifications
+        container.clipView.postsBoundsChangedNotifications = false
+        var bounds = container.clipView.bounds
+        bounds.size.width = max(120, settledWidth - 100)
+        container.clipView.bounds = bounds
+        container.clipView.postsBoundsChangedNotifications = postsBoundsChanges
+        let liveWidth = container.clipView.bounds.width
+        #expect(liveWidth != settledWidth)
+
+        controller.apply(
+            rows: [nextRow],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+
+        let installedModel = try #require(cell.currentModelForMeasurement)
+        #expect(installedModel == nextModel)
+        let expectedHeight = ceil(
+            cell.layoutContent(
+                model: installedModel,
+                width: cell.bounds.width,
+                apply: false
+            )
+        )
+        #expect(
+            expectedHeight > nextRow.estimatedHeight + 10,
+            "The replacement model must exercise a width-sensitive, multi-line height."
+        )
+        let servedHeight = controller.tableView(table, heightOfRow: 0)
+        let tableHeight = table.rect(ofRow: 0).height - table.intercellSpacing.height
+        #expect(
+            abs(servedHeight - expectedHeight) < 0.5,
+            "An authoritative width-transition apply must serve the changed row's live-width height."
+        )
+        #expect(
+            abs(tableHeight - expectedHeight) < 0.5,
+            "The AppKit row frame must match the changed model before width settlement."
+        )
+    }
+
+    @Test
+    @MainActor
     func rapidReorderAndRowHeightBurstKeepsTableRowsDisjoint() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
