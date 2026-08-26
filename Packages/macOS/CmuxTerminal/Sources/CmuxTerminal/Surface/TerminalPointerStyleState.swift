@@ -20,6 +20,10 @@ public struct TerminalPointerStyleState {
     private var isFocused = false
     private var isCmuxLinkHoverActive = false
     private var isGhosttyLinkHoverActive = false
+    /// Raw Ghostty hyperlink state, retained even when focus clamps the
+    /// effective hover affordance off. This lets unsupported base-shape
+    /// callbacks restore correctly when link previews are disabled.
+    private var isGhosttyLinkHoverDetected = false
     /// An unsupported base shape observed after a temporary pointer is held
     /// until Ghostty's empty link action confirms that the hyperlink ended.
     private var pendingUnsupportedBaseAfterPointer = false
@@ -69,6 +73,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            isGhosttyLinkHoverDetected = false
             pendingUnsupportedBaseAfterPointer = false
             return shouldInvalidate
 
@@ -85,6 +90,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            isGhosttyLinkHoverDetected = false
             pendingUnsupportedBaseAfterPointer = false
             return shouldInvalidate
 
@@ -105,6 +111,7 @@ public struct TerminalPointerStyleState {
             lastNonPointerShape = nil
             isCmuxLinkHoverActive = false
             isGhosttyLinkHoverActive = false
+            isGhosttyLinkHoverDetected = false
             pendingUnsupportedBaseAfterPointer = false
             return shouldInvalidate
 
@@ -118,7 +125,7 @@ public struct TerminalPointerStyleState {
                 // matching empty-link action arrives. If no link action is
                 // emitted, preserve a persistent OSC 22 pointer.
                 if ghosttyShape == GHOSTTY_MOUSE_SHAPE_POINTER,
-                   isGhosttyLinkHoverActive {
+                   isGhosttyLinkHoverDetected {
                     pendingUnsupportedBaseAfterPointer = true
                 }
                 return false
@@ -136,6 +143,7 @@ public struct TerminalPointerStyleState {
 
         case .ghosttyLinkHoverChanged(let active, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
+            isGhosttyLinkHoverDetected = active
             let nextActive = isFocused && active
             if !active, pendingUnsupportedBaseAfterPointer {
                 ghosttyCursor = lastNonPointerCursor
