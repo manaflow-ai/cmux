@@ -2502,7 +2502,15 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             autoResume: true
         )
 
-        let registered = binding.registeredForPersistentSSH(context)
+        let staleAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "persistent-grok-session",
+            workingDirectory: "/repo/stale"
+        )
+        let registered = binding.registeredForPersistentSSH(
+            context,
+            restorableAgent: staleAgent
+        )
 
         #expect(registered.restoreWorkingDirectorySelection == .unavailable)
     }
