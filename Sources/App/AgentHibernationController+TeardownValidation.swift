@@ -1,11 +1,11 @@
 import Foundation
 
 extension AgentHibernationController {
-    /// Returns whether a process snapshot has no unrelated process for pressure reclaim.
+    /// Requires an explicit fresh process entry with no unrelated process for pressure reclaim.
     nonisolated static func memoryPressureTeardownAllowsProcessEntry(
         _ entry: RestorableAgentSessionIndex.Entry?
     ) -> Bool {
-        entry?.containsUnrelatedProcess != true
+        entry?.containsUnrelatedProcess == false
     }
 
     func teardownIsStillSafe(
