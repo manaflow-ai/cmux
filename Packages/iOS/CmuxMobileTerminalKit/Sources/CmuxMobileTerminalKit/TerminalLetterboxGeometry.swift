@@ -205,6 +205,46 @@ public struct TerminalLetterboxGeometry {
         return min(max(0, blankBelowContent), max(0, intrusion))
     }
 
+    /// Resolves one local pixel-scroll delta across the combined scroll axis:
+    /// the scrollback position plus the keyboard TOP-REVEAL zone past
+    /// scrollback-top.
+    ///
+    /// While the keyboard is up the bottom-pinned full-height render clips its
+    /// top `maxRevealPx` device pixels above the screen, so the oldest
+    /// scrollback rows are unreachable by grid scrolling alone: the grid
+    /// clamps at position 0 with those rows still hidden. The reveal zone is
+    /// the continuation of the same axis: pulling past scrollback-top slides
+    /// the render back down (uncovering the clipped top, letting the keyboard
+    /// cover the newest rows the user scrolled away from), and scrolling
+    /// toward newer content consumes the reveal before the grid moves again,
+    /// so the top edge travels continuously through the seam.
+    ///
+    /// - Parameters:
+    ///   - currentPositionPx: The viewport top's distance from scrollback top,
+    ///     in device pixels (0 = at scrollback top).
+    ///   - currentRevealPx: The reveal already granted, in device pixels.
+    ///   - deltaPixels: The gesture delta in device pixels (negative = toward
+    ///     older content).
+    ///   - maxPositionPx: The bottommost scroll position in device pixels.
+    ///   - maxRevealPx: The clipped-top budget in device pixels (0 whenever
+    ///     the keyboard is down or the blank band already absorbs the whole
+    ///     intrusion); a held reveal beyond the current budget is clamped
+    ///     before the delta applies.
+    /// - Returns: The next grid position and reveal, in device pixels. At most
+    ///   one of the two is nonzero away from its floor: reveal is only ever
+    ///   granted at position 0.
+    public static func scrollTopRevealResolution(
+        currentPositionPx: Double,
+        currentRevealPx: Double,
+        deltaPixels: Double,
+        maxPositionPx: Double,
+        maxRevealPx: Double
+    ) -> (positionPx: Double, revealPx: Double) {
+        let maxPosition = max(0, maxPositionPx)
+        let next = min(max(currentPositionPx + deltaPixels, 0), maxPosition)
+        return (next, 0)
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the
