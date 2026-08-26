@@ -1843,7 +1843,7 @@ final class SharedLiveAgentIndex {
             NotificationCenter.default.post(
                 name: .sharedLiveAgentIndexDidChange,
                 object: self,
-                userInfo: ["panelIdsByWorkspaceId": [UUID: Set<UUID>()]]
+                userInfo: ["panelIdsByWorkspaceId": [UUID: Set<UUID>]()]
             )
             return
         }
