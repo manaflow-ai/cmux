@@ -10,7 +10,8 @@ import {
   type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
-  type VMProvider,
+  type VmProviderCapabilities,
+  type VmProviderDriver,
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
@@ -80,8 +81,20 @@ function mapStatus(state: SandboxState | null | undefined): VMStatus {
   }
 }
 
-export class DaytonaProvider implements VMProvider {
+export class DaytonaProvider implements VmProviderDriver {
   readonly id = "daytona" as const;
+  // WebSocket-only attach (we deliberately skip Daytona's SSH gateway); snapshots and
+  // stop/start pause are real; no fork, stats, or arbitrary-port ingress.
+  readonly capabilities: VmProviderCapabilities = {
+    ssh: false,
+    snapshot: true,
+    fork: false,
+    pause: true,
+    getStatus: true,
+    getStats: false,
+    openPort: false,
+    revokeEndpointLeases: false,
+  };
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();

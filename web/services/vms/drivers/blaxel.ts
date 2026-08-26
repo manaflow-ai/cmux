@@ -6,7 +6,6 @@ import { readFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  NotImplementedError,
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
@@ -14,8 +13,8 @@ import {
   type ExecResult,
   type SSHEndpoint,
   type WebSocketPtyEndpoint,
-  type SnapshotRef,
   type VMHandle,
+  type VmProviderCapabilities,
   type VmProviderDriver,
   type VMStats,
   type VMStatus,
@@ -320,6 +319,20 @@ void daemonBinaryBase64Gzip().catch(() => undefined);
 
 export class BlaxelProvider implements VmProviderDriver {
   readonly id = "blaxel" as const;
+  // WebSocket-only (HTTPS preview ingress, no raw TCP). `pause` is declared false because
+  // Blaxel standby is automatic — the driver's pause() is an intentional no-op, not a real
+  // suspend. Snapshots/fork are disabled on the current workspace tier (403, verified
+  // 2026-08-20); flip `snapshot` when the feature is enabled and implement the methods.
+  readonly capabilities: VmProviderCapabilities = {
+    ssh: false,
+    snapshot: false,
+    fork: false,
+    pause: false,
+    getStatus: true,
+    getStats: true,
+    openPort: true,
+    revokeEndpointLeases: true,
+  };
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
@@ -566,21 +579,6 @@ export class BlaxelProvider implements VmProviderDriver {
         return result;
       },
     );
-  }
-
-  async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
-    void vmId;
-    void name;
-    // Blaxel exposes GET/POST /sandboxes/{name}/snapshots, but the API returns
-    // 403 "Sandbox snapshot/fork feature is not enabled for this workspace" on the current
-    // workspace tier (verified 2026-08-20). Wire this up once the feature is enabled; until
-    // then durability comes from standby memory snapshots (automatic) and the sandbox TTL.
-    throw new NotImplementedError("blaxel", "snapshot");
-  }
-
-  async restore(snapshotId: string): Promise<VMHandle> {
-    void snapshotId;
-    throw new NotImplementedError("blaxel", "restore");
   }
 
   async openSSH(vmId: string): Promise<SSHEndpoint> {

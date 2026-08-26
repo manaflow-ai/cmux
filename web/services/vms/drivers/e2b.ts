@@ -9,7 +9,8 @@ import {
   type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
-  type VMProvider,
+  type VmProviderCapabilities,
+  type VmProviderDriver,
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import {
@@ -21,8 +22,20 @@ import { CMUXD_WS_PORT } from "./cmuxdConstants";
 
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 
-export class E2BProvider implements VMProvider {
+export class E2BProvider implements VmProviderDriver {
   readonly id = "e2b" as const;
+  // No SSH (no raw TCP egress), no fork, no control-plane status/stats/port ingress in the
+  // driver yet. Pause/resume and snapshots are real E2B features.
+  readonly capabilities: VmProviderCapabilities = {
+    ssh: false,
+    snapshot: true,
+    fork: false,
+    pause: true,
+    getStatus: false,
+    getStats: false,
+    openPort: false,
+    revokeEndpointLeases: false,
+  };
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
