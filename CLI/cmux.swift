@@ -249,6 +249,21 @@ struct ClaudeHookSessionRecord: Codable {
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
+
+        // `legacyCommand` is a decode-only key retained for stores written by
+        // older builds.  Because it has no stored-property counterpart,
+        // synthesized Encodable conformance cannot be generated when it is
+        // included in CodingKeys.  Encode only the current representation.
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(commandFingerprint, forKey: .commandFingerprint)
+            try container.encode(commandLength, forKey: .commandLength)
+            try container.encode(displayCommand, forKey: .displayCommand)
+            try container.encodeIfPresent(toolUseId, forKey: .toolUseId)
+            try container.encodeIfPresent(notificationCorrelationKey, forKey: .notificationCorrelationKey)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
+        }
     }
 
     var sessionId: String
