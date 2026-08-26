@@ -58,13 +58,18 @@ extension ControlCommandCoordinator {
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.
     private func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
-        .object([
+        // Keep the established non-null id field for older control clients. A
+        // header-only group uses its stable group id as a wire placeholder;
+        // `is_empty` and the nullable typed snapshot distinguish it from a
+        // live workspace for new clients.
+        let wireAnchorWorkspaceID = group.anchorWorkspaceID ?? group.id
+        return .object([
             "id": .string(group.id.uuidString),
             "ref": ref(.workspaceGroup, group.id),
             "name": .string(group.name),
             "is_collapsed": .bool(group.isCollapsed),
             "is_pinned": .bool(group.isPinned),
-            "anchor_workspace_id": orNull(group.anchorWorkspaceID?.uuidString),
+            "anchor_workspace_id": .string(wireAnchorWorkspaceID.uuidString),
             "anchor_workspace_ref": ref(.workspace, group.anchorWorkspaceID),
             "is_empty": .bool(group.isEmpty),
             "custom_color": orNull(group.customColor),
