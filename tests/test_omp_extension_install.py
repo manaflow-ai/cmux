@@ -409,6 +409,15 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+# Fire-and-forget sidebar/feed calls must not participate in the hook
+# serialization test (SIGSTOP + lock), otherwise they hang the test forever.
+if [[ "$1" == "hooks" && "$2" == "feed" ]] || [[ "$1" == "set-status" ]] || [[ "$1" == "clear-status" ]]; then
+  printf '%s\n' "$*" >> "$FAKE_CMUX_STARTED_ARGS_LOG"
+  printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
+  cat >> "$FAKE_CMUX_STDIN_LOG"
+  printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
+  exit 0
+fi
 if ! mkdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null; then
   active_pid="$(cat "$FAKE_CMUX_LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -n "$active_pid" ] && kill -0 "$active_pid" 2>/dev/null; then
@@ -488,7 +497,7 @@ async function loadExtensionInstance(cacheBust) {
 const handlers = await loadExtensionInstance("2001");
 const nestedHandlers = await loadExtensionInstance("2002");
 const workerHandlers = await loadExtensionInstance("2003");
-for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
+for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown", "tool_execution_start", "tool_execution_end"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 process.argv.splice(
@@ -563,6 +572,11 @@ await expectHandlerCompletion(handlers.get("session_start")({}, parentCtx), "ses
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("before_agent_start")({ prompt: `hello omp ${index}` }, parentCtx);
 }
+// Fire tool execution handlers to verify feed telemetry + sidebar status.
+for (let index = 0; index < 3; index += 1) {
+  handlers.get("tool_execution_start")({ toolName: `read`, input: { path: `/tmp/file${index}` }, toolCallId: `tc-${index}` }, parentCtx);
+  handlers.get("tool_execution_end")({ toolName: `read`, is_error: false, toolCallId: `tc-${index}` }, parentCtx);
+}
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello omp" },
@@ -621,14 +635,15 @@ await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, paren
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
+const ompStartedArgs = startedArgs.filter((line) => line.startsWith("hooks omp "));
 if (hungPidLines.length !== 22) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
-  startedArgs.at(-2) !== "hooks omp session-start" ||
-  startedArgs.at(-1) !== "hooks omp stop"
+  ompStartedArgs.at(-2) !== "hooks omp session-start" ||
+  ompStartedArgs.at(-1) !== "hooks omp stop"
 ) {
-  throw new Error(`shutdown did not preserve the queued Stop after timeout: ${startedArgs}`);
+  throw new Error(`shutdown did not preserve the queued Stop after timeout: ${ompStartedArgs}`);
 }
 for (const rawPid of hungPidLines.slice(-2)) {
   const hungPid = Number(rawPid);
@@ -686,14 +701,34 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stdout={check.stdout.strip()}")
             print(f"stderr={check.stderr.strip()}")
             return 1
-
         expected_invocations = 20
+        # Wait for all entries (lifecycle SIGSTOP + feed/status fast-path) to settle.
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
         args_lines = [line for line in args_log.splitlines() if line.strip()]
-        if len(args_lines) != expected_invocations:
-            print(f"FAIL: expected exactly {expected_invocations} hook invocations, got {args_lines!r}")
+        # Lifecycle hooks go through the SIGSTOP path; feed/status calls go through
+        # the fast path. Count only lifecycle hooks for the exact count check.
+        omp_hook_lines = [line for line in args_lines if line.startswith("hooks omp ")]
+        feed_status_lines = [line for line in args_lines if not line.startswith("hooks omp ")]
+        if len(omp_hook_lines) != expected_invocations:
+            print(f"FAIL: expected exactly {expected_invocations} hooks omp invocations, got {omp_hook_lines!r}")
+            return 1
+        if len(feed_status_lines) == 0:
+            print(f"FAIL: expected feed/status invocations from tool_execution handlers, got {feed_status_lines!r}")
+            return 1
+        # Verify tool execution telemetry appears in the feed/status args.
+        if "hooks feed --source omp --event PreToolUse" not in args_log:
+            print(f"FAIL: extension did not emit PreToolUse feed telemetry, got {args_log!r}")
+            return 1
+        if "hooks feed --source omp --event PostToolUse" not in args_log:
+            print(f"FAIL: extension did not emit PostToolUse feed telemetry, got {args_log!r}")
+            return 1
+        if "set-status omp_agent Read --icon hammer" not in args_log:
+            print(f"FAIL: extension did not set sidebar status during tool execution, got {args_log!r}")
+            return 1
+        if "clear-status omp_agent" not in args_log:
+            print(f"FAIL: extension did not clear sidebar status on agent_end, got {args_log!r}")
             return 1
         for expected in [
             "hooks omp session-start",
@@ -706,8 +741,10 @@ for (const rawPid of hungPidLines.slice(-2)) {
         if '"session_id":"omp-session-test"' not in stdin_log:
             print(f"FAIL: extension did not pass session id, got {stdin_log!r}")
             return 1
-        if stdin_log.count('"session_id":"omp-session-test"') != 3:
-            print(f"FAIL: expected 3 completed hook payloads carrying the session id, got {stdin_log!r}")
+        # Lifecycle hooks (session-start, prompt-submit, stop) carry the session id.
+        # Feed telemetry from tool_execution also includes it, so check >= 3.
+        if stdin_log.count('"session_id":"omp-session-test"') < 3:
+            print(f"FAIL: expected at least 3 completed hook payloads carrying the session id, got {stdin_log!r}")
             return 1
         if '"session_id":"omp-nested-task-session"' in stdin_log:
             print(f"FAIL: extension emitted a nested OMP task session id, got {stdin_log!r}")

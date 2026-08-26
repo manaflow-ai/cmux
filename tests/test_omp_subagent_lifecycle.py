@@ -143,7 +143,7 @@ async function loadExtensionInstance(cacheBust) {
       handlers.set(name, handler);
     }
   });
-  for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
+  for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown", "tool_execution_start", "tool_execution_end"]) {
     if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
   }
   return handlers;
@@ -236,9 +236,8 @@ const deliveryDeadline = Date.now() + 10000;
 while (Date.now() < deliveryDeadline) {
   const delivered = fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
     .split("\\n")
-    .filter((line) => line.trim().length > 0).length;
+    .filter((line) => line.trim().length > 0 && line.startsWith("hooks omp ")).length;
   if (delivered >= expectedDeliveredHooks) break;
-  await new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 await handlers.get("session_shutdown")({}, mainCtx);
@@ -259,7 +258,8 @@ await handlers.get("session_shutdown")({}, mainCtx);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_lines = non_empty_lines(fake_args_log.read_text(encoding="utf-8"))
+        all_args_lines = non_empty_lines(fake_args_log.read_text(encoding="utf-8"))
+        args_lines = [line for line in all_args_lines if line.startswith("hooks omp ")]
         expected_args = [
             "hooks omp session-start",
             "hooks omp prompt-submit",
@@ -271,6 +271,7 @@ await handlers.get("session_shutdown")({}, mainCtx);
             print("FAIL: hook invocation sequence did not match the top-level-session contract")
             print(f"expected: {expected_args!r}")
             print(f"got:      {args_lines!r}")
+            print(f"all:       {all_args_lines!r}")
             return 1
 
         stdin_log = fake_stdin_log.read_text(encoding="utf-8")

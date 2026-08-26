@@ -86,7 +86,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
 | Kimi Code    | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | PreToolUse / PostToolUse |
 | Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | tool_execution_start / tool_execution_end telemetry |
-| OMP          | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | lifecycle only           |
+| OMP          | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | tool_execution_start / tool_execution_end telemetry |
 | Campfire     | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | lifecycle + collaborative notifications |
 | Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
@@ -101,7 +101,7 @@ cmux hooks <agent> uninstall
 
 Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
 
-Pi provides lifecycle and session-restore hooks plus Feed telemetry for `tool_execution_start` and `tool_execution_end` events. OMP, Campfire, and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge. Campfire additionally surfaces collaborative moments (a joiner waiting in the lobby, a capability ask awaiting the driver) as cmux notifications.
+Pi and OMP provide lifecycle and session-restore hooks plus Feed telemetry for `tool_execution_start` and `tool_execution_end` events. OMP additionally reports live sidebar status (`cmux set-status`/`clear-status`) so the workspace tab shows the current tool while the agent is working. Campfire and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge. Campfire additionally surfaces collaborative moments (a joiner waiting in the lobby, a capability ask awaiting the driver) as cmux notifications.
 
 ## Decision semantics
 

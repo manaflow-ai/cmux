@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- OMP agent extension now reports `tool_execution_start`/`tool_execution_end` telemetry to the Feed sidebar and shows live sidebar status (`cmux set-status`/`clear-status`) so the workspace tab displays the current tool while the agent is working
+
 ## [0.64.22] - 2026-08-03
 
 ### Fixed

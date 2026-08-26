@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v2
+// cmux-omp-session-extension-marker v3
 // Bridges OMP session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -316,6 +316,123 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
   return Promise.resolve();
 }
 
+// ── Feed telemetry (tool execution) ──────────────────────────────────────────
+
+const subagentToolNames = new Set([
+  "subagent",
+  "team_spawn",
+  "superpowers_dispatch",
+  "Task",
+]);
+
+function isSubagentTool(event: unknown): boolean {
+  const toolName = firstString(
+    objectValue(event, ["toolName", "tool_name", "name"]),
+  );
+  return toolName !== null && (subagentToolNames.has(toolName) || /subagent/i.test(toolName));
+}
+
+function objectValue(value: unknown, keys: string[]): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  const typed = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (typed[key] !== undefined && typed[key] !== null) return typed[key];
+  }
+  return undefined;
+}
+
+function utf8Prefix(value: unknown, maximumBytes: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const candidate = value.length > maximumBytes ? value.slice(0, maximumBytes) : value;
+  const bytes = Buffer.from(String(candidate), "utf8");
+  if (bytes.byteLength <= maximumBytes) return candidate;
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD+$/u, "");
+}
+
+function displayToolName(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// Fire-and-forget feed telemetry: spawns `cmux hooks feed --source omp --event <event>`.
+// Non-blocking — the agent never waits on this.
+function sendFeed(
+  eventName: string,
+  ctx: ExtensionContext,
+  event: unknown,
+): void {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+  if (isNestedArtifactSession(ctx)) return;
+
+  const sessionId = firstString(ctx.sessionManager.getSessionId());
+  if (!sessionId) return;
+
+  const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
+  const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+  const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
+  const toolInput = objectValue(event, ["args", "input"]);
+  const isError = objectValue(event, ["isError", "is_error"]);
+
+  const payload: Record<string, unknown> = {
+    session_id: utf8Prefix(sessionId, 256),
+    cwd: utf8Prefix(cwd, 2048),
+    hook_event_name: eventName,
+    event: eventName,
+  };
+  const boundedToolCallId = utf8Prefix(toolCallId, 256);
+  if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
+  const boundedToolName = utf8Prefix(toolName, 256);
+  if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+  if (toolInput !== undefined) payload.tool_input = toolInput;
+  if (isError !== undefined) payload.is_error = isError;
+
+  const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  try {
+    const child = spawn(cmux, ["hooks", "feed", "--source", "omp", "--event", eventName], {
+      env: hookEnvironment(cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch (_) {}
+}
+
+// Sidebar status: fire-and-forget `cmux set-status` / `cmux clear-status`.
+// Shows "Running <tool>" while a tool is executing, cleared on agent_end.
+function setSidebarStatus(key: string, value: string, icon?: string): void {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+  const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  const args = ["set-status", key, value];
+  if (icon) args.push("--icon", icon);
+  try {
+    const child = spawn(cmux, args, {
+      env: hookEnvironment(process.cwd()),
+      stdio: "ignore",
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (_) {}
+}
+
+function clearSidebarStatus(key: string): void {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+  const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  try {
+    const child = spawn(cmux, ["clear-status", key], {
+      env: hookEnvironment(process.cwd()),
+      stdio: "ignore",
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (_) {}
+}
+
+const ompStatusKey = "omp_agent";
+
 // The pane's lifecycle in cmux must be owned by exactly one OMP session: the
 // top-level session driving the terminal. Subagents spawned by the task tool
 // run in the same process and inherit CMUX_SURFACE_ID, but each has its own
@@ -382,6 +499,18 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
   });
 
+  api.on("tool_execution_start", (event, ctx) => {
+    if (!isOwnerContext(ctx)) return;
+    const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"])) || "tool";
+    sendFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", ctx, event);
+    setSidebarStatus(ompStatusKey, displayToolName(toolName), "hammer");
+  });
+
+  api.on("tool_execution_end", (event, ctx) => {
+    if (!isOwnerContext(ctx)) return;
+    sendFeed(isSubagentTool(event) ? "SubagentStop" : "PostToolUse", ctx, event);
+  });
+
   api.on("agent_end", async (event, ctx) => {
     if (!isOwnerContext(ctx)) return;
     // OMP emits agent_end as the universal terminal settle. willContinue marks
@@ -390,6 +519,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     // logically running and the pane must not report idle yet. Read it
     // defensively: AgentEndEvent predates the field on older OMP versions.
     if ((event as { willContinue?: unknown }).willContinue === true) return;
+    clearSidebarStatus(ompStatusKey);
     await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
   });
 
@@ -397,6 +527,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     // A subagent session's teardown must not drain (and drop queued
     // prompt-submit entries of) the owner session's hook queue.
     if (!isOwnerContext(ctx)) return;
+    clearSidebarStatus(ompStatusKey);
     await awaitHookQueueDrain();
   });
 }
