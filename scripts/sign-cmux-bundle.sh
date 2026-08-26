@@ -112,16 +112,23 @@ fi
 # These capabilities identify cmux as the responsible app for child-process
 # requests to macOS personal-information services. Keep this check next to the
 # signing step so a release cannot silently regress to the old denial behavior.
+SIGNED_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/cmux-signed-entitlements.XXXXXX")"
+trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
+/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null > "$SIGNED_ENTITLEMENTS" || {
+  echo "error: unable to read signed app entitlements" >&2
+  exit 1
+}
+
 for entitlement in \
   com.apple.security.personal-information.addressbook \
   com.apple.security.personal-information.calendars \
   com.apple.security.personal-information.location \
   com.apple.security.personal-information.photos-library; do
-  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
-    | grep -q "<key>${entitlement}</key>" || {
-      echo "error: signed app missing $entitlement" >&2
-      exit 1
-    }
+  value="$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+  if [[ "$value" != "true" ]]; then
+    echo "error: signed app missing enabled $entitlement" >&2
+    exit 1
+  fi
 done
 
 # Helpers must NOT carry the main app's application-identifier.

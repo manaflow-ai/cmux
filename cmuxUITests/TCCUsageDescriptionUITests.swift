@@ -66,7 +66,7 @@ final class TCCUsageDescriptionUITests: XCTestCase {
         ).filter { $0.pathExtension == "app" }
         let cmuxCandidates = appCandidates.filter { url in
             guard let bundleIdentifier = Bundle(url: url)?.bundleIdentifier else { return false }
-            return bundleIdentifier == "com.cmuxterm.app" || bundleIdentifier.hasPrefix("com.cmuxterm.app.")
+            return bundleIdentifier == "com.cmuxterm.app" || bundleIdentifier == "com.cmuxterm.app.debug"
         }
 
         guard cmuxCandidates.count == 1, let appURL = cmuxCandidates.first else {
