@@ -4380,11 +4380,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 continue
             }
-            guard executePreparedImageTransfer(
+            if !executePreparedImageTransfer(
                 payload,
                 mode: .paste,
                 onCancel: {}
-            ) else {
+            ) {
                 payload.cleanupTransferredTemporaryFiles(
                     using: GhosttyApp.terminalPasteboard
                 )

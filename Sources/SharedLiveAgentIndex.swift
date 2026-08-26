@@ -790,13 +790,12 @@ final class SharedLiveAgentIndex {
         forkAvailabilityRefreshTask?.cancel()
         forkAvailabilityRefreshTask = nil
         forkAvailabilityRefreshTaskGeneration = nil
-        // The detached loader is not interruptible while a synchronous
-        // filesystem/process probe is in progress. Retire its handle as part
-        // of the timeout so a later refresh cannot keep reusing a poisoned
-        // task; its generation guard below makes any eventual result inert.
-        indexLoaderTask?.cancel()
-        indexLoaderTask = nil
-        indexLoaderTaskGeneration = nil
+        // Keep the detached loader handle until its synchronous probe actually
+        // returns. Cancellation cannot interrupt that closure, and dropping it
+        // here would let the next refresh start a second full scan while the
+        // first one is still consuming process/filesystem resources. Future
+        // reloads coalesce onto this one in-flight task; their own ownership
+        // waiters retain the deadline and fail closed if it never finishes.
         for waiterID in Array(ownershipRefreshWaiters.keys) {
             finishOwnershipRefreshWaiter(waiterID, result: false)
         }
