@@ -716,6 +716,27 @@ struct RemoteResumeBindingTests {
         ])
         let directRecord = try #require(directResult["restore_record"] as? [String: Any])
         #expect((directRecord["legacy_command"] as? String)?.contains("direct-cli-restore") == true)
+
+        let customAgentBinding = SurfaceResumeBindingSnapshot(
+            kind: "acme-ignore",
+            command: "cd '/Users/alice/captured-custom-cwd' && acme-agent --session custom-session",
+            cwd: "/Users/alice/captured-custom-cwd",
+            checkpointId: "custom-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(customAgentBinding, panelId: surfaceID))
+        workspace.restoredAgentSnapshotsByPanelId.removeValue(forKey: surfaceID)
+        let customResult = try v2Result(request: [
+            "id": "custom-agent-without-restore-snapshot",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        #expect(customResult["restore_record"] as? [String: Any] == nil)
     }
 
     @Test
