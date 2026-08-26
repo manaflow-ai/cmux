@@ -7891,6 +7891,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
             MobileHostService.shared.start()
+            #if DEBUG
+            // Peer transport v2: the parallel dev host (dev-gated, on by
+            // default in DEBUG; kill switch dev.cmux.ptx.enabled).
+            MobileHostPtxRuntime.shared.startIfEnabled()
+            #endif
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 

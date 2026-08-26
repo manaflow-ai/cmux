@@ -413,6 +413,11 @@ final class MobileHostService {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         MobileHostIrohRuntime.shared.configure(auth: auth)
+        #if DEBUG
+        // Peer transport v2 mints broker tokens and grants against the same
+        // signed-in Stack account as the legacy host.
+        MobileHostPtxRuntime.shared.configure(auth: auth)
+        #endif
     }
 
     func updateIrohRoute(
