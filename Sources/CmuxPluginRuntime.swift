@@ -42,7 +42,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     var sessionTokens: [String: String] = [:]
     var processAuthorizations: [pid_t: CmuxPluginProcessAuthorization] = [:]
     var processAuthorizationIdentities: [pid_t: CmuxPluginProcessIdentity] = [:]
-    var revokedPluginProcessGroups: Set<pid_t> = []
+    var revokedPluginProcessGroups: [pid_t: Int64] = [:]
     var subscriptionsByPluginID: [String: [UUID: CmuxEventSubscription]] = [:]
     var actionSubscriptionIDsByPluginID: [String: Set<UUID>] = [:]
     private var pluginErrors: [String: String] = [:]

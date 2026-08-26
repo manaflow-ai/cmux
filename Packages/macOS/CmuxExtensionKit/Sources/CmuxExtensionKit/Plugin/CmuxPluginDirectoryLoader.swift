@@ -91,7 +91,7 @@ public actor CmuxPluginDirectoryLoader {
     /// Maximum manifest size accepted from disk.
     public static let maximumManifestBytes = 256 * 1024
     /// Maximum number of plugin directories scanned in one root reload.
-    public static let maximumPluginCount = 64
+    public static let maximumPluginCount = 16
     /// Maximum total immediate entries inspected in one plugin root.
     public static let maximumRootEntryCount = 128
 

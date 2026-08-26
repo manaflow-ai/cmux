@@ -455,6 +455,7 @@ final class CmuxPluginProcessSupervisor {
             processID,
             identity: running.authorizationIdentity
         )
+        terminateProcess(running.process, processGroupID: running.processGroupID)
         runtime.processDidExit(processID, generation: processGeneration)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
@@ -502,7 +503,7 @@ final class CmuxPluginProcessSupervisor {
     /// Revocation is a security boundary: terminate the private process group
     /// and immediately escalate so descendants cannot retain the plugin token.
     private func terminateProcess(_ process: Process, processGroupID: pid_t) {
-        guard process.isRunning, processGroupID > 1 else { return }
+        guard processGroupID > 1 else { return }
         _ = Darwin.kill(-processGroupID, SIGTERM)
         _ = Darwin.kill(-processGroupID, SIGKILL)
         if process.isRunning {

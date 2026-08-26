@@ -337,8 +337,13 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.validationFailed
         }
         var descriptors: [String: Int32] = [:]
+        var entryCount = 0
         do {
             for case let url as URL in enumerator {
+                guard entryCount < CmuxPluginArtifactFingerprinter.maximumArtifactEntries else {
+                    throw CmuxPluginExecutionSnapshotError.validationFailed
+                }
+                entryCount += 1
                 let values = try url.resourceValues(forKeys: [
                     .isDirectoryKey,
                     .isRegularFileKey,
@@ -352,7 +357,7 @@ public actor CmuxPluginExecutionSnapshotter {
                       url.path.hasPrefix(root.path + "/") else {
                     throw CmuxPluginExecutionSnapshotError.validationFailed
                 }
-                guard descriptors.count < 4_096 else {
+                guard descriptors.count < CmuxPluginArtifactFingerprinter.maximumArtifactFiles else {
                     throw CmuxPluginExecutionSnapshotError.validationFailed
                 }
                 let descriptor = Darwin.open(
@@ -487,9 +492,9 @@ public actor CmuxPluginExecutionSnapshotter {
 
     private func removeStagingRoot(
         _ stagingRoot: URL,
-        within rootDirectory: URL = rootDirectoryURL
+        within rootDirectory: URL? = nil
     ) {
-        let root = rootDirectory.standardizedFileURL
+        let root = (rootDirectory ?? rootDirectoryURL).standardizedFileURL
         let candidate = stagingRoot.standardizedFileURL
         guard candidate.path.hasPrefix(root.path + "/") else { return }
         guard let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),

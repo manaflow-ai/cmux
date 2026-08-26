@@ -18,7 +18,8 @@ enum CmuxPluginArtifactFingerprintError: Error {
 /// path-ordered parent digest, which keeps memory bounded for large binaries.
 struct CmuxPluginArtifactFingerprinter {
     private static let chunkSize = 64 * 1024
-    private static let maximumArtifactFiles = 4_096
+    static let maximumArtifactFiles = 64
+    static let maximumArtifactEntries = 128
     private static let maximumArtifactBytes: UInt64 = 1 * 1024 * 1024 * 1024
     private static let maximumInterpreterBytes: UInt64 = 512 * 1024 * 1024
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
@@ -135,7 +136,9 @@ struct CmuxPluginArtifactFingerprinter {
         }
         do {
             return try digestFile(
-                at: URL(fileURLWithPath: path),
+                at: URL(fileURLWithPath: path)
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL,
                 maximumBytes: Self.maximumInterpreterBytes
             )
         } catch {
@@ -168,7 +171,12 @@ struct CmuxPluginArtifactFingerprinter {
 
         var files: [(relativePath: String, url: URL)] = []
         var totalArtifactBytes: UInt64 = 0
+        var entryCount = 0
         for case let url as URL in enumerator {
+            guard entryCount < Self.maximumArtifactEntries else {
+                throw CmuxPluginArtifactFingerprintError.unreadableFile(root)
+            }
+            entryCount += 1
             let values: URLResourceValues
             do {
                 values = try url.resourceValues(forKeys: [

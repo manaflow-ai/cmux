@@ -420,26 +420,32 @@ extension CmuxEventBus {
         }
 
         // Keep the existing agent.hook.* stream intact while exposing a small,
-        // stable lifecycle vocabulary for process-backed plugins. Hook names
-        // other than SessionStart/SessionEnd represent a state transition.
+        // stable lifecycle vocabulary for process-backed plugins. Only hooks
+        // that actually change the session/turn lifecycle are projected;
+        // tool, permission, question, and notification hooks stay on the
+        // existing agent.hook.* stream.
         if phase == "received" {
-            let lifecycleName: String
+            let lifecycleName: String?
             switch event.hookEventName {
             case .sessionStart:
                 lifecycleName = "agent.session.started"
             case .sessionEnd:
                 lifecycleName = "agent.session.ended"
-            default:
+            case .userPromptSubmit, .stop:
                 lifecycleName = "agent.session.state_changed"
+            default:
+                lifecycleName = nil
             }
-            publish(
-                name: lifecycleName,
-                category: "agent",
-                source: event.source,
-                workspaceId: event.workspaceId,
-                surfaceId: event.surfaceId,
-                payload: payload
-            )
+            if let lifecycleName {
+                publish(
+                    name: lifecycleName,
+                    category: "agent",
+                    source: event.source,
+                    workspaceId: event.workspaceId,
+                    surfaceId: event.surfaceId,
+                    payload: payload
+                )
+            }
         }
 
         publish(

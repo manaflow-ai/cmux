@@ -20,7 +20,7 @@ extension CmuxPluginRuntime {
         lock.lock()
         processAuthorizations[processID] = .active(pluginID: pluginID)
         processAuthorizationIdentities[processID] = identity
-        revokedPluginProcessGroups.remove(identity.processGroupID)
+        revokedPluginProcessGroups.removeValue(forKey: identity.processGroupID)
         lock.unlock()
         return identity
     }
@@ -42,9 +42,12 @@ extension CmuxPluginRuntime {
         }
         if let storedIdentity = processAuthorizationIdentities[processID] {
             if revokedPluginProcessGroups.count >= 512 {
-                revokedPluginProcessGroups.remove(revokedPluginProcessGroups.first!)
+                revokedPluginProcessGroups.removeValue(
+                    forKey: revokedPluginProcessGroups.keys.first!
+                )
             }
-            revokedPluginProcessGroups.insert(storedIdentity.processGroupID)
+            revokedPluginProcessGroups[storedIdentity.processGroupID] =
+                storedIdentity.startMicroseconds ?? -1
         }
         let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
@@ -82,17 +85,31 @@ extension CmuxPluginRuntime {
         guard let processID else { return nil }
         lock.lock()
         let authorizationSnapshot = processAuthorizations
+        let hasRevokedGroups = !revokedPluginProcessGroups.isEmpty
         lock.unlock()
+        guard !authorizationSnapshot.isEmpty || hasRevokedGroups else { return nil }
         guard let resolved = processAuthorizationResolver.resolve(
             processID: processID,
             authorizations: authorizationSnapshot
         ) else {
             lock.lock()
             let knownGroup = Self.processGroupID(processID).map { groupID in
-                revokedPluginProcessGroups.contains(groupID)
-                    || processAuthorizationIdentities.values.contains { identity in
-                        identity.processGroupID == groupID
+                if let revokedStart = revokedPluginProcessGroups[groupID] {
+                    let currentStart = Self.processStartMicroseconds(groupID)
+                    if currentStart != nil,
+                       revokedStart >= 0,
+                       currentStart != revokedStart {
+                        revokedPluginProcessGroups.removeValue(forKey: groupID)
+                        return false
                     }
+                    if Darwin.kill(-groupID, 0) == 0 || errno == EPERM {
+                        return true
+                    }
+                    revokedPluginProcessGroups.removeValue(forKey: groupID)
+                }
+                return processAuthorizationIdentities.values.contains { identity in
+                    identity.processGroupID == groupID
+                }
             } ?? false
             lock.unlock()
             return knownGroup ? .revoked : nil
