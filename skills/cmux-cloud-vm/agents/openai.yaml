@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Cloud Machines"
+  short_description: "Create, reuse, and drive cmux Cloud VMs from the CLI: exec, push/pull, ports, checkpoints, forks, desktops."
+  default_prompt: "Use this skill to run work on cmux Cloud machines: list/reuse or create machines headlessly, wait for readiness, run commands with vm exec, transfer files with vm push/pull, mint private port URLs, checkpoint/fork for experiments, and present shells/desktops to the user when results are ready."
