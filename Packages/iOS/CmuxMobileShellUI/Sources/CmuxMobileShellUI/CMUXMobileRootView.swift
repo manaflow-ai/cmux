@@ -797,10 +797,14 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding has an unfinished durable milestone.
+    /// Whether first-run onboarding should present: only for a signed-in
+    /// account, and only while a durable milestone remains unfinished. Signed
+    /// out, `rootContent` falls through to the sign-in screen instead.
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
-        return onboardingStore.progress.shouldShowOnboarding
+        return onboardingStore.progress.shouldShowOnboarding(
+            isAuthenticated: isAuthenticated
+        )
         #else
         return false
         #endif
