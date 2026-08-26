@@ -683,6 +683,7 @@ class GhosttyApp {
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
+    private var deferredDefaultBackgroundNotificationSource: String?
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     @MainActor private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
@@ -1954,6 +1955,7 @@ class GhosttyApp {
                     name: .ghosttyConfigDidReload,
                     object: nil
                 )
+                flushDeferredDefaultBackgroundNotification()
             }
             request.completions.forEach { $0() }
             self.drainPendingAppearanceSynchronization()
@@ -2179,14 +2181,16 @@ class GhosttyApp {
             stagedBaselineAppearance,
             source: appearanceSource,
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            deferNotification: true
         )
         applyDefaultBackground(
             stagedResolvedAppearance,
             source:
                 "\(appearanceSource).resolvedGhosttyConfig",
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            deferNotification: true
         )
         synchronizeGhosttyRuntimeColorScheme(
             effectiveReloadColorScheme,
@@ -2826,7 +2830,8 @@ class GhosttyApp {
         _ values: DefaultBackgroundValues,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        deferNotification: Bool = false
     ) {
         applyDefaultBackground(
             color: values.backgroundColor,
@@ -2839,7 +2844,8 @@ class GhosttyApp {
             selectionForeground: values.selectionForeground,
             source: source,
             scope: scope,
-            forceNotify: forceNotify
+            forceNotify: forceNotify,
+            deferNotification: deferNotification
         )
     }
 
@@ -2854,7 +2860,8 @@ class GhosttyApp {
         selectionForeground: NSColor? = nil,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        deferNotification: Bool = false
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
@@ -2911,7 +2918,11 @@ class GhosttyApp {
             previousSelectionForegroundHex != defaultSelectionForeground.hexString() ||
             previousColorScheme != effectiveTerminalColorSchemePreference
         if hasChanged {
-            notifyDefaultBackgroundDidChange(source: source)
+            if deferNotification {
+                deferredDefaultBackgroundNotificationSource = source
+            } else {
+                notifyDefaultBackgroundDidChange(source: source)
+            }
         }
         if backgroundLogEnabled {
             logBackground(
@@ -2948,6 +2959,15 @@ class GhosttyApp {
                 signal()
             }
         }
+    }
+
+    @MainActor
+    private func flushDeferredDefaultBackgroundNotification() {
+        guard let source = deferredDefaultBackgroundNotificationSource else {
+            return
+        }
+        deferredDefaultBackgroundNotificationSource = nil
+        notifyDefaultBackgroundDidChange(source: source)
     }
 
     private func logThemeAction(_ message: String) {
