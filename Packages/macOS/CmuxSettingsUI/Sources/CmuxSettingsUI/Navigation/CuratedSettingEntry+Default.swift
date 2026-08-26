@@ -138,6 +138,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
             .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
+            .init(section: .terminal, id: "video-background", title: "Video Background", synonyms: "terminal.videoBackground.enabled dynamic video background youtube playlist muted wallpaper animated behind terminal"),
+            .init(section: .terminal, id: "video-background-source", title: "Video Source", synonyms: "terminal.videoBackground.source youtube video playlist url mp4 mov local file loop"),
+            .init(section: .terminal, id: "video-background-dim", title: "Video Dimming", synonyms: "terminal.videoBackground.dimOpacity dim opacity overlay legible readable darken video background"),
             .init(
                 section: .terminal,
                 id: "memory-guardrail",

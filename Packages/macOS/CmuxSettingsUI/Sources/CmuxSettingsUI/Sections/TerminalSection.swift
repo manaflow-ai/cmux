@@ -8,6 +8,7 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -40,6 +41,7 @@ public struct TerminalSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
+        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
@@ -71,6 +73,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            TerminalVideoBackgroundCard(defaultsStore: defaultsStore, catalog: catalog)
             resumeCommandsCard
         }
         .task { startObservingSettings() }

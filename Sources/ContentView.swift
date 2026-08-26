@@ -2679,7 +2679,7 @@ struct ContentView: View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                VideoAwareWindowRootBackdrop(snapshot: appearance)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -3494,6 +3494,7 @@ struct ContentView: View {
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+        WindowVideoBackgroundController.ensure(on: window)
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {

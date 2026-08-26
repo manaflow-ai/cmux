@@ -1,0 +1,205 @@
+import AppKit
+import CmuxBrowser
+import CmuxSettings
+import ObjectiveC
+
+private var windowVideoBackgroundControllerKey: UInt8 = 0
+
+/// Owns one main window's dynamic video background layer.
+///
+/// The layer is a non-interactive host view installed in the window's theme
+/// frame *below* `contentView`, so the SwiftUI window-root backdrop (drawn at
+/// the configured dim opacity) and every terminal surface composite on top of
+/// it. The controller reacts to the `terminal.videoBackground.*` settings
+/// live, and pauses playback whenever the window stops being visible —
+/// driven by `NSWindow` occlusion-state notifications, never by polling.
+@MainActor
+final class WindowVideoBackgroundController {
+    private weak var window: NSWindow?
+    private var hostView: VideoBackgroundHostView?
+    private var playerView: (any VideoBackgroundPlayerView)?
+    private var activeSource: VideoBackgroundSource?
+    private var failedSourceText: String?
+    private var observationTasks: [Task<Void, Never>] = []
+
+    /// Installs (or refreshes) the controller for a main window.
+    ///
+    /// Idempotent; called from the window-chrome configuration pass so the
+    /// layer's position below `contentView` is re-asserted after glass-root
+    /// swaps and other content-view changes.
+    static func ensure(on window: NSWindow) {
+        let controller: WindowVideoBackgroundController
+        if let existing = objc_getAssociatedObject(window, &windowVideoBackgroundControllerKey)
+            as? WindowVideoBackgroundController {
+            controller = existing
+        } else {
+            controller = WindowVideoBackgroundController(window: window)
+            objc_setAssociatedObject(
+                window,
+                &windowVideoBackgroundControllerKey,
+                controller,
+                .OBJC_ASSOCIATION_RETAIN
+            )
+        }
+        controller.refresh()
+    }
+
+    private init(window: NSWindow) {
+        self.window = window
+        startObserving(window: window)
+    }
+
+    private func startObserving(window: NSWindow) {
+        let center = NotificationCenter.default
+        observationTasks.append(Task { [weak self] in
+            for await _ in center.notifications(named: UserDefaults.didChangeNotification, object: nil) {
+                await MainActor.run { self?.refreshIfSettingsChanged() }
+            }
+        })
+        observationTasks.append(Task { [weak self] in
+            for await _ in center.notifications(
+                named: NSWindow.didChangeOcclusionStateNotification,
+                object: window
+            ) {
+                await MainActor.run { self?.updatePlaybackState() }
+            }
+        })
+        observationTasks.append(Task { [weak self] in
+            for await _ in center.notifications(named: NSWindow.willCloseNotification, object: window) {
+                await MainActor.run { self?.tearDownForWindowClose() }
+            }
+        })
+    }
+
+    private var lastObservedEnabled: Bool?
+    private var lastObservedSourceText: String?
+
+    private func refreshIfSettingsChanged() {
+        let policy = VideoBackgroundSettings()
+        let enabled = policy.isEnabled(defaults: .standard)
+        let sourceText = policy.sourceText(defaults: .standard)
+        guard enabled != lastObservedEnabled || sourceText != lastObservedSourceText else { return }
+        refresh()
+    }
+
+    /// Reconciles the layer with the current settings and window state.
+    func refresh() {
+        guard let window else { return }
+
+        let policy = VideoBackgroundSettings()
+        let enabled = policy.isEnabled(defaults: .standard)
+        let sourceText = policy.sourceText(defaults: .standard)
+        lastObservedEnabled = enabled
+        lastObservedSourceText = sourceText
+
+        if sourceText != failedSourceText {
+            failedSourceText = nil
+        }
+
+        guard enabled,
+              failedSourceText == nil,
+              let source = VideoBackgroundSource.parse(sourceText) else {
+            removeLayer()
+            return
+        }
+
+        installHostViewIfNeeded(in: window)
+        if source != activeSource || playerView == nil {
+            replacePlayerView(with: source)
+        }
+        updatePlaybackState()
+    }
+
+    private func installHostViewIfNeeded(in window: NSWindow) {
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return }
+
+        let host: VideoBackgroundHostView
+        if let existing = hostView {
+            host = existing
+        } else {
+            host = VideoBackgroundHostView(frame: themeFrame.bounds)
+            host.translatesAutoresizingMaskIntoConstraints = false
+            hostView = host
+        }
+
+        // Re-adding on the same parent re-asserts the below-content ordering
+        // after a glass-root swap replaces `contentView`.
+        if host.superview !== themeFrame {
+            host.removeFromSuperview()
+            themeFrame.addSubview(host, positioned: .below, relativeTo: contentView)
+            NSLayoutConstraint.activate([
+                host.topAnchor.constraint(equalTo: themeFrame.topAnchor),
+                host.bottomAnchor.constraint(equalTo: themeFrame.bottomAnchor),
+                host.leadingAnchor.constraint(equalTo: themeFrame.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: themeFrame.trailingAnchor),
+            ])
+        } else {
+            themeFrame.addSubview(host, positioned: .below, relativeTo: contentView)
+        }
+    }
+
+    private func replacePlayerView(with source: VideoBackgroundSource) {
+        playerView?.removeFromSuperview()
+        playerView = nil
+        activeSource = source
+        guard let host = hostView else { return }
+
+        let player: any VideoBackgroundPlayerView
+        switch source {
+        case .youTubeVideo, .youTubePlaylist:
+            player = VideoBackgroundWebPlayerView(source: source) { [weak self] reason in
+                self?.handlePlayerFailure(reason: reason)
+            }
+        case let .localFile(url):
+            player = VideoBackgroundLocalPlayerView(fileURL: url)
+        }
+
+        player.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(player)
+        NSLayoutConstraint.activate([
+            player.topAnchor.constraint(equalTo: host.topAnchor),
+            player.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            player.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            player.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+        ])
+        playerView = player
+    }
+
+    /// Fails gracefully: the layer disappears and the terminal is untouched.
+    /// The failed source is remembered so a broken embed doesn't reload in a
+    /// loop; editing the source setting clears the latch and retries.
+    private func handlePlayerFailure(reason: String) {
+        #if DEBUG
+        cmuxDebugLog("videoBackground.playerFailure reason=\(reason)")
+        #endif
+        failedSourceText = lastObservedSourceText
+        playerView?.removeFromSuperview()
+        playerView = nil
+        activeSource = nil
+        removeLayer()
+    }
+
+    private func updatePlaybackState() {
+        guard let window, let playerView else { return }
+        let isVisible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+        playerView.setPaused(!isVisible)
+    }
+
+    private func removeLayer() {
+        playerView?.setPaused(true)
+        playerView?.removeFromSuperview()
+        playerView = nil
+        activeSource = nil
+        hostView?.removeFromSuperview()
+        hostView = nil
+    }
+
+    private func tearDownForWindowClose() {
+        removeLayer()
+        for task in observationTasks {
+            task.cancel()
+        }
+        observationTasks.removeAll()
+    }
+}
