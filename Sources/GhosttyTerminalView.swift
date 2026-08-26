@@ -496,6 +496,17 @@ class GhosttyApp {
         >(
             maximumVisitsPerDrain: 1
         )
+    private typealias DeferredConfigurationSurfaceCreation =
+        @MainActor () -> Void
+    private static let maximumDeferredConfigurationSurfaceCreations = 256
+    private static let maximumDeferredConfigurationSurfaceCreationsPerTurn = 8
+    private let deferredConfigurationSurfaceCreationScheduler =
+        MainActorDeferredActionScheduler()
+    private var deferredConfigurationSurfaceCreationOrder: [UUID] = []
+    private var deferredConfigurationSurfaceCreations:
+        [UUID: DeferredConfigurationSurfaceCreation] = [:]
+    private var configurationSurfaceCreationGateGeneration: UInt64 = 0
+    private var activeConfigurationSurfaceCreationGateGeneration: UInt64?
     private var appliedConfigurationContentIdentity:
         GhosttyConfigurationContentIdentity?
     var terminalConfigurationPresentationMetrics:
@@ -560,13 +571,65 @@ class GhosttyApp {
 
     @MainActor
     func deferRuntimeSurfaceCreationForConfigurationReload(
+        surfaceID: UUID,
         _ action: @escaping @MainActor () -> Void
     ) -> Bool {
-        _ = action
-        // App configuration commits before incremental surface application.
-        // A newly created surface therefore inherits the committed config and
-        // must not wait behind the traversal's fixed registry endpoint.
-        return false
+        guard activeConfigurationSurfaceCreationGateGeneration != nil else {
+            return false
+        }
+        if deferredConfigurationSurfaceCreations[surfaceID] == nil {
+            guard deferredConfigurationSurfaceCreations.count
+                    < Self.maximumDeferredConfigurationSurfaceCreations else {
+                return false
+            }
+            deferredConfigurationSurfaceCreationOrder.append(surfaceID)
+        }
+        deferredConfigurationSurfaceCreations[surfaceID] = action
+        return true
+    }
+
+    @MainActor
+    func beginConfigurationSurfaceCreationGate() -> UInt64 {
+        configurationSurfaceCreationGateGeneration &+= 1
+        activeConfigurationSurfaceCreationGateGeneration =
+            configurationSurfaceCreationGateGeneration
+        return configurationSurfaceCreationGateGeneration
+    }
+
+    @MainActor
+    func finishConfigurationSurfaceCreationGate(generation: UInt64) {
+        guard activeConfigurationSurfaceCreationGateGeneration == generation else {
+            return
+        }
+        activeConfigurationSurfaceCreationGateGeneration = nil
+        scheduleDeferredConfigurationSurfaceCreations()
+    }
+
+    private func scheduleDeferredConfigurationSurfaceCreations() {
+        guard !deferredConfigurationSurfaceCreationOrder.isEmpty,
+              !deferredConfigurationSurfaceCreationScheduler.isScheduled else {
+            return
+        }
+        deferredConfigurationSurfaceCreationScheduler.schedule(
+            zeroDelayPolicy: .yieldOnce
+        ) { [weak self] in
+            self?.drainDeferredConfigurationSurfaceCreations()
+        }
+    }
+
+    private func drainDeferredConfigurationSurfaceCreations() {
+        var drained = 0
+        while drained < Self.maximumDeferredConfigurationSurfaceCreationsPerTurn,
+              !deferredConfigurationSurfaceCreationOrder.isEmpty {
+            let surfaceID = deferredConfigurationSurfaceCreationOrder.removeFirst()
+            guard let action = deferredConfigurationSurfaceCreations
+                    .removeValue(forKey: surfaceID) else {
+                continue
+            }
+            drained += 1
+            action()
+        }
+        scheduleDeferredConfigurationSurfaceCreations()
     }
 
     static func retainTickNotifications() -> () -> Void {
@@ -1800,8 +1863,14 @@ class GhosttyApp {
     private func enqueueConfigurationReload(
         _ request: TerminalPendingConfigurationReload
     ) -> Bool {
+        let hadActiveReload =
+            configurationReloadCoordinator.isReloadActive
         let result =
             configurationReloadCoordinator.enqueue(request)
+        if hadActiveReload,
+           terminalConfigurationApplyScheduler.hasPendingWork {
+            terminalConfigurationApplyScheduler.cancelPendingWork()
+        }
         if result.needsFontWorkBarrier {
             schedulePendingConfigurationReload()
         }

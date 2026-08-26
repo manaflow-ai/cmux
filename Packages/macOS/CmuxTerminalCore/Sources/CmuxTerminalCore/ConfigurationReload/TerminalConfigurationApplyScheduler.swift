@@ -54,6 +54,12 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     private var attemptCounts: [ID: Int] = [:]
     private var sourceIsExhausted = false
     private var isDrainScheduled = false
+    private var drainGeneration: UInt64 = 0
+
+    /// Whether a snapshot still owns pending or scheduled surface work.
+    public var hasPendingWork: Bool {
+        snapshot != nil
+    }
 
     /// Creates a scheduler with explicit per-turn work limits.
     ///
@@ -104,8 +110,8 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     ///   - apply: Applies `snapshot` to a currently live identity.
     ///   - abandon: Rolls back surface-specific state after retry exhaustion or
     ///     replacement by a newer snapshot.
-    ///   - completion: Runs only if this snapshot reaches the traversal endpoint
-    ///     before being superseded.
+    ///   - completion: Runs when this snapshot reaches the endpoint or is
+    ///     explicitly canceled for a newer request.
     public func replacePendingWork(
         snapshot: Snapshot,
         prioritizedIDs: [ID],
@@ -130,6 +136,19 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
         drainImmediatePriority()
         scheduleDrain()
+    }
+
+    /// Cancels the active traversal and finishes its completion boundary.
+    ///
+    /// Already-applied identities are left intact; pending retry state is
+    /// abandoned so a newer configuration can replace the snapshot without
+    /// waiting for obsolete offscreen work.
+    public func cancelPendingWork() {
+        guard snapshot != nil else { return }
+        abandonPendingRetriesBeforeReplacement()
+        drainGeneration &+= 1
+        isDrainScheduled = false
+        finish()
     }
 
     private func drainImmediatePriority() {
@@ -160,8 +179,14 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     private func scheduleDrain() {
         guard snapshot != nil, !isDrainScheduled else { return }
         isDrainScheduled = true
+        drainGeneration &+= 1
+        let scheduledGeneration = drainGeneration
         schedule { [weak self] in
-            self?.drain()
+            guard let self,
+                  self.drainGeneration == scheduledGeneration else {
+                return
+            }
+            self.drain()
         }
     }
 
@@ -170,6 +195,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         guard let snapshot, let apply else { return }
 
         var visits = 0
+        let retryEndIndex = retryIDs.count
         while visits < maximumVisitsPerDrain {
             if prioritizedIndex < prioritizedIDs.count {
                 let id = prioritizedIDs[prioritizedIndex]
@@ -194,12 +220,18 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
                 continue
             }
 
-            if retryIndex < retryIDs.count {
+            if retryIndex < retryEndIndex {
                 let id = retryIDs[retryIndex]
                 retryIndex += 1
                 visits += 1
                 attempt(id, snapshot: snapshot, apply: apply)
                 continue
+            }
+
+            // A retry appended by this turn must yield before it can run.
+            if retryIndex < retryIDs.count {
+                scheduleDrain()
+                return
             }
 
             finish()
@@ -227,6 +259,8 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     }
 
     private func finish() {
+        drainGeneration &+= 1
+        isDrainScheduled = false
         snapshot = nil
         prioritizedIDs = []
         prioritizedIndex = 0

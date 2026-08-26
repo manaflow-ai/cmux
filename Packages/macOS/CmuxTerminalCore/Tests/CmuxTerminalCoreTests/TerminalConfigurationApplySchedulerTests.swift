@@ -76,6 +76,79 @@ struct TerminalConfigurationApplySchedulerTests {
     }
 
     @Test @MainActor
+    func retriesAddedDuringADrainYieldBeforeTheirNextAttempt() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 3,
+            maximumAttemptsPerID: 2,
+            schedule: manualScheduler.schedule
+        )
+        let snapshot = Snapshot(id: 11)
+        var source = [
+            TerminalConfigurationApplyScheduler<Int, Snapshot>.NextIDResult.id(1),
+            .exhausted,
+        ].makeIterator()
+        var attemptCount = 0
+
+        scheduler.replacePendingWork(
+            snapshot: snapshot,
+            prioritizedIDs: [],
+            nextID: { source.next() ?? .exhausted },
+            apply: { _, _ in
+                attemptCount += 1
+                return attemptCount == 1 ? .retry : .complete
+            }
+        )
+
+        manualScheduler.fireNext()
+        #expect(attemptCount == 1)
+        #expect(manualScheduler.pendingCount == 1)
+
+        manualScheduler.fireNext()
+        #expect(attemptCount == 2)
+        #expect(manualScheduler.pendingCount == 0)
+    }
+
+    @Test @MainActor
+    func cancelPendingWorkAbandonsRetriesAndInvalidatesScheduledDrain() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 1,
+            schedule: manualScheduler.schedule
+        )
+        let snapshot = Snapshot(id: 12)
+        var events: [String] = []
+        var didFinish = false
+
+        scheduler.replacePendingWork(
+            snapshot: snapshot,
+            prioritizedIDs: [1],
+            nextID: { .exhausted },
+            apply: { id, _ in
+                events.append("apply:\(id)")
+                return .retry
+            },
+            abandon: { id, _, reason in
+                #expect(reason == .pendingWorkReplaced)
+                events.append("abandon:\(id)")
+            },
+            completion: {
+                didFinish = true
+            }
+        )
+
+        scheduler.cancelPendingWork()
+
+        #expect(events == ["apply:1", "abandon:1"])
+        #expect(didFinish)
+        #expect(!scheduler.hasPendingWork)
+
+        // The already queued old turn must not touch the canceled snapshot.
+        manualScheduler.fireNext()
+        #expect(events == ["apply:1", "abandon:1"])
+    }
+
+    @Test @MainActor
     func appliesEveryVisibleSurfaceImmediatelyAndBoundsDeferredDrainTurns() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(

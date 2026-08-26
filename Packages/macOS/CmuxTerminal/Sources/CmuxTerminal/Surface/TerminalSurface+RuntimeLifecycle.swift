@@ -646,7 +646,9 @@ extension TerminalSurface {
         configurationReloadDeferredRuntimeSurfaceView = view
         let accepted =
             engine
-                .deferRuntimeSurfaceCreationForConfigurationReload {
+                .deferRuntimeSurfaceCreationForConfigurationReload(
+                    surfaceID: id
+                ) {
                     [weak self] in
                     self?
                         .resumeRuntimeSurfaceCreationAfterConfigurationReload()

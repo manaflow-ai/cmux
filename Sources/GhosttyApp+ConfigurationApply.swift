@@ -27,6 +27,8 @@ extension GhosttyApp {
         didCommit: @escaping @MainActor () -> Void,
         completion: @escaping @MainActor () -> Void
     ) {
+        let surfaceCreationGateGeneration =
+            beginConfigurationSurfaceCreationGate()
         let traversal = Self.terminalSurfaceRegistry
             .makeIncrementalTraversal()
         let prioritizedLifecycleIDs = AppDelegate.shared?
@@ -84,6 +86,9 @@ extension GhosttyApp {
                     "reload.config.surfaceApply.end source=\(snapshot.source)"
                 )
 #endif
+                finishConfigurationSurfaceCreationGate(
+                    generation: surfaceCreationGateGeneration
+                )
                 completionBox.finish()
             }
         )
