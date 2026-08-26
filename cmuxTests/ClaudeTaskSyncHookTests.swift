@@ -1046,6 +1046,81 @@ struct ClaudeTaskSyncHookTests {
         #expect(leaderRecord["claudeTaskDirectoryName"] == nil)
     }
 
+    @Test("A delayed configured-list hook cannot re-admit a retired owner")
+    func rejectsDelayedConfiguredTaskListAfterRetirement() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-retired-configured"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "abababab-abab-abab-abab-abababababab"
+        let surfaceId = "acacacac-acac-acac-acac-acacacacacac"
+        let sessionId = "retired-configured-session"
+        let taskListID = "retired-configured-list"
+        let tasksRoot = context.root.appendingPathComponent(
+            ".claude/tasks",
+            isDirectory: true
+        )
+        let taskDirectory = tasksRoot.appendingPathComponent(
+            taskListID,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Retained task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
+
+        let initialResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!initialResult.timedOut, Comment(rawValue: initialResult.stderr))
+        #expect(initialResult.status == 0, Comment(rawValue: initialResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        try retireTaskList(
+            taskListID: taskListID,
+            taskStoreIdentity: taskStoreIdentity,
+            retiredAt: Date().timeIntervalSince1970 + 1,
+            storeURL: context.storeURL
+        )
+        let requestCountBeforeDelayedHook = reconcileRequests(in: context).count
+        let delayedResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+
+        #expect(!delayedResult.timedOut, Comment(rawValue: delayedResult.stderr))
+        #expect(delayedResult.status == 0, Comment(rawValue: delayedResult.stderr))
+        #expect(reconcileRequests(in: context).count == requestCountBeforeDelayedHook)
+        let state = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.storeURL)
+            ) as? [String: Any]
+        )
+        let retired = state["retiredClaudeTaskLists"] as? [String: Any]
+        #expect(retired?["\(taskStoreIdentity.rawValue):\(taskListID)"] != nil)
+    }
+
     @Test("Configured-list capacity clears the oldest owner before admission")
     func retiresOldestConfiguredTaskDestinationAtCapacity() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-list-capacity")
@@ -1492,6 +1567,26 @@ struct ClaudeTaskSyncHookTests {
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         return state["claudeTaskListDestinations"] as? [String: [String: Any]] ?? [:]
+    }
+
+    private func retireTaskList(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        retiredAt: TimeInterval,
+        storeURL: URL
+    ) throws {
+        let data = try Data(contentsOf: storeURL)
+        var state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var retired = state["retiredClaudeTaskLists"] as? [String: TimeInterval] ?? [:]
+        retired["\(taskStoreIdentity.rawValue):\(taskListID)"] = retiredAt
+        state["retiredClaudeTaskLists"] = retired
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: storeURL)
     }
 
     private func seedConfiguredTaskDestinations(

@@ -885,6 +885,10 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let reconciliationCountBeforeDelete = reconcileRequests(in: context).count
 
+        // A failed transition can leave only the destination proof. TeamDelete
+        // must still inspect the live config before clearing that owner.
+        try removeTeamBindingRecords(storeURL: context.storeURL)
+
         let deleteResult = runHook(
             context: context,
             environment: environment,
@@ -997,5 +1001,18 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try legacyData.write(to: storeURL)
+    }
+
+    private func removeTeamBindingRecords(storeURL: URL) throws {
+        let data = try Data(contentsOf: storeURL)
+        var state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        state["claudeTeamTaskBindings"] = [String: [String: Any]]()
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: storeURL)
     }
 }
