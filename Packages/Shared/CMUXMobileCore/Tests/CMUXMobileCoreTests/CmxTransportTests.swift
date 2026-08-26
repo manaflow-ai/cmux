@@ -2,16 +2,6 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-private let canonicalEndpointID = String(repeating: "a", count: 64)
-
-private func profile(
-    _ source: CmxIrohPathHintSource,
-    _ profileID: String = "default"
-) throws -> CmxIrohNetworkProfileKey {
-    let hex = profileID.utf8.map { String(format: "%02x", $0) }.joined()
-    let opaqueID = String((hex + String(repeating: "0", count: 64)).prefix(64))
-    return try CmxIrohNetworkProfileKey(source: source, profileID: opaqueID)
-}
 @Test func attachTicketUsesDebugLoopbackBeforeTailscaleWhenBothAreSupported() throws {
     let loopback = try CmxAttachRoute(
         id: "debug",
@@ -39,38 +29,11 @@ private func profile(
 }
 
 @Test func attachTicketRoundTripsAllEndpointKinds() throws {
-    let privateHintExpiry = Date(
-        timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down) + 300
-    )
     let routes = try [
         CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.1.2", port: 49831)
-        ),
-        CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
-                pathHints: [
-                    try CmxIrohPathHint(
-                        kind: .directAddress,
-                        value: "100.64.1.2:49152",
-                        source: .tailscale,
-                        privacyScope: .privateNetwork,
-                        observedAt: privateHintExpiry.addingTimeInterval(-60),
-                        expiresAt: privateHintExpiry,
-                        networkProfile: profile(.tailscale, "production")
-                    ),
-                    try CmxIrohPathHint(
-                        kind: .relayURL,
-                        value: "https://relay.example.test",
-                        source: .native,
-                        privacyScope: .publicInternet
-                    ),
-                ]
-            )
         ),
         CmxAttachRoute(
             id: "websocket",
@@ -159,68 +122,6 @@ private func profile(
     #expect(!ticket.isExpired(at: .distantFuture))
 }
 
-@Test func attachRouteDecodesIrohAddressHintsFromExperimentRouteJSON() throws {
-    let data = Data("""
-    {
-      "id": "iroh",
-      "kind": "iroh",
-      "endpoint": {
-        "type": "peer",
-        "id": "\(canonicalEndpointID)",
-        "direct_addrs": ["192.168.1.20:49152", "100.64.1.2:49152"],
-        "relay_url": "https://relay.example.test"
-      },
-      "priority": 20
-    }
-    """.utf8)
-
-    let route = try JSONDecoder().decode(CmxAttachRoute.self, from: data)
-
-    #expect(route.id == "iroh")
-    #expect(route.kind == .iroh)
-    #expect(route.priority == 20)
-    guard case let .peer(identity, pathHints) = route.endpoint else {
-        Issue.record("Expected an Iroh peer endpoint")
-        return
-    }
-    #expect(identity.endpointID == canonicalEndpointID)
-    #expect(pathHints.filter { $0.kind == .relayIdentifier }.isEmpty)
-    #expect(pathHints.filter { $0.kind == .directAddress }.map(\.value) == [
-        "192.168.1.20:49152",
-        "100.64.1.2:49152",
-    ])
-    #expect(pathHints.first { $0.kind == .relayURL }?.value == "https://relay.example.test")
-    #expect(pathHints.filter { $0.kind == .directAddress }.allSatisfy {
-        $0.use == .fallbackOnly && !$0.isUsable(at: .distantPast)
-    })
-}
-
-@Test func attachRouteDecodesLegacyPeerRouteWithoutIrohAddressHints() throws {
-    let data = Data("""
-    {
-      "id": "iroh",
-      "kind": "iroh",
-      "endpoint": {
-        "type": "peer",
-        "id": "\(canonicalEndpointID)",
-        "relay_hint": "legacy-relay"
-      },
-      "priority": 20
-    }
-    """.utf8)
-
-    let route = try JSONDecoder().decode(CmxAttachRoute.self, from: data)
-
-    guard case let .peer(identity, pathHints) = route.endpoint else {
-        Issue.record("Expected an Iroh peer endpoint")
-        return
-    }
-    #expect(identity.endpointID == canonicalEndpointID)
-    #expect(pathHints.first { $0.kind == .relayIdentifier }?.value == "legacy-relay")
-    #expect(pathHints.filter { $0.kind == .directAddress }.isEmpty)
-    #expect(pathHints.filter { $0.kind == .relayURL }.isEmpty)
-}
-
 @Test func attachRouteDecoderDefaultsMissingPriorityToZero() throws {
     let data = Data("""
     {
@@ -243,12 +144,12 @@ private func profile(
 
 @Test func attachRouteRejectsMismatchedEndpointKind() throws {
     #expect(throws: CmxAttachRouteError.endpointMismatch(
-        kind: .iroh,
+        kind: .websocket,
         endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )) {
         _ = try CmxAttachRoute(
             id: "bad",
-            kind: .iroh,
+            kind: .websocket,
             endpoint: .hostPort(host: "100.64.1.2", port: 49831)
         )
     }
@@ -258,7 +159,7 @@ private func profile(
     let data = Data("""
     {
       "id": "bad",
-      "kind": "iroh",
+      "kind": "websocket",
       "endpoint": {
         "type": "host_port",
         "host": "100.64.1.2",
@@ -269,7 +170,7 @@ private func profile(
     """.utf8)
 
     #expect(throws: CmxAttachRouteError.endpointMismatch(
-        kind: .iroh,
+        kind: .websocket,
         endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )) {
         _ = try JSONDecoder().decode(CmxAttachRoute.self, from: data)
@@ -360,7 +261,57 @@ private func profile(
     #expect(!ticket.isExpired(at: Date()))
 }
 
-@Test func attachTicketDecoderRejectsInvalidNestedRoute() throws {
+@Test func attachTicketDecoderDropsUnknownRouteKindAndKeepsTailscale() throws {
+    // Peers running other releases still publish routes with kinds this build
+    // does not understand (an old Mac's `iroh` peer route, or a future kind).
+    // The unknown element is dropped; the tailscale route survives.
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [
+        {
+          "id": "iroh",
+          "kind": "iroh",
+          "endpoint": {
+            "type": "peer",
+            "id": "\(String(repeating: "a", count: 64))",
+            "direct_addrs": ["192.168.1.20:49152"],
+            "relay_url": "https://relay.example.test"
+          },
+          "priority": 0
+        },
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": {
+            "type": "host_port",
+            "host": "100.64.1.2",
+            "port": 49831
+          },
+          "priority": 10
+        }
+      ],
+      "expiresAt": "2033-05-18T03:33:20Z"
+    }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+
+    #expect(ticket.routes.map(\.id) == ["tailscale"])
+    #expect(ticket.routes.first?.kind == .tailscale)
+    #expect(ticket.routes.first?.endpoint == .hostPort(host: "100.64.1.2", port: 49831))
+}
+
+@Test func attachTicketDecoderDropsUndecodableEndpointShapeAndKeepsRest() throws {
+    // A known kind with an endpoint shape this build cannot read (or a
+    // structurally invalid route) is dropped per element, never failing the
+    // surrounding ticket.
     let data = Data("""
     {
       "version": 1,
@@ -371,25 +322,62 @@ private func profile(
       "routes": [
         {
           "id": "bad",
-          "kind": "iroh",
+          "kind": "tailscale",
+          "endpoint": {
+            "type": "peer",
+            "id": "\(String(repeating: "a", count: 64))"
+          },
+          "priority": 0
+        },
+        "not-even-an-object",
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
           "endpoint": {
             "type": "host_port",
             "host": "100.64.1.2",
             "port": 49831
           },
-          "priority": 0
+          "priority": 10
         }
-      ],
-      "expiresAt": "2033-05-18T03:33:20Z"
+      ]
     }
     """.utf8)
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    #expect(throws: CmxAttachRouteError.endpointMismatch(
-        kind: .iroh,
-        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
-    )) {
+    let ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+
+    #expect(ticket.routes.map(\.id) == ["tailscale"])
+}
+
+@Test func attachTicketDecoderRejectsTicketWhoseRoutesAreAllUnknown() throws {
+    // When every route is dropped nothing remains to dial; the ticket fails
+    // structurally with `noRoutes` instead of decoding into a useless value.
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [
+        {
+          "id": "iroh",
+          "kind": "iroh",
+          "endpoint": {
+            "type": "peer",
+            "id": "\(String(repeating: "a", count: 64))"
+          },
+          "priority": 0
+        }
+      ]
+    }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    #expect(throws: CmxAttachTicketError.noRoutes) {
         _ = try decoder.decode(CmxAttachTicket.self, from: data)
     }
 }
@@ -401,8 +389,8 @@ private func profile(
             factory: TaggedTransportFactory(tag: "tailscale-tcp")
         ),
         CmxRouteTransportFactoryRegistration(
-            kind: .iroh,
-            factory: TaggedTransportFactory(tag: "iroh-peer")
+            kind: .websocket,
+            factory: TaggedTransportFactory(tag: "websocket-url")
         ),
     ])
     let tailscaleRoute = try CmxAttachRoute(
@@ -410,18 +398,18 @@ private func profile(
         kind: .tailscale,
         endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )
-    let irohRoute = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
+    let websocketRoute = try CmxAttachRoute(
+        id: "websocket",
+        kind: .websocket,
+        endpoint: .url("wss://cmux.example.test/terminal")
     )
 
     let tailscaleTransport = try factory.makeTransport(for: tailscaleRoute)
-    let irohTransport = try factory.makeTransport(for: irohRoute)
+    let websocketTransport = try factory.makeTransport(for: websocketRoute)
 
-    #expect(factory.supportedKinds == [.tailscale, .iroh])
+    #expect(factory.supportedKinds == [.tailscale, .websocket])
     #expect((tailscaleTransport as? TaggedTransport)?.tag == "tailscale-tcp")
-    #expect((irohTransport as? TaggedTransport)?.tag == "iroh-peer")
+    #expect((websocketTransport as? TaggedTransport)?.tag == "websocket-url")
 }
 
 @Test func routeTransportFactoryRejectsDuplicateRegistrations() throws {
@@ -442,24 +430,24 @@ private func profile(
 @Test func routeTransportFactoryPreservesPeerIntentForRequestAwareTransports() throws {
     let factory = try CmxRouteTransportFactory([
         CmxRouteTransportFactoryRegistration(
-            kind: .iroh,
+            kind: .tailscale,
             factory: RequestTaggedTransportFactory()
         ),
     ])
     let route = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )
     let request = CmxByteTransportRequest(
         route: route,
         expectedPeerDeviceID: "mac-device-a",
-        authorizationMode: .transportAdmission
+        authorizationMode: .stackBearer
     )
 
     let transport = try factory.makeTransport(for: request)
 
-    #expect((transport as? TaggedTransport)?.tag == "mac-device-a:admission")
+    #expect((transport as? TaggedTransport)?.tag == "mac-device-a:stack")
 }
 
 @Test func routeTransportFactoryRejectsUnsupportedRouteKind() throws {
@@ -470,12 +458,12 @@ private func profile(
         ),
     ])
     let route = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
+        id: "websocket",
+        kind: .websocket,
+        endpoint: .url("wss://cmux.example.test/terminal")
     )
 
-    #expect(throws: CmxRouteTransportFactoryError.unsupportedRouteKind(.iroh)) {
+    #expect(throws: CmxRouteTransportFactoryError.unsupportedRouteKind(.websocket)) {
         _ = try factory.makeTransport(for: route)
     }
 }

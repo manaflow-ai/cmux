@@ -78,7 +78,7 @@ public actor CmxConnectivityInvalidationSubscriber {
     private let accessToken: AccessTokenProvider
     private let session: URLSession
     private let onStreamEvent: StreamEventObserver?
-    private let backoff: CmxIrohReconnectBackoff
+    private let backoff: CmxReconnectBackoff
     private let sleep: @Sendable (TimeInterval) async throws -> Void
     private let handler: Handler
     private var loopTask: Task<Void, Never>?
@@ -87,7 +87,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         serviceBaseURL: URL,
         accessToken: @escaping AccessTokenProvider,
         session: sending URLSession = .shared,
-        backoff: CmxIrohReconnectBackoff = CmxIrohReconnectBackoff(),
+        backoff: CmxReconnectBackoff = CmxReconnectBackoff(),
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))
         },
@@ -139,7 +139,7 @@ public actor CmxConnectivityInvalidationSubscriber {
     }
 
     /// Re-subscribe cadence comes from the one shared reconnect ladder
-    /// (`CmxIrohReconnectBackoff`) instead of a private exponential schedule:
+    /// (`CmxReconnectBackoff`) instead of a private exponential schedule:
     /// failures draw a decorrelated-jittered delay bounded by the 30 s
     /// foreground cap, and a served stream resets to the floor window, so the
     /// jittered draw spreads a fleet's re-subscribes when a service deploy

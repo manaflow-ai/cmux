@@ -6,7 +6,7 @@ import Foundation
 /// an existing case.
 public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
     case unknown = 0
-    case iroh = 1
+    // Raw value 1 belonged to the removed `iroh` transport and stays reserved.
     case tailscale = 2
     case websocket = 3
     case debugLoopback = 4
@@ -15,8 +15,6 @@ public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
     /// route metadata.
     public init(_ kind: CmxAttachTransportKind) {
         switch kind {
-        case .iroh:
-            self = .iroh
         case .tailscale:
             self = .tailscale
         case .websocket:
@@ -176,9 +174,9 @@ public enum DiagnosticCancellationReason: Int, Sendable, Codable, CaseIterable {
     case sessionDeinitialized = 4
 }
 
-/// The bounded reason token sent by an admitted Iroh peer when it closes.
+/// The bounded reason token sent by an admitted peer when it closes.
 ///
-/// Raw Iroh close text is never exported. The server and client agree on these
+/// Raw peer close text is never exported. The server and client agree on these
 /// tokens so a report can distinguish an expected replacement from a network
 /// failure without retaining a peer-chosen string.
 public enum DiagnosticRemoteCloseReason: Int, Sendable, Codable, CaseIterable {
@@ -206,24 +204,9 @@ public enum DiagnosticPathKind: Int, Sendable, Codable, CaseIterable {
     case relay = 2
     case privateNetwork = 3
     case loopback = 4
-
-    /// Redacts a live Iroh path to its connection class. Managed and custom
-    /// relay metadata intentionally collapse to the same ``relay`` value.
-    public init(_ path: CmxIrohSelectedTransportPath) {
-        switch path {
-        case .unavailable:
-            self = .unknown
-        case .direct:
-            self = .direct
-        case .privateNetwork:
-            self = .privateNetwork
-        case .managedRelay, .customRelay:
-            self = .relay
-        }
-    }
 }
 
-/// The dial leg attempted while establishing a direct Iroh connection.
+/// The dial leg attempted while establishing a direct peer connection.
 ///
 /// Raw values are stable export vocabulary; never renumber.
 public enum DiagnosticDirectDialLeg: Int, Sendable, Codable, CaseIterable {
@@ -784,33 +767,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case toastInteractionStarted = 542
     case toastInteractionEnded = 543
 
-    // MARK: Iroh settings (610-639)
-    case irohSettingsOpened = 610
-    case irohSettingsClosed = 611
-    case irohRelayPreferenceChangeStarted = 612
-    case irohRelayPreferenceChangeSucceeded = 613
-    case irohRelayPreferenceChangeFailed = 614
-    case irohPathPreferenceChangeStarted = 615
-    case irohPathPreferenceChangeSucceeded = 616
-    case irohPathPreferenceChangeFailed = 617
-    case irohCustomRelayUpsertStarted = 618
-    case irohCustomRelayUpsertSucceeded = 619
-    case irohCustomRelayUpsertFailed = 620
-    case irohCustomRelayRemoveStarted = 621
-    case irohCustomRelayRemoveSucceeded = 622
-    case irohCustomRelayRemoveFailed = 623
-    case irohCustomRelayTestStarted = 624
-    case irohCustomRelayTestSucceeded = 625
-    case irohCustomRelayTestFailed = 626
-    case irohPrivatePathUpsertStarted = 627
-    case irohPrivatePathUpsertSucceeded = 628
-    case irohPrivatePathUpsertFailed = 629
-    case irohPrivatePathRemoveStarted = 630
-    case irohPrivatePathRemoveSucceeded = 631
-    case irohPrivatePathRemoveFailed = 632
-    case irohDiagnosticsCleared = 633
+    // MARK: Verbose diagnostics (610-639)
+    // Raw values 610-633 and 635 belonged to the removed iroh transport's
+    // settings events and stay reserved; never reuse them.
     case verboseDiagnosticLoggingChanged = 634
-    case irohDiagnosticsShared = 635
     case verboseDiagnosticsShared = 636
 
     // MARK: Terminal composer, media, and feature delivery (640-669)

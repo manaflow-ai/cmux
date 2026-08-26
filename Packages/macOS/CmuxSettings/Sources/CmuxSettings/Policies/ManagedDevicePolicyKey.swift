@@ -16,8 +16,8 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     case disableEmbeddedBrowser = "DisableEmbeddedBrowser"
 
     /// Disables the Mac acting as a remote view/control host for the cmux
-    /// iOS companion app: the Iroh host runtime, the legacy TCP pairing
-    /// listener, connection admission, and device pairing.
+    /// iOS companion app: the TCP pairing listener, connection admission,
+    /// and device pairing.
     case disableRemoteControl = "DisableRemoteControl"
 
     /// Restricts embedded-browser top-level navigations to the administrator's

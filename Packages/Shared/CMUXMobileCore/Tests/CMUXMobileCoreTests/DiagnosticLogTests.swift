@@ -89,7 +89,7 @@ import os
             + "Terminal input acknowledgements fell behind "
             + "(Surface: 7, Local sequence: 10, Remote sequence: 20)"
         #expect(text == """
-        cmux Iroh and transport report
+        cmux transport report
         Report format: 2
         Generated: 2023-11-14 22:13:21.000 UTC
         Source: iOS client
@@ -225,7 +225,7 @@ import os
             )
         )
         #expect(text == """
-        cmux Iroh and transport report
+        cmux transport report
         Report format: 2
         Generated: 2023-11-14 22:13:21.000 UTC
         Source: Unspecified runtime
@@ -255,8 +255,8 @@ import os
                 encoding: .utf8
             )
         )
-        #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
-        #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
+        #expect(text.contains("+0.000 seconds | Peer endpoint starting"))
+        #expect(text.contains("+0.250 seconds | Peer endpoint active"))
     }
 
     @Test(.enabled(
@@ -279,7 +279,7 @@ import os
                 encoding: .utf8
             )
         )
-        #expect(text.contains("cmux Irohとトランスポートのレポート"))
+        #expect(text.contains("cmuxトランスポートのレポート"))
         #expect(text.contains("+0.000 秒 | ネットワーク到達性が変更されました（ネットワーク: オフライン）"))
         #expect(await report.humanReadableText(locale: locale) == text)
     }
@@ -386,11 +386,10 @@ import os
     }
 
     @Test func diagnosticTaxonomyHasStableRawValuesAndRedactedMappings() {
-        #expect(DiagnosticTransportKind(.iroh) == .iroh)
         #expect(DiagnosticTransportKind(.tailscale) == .tailscale)
         #expect(DiagnosticTransportKind(.websocket) == .websocket)
         #expect(DiagnosticTransportKind(.debugLoopback) == .debugLoopback)
-        #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
+        #expect(CmxAttachTransportKind.tailscale.diagnosticTransportKind.rawValue == 2)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
         #expect(DiagnosticFailureKind.transportIdleTimedOut.rawValue == 21)
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
@@ -407,7 +406,7 @@ import os
         #expect(DiagnosticAppEventKind.photoPickerDismissed.rawValue == 459)
         #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
         #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
-        #expect(DiagnosticAppEventKind.irohSettingsOpened.rawValue == 610)
+        #expect(DiagnosticAppEventKind.verboseDiagnosticLoggingChanged.rawValue == 634)
         #expect(DiagnosticAppEventKind.verboseDiagnosticsShared.rawValue == 636)
         #expect(DiagnosticAppEventKind.dictationStopTimedOut.rawValue == 659)
         #expect(DiagnosticAppEventKind.pairedMacStoreWriteStarted.rawValue == 660)
@@ -432,17 +431,6 @@ import os
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
         #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
-        #expect(DiagnosticPathKind(.unavailable) == .unknown)
-        #expect(DiagnosticPathKind(.direct) == .direct)
-        #expect(DiagnosticPathKind(.privateNetwork) == .privateNetwork)
-        #expect(
-            DiagnosticPathKind(.managedRelay(provider: "provider", region: "region")) == .relay
-        )
-        #expect(
-            DiagnosticPathKind(
-                .customRelay(displayName: "private", provider: "provider", region: "region")
-            ) == .relay
-        )
     }
 
     @Test func failureClassifierPrefersTypedErrorsAndBoundsSystemErrors() {
@@ -480,7 +468,7 @@ import os
             DiagnosticEvent(
                 code: .transportDialConnected,
                 tNanos: 2_000,
-                a: Int(DiagnosticTransportKind.iroh.rawValue),
+                a: Int(DiagnosticTransportKind.tailscale.rawValue),
                 c: 7
             )
         )
@@ -488,7 +476,7 @@ import os
             DiagnosticEvent(
                 code: .transportDialFailed,
                 tNanos: 3_000,
-                a: Int(DiagnosticTransportKind.iroh.rawValue),
+                a: Int(DiagnosticTransportKind.tailscale.rawValue),
                 b: Int(DiagnosticFailureKind.noRoute.rawValue),
                 c: 8
             )
@@ -502,7 +490,7 @@ import os
         #expect(report.generatedAt == generatedAt)
         #expect(report.buildStamp == "cmux DEV diag")
         #expect(report.events.map(\.tNanos) == [2_000, 3_000])
-        #expect(report.events[0].diagnosticTransportKind == .iroh)
+        #expect(report.events[0].diagnosticTransportKind == .tailscale)
         #expect(report.events[0].diagnosticAttemptID == 7)
         #expect(report.events[1].diagnosticFailureKind == .noRoute)
         #expect(report.lastFailureKind == .noRoute)
@@ -593,7 +581,7 @@ import os
         let abandonedDial = DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: 3,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.cancelled.rawValue,
             c: 7
         )
@@ -623,7 +611,7 @@ import os
         let gatedRefusal = DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: 2,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.routeGated.rawValue,
             c: 7
         )
@@ -715,7 +703,7 @@ import os
                 DiagnosticEvent(
                     code: .transportDialFailed,
                     tNanos: 2,
-                    a: Int(DiagnosticTransportKind.iroh.rawValue),
+                    a: Int(DiagnosticTransportKind.tailscale.rawValue),
                     b: Int(DiagnosticFailureKind.authorizationFailed.rawValue),
                     c: 1
                 ),

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxIrohTransport
+@testable import CMUXMobileCore
 
 /// Captures the subscriber's injected sleeps and stops the loop by throwing
 /// cancellation once enough delays are recorded. Keeping this actor at file
@@ -87,7 +87,7 @@ struct CmxConnectivityInvalidationSubscriberTests {
             // A missing token classifies the attempt as failed before any
             // network use, so the loop exercises only the retry ladder.
             accessToken: { nil },
-            backoff: CmxIrohReconnectBackoff(seed: seed),
+            backoff: CmxReconnectBackoff(seed: seed),
             sleep: { try await recorder.record($0) },
             handler: { _ in }
         )
@@ -99,12 +99,12 @@ struct CmxConnectivityInvalidationSubscriberTests {
         // The private exponential schedule is gone: every delay matches a
         // same-seed twin of the one shared ladder and respects its 30 s
         // foreground cap, instead of the old unjittered 1,2,4...60 s ramp.
-        let twin = CmxIrohReconnectBackoff(seed: seed)
+        let twin = CmxReconnectBackoff(seed: seed)
         let expected = (0 ..< drawCount).map { _ in twin.nextDelay() }
         let recorded = await recorder.recorded()
         #expect(recorded == expected)
         #expect(recorded.allSatisfy {
-            $0 <= CmxIrohReconnectBackoffConfiguration.foreground.cap
+            $0 <= CmxReconnectBackoffConfiguration.foreground.cap
         })
     }
 

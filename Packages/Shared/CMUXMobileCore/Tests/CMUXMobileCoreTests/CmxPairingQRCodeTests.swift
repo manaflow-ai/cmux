@@ -228,25 +228,20 @@ import Testing
         #expect(encodeLegacy(loopbackTailscale) == nil)
 
         // A non-Tailscale fallback route the bare host:port grammar cannot
-        // express (an iroh peer) must NOT be silently dropped: the ticket
+        // express (a websocket URL) must NOT be silently dropped: the ticket
         // keeps the lossless compact payload instead. Only loopback routes,
         // which no phone may ever dial, are droppable.
-        let withIrohFallback = try pairingTicket(routes: [
+        let withWebsocketFallback = try pairingTicket(routes: [
             tailscale,
             try CmxAttachRoute(
-                id: "iroh",
-                kind: .iroh,
-                endpoint: .peer(
-                    id: String(repeating: "d", count: 64),
-                    relayHint: nil,
-                    directAddrs: [],
-                    relayURL: nil
-                ),
+                id: "websocket",
+                kind: .websocket,
+                endpoint: .url("wss://cmux.example.test/terminal"),
                 priority: 20
             ),
         ])
-        #expect(encodeLegacy(withIrohFallback) == nil)
-        #expect(!canEncodeLegacy(withIrohFallback))
+        #expect(encodeLegacy(withWebsocketFallback) == nil)
+        #expect(!canEncodeLegacy(withWebsocketFallback))
     }
 
     @Test(arguments: [
@@ -303,14 +298,15 @@ import Testing
     }
 
     @Test(arguments: [
+        // The retired v3 grammar carried one bare peer EndpointID for the
+        // removed transport; even a well-formed v3 code no longer names a
+        // route this build can dial, so every v3 code is an invalid code.
+        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))",
         "cmux-ios://attach?v=3",
         "cmux-ios://attach?v=3&i=",
         "cmux-ios://attach?v=3&i=abc",
-        "cmux-ios://attach?v=3&i=\(String(repeating: "C", count: 64))",
-        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&i=\(String(repeating: "d", count: 64))",
-        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&ub=user",
     ])
-    func decodeRejectsMalformedOrBloatedIrohCodes(url: String) throws {
+    func decodeRejectsRetiredIrohGrammar(url: String) throws {
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -327,7 +323,7 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
-        #expect(CmxPairingQRCode().isPairingCodeURLString(
+        #expect(!CmxPairingQRCode().isPairingCodeURLString(
             "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
         ))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))

@@ -104,7 +104,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 maximumReceiveLength: maximumReceiveLength,
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
-        case .iroh, .websocket:
+        case .websocket:
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
     }

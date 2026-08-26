@@ -46,7 +46,7 @@ import Testing
         let revalidation = Task { await coordinator.revalidateSession() }
         await client.validationDidPark()
 
-        // The iroh broker token source captures a snapshot mid-revalidation
+        // A backend token source captures a snapshot mid-revalidation
         // (launch and foreground activations race this window every time).
         // The pair is already persisted, so the snapshot must be served from
         // the keychain immediately instead of queueing behind the network.

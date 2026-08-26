@@ -9,10 +9,10 @@ public struct MobileSimulatorStreamCapability: Sendable {
     /// without misreading a static Simulator screen as a dead stream.
     public let keepaliveIdentifier: String
     /// Simulator streaming v2: HEVC/H.264 video plus input over a dedicated
-    /// `simulatorStream` iroh lane. Phones that see this skip the v1
-    /// image-event stream entirely. Wire contract:
-    /// `CmuxSimulatorStreamKit.SimStreamProtocol` (same literal, duplicated
-    /// so this base DTO package does not link VideoToolbox).
+    /// transport lane. Hosts no longer advertise this; it is retained so the
+    /// identifier stays reserved and old advertisements keep decoding. Wire
+    /// contract: `CmuxSimulatorStreamKit.SimStreamProtocol` (same literal,
+    /// duplicated so this base DTO package does not link VideoToolbox).
     public let streamV2Identifier: String
     /// The host serves `mobile.simulator.devices.list` and
     /// `mobile.simulator.device.select`, so phones can switch which

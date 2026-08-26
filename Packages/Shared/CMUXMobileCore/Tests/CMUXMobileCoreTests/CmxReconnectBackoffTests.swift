@@ -1,12 +1,12 @@
 import Foundation
 import Testing
-@testable import CmuxIrohTransport
+@testable import CMUXMobileCore
 
-struct CmxIrohReconnectBackoffTests {
+struct CmxReconnectBackoffTests {
     @Test
     func sameSeedProducesIdenticalSchedules() {
-        let first = CmxIrohReconnectBackoff(seed: 7)
-        let second = CmxIrohReconnectBackoff(seed: 7)
+        let first = CmxReconnectBackoff(seed: 7)
+        let second = CmxReconnectBackoff(seed: 7)
         let firstDelays = (0 ..< 64).map { _ in first.nextDelay() }
         let secondDelays = (0 ..< 64).map { _ in second.nextDelay() }
         #expect(firstDelays == secondDelays)
@@ -14,8 +14,8 @@ struct CmxIrohReconnectBackoffTests {
 
     @Test
     func jitterStaysInsideFloorAndCap() {
-        let configuration = CmxIrohReconnectBackoffConfiguration.foreground
-        let backoff = CmxIrohReconnectBackoff(
+        let configuration = CmxReconnectBackoffConfiguration.foreground
+        let backoff = CmxReconnectBackoff(
             configuration: configuration,
             seed: 0xDECAF
         )
@@ -36,17 +36,17 @@ struct CmxIrohReconnectBackoffTests {
 
     @Test
     func foregroundNeverSchedulesBeyondCapWithoutServerDirective() {
-        let backoff = CmxIrohReconnectBackoff(seed: 42)
+        let backoff = CmxReconnectBackoff(seed: 42)
         for _ in 0 ..< 1_000 {
             #expect(backoff.nextDelay()
-                <= CmxIrohReconnectBackoffConfiguration.foreground.cap)
+                <= CmxReconnectBackoffConfiguration.foreground.cap)
         }
     }
 
     @Test
     func resetReturnsToFloorWindow() {
-        let configuration = CmxIrohReconnectBackoffConfiguration.foreground
-        let backoff = CmxIrohReconnectBackoff(
+        let configuration = CmxReconnectBackoffConfiguration.foreground
+        let backoff = CmxReconnectBackoff(
             configuration: configuration,
             seed: 3
         )
@@ -62,33 +62,13 @@ struct CmxIrohReconnectBackoffTests {
 
     @Test
     func serverRetryAfterWinsOverLocalScheduleAndIsBounded() {
-        let backoff = CmxIrohReconnectBackoff(seed: 9)
+        let backoff = CmxReconnectBackoff(seed: 9)
         #expect(backoff.nextDelay(retryAfterSeconds: 120) >= 120)
         #expect(backoff.nextDelay(retryAfterSeconds: Int.max)
-            <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds))
+            <= TimeInterval(CmxReconnectBackoffConfiguration.maximumServerRetryAfterSeconds))
         // A server directive never poisons the local streak: the next local
         // draw stays inside the decorrelated window, not the directive's.
         let after = backoff.nextDelay()
-        #expect(after <= CmxIrohReconnectBackoffConfiguration.foreground.cap)
-    }
-
-    @Test
-    func foregroundClientRetryScheduleSharesForegroundBounds() {
-        let configuration = CmxIrohReconnectBackoffConfiguration.foreground
-        let schedule = CmxIrohRetrySchedule.foregroundClient
-        #expect(schedule.initialDelay == configuration.floor)
-        #expect(schedule.maximumDelay == configuration.cap)
-        // First transient failure retries after about a second, not half a
-        // minute, and no locally computed delay can exceed the cap.
-        #expect(schedule.delay(
-            failureCount: 0,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 1
-        ) <= configuration.floor * 1.25)
-        #expect(schedule.delay(
-            failureCount: 20,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 1
-        ) <= configuration.cap)
+        #expect(after <= CmxReconnectBackoffConfiguration.foreground.cap)
     }
 }

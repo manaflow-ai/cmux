@@ -109,13 +109,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto-Connect (Iroh)"
+            "value": "Auto-Connect"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動接続 (Iroh)"
+            "value": "自動接続"
           }
         }
       }
@@ -537,13 +537,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh route discovery failed"
+            "value": "Route discovery failed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh経路の探索に失敗しました"
+            "value": "経路の探索に失敗しました"
           }
         }
       }
@@ -554,13 +554,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh route discovery started"
+            "value": "Route discovery started"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh経路の探索を開始しました"
+            "value": "経路の探索を開始しました"
           }
         }
       }
@@ -571,13 +571,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh route discovery succeeded"
+            "value": "Route discovery succeeded"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh経路を検出しました"
+            "value": "経路を検出しました"
           }
         }
       }
@@ -588,13 +588,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh endpoint active"
+            "value": "Peer endpoint active"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohエンドポイントが稼働しました"
+            "value": "ピアエンドポイントが稼働しました"
           }
         }
       }
@@ -605,13 +605,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh endpoint failed"
+            "value": "Peer endpoint failed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohエンドポイントで障害が発生しました"
+            "value": "ピアエンドポイントで障害が発生しました"
           }
         }
       }
@@ -622,13 +622,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh endpoint starting"
+            "value": "Peer endpoint starting"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohエンドポイントを起動しています"
+            "value": "ピアエンドポイントを起動しています"
           }
         }
       }
@@ -639,13 +639,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh endpoint stopped"
+            "value": "Peer endpoint stopped"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohエンドポイントが停止しました"
+            "value": "ピアエンドポイントが停止しました"
           }
         }
       }
@@ -1421,13 +1421,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh endpoint unavailable"
+            "value": "Endpoint unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohエンドポイントを利用できません"
+            "value": "エンドポイントを利用できません"
           }
         }
       }
@@ -3276,13 +3276,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Iroh and transport report"
+            "value": "cmux transport report"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Irohとトランスポートのレポート"
+            "value": "cmuxトランスポートのレポート"
           }
         }
       }
@@ -3725,23 +3725,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "デバッグループバック"
-          }
-        }
-      }
-    },
-    "diagnostics.transport.iroh": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iroh"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iroh"
           }
         }
       }

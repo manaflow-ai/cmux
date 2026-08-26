@@ -93,7 +93,7 @@ import os
         DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: seconds * Self.second,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.policyUnavailable.rawValue,
             c: 7
         )
@@ -118,13 +118,13 @@ import os
         let crumbs = recorder.breadcrumbs.withLock { $0 }
         #expect(crumbs.count == 2)
         #expect(crumbs.allSatisfy { $0.category == "transport" })
-        #expect(crumbs.map(\.message) == ["Iroh endpoint starting", "Iroh endpoint active"])
+        #expect(crumbs.map(\.message) == ["Peer endpoint starting", "Peer endpoint active"])
         #expect(crumbs.allSatisfy { $0.level == .info })
         #expect(crumbs[0].data["event_code"] == "endpointStarting")
         #expect(crumbs[1].data["event_code"] == "endpointActive")
 
         let logs = recorder.logs.withLock { $0 }
-        #expect(logs.map(\.message) == ["Iroh endpoint starting", "Iroh endpoint active"])
+        #expect(logs.map(\.message) == ["Peer endpoint starting", "Peer endpoint active"])
         #expect(logs.allSatisfy { $0.level == .info })
         #expect(logs.allSatisfy { $0.attributes["transport.role"] == "iOS client" })
         #expect(logs[0].attributes["transport.event_code"] == "endpointStarting")
@@ -142,7 +142,7 @@ import os
         #expect(crumbs.first?.level == .warning)
         #expect(
             crumbs.first?.message
-                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 7)"
+                == "Transport dial failed (Transport: Tailscale, Failure: Relay policy unavailable, Attempt: 7)"
         )
 
         let events = recorder.events.withLock { $0 }
@@ -150,14 +150,14 @@ import os
         let event = events[0]
         #expect(
             event.title
-                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 7)"
+                == "Transport dial failed (Transport: Tailscale, Failure: Relay policy unavailable, Attempt: 7)"
         )
         #expect(event.level == .warning)
         #expect(event.fingerprint == [
-            "cmux-transport", "mobileClient", "transportDialFailed/policyUnavailable/iroh",
+            "cmux-transport", "mobileClient", "transportDialFailed/policyUnavailable/tailscale",
         ])
         #expect(event.tags?["transport.failure"] == "policyUnavailable")
-        #expect(event.tags?["transport.kind"] == "iroh")
+        #expect(event.tags?["transport.kind"] == "tailscale")
         #expect(event.tags?["transport.role"] == "mobileClient")
         #expect(event.tags?["transport.incident"] == "failure")
         #expect(event.hasAttachment)

@@ -23,7 +23,7 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.policyUnavailable) == "policyUnavailable")
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.identityMismatch) == "identityMismatch")
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.authorizationFailed) == "authorizationFailed")
-        #expect(DiagnosticEventPresentation().name(DiagnosticTransportKind.iroh) == "iroh")
+        #expect(DiagnosticEventPresentation().name(DiagnosticTransportKind.tailscale) == "tailscale")
         #expect(DiagnosticEventPresentation().name(DiagnosticPathKind.relay) == "relay")
         #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
@@ -57,12 +57,12 @@ import Testing
             code: .discoverySucceeded,
             tNanos: 1,
             ms: 340,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: 2,
             c: 3
         ))
         #expect(discovery.fields == [
-            .init(key: "transport", value: "Iroh"),
+            .init(key: "transport", value: "Tailscale"),
             .init(key: "bindings", value: "2"),
             .init(key: "duration", value: "340 ms"),
             .init(key: "relay_fleet", value: "3"),
@@ -121,14 +121,14 @@ import Testing
         let event = DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: 1,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.policyUnavailable.rawValue,
             c: 42
         )
         let described = englishPresentation.describe(event)
         #expect(described.name == "Transport dial failed")
         #expect(described.fields == [
-            .init(key: "transport", value: "Iroh"),
+            .init(key: "transport", value: "Tailscale"),
             .init(key: "failure", value: "Relay policy unavailable"),
             .init(key: "attempt", value: "42"),
         ])
@@ -233,10 +233,10 @@ import Testing
             .recoveryStarted: "Connection recovery started",
             .recoverySucceeded: "Connection recovery succeeded",
             .recoveryFailed: "Connection recovery failed",
-            .endpointStarting: "Iroh endpoint starting",
-            .endpointActive: "Iroh endpoint active",
-            .endpointStopped: "Iroh endpoint stopped",
-            .endpointFailed: "Iroh endpoint failed",
+            .endpointStarting: "Peer endpoint starting",
+            .endpointActive: "Peer endpoint active",
+            .endpointStopped: "Peer endpoint stopped",
+            .endpointFailed: "Peer endpoint failed",
             .relayPolicyRefreshStarted: "Relay policy refresh started",
             .relayPolicyRefreshSucceeded: "Relay policy refreshed",
             .relayPolicyRefreshFailed: "Relay policy refresh failed",
@@ -244,9 +244,9 @@ import Testing
             .sessionClosed: "Transport session closed",
             .routeUnavailable: "No usable transport route",
             .retryScheduled: "Retry scheduled",
-            .discoveryStarted: "Iroh route discovery started",
-            .discoverySucceeded: "Iroh route discovery succeeded",
-            .discoveryFailed: "Iroh route discovery failed",
+            .discoveryStarted: "Route discovery started",
+            .discoverySucceeded: "Route discovery succeeded",
+            .discoveryFailed: "Route discovery failed",
             .admissionSucceeded: "Client admitted",
             .admissionFailed: "Client admission failed",
             .hostAuthenticationFailed: "Host authentication failed",
@@ -291,11 +291,11 @@ import Testing
         let recovery = englishPresentation.describe(DiagnosticEvent(
             code: .recoveryStarted,
             tNanos: 1,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: 1
         ))
         #expect(recovery.fields == [
-            .init(key: "transport", value: "Iroh"),
+            .init(key: "transport", value: "Tailscale"),
             .init(key: "trigger", value: "Network changed"),
         ])
 
@@ -303,12 +303,12 @@ import Testing
             code: .recoverySucceeded,
             tNanos: 1,
             surface: 77,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             c: 12
         ))
         #expect(recoveryWithContext.fields == [
             .init(key: "recovery", value: "77"),
-            .init(key: "transport", value: "Iroh"),
+            .init(key: "transport", value: "Tailscale"),
             .init(key: "peer", value: "12"),
         ])
 
@@ -353,12 +353,12 @@ import Testing
         let endpoint = englishPresentation.describe(DiagnosticEvent(
             code: .endpointFailed,
             tNanos: 1,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.endpointUnavailable.rawValue
         ))
         #expect(endpoint.fields == [
-            .init(key: "transport", value: "Iroh"),
-            .init(key: "failure", value: "Iroh endpoint unavailable"),
+            .init(key: "transport", value: "Tailscale"),
+            .init(key: "failure", value: "Endpoint unavailable"),
         ])
 
         let session = englishPresentation.describe(DiagnosticEvent(
@@ -620,7 +620,7 @@ import Testing
         ))
         #expect(changed.fields == [
             .init(key: "operation", value: "connectionMethodPreferenceChanged"),
-            .init(key: "method", value: "Auto-Connect (Iroh)"),
+            .init(key: "method", value: "Auto-Connect"),
         ])
 
         let transport = englishPresentation.describe(DiagnosticEvent(

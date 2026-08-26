@@ -6,7 +6,7 @@ import Testing
 /// Regression coverage for ``AuthCoordinator/authenticatedSessionSnapshot()``
 /// reading the access and refresh tokens as ONE coherent pair.
 ///
-/// The snapshot feeds the iroh broker's `Authorization: Bearer <access>` +
+/// The snapshot feeds a backend client's `Authorization: Bearer <access>` +
 /// `X-Stack-Refresh-Token: <refresh>` header pair. Reading the access token and
 /// refresh token through two separate awaits let a concurrent
 /// `forceRefreshAccessToken()` rotate the credentials between them, so the

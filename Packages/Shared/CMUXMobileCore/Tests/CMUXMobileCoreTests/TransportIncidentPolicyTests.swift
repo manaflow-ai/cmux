@@ -9,7 +9,7 @@ import Testing
     private func dialFailed(
         at seconds: UInt64,
         failure: DiagnosticFailureKind = .policyUnavailable,
-        transport: DiagnosticTransportKind = .iroh
+        transport: DiagnosticTransportKind = .tailscale
     ) -> DiagnosticEvent {
         DiagnosticEvent(
             code: .transportDialFailed,
@@ -29,10 +29,10 @@ import Testing
         let incident = policy.decide(dialFailed(at: 10))
         #expect(incident?.kind == .failure)
         #expect(incident?.severity == .warning)
-        #expect(incident?.signature == "transportDialFailed/policyUnavailable/iroh")
+        #expect(incident?.signature == "transportDialFailed/policyUnavailable/tailscale")
         #expect(
             incident?.title
-                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+                == "Transport dial failed (Transport: Tailscale, Failure: Relay policy unavailable, Attempt: 1)"
         )
         #expect(incident?.coalescedCount == 1)
         #expect(incident?.consecutiveFailures == 1)
@@ -50,7 +50,7 @@ import Testing
         #expect(recapture?.coalescedCount == 3)
         #expect(recapture?.secondsSinceFirstCoalesced == 680)
         let expectedTitle = "Transport dial failed "
-            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1) "
+            + "(Transport: Tailscale, Failure: Relay policy unavailable, Attempt: 1) "
             + "(3 occurrences)"
         #expect(
             recapture?.title == expectedTitle
@@ -94,7 +94,7 @@ import Testing
         let backgrounded = DiagnosticEvent(
             code: .sessionClosed,
             tNanos: 10 * Self.second,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.transportIdleTimedOut.rawValue
         )
         #expect(policy.decide(backgrounded) == nil)
@@ -107,7 +107,7 @@ import Testing
         let foregrounded = DiagnosticEvent(
             code: .sessionClosed,
             tNanos: 12 * Self.second,
-            a: DiagnosticTransportKind.iroh.rawValue,
+            a: DiagnosticTransportKind.tailscale.rawValue,
             b: DiagnosticFailureKind.transportIdleTimedOut.rawValue
         )
         #expect(policy.decide(foregrounded) != nil)
@@ -153,7 +153,7 @@ import Testing
         #expect(outage?.consecutiveFailures == 5)
         let expectedTitle = "Transport outage: 5 consecutive failures over 60 seconds. "
             + "Latest: Transport dial failed "
-            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+            + "(Transport: Tailscale, Failure: Relay policy unavailable, Attempt: 1)"
         #expect(
             outage?.title == expectedTitle
         )
