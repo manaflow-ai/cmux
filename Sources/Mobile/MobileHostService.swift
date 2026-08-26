@@ -733,15 +733,12 @@ final class MobileHostService {
     /// User-default key for the preferred iOS pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
 
-    /// The preferred port read from settings. Both iOS listeners try to bind
-    /// it: the legacy TCP pairing listener here and the Iroh endpoint's UDP
-    /// socket (`MobileHostIrohRuntime` passes it as the endpoint bind
-    /// preference).
+    /// The preferred port read from settings for the TCP pairing listener.
     ///
     /// Falls back to the catalog default (which mirrors
     /// `CmxMobileDefaults.defaultHostPort`) when unset or outside the valid
-    /// `1...65535` range. Each listener still falls back independently to an
-    /// OS-assigned ephemeral port if this port is unavailable at bind time.
+    /// `1...65535` range. The listener still falls back to an OS-assigned
+    /// ephemeral port if this port is unavailable at bind time.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
         let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
         guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {

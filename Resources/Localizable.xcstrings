@@ -3878,76 +3878,376 @@
     "cli.agentHook.error.notificationDelivery": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "فشل تسليم إشعار خطاف الوكيل لـ %@ %@." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Dostava obavijesti agentske kuke nije uspjela za %@ %@." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Levering af agent-hook-notifikationen mislykkedes for %@ %@." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Die Zustellung der Agent-Hook-Benachrichtigung ist für %@ %@ fehlgeschlagen." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Agent hook notification delivery failed for %@ %@." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No se pudo entregar la notificación del hook del agente para %@ %@." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la livraison de la notification du hook d’agent pour %@ %@." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Impossibile recapitare la notifica dell’hook dell’agente per %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック通知を配信できませんでした。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការបញ្ជូនការជូនដំណឹង agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 알림을 전달하지 못했습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Levering av agent-hook-varslingen mislyktes for %@ %@." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dostarczyć powiadomienia haka agenta dla %@ %@." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao entregar a notificação do hook do agente para %@ %@." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось доставить уведомление хука агента для %@ %@." } },
-        "th": { "stringUnit": { "state": "translated", "value": "ส่งการแจ้งเตือน agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası bildirimi teslim edilemedi." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося доставити сповіщення хуку агента для %@ %@." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法传递 %@ %@ 的代理钩子通知。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسليم إشعار خطاف الوكيل لـ %@ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostava obavijesti agentske kuke nije uspjela za %@ %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levering af agent-hook-notifikationen mislykkedes for %@ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zustellung der Agent-Hook-Benachrichtigung ist für %@ %@ fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook notification delivery failed for %@ %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo entregar la notificación del hook del agente para %@ %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la livraison de la notification du hook d’agent pour %@ %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile recapitare la notifica dell’hook dell’agente per %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフック通知を配信できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជូនការជូនដំណឹង agent hook បានបរាជ័យសម្រាប់ %@ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@에 대한 에이전트 훅 알림을 전달하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levering av agent-hook-varslingen mislyktes for %@ %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się dostarczyć powiadomienia haka agenta dla %@ %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao entregar a notificação do hook do agente para %@ %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось доставить уведомление хука агента для %@ %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการแจ้งเตือน agent hook สำหรับ %@ %@ ไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ için aracı kancası bildirimi teslim edilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося доставити сповіщення хуку агента для %@ %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法传递 %@ %@ 的代理钩子通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。"
+          }
+        }
       }
     },
     "cli.agentHook.error.journalAppend": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No se pudo añadir el hook del agente al diario para %@ %@." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao adicionar o hook do agente ao diário para %@ %@." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить хук агента в журнал для %@ %@." } },
-        "th": { "stringUnit": { "state": "translated", "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати хук агента до журналу для %@ %@." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法将 %@ %@ 的代理钩子追加到日志。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook journal append failed for %@ %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo añadir el hook del agente al diario para %@ %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao adicionar o hook do agente ao diário para %@ %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось добавить хук агента в журнал для %@ %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося додати хук агента до журналу для %@ %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将 %@ %@ 的代理钩子追加到日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。"
+          }
+        }
       }
     },
     "cli.agentHook.error.targetResolution": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "فشل حل هدف خطاف الوكيل لـ %@ %@." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Rješavanje odredišta agentske kuke nije uspjelo za %@ %@." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Agent-hook-målløsning mislykkedes for %@ %@." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Die Zielauflösung des Agent-Hooks ist für %@ %@ fehlgeschlagen." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Agent hook target resolution failed for %@ %@." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No se pudo resolver el destino del hook del agente para %@ %@." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la résolution de la cible du hook d’agent pour %@ %@." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risoluzione della destinazione dell’hook dell’agente non riuscita per %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック配信先を解決できませんでした。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការដោះស្រាយគោលដៅ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 대상을 확인하지 못했습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke målet for agent-hooken for %@ %@." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się rozpoznać celu haka agenta dla %@ %@." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao resolver o destino do hook do agente para %@ %@." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось определить цель хука агента для %@ %@." } },
-        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถแก้ไขปลายทาง agent hook สำหรับ %@ %@ ได้" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası hedefi çözülemedi." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося визначити ціль хуку агента для %@ %@." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法解析 %@ %@ 的代理钩子目标。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法解析 %@ %@ 的代理程式掛鉤目標。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل حل هدف خطاف الوكيل لـ %@ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rješavanje odredišta agentske kuke nije uspjelo za %@ %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-hook-målløsning mislykkedes for %@ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zielauflösung des Agent-Hooks ist für %@ %@ fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook target resolution failed for %@ %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo resolver el destino del hook del agente para %@ %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la résolution de la cible du hook d’agent pour %@ %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risoluzione della destinazione dell’hook dell’agente non riuscita per %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフック配信先を解決できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដោះស្រាយគោលដៅ agent hook បានបរាជ័យសម្រាប់ %@ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@에 대한 에이전트 훅 대상을 확인하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke målet for agent-hooken for %@ %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się rozpoznać celu haka agenta dla %@ %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao resolver o destino do hook do agente para %@ %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось определить цель хука агента для %@ %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแก้ไขปลายทาง agent hook สำหรับ %@ %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ için aracı kancası hedefi çözülemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося визначити ціль хуку агента для %@ %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析 %@ %@ 的代理钩子目标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解析 %@ %@ 的代理程式掛鉤目標。"
+          }
+        }
       }
     },
     "agent.generic.notification.body.approvalNeeded": {
@@ -26531,36 +26831,86 @@
     "browser.error.urlAllowlist.attemptedURL": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Attempted URL" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "試行したURL" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attempted URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試行したURL"
+          }
+        }
       }
     },
     "browser.error.urlAllowlist.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization's embedded-browser policy." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This URL is not allowed by your organization's embedded-browser policy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。"
+          }
+        }
       }
     },
     "browser.error.urlAllowlist.userMessage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by the embedded-browser URL policy." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This URL is not allowed by the embedded-browser URL policy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。"
+          }
+        }
       }
     },
     "browser.error.urlAllowlist.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's policy" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "組織のポリシーによりブロックされました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by your organization's policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織のポリシーによりブロックされました"
+          }
+        }
       }
     },
     "browser.error.urlAllowlist.userTitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by the embedded-browser URL policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵ブラウザのURLポリシーによりブロックされました"
+          }
+        }
       }
     },
     "browser.error.insecure.message": {
@@ -35013,15 +35363,35 @@
     "cli.browser.error.urlBlockedByPolicy": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's browser policy" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "組織のブラウザポリシーによりブロックされました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by your organization's browser policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織のブラウザポリシーによりブロックされました"
+          }
+        }
       }
     },
     "cli.browser.error.urlBlockedByUserPolicy": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by the embedded-browser URL policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵ブラウザのURLポリシーによりブロックされました"
+          }
+        }
       }
     },
     "cli.browser.error.operationFailed": {
@@ -51880,36 +52250,126 @@
     "cli.sessions.command": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "da": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "de": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "sessions [list] [options]"
           }
         },
-        "es": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "it": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "sessions [list] [options]"
           }
         },
-        "km": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "th": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } }
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        }
       }
     },
     "cli.sessions.error.agentRequiresValue": {
@@ -55571,23 +56031,6 @@
         }
       }
     },
-    "cli.ssh.terminalExitPrompt.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] press Enter to close this pane."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 閉じるには Enter を押してください。"
-          }
-        }
-      }
-    },
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
@@ -55620,24 +56063,114 @@
             "value": "[cmux] SSH が切断されました（%s）。%s 回目を %s 秒後に再試行します。入力は破棄されます。"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "[cmux] انقطع اتصال SSH (%s)؛ إعادة المحاولة %s خلال %s ث؛ سيتم تجاهل الإدخال."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "[cmux] SSH veza je prekinuta (%s); pokušaj %s za %s s; unos se odbacuje."}},
-        "da": {"stringUnit": {"state": "translated", "value": "[cmux] SSH afbrudt (%s); prøver igen %s om %s s; input kasseres."}},
-        "de": {"stringUnit": {"state": "translated", "value": "[cmux] SSH getrennt (%s); Versuch %s in %s s; Eingaben werden verworfen."}},
-        "es": {"stringUnit": {"state": "translated", "value": "[cmux] SSH desconectado (%s); reintento %s en %s s; la entrada se descarta."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "[cmux] SSH déconnecté (%s) ; nouvelle tentative %s dans %s s ; saisie ignorée."}},
-        "it": {"stringUnit": {"state": "translated", "value": "[cmux] SSH disconnesso (%s); nuovo tentativo %s tra %s s; input scartato."}},
-        "km": {"stringUnit": {"state": "translated", "value": "[cmux] SSH បានផ្តាច់ (%s); ព្យាយាមម្ដងទៀត %s ក្នុង %s វិ; ទិន្នន័យបញ្ចូលត្រូវបានបោះចោល។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 연결 끊김(%s); %s번째 재시도를 %s초 후 수행합니다; 입력은 버립니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "[cmux] SSH frakoblet (%s); prøver igjen %s om %s s; inndata forkastes."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "[cmux] SSH rozłączone (%s); ponowna próba %s za %s s; dane wejściowe zostaną odrzucone."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "[cmux] SSH desconectado (%s); nova tentativa %s em %s s; entrada descartada."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "[cmux] SSH отключён (%s); повторная попытка %s через %s с; ввод будет отброшен."}},
-        "th": {"stringUnit": {"state": "translated", "value": "[cmux] SSH ถูกตัดการเชื่อมต่อ (%s); ลองใหม่ครั้งที่ %s ใน %s วินาที; อินพุตจะถูกทิ้ง"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "[cmux] SSH bağlantısı kesildi (%s); %s. deneme %s sn içinde; girdi atılacak."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "[cmux] SSH від’єднано (%s); повторна спроба %s через %s с; введення буде відкинуто."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 已断开（%s）；重试第 %s 次（%s 秒后）；输入将被丢弃。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 已中斷（%s）；重試第 %s 次（%s 秒後）；輸入將被捨棄。"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] انقطع اتصال SSH (%s)؛ إعادة المحاولة %s خلال %s ث؛ سيتم تجاهل الإدخال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH veza je prekinuta (%s); pokušaj %s za %s s; unos se odbacuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH afbrudt (%s); prøver igen %s om %s s; input kasseres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH getrennt (%s); Versuch %s in %s s; Eingaben werden verworfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH desconectado (%s); reintento %s en %s s; la entrada se descarta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH déconnecté (%s) ; nouvelle tentative %s dans %s s ; saisie ignorée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH disconnesso (%s); nuovo tentativo %s tra %s s; input scartato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH បានផ្តាច់ (%s); ព្យាយាមម្ដងទៀត %s ក្នុង %s វិ; ទិន្នន័យបញ្ចូលត្រូវបានបោះចោល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 연결 끊김(%s); %s번째 재시도를 %s초 후 수행합니다; 입력은 버립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH frakoblet (%s); prøver igjen %s om %s s; inndata forkastes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH rozłączone (%s); ponowna próba %s za %s s; dane wejściowe zostaną odrzucone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH desconectado (%s); nova tentativa %s em %s s; entrada descartada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH отключён (%s); повторная попытка %s через %s с; ввод будет отброшен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ถูกตัดการเชื่อมต่อ (%s); ลองใหม่ครั้งที่ %s ใน %s วินาที; อินพุตจะถูกทิ้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH bağlantısı kesildi (%s); %s. deneme %s sn içinde; girdi atılacak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH від’єднано (%s); повторна спроба %s через %s с; введення буде відкинуто."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 已断开（%s）；重试第 %s 次（%s 秒后）；输入将被丢弃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 已中斷（%s）；重試第 %s 次（%s 秒後）；輸入將被捨棄。"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.retryReason.hostUnreachable": {
@@ -55655,24 +56188,114 @@
             "value": "ホストに接続できません"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "المضيف غير قابل للوصول"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "host nije dostupan"}},
-        "da": {"stringUnit": {"state": "translated", "value": "værten kan ikke nås"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Host nicht erreichbar"}},
-        "es": {"stringUnit": {"state": "translated", "value": "host inaccesible"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "hôte inaccessible"}},
-        "it": {"stringUnit": {"state": "translated", "value": "host non raggiungibile"}},
-        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចចូលដល់ម៉ាស៊ីន"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "호스트에 연결할 수 없음"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "vert utilgjengelig"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "host nieosiągalny"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "host inacessível"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "хост недоступен"}},
-        "th": {"stringUnit": {"state": "translated", "value": "เข้าถึงโฮสต์ไม่ได้"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "ana bilgisayara ulaşılamıyor"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "хост недоступний"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主机不可达"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主機無法連線"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضيف غير قابل للوصول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host nije dostupan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "værten kan ikke nås"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host nicht erreichbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host inaccesible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hôte inaccessible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host non raggiungibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចូលដល់ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트에 연결할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vert utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host nieosiągalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host inacessível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "хост недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เข้าถึงโฮสต์ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ana bilgisayara ulaşılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "хост недоступний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机不可达"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機無法連線"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.retryReason.controlMasterUnavailable": {
@@ -55690,24 +56313,114 @@
             "value": "SSH 認証または制御接続を利用できません"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "مصادقة/تحكم SSH غير متاح"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "SSH autentikacija/kontrola nije dostupna"}},
-        "da": {"stringUnit": {"state": "translated", "value": "SSH-godkendelse/-kontrol er utilgængelig"}},
-        "de": {"stringUnit": {"state": "translated", "value": "SSH-Authentifizierung/-Steuerung nicht verfügbar"}},
-        "es": {"stringUnit": {"state": "translated", "value": "autenticación/control SSH no disponible"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "authentification/contrôle SSH indisponible"}},
-        "it": {"stringUnit": {"state": "translated", "value": "autenticazione/controllo SSH non disponibile"}},
-        "km": {"stringUnit": {"state": "translated", "value": "មិនមានការផ្ទៀងផ្ទាត់/ការគ្រប់គ្រង SSH"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "SSH 인증/제어를 사용할 수 없음"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "SSH-autentisering/-kontroll utilgjengelig"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "uwierzytelnianie/kontrola SSH niedostępna"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "autenticação/controle SSH indisponível"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "аутентификация/управление SSH недоступны"}},
-        "th": {"stringUnit": {"state": "translated", "value": "การยืนยันตัวตน/การควบคุม SSH ใช้งานไม่ได้"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "SSH kimlik doğrulama/kontrolü kullanılamıyor"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "автентифікація/керування SSH недоступні"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "SSH 身份验证/控制不可用"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "SSH 驗證/控制無法使用"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصادقة/تحكم SSH غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH autentikacija/kontrola nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-godkendelse/-kontrol er utilgængelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Authentifizierung/-Steuerung nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autenticación/control SSH no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "authentification/contrôle SSH indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autenticazione/controllo SSH non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានការផ្ទៀងផ្ទាត់/ការគ្រប់គ្រង SSH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증/제어를 사용할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-autentisering/-kontroll utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uwierzytelnianie/kontrola SSH niedostępna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autenticação/controle SSH indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "аутентификация/управление SSH недоступны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การยืนยันตัวตน/การควบคุม SSH ใช้งานไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH kimlik doğrulama/kontrolü kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "автентифікація/керування SSH недоступні"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证/控制不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證/控制無法使用"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.retryReason.daemonNotReady": {
@@ -55725,24 +56438,114 @@
             "value": "リモートサービスを起動しています"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "الخدمة البعيدة قيد التشغيل"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "udaljena usluga se pokreće"}},
-        "da": {"stringUnit": {"state": "translated", "value": "fjerntjenesten starter"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Remote-Dienst wird gestartet"}},
-        "es": {"stringUnit": {"state": "translated", "value": "el servicio remoto se está iniciando"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "le service distant démarre"}},
-        "it": {"stringUnit": {"state": "translated", "value": "il servizio remoto si avvia"}},
-        "km": {"stringUnit": {"state": "translated", "value": "សេវាពីចម្ងាយកំពុងចាប់ផ្តើម"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "원격 서비스 시작 중"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "fjerntjenesten starter"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "usługa zdalna uruchamia się"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "o serviço remoto está iniciando"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "удалённая служба запускается"}},
-        "th": {"stringUnit": {"state": "translated", "value": "กำลังเริ่มบริการระยะไกล"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "uzak hizmet başlatılıyor"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "віддалена служба запускається"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程服务正在启动"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "遠端服務正在啟動"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخدمة البعيدة قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "udaljena usluga se pokreće"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjerntjenesten starter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dienst wird gestartet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el servicio remoto se está iniciando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le service distant démarre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il servizio remoto si avvia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាពីចម្ងាយកំពុងចាប់ផ្តើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 서비스 시작 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjerntjenesten starter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "usługa zdalna uruchamia się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o serviço remoto está iniciando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "удалённая служба запускается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเริ่มบริการระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uzak hizmet başlatılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "віддалена служба запускається"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程服务正在启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端服務正在啟動"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.retryReason.bridgeClosed": {
@@ -55760,24 +56563,114 @@
             "value": "接続が中断されました"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "انقطع الاتصال"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "veza je prekinuta"}},
-        "da": {"stringUnit": {"state": "translated", "value": "forbindelsen blev afbrudt"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Verbindung unterbrochen"}},
-        "es": {"stringUnit": {"state": "translated", "value": "conexión interrumpida"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "connexion interrompue"}},
-        "it": {"stringUnit": {"state": "translated", "value": "connessione interrotta"}},
-        "km": {"stringUnit": {"state": "translated", "value": "ការតភ្ជាប់ត្រូវបានផ្អាក"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "연결 중단"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "tilkoblingen ble avbrutt"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "połączenie przerwane"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "conexão interrompida"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "соединение прервано"}},
-        "th": {"stringUnit": {"state": "translated", "value": "การเชื่อมต่อถูกขัดจังหวะ"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "bağlantı kesildi"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "з’єднання перервано"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接中断"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線中斷"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "veza je prekinuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forbindelsen blev afbrudt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung unterbrochen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "conexión interrumpida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connexion interrompue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connessione interrotta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់ត្រូវបានផ្អាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중단"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tilkoblingen ble avbrutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "połączenie przerwane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "conexão interrompida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "соединение прервано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อถูกขัดจังหวะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bağlantı kesildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "з’єднання перервано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線中斷"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.retryReason.noProgress": {
@@ -55795,74 +56688,256 @@
             "value": "リモートサービスから進展がありません"
           }
         },
-        "ar": {"stringUnit": {"state": "translated", "value": "لم تتقدم الخدمة البعيدة"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "udaljena usluga nije napredovala"}},
-        "da": {"stringUnit": {"state": "translated", "value": "fjerntjenesten gjorde ingen fremskridt"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Remote-Dienst kommt nicht voran"}},
-        "es": {"stringUnit": {"state": "translated", "value": "el servicio remoto no avanzó"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "le service distant n’avance pas"}},
-        "it": {"stringUnit": {"state": "translated", "value": "il servizio remoto non avanza"}},
-        "km": {"stringUnit": {"state": "translated", "value": "សេវាពីចម្ងាយមិនមានការរីកចម្រើន"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "원격 서비스가 진행되지 않음"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "fjerntjenesten gjorde ingen fremgang"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "usługa zdalna nie robi postępów"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "o serviço remoto não avançou"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "удалённая служба не продвигается"}},
-        "th": {"stringUnit": {"state": "translated", "value": "บริการระยะไกลไม่คืบหน้า"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "uzak hizmet ilerleme göstermedi"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "віддалена служба не просувається"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程服务没有进展"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "遠端服務沒有進展"}}
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتقدم الخدمة البعيدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "udaljena usluga nije napredovala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjerntjenesten gjorde ingen fremskridt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dienst kommt nicht voran"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el servicio remoto no avanzó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le service distant n’avance pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il servizio remoto non avanza"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាពីចម្ងាយមិនមានការរីកចម្រើន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 서비스가 진행되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjerntjenesten gjorde ingen fremgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "usługa zdalna nie robi postępów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o serviço remoto não avançou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "удалённая служба не продвигается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการระยะไกลไม่คืบหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uzak hizmet ilerleme göstermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "віддалена служба не просувається"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程服务没有进展"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端服務沒有進展"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.terminalInputFlushFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not be reset; reconnecting."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力をリセットできませんでした。再接続します。"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إعادة ضبط إدخال طرفية SSH؛ جارٍ إعادة الاتصال."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće resetovati; ponovno povezivanje."}},
-        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke nulstilles; opretter forbindelse igen."}},
-        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht zurückgesetzt werden; Verbindung wird wiederhergestellt."}},
-        "es": {"stringUnit": {"state": "translated", "value": "No se pudo restablecer la entrada del terminal SSH; reconectando."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu être réinitialisée ; reconnexion."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Impossibile reimpostare l’input del terminale SSH; riconnessione."}},
-        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចកំណត់ការបញ្ចូលស្ថានីយ SSH ឡើងវិញបានទេ; កំពុងភ្ជាប់ឡើងវិញ។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재설정할 수 없습니다. 다시 연결합니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke tilbakestilles; kobler til på nytt."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Nie można zresetować wejścia terminala SSH; ponowne łączenie."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível redefinir a entrada do terminal SSH; reconectando."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось сбросить ввод терминала SSH; выполняется переподключение."}},
-        "th": {"stringUnit": {"state": "translated", "value": "รีเซ็ตอินพุตเทอร์มินัล SSH ไม่ได้ กำลังเชื่อมต่อใหม่"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi sıfırlanamadı; yeniden bağlanılıyor."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося скинути ввід термінала SSH; повторне підключення."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法重置 SSH 终端输入；正在重新连接。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法重設 SSH 終端輸入；正在重新連線。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal input could not be reset; reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナル入力をリセットできませんでした。再接続します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إعادة ضبط إدخال طرفية SSH؛ جارٍ إعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ulaz SSH terminala nije moguće resetovati; ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-terminalinput kunne ikke nulstilles; opretter forbindelse igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Terminaleingabe konnte nicht zurückgesetzt werden; Verbindung wird wiederhergestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo restablecer la entrada del terminal SSH; reconectando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’entrée du terminal SSH n’a pas pu être réinitialisée ; reconnexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile reimpostare l’input del terminale SSH; riconnessione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចកំណត់ការបញ្ចូលស្ថានីយ SSH ឡើងវិញបានទេ; កំពុងភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 터미널 입력을 재설정할 수 없습니다. 다시 연결합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-terminalinndata kunne ikke tilbakestilles; kobler til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zresetować wejścia terminala SSH; ponowne łączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível redefinir a entrada do terminal SSH; reconectando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сбросить ввод терминала SSH; выполняется переподключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเซ็ตอินพุตเทอร์มินัล SSH ไม่ได้ กำลังเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal girişi sıfırlanamadı; yeniden bağlanılıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося скинути ввід термінала SSH; повторне підключення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重置 SSH 终端输入；正在重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重設 SSH 終端輸入；正在重新連線。"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.terminalInputTransitionFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not enter reconnect mode."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力を再接続モードに切り替えられませんでした。"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إدخال طرفية SSH في وضع إعادة الاتصال."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće prebaciti u režim ponovnog povezivanja."}},
-        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke skifte til genforbindelsestilstand."}},
-        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht in den Wiederverbindungsmodus wechseln."}},
-        "es": {"stringUnit": {"state": "translated", "value": "No se pudo cambiar la entrada del terminal SSH al modo de reconexión."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu passer en mode reconnexion."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Impossibile passare l’input del terminale SSH alla modalità di riconnessione."}},
-        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចប្តូរការបញ្ចូលស្ថានីយ SSH ទៅរបៀបភ្ជាប់ឡើងវិញបានទេ។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재연결 모드로 전환할 수 없습니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke gå inn i tilkoblingsmodus."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Nie można przełączyć wejścia terminala SSH w tryb ponownego łączenia."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível colocar a entrada do terminal SSH no modo de reconexão."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось перевести ввод терминала SSH в режим переподключения."}},
-        "th": {"stringUnit": {"state": "translated", "value": "ไม่สามารถเปลี่ยนอินพุตเทอร์มินัล SSH เป็นโหมดเชื่อมต่อใหม่ได้"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi yeniden bağlanma moduna geçirilemedi."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося перевести ввід термінала SSH у режим повторного підключення."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将 SSH 终端输入切换到重连模式。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將 SSH 終端輸入切換至重新連線模式。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
+          }
+        }
       }
     },
     "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard": {
@@ -56048,23 +57123,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.terminalInputTransitionFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
@@ -141285,226 +142343,1126 @@
     "mobile.pairing.subheading": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "زامن مساحات عمل الطرفية مع جهاز iPhone الخاص بك." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Sinhronizujte svoje terminalske radne prostore sa svojim iPhoneom." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Synkroniser dine terminal-arbejdsområder til din iPhone." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Synchronisiere deine Terminal-Arbeitsbereiche mit deinem iPhone." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Sync your terminal workspaces to your iPhone." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Sincroniza tus espacios de trabajo de terminal con tu iPhone." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Synchronisez vos espaces de travail de terminal avec votre iPhone." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Sincronizza i tuoi spazi di lavoro del terminale con il tuo iPhone." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのワークスペースをiPhoneと同期します。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធ្វើសមកាលកម្មកន្លែងធ្វើការតឺមីណាល់របស់អ្នកទៅ iPhone របស់អ្នក។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "터미널 워크스페이스를 iPhone과 동기화하세요." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Synkroniser terminalarbeidsområdene dine til iPhonen din." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Synchronizuj swoje terminalowe przestrzenie robocze z iPhone'em." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sincronize seus espaços de trabalho de terminal com o seu iPhone." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Синхронизируйте рабочие пространства терминала со своим iPhone." } },
-        "th": { "stringUnit": { "state": "translated", "value": "ซิงค์เวิร์กสเปซเทอร์มินัลของคุณไปยัง iPhone ของคุณ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Terminal çalışma alanlarınızı iPhone'unuzla eşitleyin." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Синхронізуйте робочі простори термінала зі своїм iPhone." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将您的终端工作区同步到 iPhone。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將您的終端機工作區同步到 iPhone。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زامن مساحات عمل الطرفية مع جهاز iPhone الخاص بك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinhronizujte svoje terminalske radne prostore sa svojim iPhoneom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkroniser dine terminal-arbejdsområder til din iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisiere deine Terminal-Arbeitsbereiche mit deinem iPhone."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync your terminal workspaces to your iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincroniza tus espacios de trabajo de terminal con tu iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisez vos espaces de travail de terminal avec votre iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizza i tuoi spazi di lavoro del terminale con il tuo iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのワークスペースをiPhoneと同期します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើសមកាលកម្មកន្លែងធ្វើការតឺមីណាល់របស់អ្នកទៅ iPhone របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 워크스페이스를 iPhone과 동기화하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkroniser terminalarbeidsområdene dine til iPhonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronizuj swoje terminalowe przestrzenie robocze z iPhone'em."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronize seus espaços de trabalho de terminal com o seu iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронизируйте рабочие пространства терминала со своим iPhone."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซิงค์เวิร์กสเปซเทอร์มินัลของคุณไปยัง iPhone ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal çalışma alanlarınızı iPhone'unuzla eşitleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронізуйте робочі простори термінала зі своїм iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将您的终端工作区同步到 iPhone。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將您的終端機工作區同步到 iPhone。"
+          }
+        }
       }
     },
     "mobile.pairing.getApp.badge.caption": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "نزّل cmux لجهاز" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Preuzmite cmux za" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Hent cmux til" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Lade cmux für" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Download cmux for" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Descarga cmux para" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Téléchargez cmux pour" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Scarica cmux per" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "cmuxをダウンロード" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ទាញយក cmux សម្រាប់" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "cmux 다운로드" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Last ned cmux til" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Pobierz cmux na" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Baixe o cmux para" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Скачать cmux для" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลด cmux สำหรับ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "cmux'u indirin" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Завантажити cmux для" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载 cmux" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載 cmux" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نزّل cmux لجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preuzmite cmux za"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent cmux til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade cmux für"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download cmux for"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga cmux para"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléchargez cmux pour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica cmux per"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxをダウンロード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទាញយក cmux សម្រាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 다운로드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last ned cmux til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pobierz cmux na"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixe o cmux para"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачать cmux для"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดาวน์โหลด cmux สำหรับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u indirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантажити cmux для"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載 cmux"
+          }
+        }
       }
     },
     "mobile.pairing.getApp.badge.platform": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "da": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "de": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "en": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "es": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "it": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhone版" } },
-        "km": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "iPhone용" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "th": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "iPhone" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iPhone 版" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "iPhone 版" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone版"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 版"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 版"
+          }
+        }
       }
     },
     "mobile.pairing.heading": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "اقرن جهاز iPhone الخاص بك" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Uparite svoj iPhone" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Par din iPhone" } },
-        "de": { "stringUnit": { "state": "translated", "value": "iPhone koppeln" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Pair your iPhone" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Empareja tu iPhone" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Jumelez votre iPhone" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Abbina il tuo iPhone" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneをペアリング" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ផ្គូផ្គង iPhone របស់អ្នក" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "iPhone 페어링" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Par iPhonen din" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Sparuj swojego iPhone'a" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Emparelhe seu iPhone" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Подключите свой iPhone" } },
-        "th": { "stringUnit": { "state": "translated", "value": "จับคู่ iPhone ของคุณ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuzu eşleyin" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Підключіть свій iPhone" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "配对您的 iPhone" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "配對您的 iPhone" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقرن جهاز iPhone الخاص بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite svoj iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par din iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone koppeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empareja tu iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumelez votre iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbina il tuo iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneをペアリング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្គូផ្គង iPhone របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 페어링"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par iPhonen din"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparuj swojego iPhone'a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhe seu iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите свой iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ iPhone ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone'unuzu eşleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть свій iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对您的 iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對您的 iPhone"
+          }
+        }
       }
     },
     "mobile.pairing.scanInstruction": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "في cmux على جهاز iPhone، سجّل الدخول بالحساب نفسه، واختر Tailscale، ثم امسح هذا الرمز." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "U cmux-u na svom iPhoneu prijavite se istim računom, odaberite Tailscale, a zatim skenirajte ovaj kôd." } },
-        "da": { "stringUnit": { "state": "translated", "value": "I cmux på din iPhone skal du logge ind med den samme konto, vælge Tailscale og derefter scanne denne kode." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Melde dich in cmux auf deinem iPhone mit demselben Konto an, wähle Tailscale und scanne dann diesen Code." } },
-        "en": { "stringUnit": { "state": "translated", "value": "In cmux on your iPhone, sign in with the same account, then scan this code." } },
-        "es": { "stringUnit": { "state": "translated", "value": "En cmux en tu iPhone, inicia sesión con la misma cuenta, elige Tailscale y luego escanea este código." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Dans cmux sur votre iPhone, connectez-vous avec le même compte, choisissez Tailscale, puis scannez ce code." } },
-        "it": { "stringUnit": { "state": "translated", "value": "In cmux sul tuo iPhone, accedi con lo stesso account, scegli Tailscale e poi scansiona questo codice." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneのcmuxで同じアカウントにサインインして、このコードをスキャンしてください。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "នៅក្នុង cmux លើ iPhone របស់អ្នក ចូលគណនីដូចគ្នា ជ្រើសរើស Tailscale បន្ទាប់មកស្កេនកូដនេះ។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "iPhone의 cmux에서 동일한 계정으로 로그인하고 Tailscale을 선택한 다음 이 코드를 스캔하세요." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "I cmux på iPhonen din logger du på med samme konto, velger Tailscale og skanner deretter denne koden." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "W cmux na swoim iPhonie zaloguj się na to samo konto, wybierz Tailscale, a następnie zeskanuj ten kod." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "No cmux no seu iPhone, entre com a mesma conta, escolha Tailscale e depois escaneie este código." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "В cmux на iPhone войдите в ту же учётную запись, выберите Tailscale, затем отсканируйте этот код." } },
-        "th": { "stringUnit": { "state": "translated", "value": "ใน cmux บน iPhone ของคุณ ให้ลงชื่อเข้าด้วยบัญชีเดียวกัน เลือก Tailscale แล้วสแกนโค้ดนี้" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuzdaki cmux'ta aynı hesapla oturum açın, Tailscale'i seçin ve ardından bu kodu tarayın." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "У cmux на iPhone увійдіть у той самий обліковий запис, виберіть Tailscale, а потім відскануйте цей код." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上的 cmux 中，使用同一账户登录，选择 Tailscale，然后扫描此码。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上的 cmux 中，使用同一帳戶登入，選擇 Tailscale，然後掃描此代碼。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في cmux على جهاز iPhone، سجّل الدخول بالحساب نفسه، واختر Tailscale، ثم امسح هذا الرمز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U cmux-u na svom iPhoneu prijavite se istim računom, odaberite Tailscale, a zatim skenirajte ovaj kôd."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I cmux på din iPhone skal du logge ind med den samme konto, vælge Tailscale og derefter scanne denne kode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich in cmux auf deinem iPhone mit demselben Konto an, wähle Tailscale und scanne dann diesen Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In cmux on your iPhone, sign in with the same account, then scan this code."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cmux en tu iPhone, inicia sesión con la misma cuenta, elige Tailscale y luego escanea este código."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans cmux sur votre iPhone, connectez-vous avec le même compte, choisissez Tailscale, puis scannez ce code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In cmux sul tuo iPhone, accedi con lo stesso account, scegli Tailscale e poi scansiona questo codice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneのcmuxで同じアカウントにサインインして、このコードをスキャンしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅក្នុង cmux លើ iPhone របស់អ្នក ចូលគណនីដូចគ្នា ជ្រើសរើស Tailscale បន្ទាប់មកស្កេនកូដនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone의 cmux에서 동일한 계정으로 로그인하고 Tailscale을 선택한 다음 이 코드를 스캔하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I cmux på iPhonen din logger du på med samme konto, velger Tailscale og skanner deretter denne koden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W cmux na swoim iPhonie zaloguj się na to samo konto, wybierz Tailscale, a następnie zeskanuj ten kod."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux no seu iPhone, entre com a mesma conta, escolha Tailscale e depois escaneie este código."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В cmux на iPhone войдите в ту же учётную запись, выберите Tailscale, затем отсканируйте этот код."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใน cmux บน iPhone ของคุณ ให้ลงชื่อเข้าด้วยบัญชีเดียวกัน เลือก Tailscale แล้วสแกนโค้ดนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone'unuzdaki cmux'ta aynı hesapla oturum açın, Tailscale'i seçin ve ardından bu kodu tarayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У cmux на iPhone увійдіть у той самий обліковий запис, виберіть Tailscale, а потім відскануйте цей код."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 上的 cmux 中，使用同一账户登录，选择 Tailscale，然后扫描此码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 上的 cmux 中，使用同一帳戶登入，選擇 Tailscale，然後掃描此代碼。"
+          }
+        }
       }
     },
     "mobile.pairing.signedInAs": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "تم تسجيل الدخول باسم %@" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Prijavljeni ste kao %@" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Logget ind som %@" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Angemeldet als %@" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Signed in as %@" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Sesión iniciada como %@" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Connecté en tant que %@" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Accesso effettuato come %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@でサインイン中" } },
-        "km": { "stringUnit": { "state": "translated", "value": "បានចូលជា %@" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@(으)로 로그인됨" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Pålogget som %@" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zalogowano jako %@" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conectado como %@" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Выполнен вход как %@" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ลงชื่อเข้าเป็น %@" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ olarak oturum açıldı" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ви увійшли як %@" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已登录为 %@" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已登入為 %@" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول باسم %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni ste kao %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget ind som %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet als %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in as %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada como %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté en tant que %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso effettuato come %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@でサインイン中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូលជា %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 로그인됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pålogget som %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano jako %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado como %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполнен вход как %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าเป็น %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ olarak oturum açıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви увійшли як %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录为 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入為 %@"
+          }
+        }
       }
     },
     "mobile.pairing.transport.status.connected": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "متصل" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Povezano" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Forbundet" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Verbunden" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Connected" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Conectado" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Connecté" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Connesso" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "接続済み" } },
-        "km": { "stringUnit": { "state": "translated", "value": "បានភ្ជាប់" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "연결됨" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Tilkoblet" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Połączono" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conectado" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Подключено" } },
-        "th": { "stringUnit": { "state": "translated", "value": "เชื่อมต่อแล้ว" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Bağlı" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Підключено" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已连接" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已連線" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線"
+          }
+        }
       }
     },
     "mobile.pairing.transport.status.notDetected": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "لم يُكتشف" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Nije otkriveno" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ikke fundet" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nicht erkannt" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Not detected" } },
-        "es": { "stringUnit": { "state": "translated", "value": "No detectado" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Non détecté" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Non rilevato" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "未検出" } },
-        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញ" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "감지되지 않음" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ikke funnet" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie wykryto" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não detectado" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не обнаружено" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Algılanmadı" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не виявлено" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未检测到" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未偵測到" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُكتشف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije otkriveno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erkannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not detected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No detectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non détecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non rilevato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未検出"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke funnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie wykryto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não detectado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не обнаружено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algılanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не виявлено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未检测到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未偵測到"
+          }
+        }
       }
     },
     "mobile.pairing.transport.tailscale.detail": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "يُقرِن هذا الرمز عبر Tailscale بدلًا من ذلك. يجب أن يكون كلا الجهازين متصلًا بشبكة Tailscale نفسها." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Ovaj kôd uparuje preko Tailscalea. Oba uređaja moraju biti povezana na istu Tailscale mrežu." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Denne kode parrer via Tailscale i stedet. Begge enheder skal være forbundet til det samme Tailscale-netværk." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Dieser Code koppelt stattdessen über Tailscale. Beide Geräte müssen mit demselben Tailscale-Netzwerk verbunden sein." } },
-        "en": { "stringUnit": { "state": "translated", "value": "This code pairs over Tailscale. Both devices must be connected to the same Tailscale network." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Este código empareja a través de Tailscale. Ambos dispositivos deben estar conectados a la misma red de Tailscale." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ce code jumelle via Tailscale à la place. Les deux appareils doivent être connectés au même réseau Tailscale." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Questo codice abbina invece tramite Tailscale. Entrambi i dispositivi devono essere connessi alla stessa rete Tailscale." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このコードはTailscale経由でペアリングします。両方のデバイスが同じTailscaleネットワークに接続されている必要があります。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "កូដនេះផ្គូផ្គងតាមរយៈ Tailscale ជំនួសវិញ។ ឧបករណ៍ទាំងពីរត្រូវតែភ្ជាប់ទៅបណ្ដាញ Tailscale ដូចគ្នា។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "이 코드는 대신 Tailscale을 통해 페어링합니다. 두 기기가 동일한 Tailscale 네트워크에 연결되어 있어야 합니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Denne koden parer via Tailscale i stedet. Begge enhetene må være koblet til det samme Tailscale-nettverket." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Ten kod paruje natomiast przez Tailscale. Oba urządzenia muszą być połączone z tą samą siecią Tailscale." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Este código emparelha via Tailscale. Os dois dispositivos precisam estar conectados à mesma rede Tailscale." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Этот код выполняет подключение через Tailscale. Оба устройства должны быть подключены к одной и той же сети Tailscale." } },
-        "th": { "stringUnit": { "state": "translated", "value": "โค้ดนี้ใช้จับคู่ผ่าน Tailscale แทน อุปกรณ์ทั้งสองต้องเชื่อมต่อกับเครือข่าย Tailscale เดียวกัน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Bu kod bunun yerine Tailscale üzerinden eşler. Her iki cihaz da aynı Tailscale ağına bağlı olmalıdır." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Цей код виконує підключення через Tailscale. Обидва пристрої мають бути підключені до однієї мережі Tailscale." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此码改为通过 Tailscale 配对。两台设备必须连接到同一个 Tailscale 网络。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此代碼改為透過 Tailscale 配對。兩台裝置必須連線到同一個 Tailscale 網路。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُقرِن هذا الرمز عبر Tailscale بدلًا من ذلك. يجب أن يكون كلا الجهازين متصلًا بشبكة Tailscale نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj kôd uparuje preko Tailscalea. Oba uređaja moraju biti povezana na istu Tailscale mrežu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne kode parrer via Tailscale i stedet. Begge enheder skal være forbundet til det samme Tailscale-netværk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Code koppelt stattdessen über Tailscale. Beide Geräte müssen mit demselben Tailscale-Netzwerk verbunden sein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code pairs over Tailscale. Both devices must be connected to the same Tailscale network."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código empareja a través de Tailscale. Ambos dispositivos deben estar conectados a la misma red de Tailscale."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce code jumelle via Tailscale à la place. Les deux appareils doivent être connectés au même réseau Tailscale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo codice abbina invece tramite Tailscale. Entrambi i dispositivi devono essere connessi alla stessa rete Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードはTailscale経由でペアリングします。両方のデバイスが同じTailscaleネットワークに接続されている必要があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដនេះផ្គូផ្គងតាមរយៈ Tailscale ជំនួសវិញ។ ឧបករណ៍ទាំងពីរត្រូវតែភ្ជាប់ទៅបណ្ដាញ Tailscale ដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 코드는 대신 Tailscale을 통해 페어링합니다. 두 기기가 동일한 Tailscale 네트워크에 연결되어 있어야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne koden parer via Tailscale i stedet. Begge enhetene må være koblet til det samme Tailscale-nettverket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten kod paruje natomiast przez Tailscale. Oba urządzenia muszą być połączone z tą samą siecią Tailscale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código emparelha via Tailscale. Os dois dispositivos precisam estar conectados à mesma rede Tailscale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот код выполняет подключение через Tailscale. Оба устройства должны быть подключены к одной и той же сети Tailscale."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ดนี้ใช้จับคู่ผ่าน Tailscale แทน อุปกรณ์ทั้งสองต้องเชื่อมต่อกับเครือข่าย Tailscale เดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kod bunun yerine Tailscale üzerinden eşler. Her iki cihaz da aynı Tailscale ağına bağlı olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей код виконує підключення через Tailscale. Обидва пристрої мають бути підключені до однієї мережі Tailscale."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此码改为通过 Tailscale 配对。两台设备必须连接到同一个 Tailscale 网络。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代碼改為透過 Tailscale 配對。兩台裝置必須連線到同一個 Tailscale 網路。"
+          }
+        }
       }
     },
     "mobile.pairing.manual.copyIP": {
@@ -141813,91 +143771,6 @@
         }
       }
     },
-    "mobile.panel.artifact.error.forbidden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file is not currently shown in this panel."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルは現在このパネルに表示されていません。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.internal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't complete the panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パネルのファイル要求を完了できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.invalidParams": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't tell which panel or file was requested."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "どのパネルのどのファイルが要求されたか判別できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.methodNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux doesn't recognize that panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのパネルのファイル要求を認識できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.panelNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file panel is no longer available."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルパネルは利用できなくなりました。"
-          }
-        }
-      }
-    },
     "mobile.taskComposer.error.capabilityDisabled": {
       "extractionState": "manual",
       "localizations": {
@@ -141962,193 +143835,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのターミナルは利用できなくなりました。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.capabilityDisabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace changes are not enabled on this Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacではワークスペースの変更機能が有効になっていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidContentRequest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace, path, or revision is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidPath": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Missing or invalid path"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスが指定されていないか、無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace identifier is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの識別子が指定されていないか無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A selected workspace identifier is invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択したワークスペースの識別子が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.notRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace directory is not a Git repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathNotChanged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path is not in the workspace changes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはワークスペースの変更に含まれていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathOutsideRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path must stay inside the repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはリポジトリ内に収まっている必要があります"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.readFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to read workspace diff"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの差分を読み込めませんでした"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceIDsCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Between 1 and 64 workspaces can be requested at once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一度にリクエストできるワークスペースは1〜64件です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace or effective directory not found"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
           }
         }
       }
@@ -175656,75 +177342,245 @@
     "settings.browser.httpAllowlist.reset": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Embedded Browser URL Allowlist" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザURL許可リスト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Embedded Browser URL Allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵ブラウザURL許可リスト"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。無効なルールだけの値は安全側でブロックされます。cmux内部ドキュメントは引き続き利用できます。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。無効なルールだけの値は安全側でブロックされます。cmux内部ドキュメントは引き続き利用できます。"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist.hint": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist.invalidRule": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "無効なルールがあります。無効なルールだけの値は安全側でブロックされます。ホストまたはHTTP(S) URLパターンを使用してください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なルールがあります。無効なルールだけの値は安全側でブロックされます。ホストまたはHTTP(S) URLパターンを使用してください。"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist.save": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
       }
     },
     "settings.browser.urlAllowlist.reset": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
       }
     },
     "settings.search.alias.setting.browser.url-allowlist": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist قائمة سماح URL localhost حرف بدل مخطط منفذ سياسة المؤسسة" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozvoljenih URL-ova localhost zamjenski znak shema port organizacijska politika" } },
-        "da": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tilladelsesliste localhost jokertegn skema port organisationspolitik" } },
-        "de": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-Zulassungsliste localhost Wildcard Schema Port Organisationsrichtlinie" } },
-        "en": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
-        "es": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URL permitidas localhost comodín esquema puerto política de la organización" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist liste d’autorisation URL localhost caractère générique schéma port politique de l’organisation" } },
-        "it": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist elenco URL consentiti localhost carattere jolly schema porta criterio organizzativo" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー" } },
-        "km": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 허용 목록 localhost 와일드카드 스킴 포트 조직 정책" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tillatelsesliste localhost jokertegn skjema port organisasjonspolicy" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozwolonych URL localhost wildcard schemat port polityka organizacji" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URLs permitidas localhost curinga esquema porta política da organização" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список разрешённых URL localhost подстановочный знак схема порт политика организации" } },
-        "th": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist รายการ URL ที่อนุญาต localhost wildcard รูปแบบ พอร์ต นโยบายองค์กร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL izin listesi localhost joker karakter şema bağlantı noktası kuruluş politikası" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список дозволених URL localhost шаблон схема порт політика організації" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允许列表 localhost 通配符 协议 端口 组织策略" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允許清單 localhost 萬用字元 通訊協定 連接埠 組織政策" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist قائمة سماح URL localhost حرف بدل مخطط منفذ سياسة المؤسسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist lista dozvoljenih URL-ova localhost zamjenski znak shema port organizacijska politika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL-tilladelsesliste localhost jokertegn skema port organisationspolitik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL-Zulassungsliste localhost Wildcard Schema Port Organisationsrichtlinie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist lista de URL permitidas localhost comodín esquema puerto política de la organización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist liste d’autorisation URL localhost caractère générique schéma port politique de l’organisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist elenco URL consentiti localhost carattere jolly schema porta criterio organizzativo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL 허용 목록 localhost 와일드카드 스킴 포트 조직 정책"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL-tillatelsesliste localhost jokertegn skjema port organisasjonspolicy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist lista dozwolonych URL localhost wildcard schemat port polityka organizacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist lista de URLs permitidas localhost curinga esquema porta política da organização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist список разрешённых URL localhost подстановочный знак схема порт политика организации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist รายการ URL ที่อนุญาต localhost wildcard รูปแบบ พอร์ต นโยบายองค์กร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL izin listesi localhost joker karakter şema bağlantı noktası kuruluş politikası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist список дозволених URL localhost шаблон схема порт політика організації"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL 允许列表 localhost 通配符 协议 端口 组织策略"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.urlAllowlist URL 允許清單 localhost 萬用字元 通訊協定 連接埠 組織政策"
+          }
+        }
       }
     },
     "settings.browser.import": {
@@ -182221,13 +184077,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合はペアリングリスナーを直ちに再バインドして、接続中のデバイスは新しいポートで再接続します。Iroh エンドポイントは次回の cmux 起動時に新しいポートを使用します。"
+            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect."
           }
         }
       }
@@ -182306,13 +184156,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS ペアリングリスナー（TCP）と、Direct アドレスの接続先となる Iroh エンドポイント（UDP）の優先ポート（1〜65535）。"
+            "value": "Preferred port for the iOS pairing listener (TCP), 1–65535."
           }
         }
       }
@@ -182374,13 +184218,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac が cmux アカウントにサインインしていることが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
+            "value": "No reachable addresses yet. Tailscale routes need Tailscale running on this Mac."
           }
         }
       }

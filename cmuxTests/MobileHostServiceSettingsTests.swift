@@ -228,31 +228,7 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
 
-    @Test func mobilePairingSnapshotShowsIrohDirectAddressesAlongsideHostPortRoutes() throws {
-        let now = Date(timeIntervalSince1970: 1_756_000_000)
-        let identity = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        let ipv4 = try CmxIrohPathHint(
-            kind: .directAddress,
-            value: "93.184.216.34:58465",
-            source: .native,
-            privacyScope: .publicInternet
-        )
-        let ipv6 = try CmxIrohPathHint(
-            kind: .directAddress,
-            value: "[2606:4700::6810:1]:60001",
-            source: .native,
-            privacyScope: .publicInternet
-        )
-        let expired = try CmxIrohPathHint(
-            kind: .directAddress,
-            value: "93.184.216.35:58465",
-            source: .native,
-            privacyScope: .publicInternet,
-            observedAt: now.addingTimeInterval(-200),
-            expiresAt: now.addingTimeInterval(-100)
-        )
+    @Test func mobilePairingSnapshotMapsHostPortRoutes() throws {
         let status = MobileHostServiceStatus(
             isRunning: true,
             port: 58_465,
@@ -265,40 +241,16 @@ struct MobileHostServiceSettingsTests {
                     endpoint: .hostPort(host: "100.64.0.1", port: 58_465),
                     priority: 10
                 ),
-                try CmxAttachRoute(
-                    id: "iroh",
-                    kind: .iroh,
-                    endpoint: .peer(identity: identity, pathHints: [ipv4, ipv6, expired, ipv4]),
-                    priority: 0
-                ),
             ],
             activeConnectionCount: 0,
             lastErrorDescription: nil
         )
 
-        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status, now: now)
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
 
-        // TCP listener routes keep their row; the Iroh endpoint contributes one
-        // row per usable direct-address hint, deduplicated, expired hints dropped.
-        #expect(snapshot.routes.map(\.endpoint) == [
-            "100.64.0.1:58465",
-            "93.184.216.34:58465",
-            "[2606:4700::6810:1]:60001",
-        ])
-        #expect(Set(snapshot.routes.map(\.id)).count == snapshot.routes.count)
-    }
-
-    @Test func splitSocketAddressParsesSocketLiteralsOnly() throws {
-        let v4 = try #require(HostSettingsActions.splitSocketAddress("93.184.216.34:58465"))
-        #expect(v4.host == "93.184.216.34")
-        #expect(v4.port == 58_465)
-        let v6 = try #require(HostSettingsActions.splitSocketAddress("[2606:4700::6810:1]:443"))
-        #expect(v6.host == "2606:4700::6810:1")
-        #expect(v6.port == 443)
-        #expect(HostSettingsActions.splitSocketAddress("no-port")?.host == nil)
-        #expect(HostSettingsActions.splitSocketAddress("2606:4700::6810:1:443")?.host == nil)
-        #expect(HostSettingsActions.splitSocketAddress("[2606:4700::6810:1]443")?.host == nil)
-        #expect(HostSettingsActions.splitSocketAddress("93.184.216.34:0")?.host == nil)
+        #expect(snapshot.routes.map(\.endpoint) == ["100.64.0.1:58465"])
+        #expect(snapshot.isRunning)
+        #expect(snapshot.boundPort == 58_465)
     }
 }
 
