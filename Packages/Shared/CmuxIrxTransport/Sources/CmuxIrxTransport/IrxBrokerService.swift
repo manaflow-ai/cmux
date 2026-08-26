@@ -151,6 +151,10 @@ public actor IrxBrokerService {
         grantCache = IrxDiskCache(fileURL: dir.appendingPathComponent("grants.json"))
     }
 
+    /// The underlying trust-broker client, exposed for the legacy-dialect
+    /// admission registry (online revalidation parity for old phones).
+    public nonisolated var hostBrokerClient: CmxIrohTrustBrokerClient { client }
+
     // MARK: - Registration
 
     public func cachedBinding() -> IrxBindingSnapshot? {

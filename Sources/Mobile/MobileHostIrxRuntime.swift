@@ -156,6 +156,7 @@ final class MobileHostIrxRuntime {
             // Credentials first (the relay-token bootstrap phase works before
             // the binding exists), so registration can advertise the relay
             // hint peers dial first.
+            let legacyListener = MobileHostIrxLegacyDialectServer.listenerEnabled
             let supervisor = IrxEndpointSupervisor(
                 configuration: .init(
                     identity: identity,
@@ -164,7 +165,11 @@ final class MobileHostIrxRuntime {
                     // The phone opens control/keepalive/terminal/artifact
                     // lanes; 1 is enough to admit, raised post-admission.
                     initialRemoteBiStreams: 1,
-                    initialRemoteUniStreams: 0
+                    initialRemoteUniStreams: 0,
+                    // Dual ALPN: old phones speak the legacy dialect against
+                    // the SAME endpoint/identity while irx is primary.
+                    additionalALPNs: legacyListener
+                        ? [MobileHostIrxLegacyDialectServer.legacyALPN] : []
                 ),
                 journal: Self.journal
             )
@@ -293,10 +298,12 @@ final class MobileHostIrxRuntime {
             acceptor: acceptor,
             trustProvider: { IrxDiskCacheTrustReader.read() }
         )
+        let trustSnapshot = { IrxDiskCacheTrustReader.read() }
+        let brokerClient = brokerService.hostBrokerClient
         acceptLoop = Task { [weak self] in
             journal.record("host-runtime", "accept-loop-started")
             while !Task.isCancelled {
-                guard let irx = await endpointSupervisor.acceptNextIrxConnection() else {
+                guard let inbound = await endpointSupervisor.acceptNextInbound() else {
                     // Endpoint closed or unbound: rebind with the freshest
                     // cached credentials and continue accepting.
                     do {
@@ -307,9 +314,36 @@ final class MobileHostIrxRuntime {
                     }
                     continue
                 }
-                Task { [weak self] in
-                    await self?.superviseConnection(
-                        irx, judge: judge, registry: registry, token: token)
+                switch inbound {
+                case .irx(let irx):
+                    Task { [weak self] in
+                        await self?.superviseConnection(
+                            irx, judge: judge, registry: registry, token: token)
+                    }
+                case .foreign(let alpn, let connection):
+                    guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                        MobileHostIrxLegacyDialectServer.listenerEnabled,
+                        let trust = trustSnapshot(),
+                        let adopted = try? CmxIrohLibEndpointFactory
+                            .adoptAcceptedConnection(connection)
+                    else {
+                        try? connection.close(
+                            errorCode: 1, reason: Data("unsupported_alpn".utf8))
+                        continue
+                    }
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await MobileHostIrxLegacyDialectServer.serve(
+                            adopted: adopted,
+                            acceptor: acceptor,
+                            trust: trust,
+                            brokerClient: brokerClient,
+                            isCurrent: { [weak self] in
+                                await MainActor.run { self?.generationToken == token }
+                            },
+                            journal: journal
+                        )
+                    }
                 }
             }
         }

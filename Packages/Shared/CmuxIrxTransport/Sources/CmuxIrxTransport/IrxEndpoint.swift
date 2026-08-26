@@ -26,19 +26,25 @@ public struct IrxEndpointConfiguration: Sendable {
     /// Same for unidirectional streams (client raises to accept the server's
     /// events lane only after admission).
     public var initialRemoteUniStreams: UInt64
+    /// Extra ALPNs served on the SAME endpoint/identity (the legacy dialect
+    /// for old phones). Accepted connections route by the protocol the
+    /// dialer spoke; irx never shares session state with them.
+    public var additionalALPNs: [Data]
 
     public init(
         identity: IrxIdentity,
         pathMode: IrxPathMode,
         preferredBindAddress: String? = nil,
         initialRemoteBiStreams: UInt64,
-        initialRemoteUniStreams: UInt64
+        initialRemoteUniStreams: UInt64,
+        additionalALPNs: [Data] = []
     ) {
         self.identity = identity
         self.pathMode = pathMode
         self.preferredBindAddress = preferredBindAddress
         self.initialRemoteBiStreams = initialRemoteBiStreams
         self.initialRemoteUniStreams = initialRemoteUniStreams
+        self.additionalALPNs = additionalALPNs
     }
 }
 
@@ -95,15 +101,31 @@ public actor IrxEndpointSupervisor {
         return driver.addr().relayUrl()
     }
 
-    /// Accepts the next inbound connection as an irx connection, or nil when
-    /// the endpoint is closed/unbound (callers rebind via `readyEndpoint`).
-    public func acceptNextIrxConnection() async -> IrxConnection? {
+    /// One accepted inbound connection, routed by the ALPN the dialer spoke.
+    public enum AcceptedInbound: Sendable {
+        case irx(IrxConnection)
+        /// A non-irx protocol this endpoint also serves (legacy dialect).
+        case foreign(alpn: Data, connection: Connection)
+    }
+
+    /// Accepts the next inbound connection, or nil when the endpoint is
+    /// closed/unbound (callers rebind via `readyEndpoint`).
+    public func acceptNextInbound() async -> AcceptedInbound? {
         guard let driver, !driver.isClosed() else { return nil }
         guard let incoming = await driver.acceptNext() else { return nil }
         do {
             let accepting = try await incoming.accept()
+            let alpn = try await accepting.alpn()
             let connection = try await accepting.connect()
-            return IrxConnection(connection: connection, role: .acceptor, journal: journal)
+            if alpn == IrxProtocol.alpnData {
+                return .irx(
+                    IrxConnection(connection: connection, role: .acceptor, journal: journal))
+            }
+            journal.record(
+                "endpoint", "foreign-alpn-accepted",
+                ["alpn": String(data: alpn, encoding: .utf8) ?? "?"]
+            )
+            return .foreign(alpn: alpn, connection: connection)
         } catch {
             journal.record(
                 "endpoint", "accept-failed",
@@ -190,7 +212,7 @@ public actor IrxEndpointSupervisor {
         }
         var options = EndpointOptions(preset: presetMinimal())
         options.secretKey = configuration.identity.privateKeyData
-        options.alpns = [IrxProtocol.alpnData]
+        options.alpns = [IrxProtocol.alpnData] + configuration.additionalALPNs
         options.relayMode = RelayMode.custom(map: relayMap)
         options.portMappingEnabled = false
         // NAT traversal stays unauthorized until admission (automatic mode) or
