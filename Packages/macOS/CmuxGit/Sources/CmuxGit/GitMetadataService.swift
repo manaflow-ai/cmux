@@ -206,6 +206,7 @@ public struct GitMetadataService: Sendable {
             for: directory,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: watchInputs.configPathsByRepository,
+            metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
             indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository
         ) else {
             return nil

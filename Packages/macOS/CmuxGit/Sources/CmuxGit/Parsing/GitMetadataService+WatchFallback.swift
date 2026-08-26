@@ -21,6 +21,7 @@ extension GitMetadataService {
             repositoryRoot: descriptor.repositoryRoot,
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: descriptor.gitMetadataPaths,
+            metadataSentinelPaths: descriptor.metadataSentinelPaths,
             trackedEntryPaths: rootIsForced ? [] : descriptor.trackedEntryPaths,
             forcedWorkTreeRoots: existingRoots.sorted(),
             acceptsAllWorkTreeEvents: rootIsForced || descriptor.acceptsAllWorkTreeEvents,

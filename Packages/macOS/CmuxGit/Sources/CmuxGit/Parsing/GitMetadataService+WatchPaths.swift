@@ -22,6 +22,7 @@ extension GitMetadataService {
         for directory: String,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         configPathsByRepository: [String: [String]]? = nil,
+        metadataSentinelPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
@@ -31,13 +32,12 @@ extension GitMetadataService {
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
             configPathsByRepository: configPathsByRepository
+        ) + gitlinkMetadataWatchPaths(
+            repository: repository,
+            safetyConfiguration: safetyConfiguration,
+            configPathsByRepository: configPathsByRepository,
+            indexSnapshotsByRepository: indexSnapshotsByRepository
         )
-            + gitlinkMetadataWatchPaths(
-                repository: repository,
-                safetyConfiguration: safetyConfiguration,
-                configPathsByRepository: configPathsByRepository,
-                indexSnapshotsByRepository: indexSnapshotsByRepository
-            )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexExists = FileManager.default.fileExists(atPath: indexPath)
         let header = gitIndexHeaderSummary(indexPath: indexPath)
@@ -95,12 +95,30 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
+        let metadataSentinelPaths = metadataSentinelPathsByRepository?
+            .values
+            .flatMap { $0 } ?? []
+        let normalizedMetadataSentinelPaths = Array(
+            sortedUniqueNormalizedPaths(metadataSentinelPaths).prefix(256)
+        )
+        let metadataSentinelParentPaths = normalizedMetadataSentinelPaths.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path
+        }
+        let filterIdentity: String? = if normalizedMetadataSentinelPaths.isEmpty {
+            indexSnapshot?.contentSignature
+        } else {
+            [indexSnapshot?.contentSignature, normalizedMetadataSentinelPaths.joined(separator: "\u{1f}")]
+                .compactMap { $0 }
+                .joined(separator: "\u{1e}")
+        }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + gitMetadataPaths
+            + metadataSentinelParentPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
-            let normalized = nativeStandardizedPath(path)
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
             guard seen.insert(normalized).inserted else { continue }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
@@ -113,10 +131,11 @@ extension GitMetadataService {
             repositoryRoot: repository.workTreeRoot,
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
+            metadataSentinelPaths: normalizedMetadataSentinelPaths,
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
-            eventFilterIdentity: indexSnapshot?.contentSignature,
+            eventFilterIdentity: filterIdentity,
             degradation: degradation
         )
     }
@@ -163,18 +182,12 @@ extension GitMetadataService {
         var result: [String] = []
         var seen: Set<String> = []
         for path in paths {
-            let normalized = nativeStandardizedPath(path)
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
             guard seen.insert(normalized).inserted else { continue }
             result.append(normalized)
         }
         return result.sorted()
-    }
-
-    /// Standardizes once outside event loops and copies Foundation-backed path
-    /// strings into native Swift UTF-8 storage for fast comparisons.
-    private nonisolated static func nativeStandardizedPath(_ path: String) -> String {
-        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-        return String(decoding: standardized.utf8, as: UTF8.self)
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the
@@ -206,6 +219,12 @@ extension GitMetadataService {
         indexSnapshotsByRepository: [String: GitIndexSnapshot]?
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
+        if let indexSnapshotsByRepository,
+           indexSnapshotsByRepository[repository.workTreeRoot] == nil {
+            // The aggregate planner did not finish this child before its
+            // deadline/budget. Do not start a second index parse here.
+            return []
+        }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         guard let header = gitIndexHeaderSummary(indexPath: indexPath),
               header.entryCount <= safetyConfiguration.trackedEventPathCount,

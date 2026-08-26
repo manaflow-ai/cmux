@@ -14,6 +14,9 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     let deadline: DispatchTime? = nil
 
     var isExpired: Bool {
+        if WorkspaceChangesCancellationSignal.isCurrentCancelled {
+            return true
+        }
         guard let deadline else { return false }
         return deadline <= DispatchTime.now()
     }

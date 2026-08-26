@@ -21,12 +21,11 @@ extension GitMetadataService {
             deadline: deadline
         )
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
-        let traversal = GitConfigBranchTraversal(
+        let traversalResult = await gitRemoteVTraversal(
             repository: repository,
             branchContext: branchContext,
             deadline: deadline
         )
-        let traversalResult = traversal.remoteVResult()
         let output: String?
         if traversalResult.isComplete {
             output = traversalResult.output
@@ -45,5 +44,32 @@ extension GitMetadataService {
             repositorySlugs: repositorySlugs,
             checkedOutBranch: references.checkedOutBranch
         )
+    }
+
+    /// Runs the bounded config graph walk on the blocking-I/O lane.
+    @concurrent
+    nonisolated func gitRemoteVTraversal(
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext,
+        deadline: DispatchTime
+    ) async -> GitConfigRemoteTraversalResult {
+        let traversal = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: branchContext,
+            deadline: deadline
+        )
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let result = cancellationSignal.withCurrentBinding {
+                        traversal.remoteVResult()
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
     }
 }

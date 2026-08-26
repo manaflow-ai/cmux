@@ -9,6 +9,8 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let watchedPaths: [String]
     /// Paths whose changes can alter the Git watch plan itself.
     public let gitMetadataPaths: [String]
+    /// Missing config files represented by exact creation sentinels.
+    public let metadataSentinelPaths: [String]
     /// Sorted native Swift paths for tracked entries used by exact filtering.
     public let trackedEntryPaths: [String]
     /// Work-tree roots whose descendants must be treated as relevant when an
@@ -31,6 +33,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - repositoryRoot: Native Swift path to the working-tree root.
     ///   - watchedPaths: Existing roots passed to the recursive watcher.
     ///   - gitMetadataPaths: Paths whose changes can rebuild this plan.
+    ///   - metadataSentinelPaths: Missing config paths matched exactly on creation.
     ///   - trackedEntryPaths: Sorted tracked paths used by exact filtering.
     ///   - acceptsAllWorkTreeEvents: Whether every work-tree event is relevant.
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
@@ -40,6 +43,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         repositoryRoot: String,
         watchedPaths: [String],
         gitMetadataPaths: [String],
+        metadataSentinelPaths: [String] = [],
         trackedEntryPaths: [String],
         forcedWorkTreeRoots: [String] = [],
         acceptsAllWorkTreeEvents: Bool,
@@ -50,6 +54,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
+        self.metadataSentinelPaths = metadataSentinelPaths
         self.trackedEntryPaths = trackedEntryPaths
         self.forcedWorkTreeRoots = forcedWorkTreeRoots
         self.acceptsAllWorkTreeEvents = acceptsAllWorkTreeEvents
@@ -80,7 +85,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     /// - Returns: `true` when the path overlaps Git metadata or tracked content.
     public func containsRelevantChange(path: String) -> Bool {
         containsRelevantChange(normalizedPath: Self.normalizedPath(path))
-            || Self.alternateVarPath(for: path).map(containsRelevantChange(normalizedPath:)) == true
+            || alternateVarPath(for: path).map(containsRelevantChange(normalizedPath:)) == true
     }
 
     /// Returns whether a batch may alter the watch plan itself.
@@ -96,6 +101,9 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         guard !requiresFullRescan, !paths.isEmpty else { return true }
         return paths.contains { rawPath in
             let path = Self.normalizedPath(rawPath)
+            if metadataSentinelPaths.contains(where: { Self.normalizedPath($0) == path }) {
+                return true
+            }
             if gitMetadataPaths.contains(where: { Self.pathsOverlap(path, $0) }) {
                 return true
             }
@@ -103,14 +111,18 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
                isLikelyForcedMetadataPath(path) {
                 return true
             }
-            guard let alternate = Self.alternateVarPath(for: path) else { return false }
-            return gitMetadataPaths.contains(where: { Self.pathsOverlap(alternate, $0) })
+            guard let alternate = alternateVarPath(for: path) else { return false }
+            return metadataSentinelPaths.contains(where: { Self.normalizedPath($0) == alternate })
+                || gitMetadataPaths.contains(where: { Self.pathsOverlap(alternate, $0) })
                 || (forcedWorkTreeRoots.contains(where: { Self.isSameOrInside(alternate, root: $0) })
                     && isLikelyForcedMetadataPath(alternate))
         }
     }
 
     private func containsRelevantChange(normalizedPath path: String) -> Bool {
+        if metadataSentinelPaths.contains(where: { Self.normalizedPath($0) == path }) {
+            return true
+        }
         if gitMetadataPaths.contains(where: { Self.pathsOverlap(path, $0) }) {
             return true
         }
@@ -163,8 +175,8 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         return String(decoding: standardized.utf8, as: UTF8.self)
     }
 
-    private static func alternateVarPath(for path: String) -> String? {
-        let normalized = normalizedPath(path)
+    private func alternateVarPath(for path: String) -> String? {
+        let normalized = Self.normalizedPath(path)
         if normalized == "/var" { return "/private/var" }
         if normalized.hasPrefix("/var/") { return "/private" + normalized }
         if normalized == "/private/var" { return "/var" }

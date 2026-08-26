@@ -192,6 +192,25 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(output == nil)
     }
 
+    @Test func missingRepositoryIncludeUsesExactCreationSentinel() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = optional-remotes.inc
+        """)
+        let missingURL = fixture.gitDirectory.appendingPathComponent("optional-remotes.inc")
+        let service = GitMetadataService()
+        let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
+
+        #expect(descriptor.watchedPaths.contains(fixture.gitDirectory.standardizedFileURL.path))
+        #expect(descriptor.containsGitMetadataChange(paths: [missingURL.path]))
+        #expect(!descriptor.containsGitMetadataChange(
+            paths: [fixture.gitDirectory.appendingPathComponent("info/other").path]
+        ))
+        #expect(descriptor.containsRelevantChange(paths: [missingURL.path]))
+    }
+
     @Test func appliesIncludesInPlace() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
