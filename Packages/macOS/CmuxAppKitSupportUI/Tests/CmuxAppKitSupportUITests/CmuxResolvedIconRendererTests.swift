@@ -259,6 +259,35 @@ import Testing
         #expect(center.blueComponent > center.redComponent)
     }
 
+    @Test func translucentTintMasksMulticolorSourceToOneHue() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let multicolorSource = NSImage(size: NSSize(width: 16, height: 16))
+        multicolorSource.addRepresentation(
+            solidBitmapRepresentation(color: .systemRed, pixels: 16)
+        )
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .image(multicolorSource),
+                size: NSSize(width: 16, height: 16),
+                tintColor: NSColor.systemBlue.withAlphaComponent(0.55)
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A tinted multicolor source should render successfully")
+            return
+        }
+        let center = try #require(centerPixelColor(in: image))
+        // The output keeps the tint's alpha, but its RGB must no longer carry
+        // the source image's red channel.
+        #expect(center.blueComponent > center.redComponent)
+        #expect(center.greenComponent > center.redComponent)
+        #expect(center.alphaComponent > 0.5)
+    }
+
     /// Workspace-backed fallbacks resolve lazily in the renderer and retain
     /// Finder's concrete folder artwork without sharing a mutable NSImage.
     @Test func rendererUsesWorkspaceIconFallback() throws {
