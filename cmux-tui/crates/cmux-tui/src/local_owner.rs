@@ -24,15 +24,17 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
-fn socket_parent(path: &Path) -> &Path {
-    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
-}
-
 /// Total time an ensure may spend probing, spawning, and waiting for the
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
 pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// The reaper's only job is clearing a zombie when the owner exits early
+/// (a lost bind race or a crash), and `terminate` reaps synchronously
+/// without it, so it can tick slowly instead of waking a long-lived
+/// interactive client 40 times a second for nothing.
+const REAP_INTERVAL: Duration = Duration::from_secs(1);
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 /// How the owner process is launched.
@@ -96,13 +98,21 @@ pub(crate) fn ensure_owner(
     if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
         return Ok(Ensured::Running(ready));
     }
-    let _lock = SpawnLock::acquire(&spec.socket, deadline).map_err(EnsureError::Spawn)?;
-    // Re-probe under the lock: a concurrent ensure may have spawned the
-    // owner while this call waited for the lock.
-    if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
-        return Ok(Ensured::Running(ready));
-    }
-    let owner = spawn_detached_owner(spec).map_err(EnsureError::Spawn)?;
+    let owner = {
+        let _lock = cmux_tui_core::server::SocketStartLock::acquire(&spec.socket, deadline)
+            .map_err(EnsureError::Spawn)?;
+        // Re-probe under the lock: a concurrent ensure may have spawned the
+        // owner while this call waited for the lock.
+        if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
+            return Ok(Ensured::Running(ready));
+        }
+        // The lock is released once the spawn is issued: the owner's serve
+        // path takes the same lock to bind, so holding it across the
+        // readiness wait would deadlock parent against child. A redundant
+        // owner spawned by a racing ensure loses the serialized bind, exits,
+        // and every caller converges on the winner through the probe below.
+        spawn_detached_owner(spec).map_err(EnsureError::Spawn)?
+    };
     match wait_until_ready(&spec.socket, Some(&spec.session), deadline) {
         Ok(Some(ready)) => Ok(Ensured::Started(ready)),
         Ok(None) => {
@@ -328,8 +338,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Err(_error) =
         std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
             let mut child = reaper_state.child.lock().expect("owner mutex poisoned");
-            loop {
-                let Some(process) = child.as_mut() else { break };
+            while let Some(process) = child.as_mut() {
                 if reaper_state.terminate.load(std::sync::atomic::Ordering::Acquire) {
                     let _ = process.kill();
                 }
@@ -344,7 +353,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
                 }
                 child = reaper_state
                     .wake
-                    .wait_timeout(child, POLL_INTERVAL)
+                    .wait_timeout(child, REAP_INTERVAL)
                     .expect("owner condvar poisoned")
                     .0;
             }
@@ -358,47 +367,4 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         return Err(io::Error::other("local owner reaper unavailable"));
     }
     Ok(SpawnedOwner { state })
-}
-
-/// Exclusive lock serializing owner spawns for one socket path. The lock
-/// file lives next to the socket and is left in place: unlinking it would
-/// reopen the very race it exists to close. The OS releases the lock when
-/// the holder exits, so a crashed ensure never wedges the session.
-struct SpawnLock {
-    _file: std::fs::File,
-}
-
-impl SpawnLock {
-    fn acquire(socket: &Path, deadline: Instant) -> io::Result<Self> {
-        let mut name = socket.file_name().unwrap_or_default().to_os_string();
-        name.push(".spawn-lock");
-        let path = socket.with_file_name(name);
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
-        loop {
-            match fs4::FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self { _file: file }),
-                Err(fs4::TryLockError::WouldBlock) => {}
-                Err(fs4::TryLockError::Error(error)) => return Err(error),
-            }
-            if Instant::now() >= deadline {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "timed out waiting for a concurrent session-owner start",
-                ));
-            }
-            std::thread::sleep(POLL_INTERVAL);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::socket_parent;
-    use std::path::Path;
-
-    #[test]
-    fn bare_relative_socket_uses_current_directory_parent() {
-        assert_eq!(socket_parent(Path::new("cmux.sock")), Path::new("."));
-        assert_eq!(socket_parent(Path::new("nested/cmux.sock")), Path::new("nested"));
-    }
 }
