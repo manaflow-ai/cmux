@@ -35,8 +35,11 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
       }
       if (!active || active.disabled || active.readOnly) return false;
       const tag = (active.tagName || "").toLowerCase();
+      const inputType = String(active.type || "").toLowerCase();
+      const autocomplete = String(active.autocomplete || "").toLowerCase();
+      if (inputType === "password" || autocomplete.includes("password")) return false;
       let target = null;
-      if (tag === "textarea" || (tag === "input" && active.type !== "hidden")) {
+      if (tag === "textarea" || (tag === "input" && inputType !== "hidden")) {
         target = active;
       } else if (active.isContentEditable) {
         target = active;
@@ -59,9 +62,12 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         let fieldEditorOwner = textView?.isFieldEditor == true
             ? textView?.delegate as? NSTextField
             : nil
+        let isSecureNativeInput = responder is NSSecureTextField
+            || fieldEditorOwner is NSSecureTextField
         let webView = (responder as? NSView).flatMap(Self.enclosingWebView(of:))
         let terminalPanel = focusedTerminalPanel()
         let nativeTextInputIsEditable = textView?.isEditable == true
+            && !isSecureNativeInput
             && (textView?.isFieldEditor != true || fieldEditorOwner != nil)
         let webViewIsEditable = if let webView {
             await Self.pinWebViewEditableTarget(webView)

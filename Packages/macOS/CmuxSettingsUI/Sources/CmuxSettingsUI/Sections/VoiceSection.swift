@@ -89,7 +89,10 @@ nonisolated struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendabl
                 // The system list also contains languages that can only use
                 // Apple's network recognizer. Voice dictation promises
                 // on-device processing, so do not offer those choices.
-                SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true
+                guard let recognizer = SFSpeechRecognizer(locale: locale),
+                      recognizer.locale.identifier(.bcp47) == locale.identifier(.bcp47)
+                else { return false }
+                return recognizer.supportsOnDeviceRecognition
             }
         }
         let current = Locale.current

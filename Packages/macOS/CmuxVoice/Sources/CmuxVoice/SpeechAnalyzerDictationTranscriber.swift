@@ -111,6 +111,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var resultsTask: Task<Void, Never>?
     private var configurationChangeTask: Task<Void, Never>?
     private var outputContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+    private var reservedLocale: Locale?
     private var isFinishing = false
 
     /// Caps queued audio to roughly a third of a second at the 4096-frame
@@ -146,23 +147,37 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         self.transcriber = transcriber
 
         do {
+            // Keep one app-owned reservation for the active session. The
+            // controller serializes sessions, so releasing this reservation
+            // on every exit prevents cycling languages from exhausting
+            // AssetInventory.maximumReservedLocales.
+            _ = try await AssetInventory.reserve(locale: supportedLocale)
+            reservedLocale = supportedLocale
             if let installationRequest = try await AssetInventory.assetInstallationRequest(
                 supporting: [transcriber]
             ) {
                 try await installationRequest.downloadAndInstall()
             }
         } catch is CancellationError {
+            await releaseReservedLocale()
             throw CancellationError()
         } catch {
+            await releaseReservedLocale()
             throw DictationFailure.modelDownloadFailed(error.localizedDescription)
         }
 
         guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
             compatibleWith: [transcriber]
         ) else {
+            await releaseReservedLocale()
             throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier)
         }
-        try Task.checkCancellation()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            await releaseReservedLocale()
+            throw error
+        }
 
         let (rawInputSequence, rawInputContinuation) =
             AsyncThrowingStream<RawAudioInput, any Error>.makeStream(
@@ -194,9 +209,11 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             try startAudioEngine()
         } catch is CancellationError {
             await finishInputPipeline(cancelConversion: true)
+            await releaseReservedLocale()
             throw CancellationError()
         } catch {
             await finishInputPipeline(cancelConversion: true)
+            await releaseReservedLocale()
             throw DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
 
@@ -206,10 +223,12 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         } catch is CancellationError {
             stopAudioEngine()
             await finishInputPipeline(cancelConversion: true)
+            await releaseReservedLocale()
             throw CancellationError()
         } catch {
             stopAudioEngine()
             await finishInputPipeline(cancelConversion: true)
+            await releaseReservedLocale()
             throw DictationFailure.transcriptionFailed(error.localizedDescription)
         }
 
@@ -267,6 +286,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         analyzer = nil
         transcriber = nil
         outputContinuation = nil
+        await releaseReservedLocale()
     }
 
     private func startAudioEngine() throws {
@@ -346,6 +366,12 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         analyzerFormat = nil
     }
 
+    private func releaseReservedLocale() async {
+        guard let reservedLocale else { return }
+        self.reservedLocale = nil
+        _ = await AssetInventory.release(reservedLocale: reservedLocale)
+    }
+
     private func finishInputPipeline(cancelConversion: Bool) async {
         inputBox.finish()
         if cancelConversion {
@@ -406,6 +432,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             outputContinuation = nil
             analyzer = nil
             transcriber = nil
+            await releaseReservedLocale()
         }
     }
 }

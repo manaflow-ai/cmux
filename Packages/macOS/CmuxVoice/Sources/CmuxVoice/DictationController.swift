@@ -139,15 +139,19 @@ public final class DictationController {
                 return
             }
             guard await inserter.beginSession() else {
+                guard !Task.isCancelled else {
+                    settle(generation: generation)
+                    return
+                }
                 fail(.insertionTargetUnavailable, generation: generation)
                 return
             }
+            insertionSessionActive = true
             try Task.checkCancellation()
             guard sessionGeneration == generation, phase == .requestingAuthorization else {
                 settle(generation: generation)
                 return
             }
-            insertionSessionActive = true
             phase = .preparing
             let transcriber = makeTranscriber()
             activeTranscriber = transcriber

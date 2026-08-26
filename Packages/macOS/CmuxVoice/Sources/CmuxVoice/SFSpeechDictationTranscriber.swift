@@ -75,7 +75,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     public func transcribe(
         locale: Locale
     ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
-        guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
+        guard let recognizer = SFSpeechRecognizer(locale: locale),
+              recognizer.locale.identifier(.bcp47) == locale.identifier(.bcp47),
+              recognizer.isAvailable else {
             throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier)
         }
         guard recognizer.supportsOnDeviceRecognition else {
