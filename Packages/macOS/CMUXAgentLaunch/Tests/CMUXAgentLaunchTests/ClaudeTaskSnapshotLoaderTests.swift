@@ -538,6 +538,28 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.todos.map(\.content) == ["Canonical task"])
     }
 
+    @Test("Task-store identity namespaces matching paths by relay host")
+    func namespacesTaskStoreIdentityByRelayHost() {
+        let tasksRoot = URL(
+            fileURLWithPath: "/home/agent/.claude/tasks",
+            isDirectory: true
+        )
+        let firstHost = ClaudeTaskStoreIdentity(
+            tasksRootURL: tasksRoot,
+            hostNamespace: "relay:127.0.0.1:41001"
+        )
+        let secondHost = ClaudeTaskStoreIdentity(
+            tasksRootURL: tasksRoot,
+            hostNamespace: "relay:127.0.0.1:41002"
+        )
+
+        #expect(firstHost != secondHost)
+        #expect(
+            ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+                == ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        )
+    }
+
     @Test("A tasks-leaf symlink does not relocate the logical teams sibling")
     func resolvesTaskAndTeamRootsIndependently() throws {
         let root = FileManager.default.temporaryDirectory
