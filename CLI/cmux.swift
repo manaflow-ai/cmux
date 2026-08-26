@@ -346,7 +346,8 @@ final class ClaudeHookSessionStore {
     typealias CursorShellApprovalRememberResult = (
         accepted: Bool,
         inserted: Bool,
-        notificationCorrelationKey: String?
+        notificationCorrelationKey: String?,
+        expiredNotificationCorrelationKeys: [String]
     )
     typealias CursorShellApprovalClearResult = (
         cleared: Bool,
@@ -443,11 +444,21 @@ final class ClaudeHookSessionStore {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (accepted: false, inserted: false, notificationCorrelationKey: nil)
+            return (
+                accepted: false,
+                inserted: false,
+                notificationCorrelationKey: nil,
+                expiredNotificationCorrelationKeys: []
+            )
         }
         return try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalizedSession] else {
-                return (accepted: false, inserted: false, notificationCorrelationKey: nil)
+                return (
+                    accepted: false,
+                    inserted: false,
+                    notificationCorrelationKey: nil,
+                    expiredNotificationCorrelationKeys: []
+                )
             }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
@@ -458,6 +469,7 @@ final class ClaudeHookSessionStore {
             let expiredApprovals = pending.filter {
                 now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
             }
+            let expiredNotificationCorrelationKeys = expiredApprovals.compactMap(\.notificationCorrelationKey)
             for approval in expiredApprovals {
                 recentlyCleared[approval.commandFingerprint] = now
             }
@@ -516,7 +528,8 @@ final class ClaudeHookSessionStore {
                 return (
                     accepted: true,
                     inserted: false,
-                    notificationCorrelationKey: pending[duplicateIndex].notificationCorrelationKey
+                    notificationCorrelationKey: pending[duplicateIndex].notificationCorrelationKey,
+                    expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
                 )
             }
             guard pending.count < Self.maxPendingCursorShellApprovals else {
@@ -526,7 +539,12 @@ final class ClaudeHookSessionStore {
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
                 }
-                return (accepted: false, inserted: false, notificationCorrelationKey: nil)
+                return (
+                    accepted: false,
+                    inserted: false,
+                    notificationCorrelationKey: nil,
+                    expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
+                )
             }
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
@@ -547,7 +565,8 @@ final class ClaudeHookSessionStore {
             return (
                 accepted: true,
                 inserted: true,
-                notificationCorrelationKey: pending.last?.notificationCorrelationKey
+                notificationCorrelationKey: pending.last?.notificationCorrelationKey,
+                expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
             )
         }
     }
@@ -808,11 +827,12 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let excluded = excludingSessionId.map(normalizeSessionId)
         return try withLockedState(deadline: deadline, persist: false) { state in
+            let now = Date().timeIntervalSince1970
             let key = cursorPendingSurfaceKey(workspaceId: workspaceId, surfaceId: surfaceId)
             let indexed = state.pendingCursorApprovalSessionsBySurface[key] ?? []
             let indexedMatch = indexed.contains { candidate in
                 guard let record = state.sessions[candidate],
-                      record.pendingCursorShellApprovals?.isEmpty == false,
+                      hasUnexpiredCursorShellApproval(record, now: now),
                       cursorPendingSurfaceKey(
                           workspaceId: record.workspaceId,
                           surfaceId: record.surfaceId
@@ -828,7 +848,7 @@ final class ClaudeHookSessionStore {
             // index can never hide a sibling approval in the meantime.
             return state.sessions.contains { candidate, record in
                 guard excluded.map({ candidate != $0 }) ?? true,
-                      record.pendingCursorShellApprovals?.isEmpty == false else {
+                      hasUnexpiredCursorShellApproval(record, now: now) else {
                     return false
                 }
                 return cursorPendingSurfaceKey(
@@ -841,6 +861,15 @@ final class ClaudeHookSessionStore {
 
     private func cursorPendingSurfaceKey(workspaceId: String, surfaceId: String) -> String {
         "\(workspaceId)|\(surfaceId)"
+    }
+
+    private func hasUnexpiredCursorShellApproval(
+        _ record: ClaudeHookSessionRecord,
+        now: TimeInterval
+    ) -> Bool {
+        record.pendingCursorShellApprovals?.contains {
+            now - $0.createdAt <= Self.maxPendingCursorShellApprovalAgeSeconds
+        } == true
     }
 
     private func addCursorPendingIndex(
@@ -2438,9 +2467,10 @@ final class ClaudeHookSessionStore {
     }
 
     private func reconcileCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
+        let now = Date().timeIntervalSince1970
         var index: [String: [String]] = [:]
         for (sessionId, record) in state.sessions {
-            guard record.pendingCursorShellApprovals?.isEmpty == false else { continue }
+            guard hasUnexpiredCursorShellApproval(record, now: now) else { continue }
             let key = cursorPendingSurfaceKey(workspaceId: record.workspaceId, surfaceId: record.surfaceId)
             index[key, default: []].append(sessionId)
         }
@@ -2448,11 +2478,12 @@ final class ClaudeHookSessionStore {
     }
 
     private func pruneCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
+        let now = Date().timeIntervalSince1970
         var next: [String: [String]] = [:]
         for (key, sessions) in state.pendingCursorApprovalSessionsBySurface {
             let valid = sessions.filter { sessionId in
                 guard let record = state.sessions[sessionId],
-                      record.pendingCursorShellApprovals?.isEmpty == false else {
+                      hasUnexpiredCursorShellApproval(record, now: now) else {
                     return false
                 }
                 return cursorPendingSurfaceKey(
@@ -33334,12 +33365,14 @@ export default CMUXSessionRestore;
             if let strictPiTarget {
                 return strictPiTarget
             }
-            if cursorShellLifecycleEvent {
+            if cursorShellEvent {
                 // Cursor's beforeShellExecution callback must return its
                 // native decision promptly. Use only the already-claimed or
-                // persisted target for this shell path; process/TTY probing
-                // and live re-homing would add unbounded socket work before
-                // the synchronous hook response.
+                // persisted target for this shell-start path; process/TTY
+                // probing and live re-homing would add unbounded socket work
+                // before the synchronous hook response. Completion/failure
+                // callbacks use the live-surface path below so a pane move
+                // between the two callbacks is still reconciled correctly.
                 if let mappedWorkspaceId = mapped?.workspaceId {
                     if let directWorkspaceId = resolvedDirectWorkspaceArg,
                        directWorkspaceId != mappedWorkspaceId {
@@ -34986,15 +35019,27 @@ export default CMUXSessionRestore;
                     print(hookResponse)
                     return
                 }
-                guard !sessionId.isEmpty,
-                      let command = cursorShellCommand(from: input),
-                      let rememberResult = try? store.rememberCursorShellApproval(
+                let rememberResult: ClaudeHookSessionStore.CursorShellApprovalRememberResult?
+                if !sessionId.isEmpty, let command = cursorShellCommand(from: input) {
+                    rememberResult = try? store.rememberCursorShellApproval(
                           sessionId: sessionId,
                           command: command,
                           toolUseId: cursorShellToolUseId(from: input),
                           deadline: cursorShellDeadline
-                      ),
-                      rememberResult.accepted else {
+                    )
+                } else {
+                    rememberResult = nil
+                }
+                if let rememberResult {
+                    for correlationKey in rememberResult.expiredNotificationCorrelationKeys {
+                        clearCursorApprovalNotification(
+                            correlationKey: correlationKey,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                    }
+                }
+                guard let rememberResult, rememberResult.accepted else {
                     emitJournal(
                         .stateChanged,
                         workspaceId: workspaceId,
