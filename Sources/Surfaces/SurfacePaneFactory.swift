@@ -77,7 +77,11 @@ enum SurfacePaneFactory {
     /// The surface a split is anchored on: the selected panel of the target pane.
     private static func anchorSurface(paneID: String, in workspace: Workspace) throws -> UUID {
         guard let uuid = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-        guard let selected = workspace.selectedPanelForPaneDrop(in: PaneID(id: uuid)) else {
+        // Resolve the pane the way every socket command does: Bonsplit owns the PaneID
+        // values, so look the UUID up among the workspace's live panes instead of
+        // synthesizing one.
+        guard let located = TerminalController.shared.v2LocatePane(uuid), located.workspace.id == workspace.id,
+              let selected = workspace.selectedPanelForPaneDrop(in: located.paneId) else {
             throw FactoryError.paneNotFound(paneID)
         }
         return selected.panelId
