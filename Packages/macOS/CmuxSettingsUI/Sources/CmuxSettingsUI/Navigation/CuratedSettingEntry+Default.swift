@@ -47,36 +47,36 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
-            .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
+            .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap " + String(localized: "settings.search.fileEditor.wordWrap", defaultValue: "file editor word wrap soft wrap reflow lines text horizontal scroll preview")),
             .init(
                 section: .app,
                 id: "file-editor-syntax-highlighting",
                 title: String(localized: "settings.app.fileEditorSyntaxHighlighting", defaultValue: "File Editor Syntax Highlighting"),
-                synonyms: "fileEditor.syntaxHighlighting syntax highlight colors tokens code"
+                synonyms: "fileEditor.syntaxHighlighting " + String(localized: "settings.search.fileEditor.syntaxHighlighting", defaultValue: "syntax highlight colors tokens code")
             ),
             .init(
                 section: .app,
                 id: "file-editor-line-numbers",
                 title: String(localized: "settings.app.fileEditorLineNumbers", defaultValue: "File Editor Line Numbers"),
-                synonyms: "fileEditor.lineNumbers gutter line numbers"
+                synonyms: "fileEditor.lineNumbers " + String(localized: "settings.search.fileEditor.lineNumbers", defaultValue: "gutter line numbers")
             ),
             .init(
                 section: .app,
                 id: "file-editor-indent-guides",
                 title: String(localized: "settings.app.fileEditorIndentGuides", defaultValue: "File Editor Indent Guides"),
-                synonyms: "fileEditor.indentGuides indent guides columns"
+                synonyms: "fileEditor.indentGuides " + String(localized: "settings.search.fileEditor.indentGuides", defaultValue: "indent guides columns")
             ),
             .init(
                 section: .app,
                 id: "file-editor-current-line-highlight",
                 title: String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line"),
-                synonyms: "fileEditor.currentLineHighlight current line caret"
+                synonyms: "fileEditor.currentLineHighlight " + String(localized: "settings.search.fileEditor.currentLineHighlight", defaultValue: "current line caret")
             ),
             .init(
                 section: .app,
                 id: "file-editor-tab-width",
                 title: String(localized: "settings.app.fileEditorTabWidth", defaultValue: "File Editor Tab Width"),
-                synonyms: "fileEditor.tabWidth tab width indent columns"
+                synonyms: "fileEditor.tabWidth " + String(localized: "settings.search.fileEditor.tabWidth", defaultValue: "tab width indent columns")
             ),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),

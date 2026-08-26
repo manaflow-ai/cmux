@@ -15,7 +15,10 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     var drawsEditorBackground = true {
         didSet { applySurfaceFill() }
     }
+    private static let horizontalPadding: CGFloat = 10
+
     private var lineIndex = FilePreviewLineIndex(string: "")
+    private var indexedContentRevision: Int?
 
     override var isOpaque: Bool {
         drawsEditorBackground && editorBackgroundColor.alphaComponent >= 0.999
@@ -37,14 +40,38 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         super.init(coder: coder)
     }
 
-    func reloadLineIndex(from string: String) {
-        lineIndex = FilePreviewLineIndex(string: string)
+    func reloadLineIndex(
+        from string: String,
+        contentRevision: Int,
+        textFont: NSFont?
+    ) {
+        // `0` is the compatibility value for panels that do not publish
+        // revisions, so retain correctness by rebuilding for those callers.
+        if contentRevision == 0 || indexedContentRevision != contentRevision {
+            lineIndex = FilePreviewLineIndex(string: string)
+            indexedContentRevision = contentRevision
+        }
+        updateRuleThickness(for: textFont)
+        needsDisplay = true
+    }
+
+    private func updateRuleThickness(for textFont: NSFont?) {
+        let font = labelFont(for: textFont)
         let digits = max(2, String(lineIndex.lineCount).count)
-        let nextThickness = CGFloat(digits) * 8 + 16
+        let labelWidth = (String(repeating: "8", count: digits) as NSString).size(
+            withAttributes: [.font: font]
+        ).width
+        let nextThickness = ceil(labelWidth) + Self.horizontalPadding
         if abs(ruleThickness - nextThickness) > 0.5 {
             ruleThickness = nextThickness
         }
-        needsDisplay = true
+    }
+
+    private func labelFont(for textFont: NSFont?) -> NSFont {
+        NSFont.monospacedDigitSystemFont(
+            ofSize: max(9, (textFont?.pointSize ?? 13) * 0.78),
+            weight: .regular
+        )
     }
 
     private func applySurfaceFill() {
@@ -75,10 +102,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
 
         let visibleRect = textView.visibleRect
         let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let font = NSFont.monospacedDigitSystemFont(
-            ofSize: max(9, (textView.font?.pointSize ?? 13) * 0.78),
-            weight: .regular
-        )
+        let font = labelFont(for: textView.font)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .right
         let selected = textView.selectedRange()
@@ -86,8 +110,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             ? lineIndex.lineNumber(containingUTF16Offset: selected.location)
             : nil
 
-        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
-            _, usedRect, _, fragmentGlyphRange, _ in
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragmentGlyphRange, _ in
             let characterRange = layoutManager.characterRange(
                 forGlyphRange: fragmentGlyphRange,
                 actualGlyphRange: nil
@@ -115,7 +138,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: color,
-                .paragraphStyle: paragraphStyle,
+                .paragraphStyle: paragraphStyle
             ]
             NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
         }

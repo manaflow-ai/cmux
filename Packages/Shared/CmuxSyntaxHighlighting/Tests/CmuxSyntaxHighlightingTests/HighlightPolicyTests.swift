@@ -37,6 +37,12 @@ struct HighlightPolicyTests {
         )
     }
 
+    @Test("Content path rejects excessive lines")
+    func contentPathRejectsExcessiveLines() {
+        let content = String(repeating: "line\n", count: HighlightPolicy.maximumHighlightedLines)
+        #expect(!policy.shouldHighlight(content: content, language: "swift"))
+    }
+
     @Test("Counts lines as one plus newlines")
     func countsLines() {
         #expect(policy.lineCount(in: "") == 1)

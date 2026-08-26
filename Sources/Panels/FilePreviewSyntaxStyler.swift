@@ -14,10 +14,12 @@ final class FilePreviewSyntaxStyler {
     private let engine = HighlightrSyntaxEngine()
     private var highlightTask: Task<Void, Never>?
     private var highlightGeneration = 0
-    private var lastHighlightedText: String?
+    private var lastHighlightedContentRevision: Int?
     private var lastHighlightedLanguage: String?
     private var lastHighlightedTheme: TokenTheme?
     private var lastHighlightingEnabled = true
+    private var lastHighlightedDefaultColor: NSColor?
+    private var lastHighlightedFontPointSize: CGFloat?
 
     deinit {
         highlightTask?.cancel()
@@ -27,21 +29,34 @@ final class FilePreviewSyntaxStyler {
         highlightTask?.cancel()
     }
 
+    /// Waits for the task scheduled most recently at the call site.
+    ///
+    /// This is a deterministic test seam; production callers continue without
+    /// awaiting syntax work so typing never waits on highlighting.
+    func waitForScheduledHighlight() async {
+        let task = highlightTask
+        await task?.value
+    }
+
     func schedule(
         for textView: NSTextView,
+        contentRevision: Int = 0,
         filePath: String,
         enabled: Bool,
         defaultColor: NSColor,
         theme: TokenTheme,
         force: Bool
     ) {
-        let text = textView.string
         let language = catalog.language(for: URL(fileURLWithPath: filePath))
+        let fontPointSize = (textView.font
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)).pointSize
         if !force,
-           lastHighlightedText == text,
+           lastHighlightedContentRevision == contentRevision,
            lastHighlightedLanguage == language,
            lastHighlightedTheme == theme,
-           lastHighlightingEnabled == enabled {
+           lastHighlightingEnabled == enabled,
+           lastHighlightedDefaultColor == defaultColor,
+           lastHighlightedFontPointSize == fontPointSize {
             return
         }
 
@@ -49,12 +64,32 @@ final class FilePreviewSyntaxStyler {
         highlightGeneration &+= 1
         let generation = highlightGeneration
 
-        guard enabled, policy.shouldHighlight(content: text, language: language) else {
+        guard enabled else {
             applyDefaultStyle(to: textView, color: defaultColor)
-            lastHighlightedText = text
-            lastHighlightedLanguage = language
-            lastHighlightedTheme = theme
-            lastHighlightingEnabled = enabled
+            recordAppliedState(
+                contentRevision: contentRevision,
+                language: language,
+                theme: theme,
+                enabled: enabled,
+                defaultColor: defaultColor,
+                fontPointSize: fontPointSize
+            )
+            return
+        }
+
+        // Copy the document only for a real syntax request. Repeated SwiftUI
+        // updates are rejected by the revision and rendering state above.
+        let text = textView.string
+        guard policy.shouldHighlight(content: text, language: language) else {
+            applyDefaultStyle(to: textView, color: defaultColor)
+            recordAppliedState(
+                contentRevision: contentRevision,
+                language: language,
+                theme: theme,
+                enabled: enabled,
+                defaultColor: defaultColor,
+                fontPointSize: fontPointSize
+            )
             return
         }
 
@@ -69,17 +104,20 @@ final class FilePreviewSyntaxStyler {
             )
             guard !Task.isCancelled,
                   self.highlightGeneration == generation,
-                  let textView,
-                  textView.string == text else { return }
+                  let textView else { return }
             self.applyHighlightedText(
                 highlighted,
                 to: textView,
                 defaultColor: defaultColor
             )
-            self.lastHighlightedText = text
-            self.lastHighlightedLanguage = language
-            self.lastHighlightedTheme = theme
-            self.lastHighlightingEnabled = enabled
+            self.recordAppliedState(
+                contentRevision: contentRevision,
+                language: language,
+                theme: theme,
+                enabled: enabled,
+                defaultColor: defaultColor,
+                fontPointSize: fontPointSize
+            )
         }
     }
 
@@ -90,25 +128,42 @@ final class FilePreviewSyntaxStyler {
     ) {
         guard let storage = textView.textStorage else { return }
         let selectedRanges = textView.selectedRanges
-        let font = textView.font
-            ?? GlobalFontMagnification.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let effectivePointSize = (textView.font
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)).pointSize
+        let fonts = SyntaxFonts(pointSize: effectivePointSize)
         storage.beginEditing()
-        if let highlighted, highlighted.value.string == storage.string {
+        if let highlighted, highlighted.value.length == storage.length {
             let full = NSRange(location: 0, length: highlighted.value.length)
             highlighted.value.enumerateAttributes(in: full, options: []) { attributes, range, _ in
                 storage.setAttributes(
-                    Self.normalized(attributes, font: font),
+                    Self.normalized(attributes, fonts: fonts),
                     range: range
                 )
             }
         } else {
             let full = NSRange(location: 0, length: storage.length)
             storage.addAttribute(.foregroundColor, value: defaultColor, range: full)
-            storage.addAttribute(.font, value: font, range: full)
+            storage.addAttribute(.font, value: fonts.regular, range: full)
             storage.removeAttribute(.backgroundColor, range: full)
         }
         storage.endEditing()
         restoreSelection(selectedRanges, in: textView)
+    }
+
+    private func recordAppliedState(
+        contentRevision: Int,
+        language: String?,
+        theme: TokenTheme,
+        enabled: Bool,
+        defaultColor: NSColor,
+        fontPointSize: CGFloat
+    ) {
+        lastHighlightedContentRevision = contentRevision
+        lastHighlightedLanguage = language
+        lastHighlightedTheme = theme
+        lastHighlightingEnabled = enabled
+        lastHighlightedDefaultColor = defaultColor
+        lastHighlightedFontPointSize = fontPointSize
     }
 
     private func applyDefaultStyle(to textView: NSTextView, color: NSColor) {
@@ -126,27 +181,37 @@ final class FilePreviewSyntaxStyler {
         textView.setSelectedRanges(clamped, affinity: .downstream, stillSelecting: false)
     }
 
+    private struct SyntaxFonts {
+        let regular: NSFont
+        let bold: NSFont
+        let italic: NSFont
+        let boldItalic: NSFont
+
+        init(pointSize: CGFloat) {
+            regular = NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular)
+            bold = NSFont.monospacedSystemFont(ofSize: pointSize, weight: .bold)
+            italic = NSFontManager.shared.convert(regular, toHaveTrait: .italicFontMask)
+            boldItalic = NSFontManager.shared.convert(bold, toHaveTrait: .italicFontMask)
+        }
+
+        func font(for traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+            switch (traits.contains(.bold), traits.contains(.italic)) {
+            case (true, true): boldItalic
+            case (true, false): bold
+            case (false, true): italic
+            case (false, false): regular
+            }
+        }
+    }
+
     private static func normalized(
         _ attributes: [NSAttributedString.Key: Any],
-        font: NSFont
+        fonts: SyntaxFonts
     ) -> [NSAttributedString.Key: Any] {
         var normalized = attributes
         normalized.removeValue(forKey: .backgroundColor)
-        if let highlightedFont = attributes[.font] as? NSFont {
-            let traits = highlightedFont.fontDescriptor.symbolicTraits
-            let weight: NSFont.Weight = traits.contains(.bold) ? .bold : .regular
-            let base = GlobalFontMagnification.monospacedSystemFont(
-                ofSize: font.pointSize,
-                weight: weight
-            )
-            if traits.contains(.italic) {
-                normalized[.font] = NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
-            } else {
-                normalized[.font] = base
-            }
-        } else {
-            normalized[.font] = font
-        }
+        let traits = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        normalized[.font] = fonts.font(for: traits)
         return normalized
     }
 }

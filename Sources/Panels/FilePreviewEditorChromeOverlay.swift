@@ -110,11 +110,11 @@ final class FilePreviewEditorChromeOverlay: NSView {
             guard indentColumns >= columns else { return }
             var column = columns
             while column <= indentColumns {
-                let x = origin.x + CGFloat(column) * spaceWidth
+                let guideX = origin.x + CGFloat(column) * spaceWidth
                 let path = NSBezierPath()
                 path.lineWidth = 1
-                path.move(to: NSPoint(x: x + 0.5, y: usedRect.minY + origin.y))
-                path.line(to: NSPoint(x: x + 0.5, y: usedRect.maxY + origin.y))
+                path.move(to: NSPoint(x: guideX + 0.5, y: usedRect.minY + origin.y))
+                path.line(to: NSPoint(x: guideX + 0.5, y: usedRect.maxY + origin.y))
                 path.stroke()
                 column += columns
             }

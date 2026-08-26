@@ -1,18 +1,28 @@
 import Foundation
-@preconcurrency import Highlightr
 
 /// v1 highlighting engine: highlight.js running in JavaScriptCore via Highlightr.
 ///
-/// One `Highlightr` instance is reused. Callers must still honor
-/// ``HighlightPolicy``; this actor also applies the policy so a missed gate
-/// cannot push a multi-megabyte buffer through JSC.
+/// One `Highlightr` instance is reused, and its successfully applied active
+/// theme is retained. Callers must still honor ``HighlightPolicy``; this actor
+/// also applies the policy so a missed gate cannot push a multi-megabyte buffer
+/// through JSC.
 public actor HighlightrSyntaxEngine: SyntaxHighlightingEngine {
-    private var engine: Highlightr?
+    private var themeApplying: (any HighlightrThemeApplying)?
+    private var activeThemeName: String?
     private let policy: HighlightPolicy
 
     /// Creates an engine that applies `policy` before invoking Highlightr.
     public init(policy: HighlightPolicy = HighlightPolicy()) {
         self.policy = policy
+    }
+
+    /// Creates an engine with a supplied Highlightr adapter for package tests.
+    init(
+        policy: HighlightPolicy = HighlightPolicy(),
+        themeApplying: any HighlightrThemeApplying
+    ) {
+        self.policy = policy
+        self.themeApplying = themeApplying
     }
 
     /// Highlights `text` as `language` using the Highlightr theme for `theme`.
@@ -25,17 +35,21 @@ public actor HighlightrSyntaxEngine: SyntaxHighlightingEngine {
             return nil
         }
 
-        let highlightr: Highlightr
-        if let engine {
-            highlightr = engine
+        let highlightr: any HighlightrThemeApplying
+        if let themeApplying {
+            highlightr = themeApplying
         } else {
-            guard let created = Highlightr() else { return nil }
-            engine = created
+            guard let created = HighlightrThemeAdapter() else { return nil }
+            themeApplying = created
             highlightr = created
         }
 
-        guard highlightr.setTheme(to: theme.highlightrThemeName),
-              let highlighted = highlightr.highlight(text, as: language) else {
+        let themeName = theme.highlightrThemeName
+        if activeThemeName != themeName {
+            guard highlightr.setTheme(to: themeName) else { return nil }
+            activeThemeName = themeName
+        }
+        guard let highlighted = highlightr.highlight(text, as: language) else {
             return nil
         }
         let remapped = HighlightColorRemapper(theme: theme).remap(highlighted)

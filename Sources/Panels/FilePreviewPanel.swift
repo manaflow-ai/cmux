@@ -987,6 +987,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
     let previewRevisionState = FilePreviewRevision()
+    private let textContentRevisionState = FilePreviewRevision()
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1015,6 +1016,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     var previewRevision: Int {
         previewRevisionState.value
+    }
+
+    var textContentRevision: Int {
+        textContentRevisionState.value
     }
 
     init(
@@ -1171,9 +1176,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func updateTextContent(_ nextContent: String) {
-        guard textContent != nextContent else { return }
-        textContent = nextContent
+        guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
+    }
+
+    @discardableResult
+    private func replaceTextContentIfChanged(_ nextContent: String) -> Bool {
+        guard textContent != nextContent else { return false }
+        textContent = nextContent
+        textContentRevisionState.increment()
+        return true
     }
 
     /// Re-resolves and reloads the current path. Toolbar actions and filesystem
@@ -1277,7 +1289,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = true
                 return
             }
-            textContent = ""
+            _ = replaceTextContentIfChanged("")
             originalTextContent = ""
             setTabMetadataDirtyState(false)
             isFileUnavailable = true
@@ -1290,7 +1302,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = false
                 return
             }
-            textContent = content
+            _ = replaceTextContentIfChanged(content)
             originalTextContent = content
             textEncoding = encoding
             setTabMetadataDirtyState(false)
@@ -1304,7 +1316,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
-            textContent = currentContent
+            _ = replaceTextContentIfChanged(currentContent)
             setTabMetadataDirtyState(false)
             return nil
         }
@@ -1312,7 +1324,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoadCoordinator.cancel()
         saveGeneration += 1
         let generation = saveGeneration
-        textContent = currentContent
+        _ = replaceTextContentIfChanged(currentContent)
         isSaving = true
         activeSaveGeneration = generation
         let fileURL = fileURL

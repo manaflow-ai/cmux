@@ -28,11 +28,15 @@ public struct HighlightPolicy: Sendable {
 
     /// Returns whether `content` should be token-colored for `language`.
     public func shouldHighlight(content: String, language: String?) -> Bool {
-        shouldHighlight(
-            utf8Count: content.utf8.count,
-            lineCount: lineCount(in: content),
-            language: language
-        )
+        guard language != nil, !content.isEmpty else { return false }
+        guard content.utf8.count <= Self.maximumHighlightedBytes else { return false }
+
+        var lines = 1
+        for character in content where character == "\n" {
+            lines += 1
+            guard lines <= Self.maximumHighlightedLines else { return false }
+        }
+        return true
     }
 
     /// Returns whether a buffer of `utf8Count` bytes and `lineCount` lines

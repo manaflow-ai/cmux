@@ -62,6 +62,34 @@ struct FilePreviewCodeViewTests {
         }
     }
 
+    @Test("Syntax styling reuses normalized font variants per apply")
+    func syntaxStylingReusesFontVariants() throws {
+        let source = NSMutableAttributedString(string: "abcd")
+        let regular = NSFont.systemFont(ofSize: 17)
+        let bold = NSFont.boldSystemFont(ofSize: 17)
+        source.addAttribute(.font, value: regular, range: NSRange(location: 0, length: 1))
+        source.addAttribute(.font, value: bold, range: NSRange(location: 1, length: 1))
+        source.addAttribute(.font, value: regular, range: NSRange(location: 2, length: 1))
+        source.addAttribute(.font, value: bold, range: NSRange(location: 3, length: 1))
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = source.string
+        FilePreviewSyntaxStyler().applyHighlightedText(
+            HighlightedText(source),
+            to: textView,
+            defaultColor: .textColor
+        )
+
+        let storage = try #require(textView.textStorage)
+        let firstRegular = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let secondRegular = try #require(storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)
+        let firstBold = try #require(storage.attribute(.font, at: 1, effectiveRange: nil) as? NSFont)
+        let secondBold = try #require(storage.attribute(.font, at: 3, effectiveRange: nil) as? NSFont)
+        #expect(firstRegular === secondRegular)
+        #expect(firstBold === secondBold)
+        #expect(firstRegular !== firstBold)
+    }
+
     @Test("Line index numbers a twelve-line file")
     func lineIndexCountsLogicalLines() {
         let source = (1...12).map { "line \($0)" }.joined(separator: "\n")
@@ -145,6 +173,40 @@ struct FilePreviewCodeViewTests {
         #expect(gutter?.isOpaque == true)
     }
 
+    @Test("Gutter measures labels using the current editor font")
+    func gutterMeasuresCurrentEditorFont() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        let content = String(repeating: "line\n", count: 120)
+
+        gutter.reloadLineIndex(from: content, contentRevision: 1, textFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
+        let compactThickness = gutter.ruleThickness
+        gutter.reloadLineIndex(from: content, contentRevision: 1, textFont: NSFont.monospacedSystemFont(ofSize: 28, weight: .regular))
+
+        #expect(gutter.ruleThickness > compactThickness)
+    }
+
+    @Test("Gutter rebuilds when a legacy panel has no content revision")
+    func gutterRebuildsWithoutContentRevision() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+        gutter.reloadLineIndex(from: "line", contentRevision: 0, textFont: font)
+        let oneLineThickness = gutter.ruleThickness
+        gutter.reloadLineIndex(
+            from: String(repeating: "line\n", count: 120),
+            contentRevision: 0,
+            textFont: font
+        )
+
+        #expect(gutter.ruleThickness > oneLineThickness)
+    }
+
     @Test("A later schedule replaces in-flight highlighting without sleeping")
     func laterScheduleReplacesInFlightHighlight() async {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -171,12 +233,8 @@ struct FilePreviewCodeViewTests {
             force: true
         )
 
-        var colors = 0
-        for _ in 0..<80 {
-            colors = distinctForegroundColors(in: textView).count
-            if colors >= 2 { break }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await styler.waitForScheduledHighlight()
+        let colors = distinctForegroundColors(in: textView).count
         #expect(textView.string == json)
         #expect(colors >= 2)
         let ns = textView.string as NSString
@@ -216,9 +274,9 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await waitForTokenColors(in: textView)
+        await styler.waitForScheduledHighlight()
 
-        let flattened = GlobalFontMagnification.monospacedSystemFont(ofSize: 18, weight: .regular)
+        let flattened = NSFont.monospacedSystemFont(ofSize: 18, weight: .regular)
         if let storage = textView.textStorage, storage.length > 0 {
             storage.addAttribute(
                 .font,
@@ -234,7 +292,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await waitForTokenColors(in: textView)
+        await styler.waitForScheduledHighlight()
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
@@ -264,14 +322,6 @@ struct FilePreviewCodeViewTests {
             theme: .light
         )
         #expect(oversized == nil)
-    }
-
-    private func waitForTokenColors(in textView: NSTextView) async {
-        for _ in 0..<80 {
-            if distinctForegroundColors(in: textView).count >= 2 { return }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(distinctForegroundColors(in: textView).count >= 2)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {

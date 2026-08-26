@@ -7,12 +7,17 @@ import SwiftUI
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
+    var textContentRevision: Int { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
     func updateTextContent(_ nextContent: String)
     @discardableResult
     func saveTextContent() -> Task<Void, Never>?
+}
+
+extension FilePreviewTextEditingPanel {
+    var textContentRevision: Int { 0 }
 }
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
@@ -63,6 +68,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         }
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
+        context.coordinator.lastAppliedContentRevision = panel.textContentRevision
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
@@ -115,13 +121,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             tabWidth: tabWidth
         )
 
-        let contentChanged = textView.string != panel.textContent
+        let contentChanged = panel.textContentRevision == 0
+            ? textView.string != panel.textContent
+            : context.coordinator.lastAppliedContentRevision != panel.textContentRevision
         if contentChanged {
             let selectedRanges = textView.selectedRanges
             let visibleOrigin = scrollView.contentView.bounds.origin
             context.coordinator.isApplyingPanelUpdate = true
             textView.string = panel.textContent
             context.coordinator.isApplyingPanelUpdate = false
+            context.coordinator.lastAppliedContentRevision = panel.textContentRevision
             let contentLength = (textView.string as NSString).length
             let clampedRanges = selectedRanges.map { value -> NSValue in
                 let range = value.rangeValue
@@ -144,7 +153,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             defaultColor: themeForegroundColor,
             force: contentChanged
         )
-        Self.refreshChrome(on: scrollView, textView: textView)
+        Self.refreshChrome(
+            on: scrollView,
+            textView: textView,
+            contentRevision: panel.textContentRevision
+        )
     }
 
     static func applyTheme(
@@ -220,10 +233,20 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         overlay.needsDisplay = true
     }
 
-    static func refreshChrome(on scrollView: NSScrollView, textView: NSTextView) {
+    static func refreshChrome(
+        on scrollView: NSScrollView,
+        textView: NSTextView,
+        contentRevision: Int
+    ) {
         if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
-            gutter.reloadLineIndex(from: textView.string)
+            gutter.reloadLineIndex(
+                from: textView.string,
+                contentRevision: contentRevision,
+                textFont: textView.font
+            )
         }
+        // The overlay geometry can change without a text change (for example
+        // after wrapping or resizing), so frame synchronization is unconditional.
         FilePreviewEditorChromeOverlay.installed(in: textView)?.syncFrame(to: textView)
     }
 
@@ -232,6 +255,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var panel: PanelModel
         var filePath: String
         var isApplyingPanelUpdate = false
+        var lastAppliedContentRevision: Int?
         private let styler = FilePreviewSyntaxStyler()
 
         init(panel: PanelModel, filePath: String) {
@@ -243,6 +267,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
             panel.updateTextContent(textView.string)
+            lastAppliedContentRevision = panel.textContentRevision
             scheduleHighlight(
                 for: textView,
                 enabled: FilePreviewEditorSettings.isEnabled(
@@ -253,7 +278,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 force: true
             )
             if let scrollView = textView.enclosingScrollView {
-                FilePreviewTextEditor<PanelModel>.refreshChrome(on: scrollView, textView: textView)
+                FilePreviewTextEditor<PanelModel>.refreshChrome(
+                    on: scrollView,
+                    textView: textView,
+                    contentRevision: panel.textContentRevision
+                )
             }
         }
 
@@ -273,7 +302,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 force: true
             )
             if let scrollView = textView.enclosingScrollView {
-                FilePreviewTextEditor<PanelModel>.refreshChrome(on: scrollView, textView: textView)
+                FilePreviewTextEditor<PanelModel>.refreshChrome(
+                    on: scrollView,
+                    textView: textView,
+                    contentRevision: panel.textContentRevision
+                )
             }
         }
 
@@ -285,6 +318,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         ) {
             styler.schedule(
                 for: textView,
+                contentRevision: panel.textContentRevision,
                 filePath: filePath,
                 enabled: enabled,
                 defaultColor: defaultColor,

@@ -269428,5 +269428,47 @@
       }
     }
   },
+    "settings.search.fileEditor.wordWrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "file editor word wrap soft wrap reflow lines text horizontal scroll preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルエディタ 行折り返し ソフトラップ リフロー 行 テキスト 横スクロール プレビュー" } }
+      }
+    },
+    "settings.search.fileEditor.syntaxHighlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "syntax highlight colors tokens code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "構文ハイライト 色 トークン コード" } }
+      }
+    },
+    "settings.search.fileEditor.lineNumbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "gutter line numbers" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ガター 行番号" } }
+      }
+    },
+    "settings.search.fileEditor.indentGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "indent guides columns" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インデント ガイド 列" } }
+      }
+    },
+    "settings.search.fileEditor.currentLineHighlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "current line caret" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の行 キャレット" } }
+      }
+    },
+    "settings.search.fileEditor.tabWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "tab width indent columns" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブ幅 インデント 列" } }
+      }
+    },
   "version": "1.0"
 }
