@@ -397,4 +397,55 @@ struct AgentHibernationTerminationFailureTests {
         #expect(record.hasPressureSafeProcessEvidence == false)
         #expect(!record.processSafetyAllowsHibernation)
     }
+
+    @MainActor
+    @Test
+    func mismatchedProcessIdentityKeysAreNotEligibleForHibernation() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let processIDs: Set<Int> = [101, 102]
+        let mismatchedIdentities = [
+            101: AgentPIDProcessIdentity(pid: 101, startSeconds: 1, startMicroseconds: 0),
+            999: AgentPIDProcessIdentity(pid: 999, startSeconds: 2, startMicroseconds: 0),
+        ]
+        let record = AgentHibernationRecord(
+            key: .init(workspaceId: workspace.id, panelId: panelID),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: .init(
+                kind: .custom("test-agent"),
+                sessionId: "mismatched-process-identities",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: processIDs,
+            processIDs: processIDs,
+            processIdentities: mismatchedIdentities
+        )
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: record.agent,
+            lifecycle: .idle,
+            updatedAt: 0,
+            processLiveness: .running,
+            processIDs: processIDs,
+            processIdentities: mismatchedIdentities,
+            agentProcessIDs: processIDs,
+            agentProcessIdentities: mismatchedIdentities,
+            hibernationPanelProcessIDs: processIDs,
+            terminationProcessIDs: processIDs,
+            terminationProcessIdentities: mismatchedIdentities,
+            containsUnrelatedProcess: false
+        )
+
+        #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(!record.processSafetyAllowsHibernation)
+        #expect(!entry.processSafetyAllowsScheduledHibernation)
+    }
 }
