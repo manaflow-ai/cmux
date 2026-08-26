@@ -108,7 +108,7 @@ final class WorkspaceHandoffFrameWatcher {
                     "ws.handoff.frameWatch.state surface=\(target.surface.id.uuidString.prefix(5)) " +
                     "hidden=\(view.isHidden ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0) " +
                     "layer=\(layer.map { String(describing: type(of: $0)) } ?? "nil") " +
-                    "contents=\(layer?.contents != nil ? 1 : 0)"
+                    "contents=\((layer?.presentation() ?? layer)?.contents != nil ? 1 : 0)"
                 )
             }
         }
@@ -126,7 +126,11 @@ final class WorkspaceHandoffFrameWatcher {
     private func isPresentable(_ target: Target) -> Bool {
         let view = target.hostedView
         guard !view.isHidden, view.window != nil else { return false }
-        return view.surfaceView.layer?.contents != nil
+        // The core publishes IOSurface contents off the main thread; the model
+        // layer can read nil while the presentation copy already has pixels
+        // (same idiom as the debug present-stats reader).
+        guard let layer = view.surfaceView.layer else { return false }
+        return (layer.presentation() ?? layer).contents != nil
     }
 
     private func completeIfReady() {
