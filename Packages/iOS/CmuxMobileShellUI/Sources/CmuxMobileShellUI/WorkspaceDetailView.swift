@@ -18,14 +18,17 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
-    static func reconnectAction(
-        connectionRequiresReauth: Bool,
-        reconnect: @escaping () -> Void
-    ) -> (() -> Void)? {
-        connectionRequiresReauth ? nil : reconnect
+    /// Whether the title menu offers manual Reconnect: only once the
+    /// connection is unavailable (an active reconnect needs no manual entry),
+    /// and never during reauthentication, whose blocking banner owns
+    /// recovery.
+    static func canReconnectFromTitleMenu(
+        effectiveConnectionStatus: MobileMacConnectionStatus,
+        connectionRequiresReauth: Bool
+    ) -> Bool {
+        effectiveConnectionStatus == .unavailable && !connectionRequiresReauth
     }
 
-    let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
@@ -409,6 +412,12 @@ struct WorkspaceDetailView: View {
 
     private var workspaceTitleToolbarMenu: some View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
+        // Reconnect lives in the title menu now that no pill covers the
+        // terminal; reauthentication keeps its own blocking banner.
+        let canReconnect = Self.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: effectiveConnectionStatus,
+            connectionRequiresReauth: store.connectionRequiresReauth
+        )
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -417,13 +426,14 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
             hadTrailingCollapse: trailingToolbarCollapseDetected,
-            isEnabled: hasTitleMenuActions,
+            isEnabled: hasTitleMenuActions || canReconnect,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canCustomizeWorkspace: customizeWorkspace != nil,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
+            canReconnect: canReconnect,
             labelToken: toolbarTitleLabelToken,
             terminalTheme: store.activeTerminalTheme
         )
@@ -437,19 +447,21 @@ struct WorkspaceDetailView: View {
                     canRenameWorkspace: value.canRenameWorkspace,
                     canToggleReadState: value.canToggleReadState,
                     canCloseWorkspace: value.canCloseWorkspace,
+                    canReconnect: value.canReconnect,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu
+                    requestClose: requestCloseWorkspaceFromMenu,
+                    reconnect: reconnectToWorkspaceMac
                 )
             },
             label: {
                 switch value.labelToken {
-                case .standard(let title, let subtitle, let isReconnecting):
+                case .standard(let title, let subtitle, let connectionStatus):
                     WorkspaceToolbarTitleView(
                         title: title,
                         subtitle: subtitle,
-                        isReconnecting: isReconnecting
+                        connectionStatus: connectionStatus
                     )
                 }
             }
@@ -458,7 +470,7 @@ struct WorkspaceDetailView: View {
     }
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
-        let isReconnecting = effectiveConnectionStatus == .reconnecting
+        let connectionStatus = effectiveConnectionStatus
         if let browser = activeBrowser {
             // Browser-style surfaces keep the workspace as the pill's title,
             // like the terminal; the surface's own title (the page or tab)
@@ -466,25 +478,25 @@ struct WorkspaceDetailView: View {
             return .standard(
                 title: workspace.name,
                 subtitle: browser.title,
-                isReconnecting: isReconnecting
+                connectionStatus: connectionStatus
             )
         } else if let browser = activeBrowserStream {
             return .standard(
                 title: workspace.name,
                 subtitle: browser.title,
-                isReconnecting: isReconnecting
+                connectionStatus: connectionStatus
             )
         } else if let simulator = activeSimulatorStream {
             return .standard(
                 title: workspace.name,
                 subtitle: simulator.selectedDeviceName ?? simulator.title,
-                isReconnecting: isReconnecting
+                connectionStatus: connectionStatus
             )
         } else {
             return .standard(
                 title: workspace.name,
                 subtitle: selectedToolbarSubtitle,
-                isReconnecting: isReconnecting
+                connectionStatus: connectionStatus
             )
         }
     }
@@ -528,22 +540,10 @@ struct WorkspaceDetailView: View {
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .topLeading) {
-            // Shown only once reconnect attempts stop (unavailable), offering
-            // Reconnect over the still-visible last-known content. An active
-            // reconnect surfaces as the title bar's quiet spinner instead of
-            // covering the terminal.
-            MobileMacConnectionStatusPill(
-                host: host,
-                status: effectiveConnectionStatus,
-                reconnect: Self.reconnectAction(
-                    connectionRequiresReauth: store.connectionRequiresReauth,
-                    reconnect: { reconnectToWorkspaceMac() }
-                )
-            )
-                .padding(.top, 10)
-                .padding(.leading, 10)
-        }
+        // No terminal-covering connection chrome: reconnecting is the title
+        // bar's spinner, disconnected is the title's red dot + subtitle with
+        // Reconnect in the title menu, and last-known content stays visible
+        // throughout.
         #if os(iOS)
         .overlay(alignment: .topTrailing) {
             if let terminalID = selectedTerminal?.id.rawValue,

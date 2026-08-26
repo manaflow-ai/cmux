@@ -75,21 +75,9 @@ extension WorkspaceDetailView {
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
                     // Same recovery chrome as the terminal: the last synced
-                    // surface stays visible underneath, the title bar spinner
-                    // covers reconnecting, and the pill appears only once
-                    // reconnect attempts stop (unavailable).
-                    .overlay(alignment: .topLeading) {
-                        MobileMacConnectionStatusPill(
-                            host: host,
-                            status: effectiveConnectionStatus,
-                            reconnect: Self.reconnectAction(
-                                connectionRequiresReauth: store.connectionRequiresReauth,
-                                reconnect: { reconnectToWorkspaceMac() }
-                            )
-                        )
-                        .padding(.top, 10)
-                        .padding(.leading, 10)
-                    }
+                    // surface stays visible, and connection state lives in
+                    // the shared title bar (spinner while reconnecting, red
+                    // dot + Reconnect menu item while disconnected).
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
