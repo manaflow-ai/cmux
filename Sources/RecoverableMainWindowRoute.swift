@@ -9,7 +9,7 @@ final class RecoverableMainWindowRoute {
     let workspaceIds: [UUID]
     private weak var weakTabManager: TabManager?
     private var retainedTabManager: TabManager?
-    private var retainedContext: AppDelegate.MainWindowContext?
+    private weak var retainedContext: AppDelegate.MainWindowContext?
     private var retainedWindowDock: DockSplitStore?
     var tabManager: TabManager? {
         retainedContext?.tabManager ?? retainedTabManager ?? weakTabManager
