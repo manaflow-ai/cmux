@@ -22,6 +22,9 @@ type StackUser = {
   primary_email?: string | null;
   primary_email_verified?: boolean;
   display_name?: string | null;
+  // This field is the consent authority for marketing email. Account
+  // verification alone is not a newsletter opt-in.
+  newsletter_opt_in?: boolean;
 };
 
 type StackUsersPage = {
@@ -33,6 +36,7 @@ export type StackSourceResult = {
   contacts: NewsletterContact[];
   totalUsers: number;
   skippedMissingOrUnverifiedEmail: number;
+  skippedNotOptedIn: number;
 };
 
 export async function listStackContacts(options: {
@@ -41,11 +45,13 @@ export async function listStackContacts(options: {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
   maxPages?: number;
+  requireNewsletterOptIn?: boolean;
 }): Promise<StackSourceResult> {
   const fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
   const byEmail = new Map<string, NewsletterContact>();
   let totalUsers = 0;
   let skipped = 0;
+  let skippedNotOptedIn = 0;
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
   let pageCount = 0;
@@ -97,6 +103,10 @@ export async function listStackContacts(options: {
         skipped += 1;
         continue;
       }
+      if (options.requireNewsletterOptIn && user.newsletter_opt_in !== true) {
+        skippedNotOptedIn += 1;
+        continue;
+      }
       if (byEmail.has(email)) {
         continue;
       }
@@ -125,5 +135,6 @@ export async function listStackContacts(options: {
     contacts: [...byEmail.values()],
     totalUsers,
     skippedMissingOrUnverifiedEmail: skipped,
+    skippedNotOptedIn,
   };
 }

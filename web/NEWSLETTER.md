@@ -64,14 +64,13 @@ production `RESEND_API_KEY` already has full access.
 
 ## Before the first --apply: privacy disclosure
 
-The published privacy policy (`web/app/[locale]/(legal)/privacy-policy/`)
-currently states that an email address reaches Resend "only if you
-voluntarily submit feedback". Populating the "cmux Users" segment from
-Stack Auth signups goes beyond that disclosure. Update the Resend bullet in
-the privacy policy (every locale) to cover product-update email for account
-holders BEFORE running `newsletter:sync --apply` for the first time, or
-source the audience from an explicit newsletter opt-in instead. The
-tooling cannot check this for you.
+The "cmux Users" source requires an explicit `newsletter_opt_in=true` field
+from Stack Auth; a verified account email alone is never enough. Before the
+first apply, update the Resend bullet in the privacy policy (every locale) to
+cover product-update email for opted-in account holders. The CLI also requires
+`--confirm-privacy-disclosure` as a visible acknowledgement before a users/all
+apply. If the Stack opt-in field is not populated, the users segment stays
+empty and the run is safe to repeat after the consent source is ready.
 
 Related known limitations (identity is by email address, by design of the
 current data flow):

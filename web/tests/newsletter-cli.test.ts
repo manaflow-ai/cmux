@@ -71,6 +71,14 @@ describe("parseDraftArgs", () => {
     expect(() =>
       parseDraftArgs(["--template", "product-update", "--audience", "all"]),
     ).toThrow(/--audience must be/);
+    expect(() =>
+      parseDraftArgs([
+        "--template",
+        "founders-feedback-call",
+        "--audience",
+        "users",
+      ]),
+    ).toThrow(/may only target the founders audience/);
   });
 
   test("has no send flag: anything send-shaped is a hard error", () => {

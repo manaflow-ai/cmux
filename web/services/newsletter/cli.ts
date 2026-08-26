@@ -137,6 +137,11 @@ export function parseDraftArgs(argv: string[]): DraftArgs {
   if (!audience) {
     throw new Error('--audience is required ("users" or "founders")');
   }
+  if (template === "founders-feedback-call" && audience !== "founders") {
+    throw new Error(
+      'The "founders-feedback-call" template may only target the founders audience',
+    );
+  }
   return {
     template,
     audience,

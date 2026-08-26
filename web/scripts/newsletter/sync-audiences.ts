@@ -78,11 +78,16 @@ if (args.audience === "users" || args.audience === "all") {
   const stackResult = await listStackContacts({
     projectId: requiredEnv("NEXT_PUBLIC_STACK_PROJECT_ID"),
     secretServerKey: requiredEnv("STACK_SECRET_SERVER_KEY"),
+    // Stack account verification is not marketing consent. The source must
+    // explicitly mark the user as opted in before any users apply can export
+    // the address to the newsletter provider.
+    requireNewsletterOptIn: true,
   });
   sourceCounts.stackUsersScanned = stackResult.totalUsers;
   sourceCounts.stackContacts = stackResult.contacts.length;
   sourceCounts.stackSkippedMissingOrUnverifiedEmail =
     stackResult.skippedMissingOrUnverifiedEmail;
+  sourceCounts.stackSkippedNotOptedIn = stackResult.skippedNotOptedIn;
 
   usersDesired = buildUsersSegmentContacts(
     stackResult.contacts,

@@ -40,6 +40,7 @@ describe("listStackContacts", () => {
               {
                 primary_email: "Ada@Example.com",
                 primary_email_verified: true,
+                newsletter_opt_in: true,
                 display_name: "Ada Lovelace",
               },
               {
@@ -57,8 +58,9 @@ describe("listStackContacts", () => {
         body: {
           items: [
             {
-              primary_email: "grace@example.com",
-              primary_email_verified: true,
+                primary_email: "grace@example.com",
+                primary_email_verified: true,
+                newsletter_opt_in: true,
               display_name: "Grace",
             },
           ],
@@ -76,6 +78,7 @@ describe("listStackContacts", () => {
     expect(calls).toHaveLength(2);
     expect(result.totalUsers).toBe(4);
     expect(result.skippedMissingOrUnverifiedEmail).toBe(2);
+    expect(result.skippedNotOptedIn).toBe(0);
     expect(result.contacts.map((c) => c.email).sort()).toEqual([
       "ada@example.com",
       "grace@example.com",
@@ -103,6 +106,35 @@ describe("listStackContacts", () => {
         fetchImpl,
       }),
     ).rejects.toThrow(/no progress/);
+  });
+
+  test("requires explicit newsletter opt-in when requested", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        items: [
+          {
+            primary_email: "not-opted-in@example.com",
+            primary_email_verified: true,
+          },
+          {
+            primary_email: "opted-in@example.com",
+            primary_email_verified: true,
+            newsletter_opt_in: true,
+          },
+        ],
+        pagination: { next_cursor: null },
+      },
+    }));
+    const result = await listStackContacts({
+      projectId: "proj",
+      secretServerKey: "secret",
+      fetchImpl,
+      requireNewsletterOptIn: true,
+    });
+    expect(result.contacts.map((contact) => contact.email)).toEqual([
+      "opted-in@example.com",
+    ]);
+    expect(result.skippedNotOptedIn).toBe(1);
   });
 
   test("surfaces permanent API errors with status, without retrying", async () => {
