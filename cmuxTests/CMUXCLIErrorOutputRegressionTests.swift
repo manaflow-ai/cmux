@@ -340,6 +340,115 @@ import Testing
         XCTAssertEqual(methods, ["system.identify", "surface.resume.get"])
     }
 
+    @Test func testRestoreDoesNotExecuteMissingCodexCheckpointAndGuardsStaleBindingClear() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore codex missing \(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("saved cwd", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let attemptedURL = root.appendingPathComponent("codex-attempted", isDirectory: false)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try createEmptyCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
+        try """
+        #!/bin/sh
+        touch \(shellSingleQuote(attemptedURL.path))
+        printf 'ERROR: No saved session found with ID %s\\n' "$3" >&2
+        exit 42
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "01a03bc1-7649-7ec3-bdf7-03acf979e086"
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
+        let launchCommand: [String: Any] = [
+            "launcher": "codex",
+            "executable_path": executable.path,
+            "arguments": [executable.path],
+            "working_directory": workingDirectory.path,
+            "environment": ["CODEX_HOME": codexHome.path],
+            "verification_home": root.path,
+            "source": "environment",
+        ]
+        let response = try restoreResponse(
+            result: [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "codex",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "working_directory": workingDirectory.path,
+                    "environment": ["CODEX_HOME": codexHome.path],
+                    "launch_command": launchCommand,
+                ],
+                // This binding models a pre-#10100 snapshot: it has no durable
+                // provenance, but it still claims the stale Codex checkpoint.
+                "resume_binding": [
+                    "name": "Codex",
+                    "kind": "codex",
+                    "command": "codex resume \(checkpointID)",
+                    "cwd": workingDirectory.path,
+                    "checkpoint_id": checkpointID,
+                    "source": "agent-hook",
+                    "auto_resume": true,
+                ],
+            ],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let clearResponse = try jsonResponse(result: [
+            "cleared": true,
+            "resume_binding": NSNull(),
+        ])
+        let socketPath = "/tmp/cmux-restore-codex-missing-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, clearResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface", surfaceID, "codex", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: attemptedURL.path),
+            "a missing Codex checkpoint must never reach codex resume"
+        )
+        XCTAssertTrue(
+            result.stderr.contains("Codex session is no longer available"),
+            result.diagnostics
+        )
+
+        let requests = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        XCTAssertEqual(
+            requests.compactMap { $0["method"] as? String },
+            ["surface.resume.get", "surface.resume.clear"]
+        )
+        let clearParams = try XCTUnwrap(requests.last?["params"] as? [String: Any])
+        XCTAssertEqual(clearParams["checkpoint_id"] as? String, checkpointID)
+        XCTAssertEqual(clearParams["source"] as? String, "agent-hook")
+    }
+
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3498,6 +3607,19 @@ import Testing
         let home = URL(fileURLWithPath: "/tmp/cmxh-\(shortID)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
+    }
+
+    private func createEmptyCodexStateDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(domain: "CodexRestoreFixture", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        let schema = "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source TEXT, thread_source TEXT)"
+        guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "CodexRestoreFixture", code: 2)
+        }
     }
 
     private func jsonResponse(result: [String: Any]) throws -> String {
