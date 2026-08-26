@@ -18,6 +18,8 @@ import com.cmux.raw.WorkspaceMutationResult;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Path;
+import java.io.IOException;
+import java.net.ConnectException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -40,7 +42,7 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
     public static final int DEFAULT_MAX_BUFFERED_STREAM_EVENTS = 1_024;
     public static final int MAX_SCROLLBACK_PAGE_ROWS = 65_535;
 
-    private final Path socketPath;
+    private volatile Path socketPath;
     private final Duration timeout;
     private final int maxRequestBytes;
     private final int maxResponseBytes;
@@ -55,7 +57,7 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
     private volatile Set<String> capabilities = Set.of();
 
     private CmuxClient(Builder builder) throws CmuxException {
-        this.socketPath = SocketDiscovery.resolve(builder.socketPath, builder.session);
+        Path resolvedSocket = SocketDiscovery.resolve(builder.socketPath, builder.session);
         this.timeout = positive(builder.timeout, "timeout");
         this.maxRequestBytes = positive(builder.maxRequestBytes, "maxRequestBytes");
         this.maxResponseBytes = positive(builder.maxResponseBytes, "maxResponseBytes");
@@ -65,7 +67,18 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
             "maxBufferedStreamEvents"
         );
         this.authorities = Collections.unmodifiableSet(EnumSet.copyOf(builder.authorities));
-        this.connection = connect();
+        JsonLineConnection opened;
+        try {
+            this.socketPath = resolvedSocket;
+            opened = connect();
+        } catch (CmuxTransportException error) {
+            Path fallback = builder.socketPath == null
+                ? SocketDiscovery.legacyRawFallback(resolvedSocket, builder.session) : null;
+            if (fallback == null || !retryableUnixConnect(error)) throw error;
+            this.socketPath = fallback;
+            opened = connect();
+        }
+        this.connection = opened;
     }
 
     public static Builder builder() {
@@ -410,8 +423,26 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
             socketPath,
             maxRequestBytes,
             maxResponseBytes,
-            maxJsonDepth
+            maxJsonDepth,
+            timeout
         );
+    }
+
+    private static boolean retryableUnixConnect(CmuxTransportException error) {
+        Throwable cause = error;
+        while (cause != null) {
+            if (cause instanceof java.nio.file.NoSuchFileException
+                    || cause instanceof ConnectException) return true;
+            if (cause instanceof IOException) {
+                String message = cause.getMessage();
+                if (message != null) {
+                    String lower = message.toLowerCase(java.util.Locale.ROOT);
+                    if (lower.contains("no such file") || lower.contains("connection refused")) return true;
+                }
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private String nextRequestId() {

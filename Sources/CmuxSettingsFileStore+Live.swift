@@ -28,12 +28,14 @@ extension CmuxSettingsFileStore {
     /// Makes a newly bootstrapped primary file the durable owner of the resolved socket policy.
     static func materializeBootstrapSocketPolicy(
         in template: Data,
-        imported: ManagedSettingsValue?
+        imported: ManagedSettingsValue?,
+        defaults: UserDefaults = .standard
     ) -> Data {
         guard let imported else { return template }
         let resolved = socketModeAfterMissingPrimary(
             prior: imported,
-            fallback: socketModeManagedValue(in: template)
+            fallback: socketModeManagedValue(in: template),
+            defaults: defaults
         )
         guard case .string(let rawMode) = resolved else { return template }
         let source = (try? JSONCParser.source(data: template).text) ?? defaultTemplate()
@@ -101,6 +103,7 @@ extension CmuxSettingsFileStore {
     /// Creates the process store wired to the host's shared reload coordinator.
     static var appLive: CmuxSettingsFileStore {
         CmuxSettingsFileStore(
+            languageSettingsStore: LanguageSettingsStore(defaults: .standard),
             onWatchedFileReload: { source in
                 AppDelegate.shared?.reconcileSocketListenerConfiguration(source: source)
             }

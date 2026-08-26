@@ -266,6 +266,38 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
 
+        // The push page shows the inline-reply preview and pairs Enable with
+        // Not Now; the footer legitimately grows for the second button, so the
+        // chrome reference frames are re-recorded on this page.
+        let pushScene = element("MobileOnboardingPushScene")
+        assertPageVisible(pushScene)
+        let pushTitle = app.staticTexts["Know the moment an agent needs you"]
+        XCTAssertTrue(pushTitle.exists)
+        let pushBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "Get a push when an agent is waiting, and reply right from the Lock Screen."
+        )).firstMatch
+        XCTAssertTrue(pushBody.exists)
+        let pushPreview = element("MobileOnboardingScreenshot-push")
+        XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(notNowButton.label.contains("Not Now"))
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-02c-push")
+
+        // Declining must not present the OS permission alert and advances the
+        // tour to the connection page.
+        notNowButton.tap()
+
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
@@ -354,7 +386,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
+            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
@@ -394,6 +426,27 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-08-notifications-compact-height")
 
         primaryButton.tap()
+        assertPageVisible(pushScene)
+        let secondaryAnyType = element("MobileOnboardingSecondaryButton")
+        XCTAssertTrue(
+            notNowButton.waitForExistence(timeout: 4),
+            """
+            Secondary button missing in compact height. \
+            anyTyped exists=\(secondaryAnyType.exists) \
+            type=\(secondaryAnyType.exists ? String(secondaryAnyType.elementType.rawValue) : "-") \
+            buttons=\(app.buttons.allElementsBoundByIndex.map { "\($0.identifier):\($0.label)" }) \
+            footer=\(element("MobileOnboardingFooter").debugDescription)
+            """
+        )
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-08a-push-compact-height")
+
+        notNowButton.tap()
         assertPageVisible(connectScene)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -556,6 +609,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
+
+        // Decline the push opt-in; the tour continues without any OS alert.
+        XCTAssertTrue(element("MobileOnboardingPushScene").waitForExistence(timeout: 4))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        notNowButton.tap()
 
         XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
@@ -1822,7 +1881,7 @@ final class cmuxUITests: XCTestCase {
         let selectedProbeID =
             "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
         let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
-        let computerOrderTileLabel = "Computer Order"
+        let computerOrderTileLabel = "Custom Order"
         let recentTileID = "MobileWorkspaceSortTile-recentActivity"
         let recentTileLabel = "Recent Activity"
         let automaticTileID = "MobileWorkspaceSortTile-automatic"
@@ -1912,7 +1971,7 @@ final class cmuxUITests: XCTestCase {
         ]
         guard let computerFrames = orderedFrames(
             computerOrder,
-            state: "Computer Order"
+            state: "Custom Order"
         ) else { return }
         XCTAssertFalse(element(alphaAnchorID).exists)
         XCTAssertFalse(element(betaAnchorID).exists)
@@ -5658,7 +5717,7 @@ final class cmuxUITests: XCTestCase {
         try typeText("mobile-root", into: search, in: app)
         XCTAssertTrue(
             app.staticTexts[
-                "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+                "Search checks the Mac’s indexed folders and scans its home folder live. Browse to reach restricted locations."
             ].waitForExistence(timeout: 3)
         )
         let root = app.buttons["mobile-root"]
@@ -5676,9 +5735,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
     }
 
-    /// Empty search is a real filesystem browser. Hidden folders, packages,
-    /// symlinked directories, root navigation, and current-folder selection
-    /// must all remain available instead of collapsing to recent suggestions.
+    /// The picker is a real drill-down filesystem browser. Hidden folders,
+    /// packages, symlinked directories, back navigation up the hierarchy, the
+    /// locations root, and current-folder selection must all remain available
+    /// instead of collapsing to recent suggestions.
     @MainActor
     func testTaskComposerDirectoryBrowserShowsEveryDirectoryKindAndSelectsCurrentFolder() throws {
         let app = launchApp(mockData: false, environment: [
@@ -5687,15 +5747,37 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileTaskDirectoryBrowseCurrent"]
-                .waitForExistence(timeout: 8)
-        )
-        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
-        XCTAssertTrue(app.buttons[".hidden"].exists)
+        let hidden = app.buttons[".hidden"]
+        XCTAssertTrue(hidden.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
 
+        // Recently used directories surface as quick chips under the search
+        // bar, and tapping one browses into that folder.
+        let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
+        XCTAssertTrue(recentChip.exists)
+        let chipName = recentChip.label
+        XCTAssertTrue(["recent-alpha", "recent-beta"].contains(chipName))
+        tap(recentChip, in: app)
+        XCTAssertTrue(app.navigationBars[chipName].waitForExistence(timeout: 4))
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
+        tap(app.buttons["mobile-root"], in: app)
+        XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
+
+        // The standard back button walks up to the parent folder.
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
+        // One more level up is the picker root with the browse locations.
+        tap(app.navigationBars.buttons["Choose Folder"], in: app)
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseHome"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
+
+        // Drill back down from Home and choose the project folder itself.
+        tap(app.buttons["MobileTaskDirectoryBrowseHome"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
         tap(app.buttons["MobileTaskDirectoryBrowseUseCurrent"], in: app)
@@ -5719,7 +5801,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Couldn’t Open Folder"].waitForExistence(timeout: 8))
         let permissionCopy = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+            "The Mac could not list this folder. cmux may not have permission to read it yet. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
         )).firstMatch
         XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
     }
@@ -5734,29 +5816,30 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let directory = app.buttons["MobileTaskComposerDirectory"]
         XCTAssertTrue(directory.waitForExistence(timeout: 8))
         tap(directory, in: app)
 
         let firstFolder = app.buttons["folder-00"]
         let lastFolder = app.buttons["folder-49"]
-        let parentFolder = app.buttons["MobileTaskDirectoryBrowseParent"]
+        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(firstFolder.waitForExistence(timeout: 8))
-        XCTAssertTrue(parentFolder.isHittable)
+        XCTAssertTrue(cancel.isHittable)
 
         for _ in 0..<8 where !lastFolder.isHittable {
             app.swipeUp(velocity: .fast)
         }
         XCTAssertTrue(lastFolder.isHittable)
-        XCTAssertTrue(parentFolder.isHittable)
 
-        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(cancel.isHittable)
         tap(cancel, in: app)
         XCTAssertFalse(cancel.waitForExistence(timeout: 3))
     }
 
-    /// A failed append must leave page 1 interactive, and retry must request
+    /// The next page loads automatically when the listing tail appears. A
+    /// failed append must leave page 1 interactive, and retry must request
     /// the exact failed page without replacing the successful snapshot.
     @MainActor
     func testTaskComposerDirectoryPaginationRecoveryPreservesPageOneAndRetriesPageTwo() throws {
@@ -5772,13 +5855,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unreadableFolder.exists)
         XCTAssertFalse(unreadableFolder.isEnabled)
 
-        let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
-        XCTAssertTrue(showMore.waitForExistence(timeout: 3))
-        XCTAssertTrue(showMore.isHittable)
-        let showMoreFrame = showMore.frame
-        XCTAssertGreaterThanOrEqual(showMoreFrame.height, 44)
-        tap(showMore, in: app)
-
+        // Page 2 is requested automatically and fails once, leaving page 1
+        // intact behind an inline retry affordance.
         let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 4))
         XCTAssertTrue(pageOneFolder.exists)
@@ -5787,8 +5865,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["z-second-page-folder"].exists)
 
         XCTAssertTrue(retry.isHittable)
-        let retryFrame = retry.frame
-        XCTAssertGreaterThanOrEqual(retryFrame.height, 44)
         let hasAppendFailureTitle = app.staticTexts["Couldn’t Load More Folders"].exists
         tap(retry, in: app)
         XCTAssertTrue(app.buttons["z-second-page-folder"].waitForExistence(timeout: 4))
@@ -5796,7 +5872,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(retry.waitForExistence(timeout: 1))
         XCTAssertTrue(
             hasAppendFailureTitle,
-            "Expected the page-2 failure title. Show More frame: \(showMoreFrame); Retry frame: \(retryFrame)"
+            "Expected the page-2 failure title after the automatic append failed."
         )
     }
 
@@ -8549,17 +8625,25 @@ final class cmuxUITests: XCTestCase {
             )
             return
         }
+        // Blank rows below the content absorb the keyboard before the render
+        // slides (`keyboardSlack`), so the render's bottom edge legitimately
+        // sits `slack` above the dock top: a mostly-empty screen stays
+        // top-pinned and the keyboard covers only blank rows. The seam
+        // contract is therefore gap == slack (and slack == 0 whenever content
+        // reaches the composer bar, restoring the strict glue).
+        let slack = dock["keyboardSlack"].flatMap(Double.init) ?? 0
         let twoPhysicalPixels = 2 / screenScale
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             currentGap,
-            twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            slack,
+            accuracy: twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock beyond the blank-space slack for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertLessThanOrEqual(
             maximumGap,
-            twoPhysicalPixels,
+            slack + twoPhysicalPixels,
             "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
             file: file,
             line: line
@@ -9268,8 +9352,14 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
-        let dock = waitForDock(in: app, describe: "legacy dock tracks keyboard") {
-            $0["keyboardDockSource"] == "legacyNotification"
+        // The default seat is the system guide on iOS <= 26 and the
+        // notification constant on iOS 27 (where the guide can lie at the
+        // screen bottom); the runner shares the simulator's OS version.
+        let expectedDefaultSeat = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+            ? "notification"
+            : "layoutGuide"
+        let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
+            $0["keyboardDockSource"] == expectedDefaultSeat
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
@@ -9281,6 +9371,85 @@ final class cmuxUITests: XCTestCase {
         assertTerminalPresentationPinnedToDock(
             dock,
             context: "legacy keyboard dock"
+        )
+    }
+
+    /// A keyboard toggle must not reshape the terminal surface or its grid:
+    /// the hosting bounds, the grid viewport, and the render size are
+    /// keyboard-invariant by contract (the render slides on the dock; nothing
+    /// resizes). Regression: SwiftUI's keyboard safe area shaved the
+    /// home-indicator band off the surface on every toggle, which resized the
+    /// shared PTY grid, re-measured the blank band mid-leg, and retargeted the
+    /// render after the keyboard had already settled (a visible one-band
+    /// shift on every toggle).
+    @MainActor
+    func testKeyboardToggleKeepsTerminalSurfaceGeometryInvariant() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let baseline = waitForDock(in: app, describe: "settled keyboard-down geometry") {
+            (Int($0["boundsHeight"] ?? "") ?? 0) > 0
+                && (Int($0["viewportHeight"] ?? "") ?? 0) > 0
+                && (Int($0["renderHeight"] ?? "") ?? 0) > 0
+        }
+        guard let baselineBounds = Int(baseline["boundsHeight"] ?? ""),
+              let baselineViewport = Int(baseline["viewportHeight"] ?? ""),
+              let baselineRender = Int(baseline["renderHeight"] ?? "") else {
+            XCTFail("Missing baseline surface geometry. dock=\(baseline)")
+            return
+        }
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) != nil else { return }
+        let up = waitForDock(in: app, describe: "keyboard-up geometry") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        XCTAssertEqual(
+            Int(up["boundsHeight"] ?? ""),
+            baselineBounds,
+            "The keyboard must not reshape the terminal surface. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["viewportHeight"] ?? ""),
+            baselineViewport,
+            "The keyboard must not resize the grid viewport. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["renderHeight"] ?? ""),
+            baselineRender,
+            "The keyboard must not resize the render. up=\(up) baseline=\(baseline)"
+        )
+
+        dismissKeyboard(in: app)
+        let down = waitForDock(in: app, describe: "keyboard-down geometry restored") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 1) < 1
+        }
+        XCTAssertEqual(
+            Int(down["boundsHeight"] ?? ""),
+            baselineBounds,
+            "Dismissal must return the identical surface bounds. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["viewportHeight"] ?? ""),
+            baselineViewport,
+            "Dismissal must return the identical grid viewport. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["renderHeight"] ?? ""),
+            baselineRender,
+            "Dismissal must return the identical render size. down=\(down) baseline=\(baseline)"
         )
     }
 
