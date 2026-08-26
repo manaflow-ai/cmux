@@ -8,7 +8,7 @@ final class BrowserExternalURLPolicyCache {
     private var cachedSignature: String?
     private var cachedPolicy: BrowserExternalURLPolicy?
     private let maximumSignatureLength = 65_536
-    private let maximumSignatureValues = 256
+    private let maximumSignatureValues = 512
 
     init(defaults: UserDefaults) {
         self.defaults = defaults

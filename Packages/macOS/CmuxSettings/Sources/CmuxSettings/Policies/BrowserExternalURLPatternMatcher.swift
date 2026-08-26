@@ -4,20 +4,23 @@ import Foundation
 struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
     /// The largest number of rules retained by one policy snapshot.
     private let maximumPatternCount = 256
+    /// The largest number of array elements inspected by one policy snapshot.
+    /// This keeps comment/duplicate-only legacy arrays from causing an
+    /// unbounded scan before the effective rule limit is reached.
+    private let maximumInputValueCount = 512
     /// The largest individual rule accepted for matching.
     private let maximumPatternLength = 4096
     /// The total rule text retained by one policy snapshot.
     private let maximumTotalPatternLength = 65_536
 
     /// The normalized rules represented by this matcher.
-    let patterns: [String]
-    private let compiledPatterns: [BrowserExternalURLCompiledPattern]
+    private(set) var patterns: [String] = []
+    private var compiledPatterns: [BrowserExternalURLCompiledPattern] = []
 
     /// Builds a normalized matcher from line-oriented or array-backed values.
     init(patterns: [String]) {
-        let normalized = normalizedPatterns(from: patterns)
-        self.patterns = normalized
-        compiledPatterns = normalized.map(compile)
+        self.patterns = normalizedPatterns(from: patterns)
+        self.compiledPatterns = self.patterns.map(compile)
     }
 
     /// Builds a normalized matcher from a property-list value.
@@ -25,7 +28,8 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         if let values = rawValue as? [String] {
             self.init(patterns: values)
         } else if let values = rawValue as? NSArray {
-            self.init(patterns: values.compactMap { $0 as? String })
+            let strings = values.compactMap { $0 as? String }
+            self.init(patterns: strings.count == values.count ? strings : [])
         } else if let value = rawValue as? String {
             self.init(patterns: [value])
         } else {
@@ -167,7 +171,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         var seen = Set<String>()
         var result: [String] = []
         var totalLength = 0
-        for value in values {
+        for value in values.prefix(maximumInputValueCount) {
             guard totalLength < maximumTotalPatternLength else { return result }
             let boundedValue = String(value.prefix(maximumTotalPatternLength))
             for token in boundedValue.components(separatedBy: .newlines) {
