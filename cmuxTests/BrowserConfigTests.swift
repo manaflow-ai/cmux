@@ -5603,6 +5603,20 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(handler.shouldOpenExternally(secondURL))
     }
 
+    func testExternalOpenPolicyCacheTracksEffectiveLegacyArrayTailRules() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let comments = Array(repeating: "# ignored", count: 256)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        defaults.set(comments + ["first.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+
+        defaults.set(comments + ["second.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
     func testExternalOpenNavigationRuleOnlyAppliesToMainFrameLinkActivation() throws {
         defaults.set(
             ["example.com"],
