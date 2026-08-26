@@ -309,6 +309,7 @@ def main() -> int:
                 {"surface_id": sid, "httpOnly": False},
             ) or {}
             non_http_only_names = {str(row.get("name")) for row in (filtered_non_http_only.get("cookies") or [])}
+            _must("cmux_cookie" in non_http_only_names, f"Expected non-HttpOnly cookie in filter=false result: {filtered_non_http_only}")
             _must(http_only_name not in non_http_only_names, f"Expected httpOnly filter=false to exclude cookie: {filtered_non_http_only}")
             document_cookie = c._call(
                 "browser.eval",
@@ -477,6 +478,10 @@ def main() -> int:
             _must(restored_domain_row is not None, f"Expected domain-scoped state cookie: {restored_domain_cookie}")
             _must(bool(restored_domain_row.get("hostOnly")) is False, f"Expected domain scope after restore: {restored_domain_cookie}")
             _must(bool(restored_domain_row.get("httpOnly")) is True, f"Expected domain HttpOnly after restore: {restored_domain_cookie}")
+            _must(
+                str(restored_domain_row.get("domain") or "").lstrip(".").lower() == "example.test",
+                f"Expected domain cookie to retain example.test scope: {restored_domain_cookie}",
+            )
             try:
                 os.unlink(state_path)
             except Exception:
