@@ -486,6 +486,8 @@ class GhosttyApp {
     private var nativeReloadActionSuppressionDepth = 0
     typealias ConfigurationReloadCompletion =
         @MainActor () -> Void
+    typealias ConfigurationReloadCommitCompletion =
+        @MainActor (Bool) -> Void
     private let configurationReloadCoordinator =
         TerminalConfigurationReloadCoordinator()
     @MainActor
@@ -1081,8 +1083,11 @@ class GhosttyApp {
         }
         terminalConfigurationPresentationMetrics =
             TerminalConfigurationPresentationMetrics.capture(
-                magnificationPercent:
-                    appliedGlobalFontMagnificationPercent,
+                configuration: GhosttyConfig.loadForCmux(
+                    preferredColorScheme: initialColorScheme,
+                    globalFontMagnificationPercent:
+                        appliedGlobalFontMagnificationPercent
+                ),
                 usesHostLayerBackground:
                     usesHostLayerBackground
             )
@@ -1848,7 +1853,7 @@ class GhosttyApp {
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
         completion: ConfigurationReloadCompletion? = nil,
-        commitCompletion: ConfigurationReloadCompletion? = nil
+        commitCompletion: ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
         let request = TerminalPendingConfigurationReload(
             soft: soft,
@@ -1918,7 +1923,10 @@ class GhosttyApp {
         performConfigurationReload(
             request,
             didCommit: {
-                request.commitCompletions.forEach { $0() }
+                request.commitCompletions.forEach { $0(true) }
+            },
+            didFailToCommit: {
+                request.commitCompletions.forEach { $0(false) }
             }
         ) { [weak self] in
             guard let self else {
@@ -1942,6 +1950,7 @@ class GhosttyApp {
     private func performConfigurationReload(
         _ request: TerminalPendingConfigurationReload,
         didCommit: @escaping @MainActor () -> Void,
+        didFailToCommit: @escaping @MainActor () -> Void,
         completion: @escaping @MainActor () -> Void
     ) {
         let requestedSoft = request.soft
@@ -1975,7 +1984,7 @@ class GhosttyApp {
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
-            didCommit()
+            didFailToCommit()
             completion()
             return
         }
@@ -2027,8 +2036,13 @@ class GhosttyApp {
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             publishConfigurationPresentationMetrics(
-                magnificationPercent:
-                    reloadMagnificationPercent
+                configuration: GhosttyConfig.loadForCmux(
+                    preferredColorScheme:
+                        effectiveReloadColorScheme,
+                    useCache: false,
+                    globalFontMagnificationPercent:
+                        reloadMagnificationPercent
+                )
             )
             NotificationCenter.default.post(
                 name: .ghosttyConfigDidReload,
@@ -2072,7 +2086,7 @@ class GhosttyApp {
                 )
             }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
-            didCommit()
+            didFailToCommit()
             completion()
             return
         }
@@ -2167,8 +2181,13 @@ class GhosttyApp {
         )
         lastAppearanceColorScheme = reloadColorScheme
         publishConfigurationPresentationMetrics(
-            magnificationPercent:
-                reloadMagnificationPercent
+            configuration: GhosttyConfig.loadForCmux(
+                preferredColorScheme:
+                    effectiveReloadColorScheme,
+                useCache: false,
+                globalFontMagnificationPercent:
+                    reloadMagnificationPercent
+            )
         )
         NotificationCenter.default.post(
             name: .ghosttyConfigDidReload,

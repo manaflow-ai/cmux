@@ -6,14 +6,13 @@ import os
 extension GhosttyApp {
     @MainActor
     func publishConfigurationPresentationMetrics(
-        magnificationPercent: Int
+        configuration: GhosttyConfig
     ) {
         let previous =
             terminalConfigurationPresentationMetrics
         let next =
             TerminalConfigurationPresentationMetrics.capture(
-                magnificationPercent:
-                    magnificationPercent,
+                configuration: configuration,
                 usesHostLayerBackground:
                     usesHostLayerBackground
             )

@@ -11,7 +11,7 @@ struct TerminalPendingConfigurationReload {
     var preferredColorScheme:
         GhosttyConfig.ColorSchemePreference?
     var completions: [GhosttyApp.ConfigurationReloadCompletion]
-    var commitCompletions: [GhosttyApp.ConfigurationReloadCompletion]
+    var commitCompletions: [GhosttyApp.ConfigurationReloadCommitCompletion]
 
     init(
         soft: Bool,
@@ -21,7 +21,7 @@ struct TerminalPendingConfigurationReload {
             GhosttyConfig.ColorSchemePreference?,
         completions: [GhosttyApp.ConfigurationReloadCompletion],
         commitCompletions:
-            [GhosttyApp.ConfigurationReloadCompletion] = []
+            [GhosttyApp.ConfigurationReloadCommitCompletion] = []
     ) {
         self.soft = soft
         self.source = source

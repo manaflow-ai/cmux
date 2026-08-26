@@ -13630,7 +13630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         completion:
             GhosttyApp.ConfigurationReloadCompletion? = nil,
         commitCompletion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")

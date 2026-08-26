@@ -10,22 +10,17 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
         TerminalChromeConfigurationIdentity
 
     static func capture(
-        magnificationPercent: Int,
+        configuration: GhosttyConfig,
         usesHostLayerBackground: Bool
     ) -> Self {
-        let config = GhosttyConfig.loadForCmux(
-            useCache: false,
-            globalFontMagnificationPercent:
-                magnificationPercent
-        )
         return Self(
-            terminalFontSize: config.fontSize,
+            terminalFontSize: configuration.fontSize,
             surfaceTabBarFontSize:
-                config.surfaceTabBarFontSize,
-            sidebarFontSize: config.sidebarFontSize,
+                configuration.surfaceTabBarFontSize,
+            sidebarFontSize: configuration.sidebarFontSize,
             chromeConfigurationIdentity:
                 TerminalChromeConfigurationIdentity(
-                    configuration: config,
+                    configuration: configuration,
                     usesHostLayerBackground:
                         usesHostLayerBackground
                 )

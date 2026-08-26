@@ -1397,8 +1397,8 @@ class TerminalController {
             Task { @MainActor in
                 let completionWasAdmitted =
                     self.controlSidebarReloadConfigWithAdmission(
-                        commitCompletion: {
-                            completion(true)
+                        commitCompletion: { committed in
+                            completion(committed)
                             waiterLease.retire()
                         }
                     )
@@ -1412,7 +1412,7 @@ class TerminalController {
             return "ERROR: reload_config timed out"
         }
         guard reloadDidComplete else {
-            return "ERROR: reload_config busy"
+            return "ERROR: reload_config failed"
         }
         return "OK Reloaded config"
     }

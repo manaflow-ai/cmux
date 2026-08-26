@@ -3,7 +3,7 @@ import Foundation
 /// Serializes app-scoped Ghostty configuration replacement.
 ///
 /// Requests that arrive while a transaction is preparing or reconciling are
-/// merged into the next transaction. Their completions remain attached to that
+/// merged into the next transaction. Their callbacks remain attached to that
 /// transaction, so callers never observe success against an older config.
 @MainActor
 final class TerminalConfigurationReloadCoordinator {
@@ -34,9 +34,9 @@ final class TerminalConfigurationReloadCoordinator {
         phase == .waitingForFontWork
     }
 
-    /// Queues a request while bounding completion closures across the active
-    /// and pending transactions. Reload semantics are retained even when
-    /// excess completion closures are rejected.
+    /// Queues a request while bounding commit and post-fanout callbacks across
+    /// the active and pending transactions. Reload semantics are retained even
+    /// when excess callbacks are rejected.
     func enqueue(
         _ originalRequest: TerminalPendingConfigurationReload
     ) -> TerminalConfigurationReloadEnqueueResult {
