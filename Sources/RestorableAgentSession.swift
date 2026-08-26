@@ -2749,6 +2749,14 @@ struct RestorableAgentSessionIndex: Sendable {
         private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
         private var transcriptPathByConfigRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
+        // Per-load memos for pure path derivations. The loader calls the lookup
+        // methods once per hook record per project dir, and the repeated
+        // NSString standardizingPath/appendingPathComponent round trips (plus
+        // the foreign strings they return, whose hashing falls off the fast
+        // path) dominated the load's CPU. Bounded by the loads' own inputs and
+        // discarded with this per-load instance.
+        private var standardizedRootByInput: [String: String] = [:]
+        private var projectRootByRootAndDir: [String: String] = [:]
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -2814,7 +2822,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         func projectDirs(configRoot: String) -> [String] {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
+            let standardizedRoot = standardizedPath(configRoot)
             guard usesSharedStore else {
                 return uncachedProjectDirs(configRoot: standardizedRoot)
             }
@@ -2832,7 +2840,14 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard let listed = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
                     return []
                 }
-                projectDirs = listed
+                // Directory listings come back NSString-bridged; every dir name
+                // becomes a dictionary key downstream, so pay the one-time copy
+                // here instead of slow-path hashing on every lookup.
+                projectDirs = listed.map { name in
+                    var native = name
+                    native.makeContiguousUTF8()
+                    return native
+                }
             } else {
                 projectDirs = []
             }
@@ -2883,10 +2898,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         func transcriptPath(configRoot: String, projectDirName: String, sessionId: String) -> String? {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
-                .standardizingPath
+            let projectRoot = projectRoot(configRoot: configRoot, projectDirName: projectDirName)
             guard usesSharedStore else {
                 return uncachedTranscriptPath(projectRoot: projectRoot, sessionId: sessionId)
             }
@@ -2948,7 +2960,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
+            let standardizedRoot = standardizedPath(configRoot)
             let key = cacheKey(standardizedRoot, sessionId)
             if let cached = transcriptPathByConfigRootAndSession[key] {
                 return cached
@@ -3012,6 +3024,30 @@ struct RestorableAgentSessionIndex: Sendable {
 
         private func cacheKey(_ prefix: String, _ sessionId: String) -> String {
             prefix + "\u{0}" + sessionId
+        }
+
+        private func standardizedPath(_ path: String) -> String {
+            if let cached = standardizedRootByInput[path] {
+                return cached
+            }
+            var standardized = (path as NSString).standardizingPath
+            standardized.makeContiguousUTF8()
+            standardizedRootByInput[path] = standardized
+            return standardized
+        }
+
+        private func projectRoot(configRoot: String, projectDirName: String) -> String {
+            let memoKey = configRoot + "\u{0}" + projectDirName
+            if let cached = projectRootByRootAndDir[memoKey] {
+                return cached
+            }
+            let standardizedRoot = standardizedPath(configRoot)
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            var projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
+                .standardizingPath
+            projectRoot.makeContiguousUTF8()
+            projectRootByRootAndDir[memoKey] = projectRoot
+            return projectRoot
         }
     }
 
