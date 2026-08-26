@@ -1100,8 +1100,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
     ) {
         self.workspaceId = workspaceId
-        guard let fileContentChangeCoordinator,
-              self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+        guard let fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
             return
         }
         let wasWatching = fileContentObservationID != nil

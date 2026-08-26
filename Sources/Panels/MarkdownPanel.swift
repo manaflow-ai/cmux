@@ -85,6 +85,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
+    private var textLoadGeneration: Int = 0
+    private var textEditGeneration: Int = 0
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     var isClosed: Bool = false
@@ -274,6 +276,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     ) {
         self.workspaceId = workspaceId
         guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
             return
         }
         let wasWatching = fileContentObservationID != nil
@@ -322,6 +327,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
+        textEditGeneration &+= 1
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
@@ -396,6 +402,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     @discardableResult
     private func loadFileContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
+        textLoadGeneration &+= 1
+        let loadGeneration = textLoadGeneration
+        let editGeneration = textEditGeneration
         lastObservedFileState = .capture(path: filePath)
         let fileURL = URL(fileURLWithPath: filePath)
         return textLoadCoordinator.submit(load: {
@@ -410,15 +419,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             guard let self, !self.isClosed else { return }
             self.applyLoadedResult(
                 result,
-                replacingDirtyContent: replacingDirtyContent
+                replacingDirtyContent: replacingDirtyContent,
+                loadGeneration: loadGeneration,
+                editGeneration: editGeneration
             )
         }
     }
 
     private func applyLoadedResult(
         _ result: FilePreviewTextLoader.Result,
-        replacingDirtyContent: Bool
+        replacingDirtyContent: Bool,
+        loadGeneration: Int,
+        editGeneration: Int
     ) {
+        guard loadGeneration == textLoadGeneration else { return }
+        if replacingDirtyContent, editGeneration != textEditGeneration {
+            return
+        }
         guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
